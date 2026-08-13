@@ -1,0 +1,62 @@
+[
+  {
+    "id": "idea_001",
+    "title": "Lil Durk: First Night Inside Federal Holding",
+    "showType": "first_night_inside",
+    "score": 9.2,
+    "status": "greenlight",
+    "searchDemand": "high",
+    "emotionalPressure": "high",
+    "authorityFit": "perfect",
+    "description": "Lil Durk just entered federal custody. What really happens during the first 24 hours in federal holding?",
+    "createdAt": "2026-06-26T08:00:00Z"
+  },
+  {
+    "id": "idea_002",
+    "title": "Bryan Kohberger: Why He Chose Life Over Death",
+    "showType": "smart_man_trap",
+    "score": 7.8,
+    "status": "hold",
+    "searchDemand": "high",
+    "emotionalPressure": "medium",
+    "authorityFit": "moderate",
+    "description": "The psychology behind Bryan Kohberger's decision. Needs more Unique angle to reach 8.5+.",
+    "createdAt": "2026-06-26T08:00:00Z"
+  },
+  {
+    "id": "idea_003",
+    "title": "Pooh Shiesty vs Big 30: The Betrayal Nobody Saw Coming",
+    "showType": "street_code_autopsy",
+    "score": 8.7,
+    "status": "greenlight",
+    "searchDemand": "medium",
+    "emotionalPressure": "high",
+    "authorityFit": "strong",
+    "description": "The real story behind the Pooh Shiesty and Big 30 fallout. Street loyalty vs survival.",
+    "createdAt": "2026-06-26T08:00:00Z"
+  },
+  {
+    "id": "idea_004",
+    "title": "Julio Foolio's Killers: What They're Feeling Right Now",
+    "showType": "prison_psychology",
+    "score": 8.9,
+    "status": "greenlight",
+    "searchDemand": "high",
+    "emotionalPressure": "high",
+    "authorityFit": "perfect",
+    "description": "Life sentences just dropped. What's going through their minds right now?",
+    "createdAt": "2026-06-25T10:00:00Z"
+  },
+  {
+    "id": "idea_005",
+    "title": "The Federal Playbook: How They Build Cases Against Rappers",
+    "showType": "federal_pressure",
+    "score": 8.5,
+    "status": "greenlight",
+    "searchDemand": "high",
+    "emotionalPressure": "medium",
+    "authorityFit": "perfect",
+    "description": "Wiretaps, informants, social media. The federal government's playbook for taking down rappers.",
+    "createdAt": "2026-06-24T12:00:00Z"
+  }
+]

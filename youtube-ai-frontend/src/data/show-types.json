@@ -1,0 +1,9 @@
+[
+  { "id": "first_night_inside", "name": "First Night Inside", "avgViews": 64000, "color": "#22c55e" },
+  { "id": "prison_psychology", "name": "Prison Psychology", "avgViews": 31000, "color": "#6366f1" },
+  { "id": "federal_pressure", "name": "Federal Pressure", "avgViews": 14000, "color": "#8b5cf6" },
+  { "id": "street_code_autopsy", "name": "Street Code Autopsy", "avgViews": 8000, "color": "#f59e0b" },
+  { "id": "mothers_sentenced", "name": "Mothers Got Sentenced", "avgViews": 6000, "color": "#f97316" },
+  { "id": "courtroom_reality", "name": "Courtroom Reality", "avgViews": 4000, "color": "#ef4444" },
+  { "id": "smart_man_trap", "name": "The Smart Man Trap", "avgViews": 3000, "color": "#ec4899" }
+]

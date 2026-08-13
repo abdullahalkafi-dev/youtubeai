@@ -1,0 +1,26 @@
+[
+  {
+    "id": "seo_001",
+    "videoId": "vid_001",
+    "title": "Karmelo Anthony's First Night Inside: The Part Nobody Talks About",
+    "description": "What really happens during Karmelo Anthony's first 48 hours in Texas prison? Unique Mecca Audio breaks down the strip search, the uniform, the cell, the first count, and the psychological breakdown that nobody talks about.",
+    "tags": ["karmelo anthony prison", "first night inside", "prison intake reality", "texas federal prison", "prison psychology", "unique mecca audio"],
+    "hashtags": ["#firstnightinside", "#prisonreality", "#karmeloanthony"],
+    "showType": "first_night_inside",
+    "tone": "dark_direct",
+    "createdAt": "2026-06-25T10:00:00Z",
+    "status": "approved"
+  },
+  {
+    "id": "seo_002",
+    "videoId": "vid_012",
+    "title": "Lil Durk: How The FEDS Built Their Case Step By Step",
+    "description": "The federal government doesn't move without a plan. Unique Mecca Audio breaks down exactly how the feds built their case against Lil Durk — wiretaps, informants, and the street code that led to his downfall.",
+    "tags": ["lil durk federal case", "how feds build cases", "wiretaps", "informants", "federal investigation"],
+    "hashtags": ["#federalcase", "#lildurk", "#wiretap"],
+    "showType": "federal_pressure",
+    "tone": "dark_direct",
+    "createdAt": "2026-06-26T08:00:00Z",
+    "status": "pending"
+  }
+]

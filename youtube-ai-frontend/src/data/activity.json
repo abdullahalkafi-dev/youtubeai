@@ -1,0 +1,50 @@
+[
+  {
+    "id": "act_001",
+    "type": "seo_updated",
+    "videoTitle": "Karmelo Anthony's First Days: The Harsh Truth",
+    "videoId": "vid_001",
+    "message": "SEO updated",
+    "views": 64218,
+    "timestamp": "2026-06-26T08:00:00Z",
+    "status": "done"
+  },
+  {
+    "id": "act_002",
+    "type": "seo_queued",
+    "videoTitle": "Lil Durk How The Feds Move To Bring Him Down",
+    "videoId": "vid_012",
+    "message": "SEO queued for processing",
+    "views": 4721,
+    "timestamp": "2026-06-26T09:45:00Z",
+    "status": "queued"
+  },
+  {
+    "id": "act_003",
+    "type": "seo_processing",
+    "videoTitle": "Rapper Julio Foolio's Killers Get Life in Prison",
+    "videoId": "vid_016",
+    "message": "Generating AI SEO",
+    "views": 6612,
+    "timestamp": "2026-06-26T09:35:00Z",
+    "status": "processing"
+  },
+  {
+    "id": "act_004",
+    "type": "thread_created",
+    "threadTitle": "Lil Durk First Night Inside",
+    "message": "New thread created from video",
+    "timestamp": "2026-06-26T09:00:00Z",
+    "status": "done"
+  },
+  {
+    "id": "act_005",
+    "type": "seo_updated",
+    "videoTitle": "hiram carrero 19-Year-Old Set Man On Fire On NYC Subway",
+    "videoId": "vid_028",
+    "message": "SEO updated",
+    "views": 899,
+    "timestamp": "2026-06-26T08:02:00Z",
+    "status": "done"
+  }
+]

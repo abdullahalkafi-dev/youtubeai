@@ -1,0 +1,827 @@
+import { Injectable, NotFoundException, Logger, forwardRef, Inject, BadRequestException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import * as fs from 'fs';
+import * as path from 'path';
+import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
+import { Thread, ThreadDocument, Message } from '../mongo/schemas/thread.schema';
+import { User, UserDocument } from '../mongo/schemas/user.schema';
+import { Video, VideoDocument } from '../mongo/schemas/video.schema';
+import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-topic.schema';
+import { AIOutputLog, AIOutputLogDocument } from '../mongo/schemas/ai-output-log.schema';
+import { OpenAIService, TokenUsage } from '../openai/openai.service';
+import { MinioService } from '../minio/minio.service';
+import { ChromaService } from '../chroma/chroma.service';
+import { SkillRegistry } from './skills/skill-registry';
+import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
+import { leanDoc, leanDocs } from '../common/utils/lean';
+import { TrendsService } from '../trends/trends.service';
+
+const MAX_MESSAGES_BEFORE_SUMMARY = 30;
+const THREAD_EXPIRY_DAYS = 7;
+
+@Injectable()
+export class ChatService {
+  private readonly logger = new Logger(ChatService.name);
+  private readonly modelName: string;
+
+  constructor(
+    @InjectModel(Thread.name) private readonly threadModel: Model<ThreadDocument>,
+    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
+    @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
+    @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
+    @InjectModel(AIOutputLog.name) private readonly aiOutputLogModel: Model<AIOutputLogDocument>,
+    private readonly openaiService: OpenAIService,
+    private readonly minioService: MinioService,
+    private readonly chromaService: ChromaService,
+    private readonly skillRegistry: SkillRegistry,
+    @Inject(forwardRef(() => TrendsService))
+    private readonly trendsService: TrendsService,
+    private readonly configService: ConfigService,
+  ) {
+    this.modelName = this.configService.get<string>('OPENAI_MODEL', 'gpt-5.4-mini');
+  }
+
+  async createThread(channelId: string, dto: CreateThreadDto) {
+    let title = dto.title;
+
+    // Auto-name from video title
+    if (!title && dto.type === 'video' && dto.videoId) {
+      if (Types.ObjectId.isValid(dto.videoId)) {
+        const video = await this.videoModel.findById(dto.videoId).lean();
+        title = video?.title?.slice(0, 50) || 'Video Thread';
+      } else {
+        title = 'Video Thread';
+      }
+    }
+
+    // Default placeholder — will be auto-named after first message
+    if (!title) {
+      title = 'New Thread';
+    }
+
+    const thread = await this.threadModel.create({
+      channelId: new Types.ObjectId(channelId),
+      type: dto.type,
+      title,
+      videoId: dto.videoId,
+      status: 'active',
+      messages: [{
+        role: 'assistant',
+        content: `Thread created: ${title}\n\nI'll help you with any question about your channel — script, SEO, thumbnails, trends, competitor analysis, or strategy. What would you like to work on?`,
+        metadata: { category: 'general' },
+        createdAt: new Date(),
+      }],
+    });
+    return this.findById(thread._id.toString());
+  }
+
+  async findAll(channelId: string, includeArchived = false) {
+    if (!Types.ObjectId.isValid(channelId)) {
+      throw new NotFoundException(`Invalid channel ID: ${channelId}`);
+    }
+    const filter: any = { channelId: new Types.ObjectId(channelId) };
+    if (!includeArchived) filter.status = 'active';
+    const threads = await this.threadModel.find(filter).sort({ updatedAt: -1 }).lean();
+    return leanDocs(threads);
+  }
+
+  async findById(id: string) {
+    const thread = await this.threadModel.findById(new Types.ObjectId(id)).lean();
+    if (!thread) throw new NotFoundException(`Thread ${id} not found`);
+    return leanDoc(thread);
+  }
+
+  async renameThread(id: string, title: string) {
+    const updated = await this.threadModel.findByIdAndUpdate(new Types.ObjectId(id), { $set: { title } }, { new: true }).lean();
+    if (!updated) throw new NotFoundException(`Thread ${id} not found`);
+    return leanDoc(updated);
+  }
+
+  /**
+   * Auto-name a thread from the first user message.
+   * Only runs if title is still the default "New Thread" pattern.
+   * Uses fast model for quick, cheap generation.
+   */
+  async autoNameThread(threadId: string, firstUserMessage: string): Promise<void> {
+    try {
+      const thread = await this.threadModel.findById(threadId);
+      if (!thread || thread.title !== 'New Thread') return;
+
+      const generatedTitle = await this.openaiService.chatFast({
+        systemPrompt: 'Generate a short thread title (max 5 words) for this message. Return ONLY the title, nothing else. No quotes, no punctuation at the end.',
+        userMessage: firstUserMessage,
+        temperature: 0.3,
+        maxCompletionTokens: 20,
+      });
+
+      const cleanTitle = generatedTitle.replace(/^["']|["']$/g, '').trim().slice(0, 50);
+      if (cleanTitle && cleanTitle.length > 2) {
+        await this.threadModel.findByIdAndUpdate(threadId, { $set: { title: cleanTitle } });
+        this.logger.log(`Auto-named thread ${threadId}: "${cleanTitle}"`);
+      }
+    } catch (error) {
+      this.logger.warn(`Auto-name failed for thread ${threadId}: ${error.message}`);
+    }
+  }
+
+  async sendMessage(threadId: string, dto: SendMessageDto) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const health = await this.checkThreadHealth(thread);
+    if (!health.ok) throw new BadRequestException(health.error);
+
+    // Auto-name from first user message (background, non-blocking)
+    this.handleFirstMessage(threadId, thread, dto.content);
+
+    // Save user message atomically — persists even if OpenAI call fails
+    const userMsg = { role: 'user' as const, content: dto.content, createdAt: new Date() };
+    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+
+    // Re-load thread to get the updated messages array (includes the user message we just saved)
+    const updatedThread = await this.threadModel.findById(threadId);
+    if (!updatedThread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // Find previous assistant message for dynamic A/B/C/D menu option resolution
+    const prevAssistantMsg = updatedThread.messages
+      .slice(0, -1)
+      .reverse()
+      .find(m => m.role === 'assistant')?.content;
+
+    // Resolve skill: manual override (sticky if non-general) or auto-classify intent across all 8 skills
+    const resolvedSkill = (!dto.skill || dto.skill === 'general')
+      ? this.skillRegistry.classifyIntent(dto.content, prevAssistantMsg)
+      : dto.skill;
+
+    // Get channel and skill
+    const channel = await this.channelModel.findById(updatedThread.channelId).lean();
+    const skill = this.skillRegistry.get(resolvedSkill);
+
+    // Auto-load context based on skill
+    const skillContext = await skill.loadContext(updatedThread.channelId.toString(), updatedThread.videoId || undefined);
+
+    // RAG context
+    const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
+
+    // Build conversation history (last N messages)
+    const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    let contextMessages = allMessages;
+    let summaryToPrepend = updatedThread.summary;
+
+    if (allMessages.length > MAX_MESSAGES_BEFORE_SUMMARY) {
+      if (!summaryToPrepend) {
+        const summaryResult = await this.summarizeAndCompress(threadId.toString(), allMessages.slice(0, -5), channel || undefined);
+        summaryToPrepend = summaryResult.summary;
+        await this.threadModel.findByIdAndUpdate(threadId, { $set: { summary: summaryToPrepend } });
+      }
+      contextMessages = [
+        { role: 'user' as const, content: `[Previous conversation summary]\n${summaryToPrepend}` },
+        ...allMessages.slice(-5),
+      ];
+    }
+
+    // Build STATIC system prompt (byte-identical across requests for caching)
+    const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+
+    // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
+    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
+
+    // Detect if research is needed
+    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+
+    // Auto-lite refresh: if trends are stale/empty, refresh in background
+    if (!this.areTrendsFresh(skillContext.trendingTopics)) {
+      this.logger.log(`Thread ${threadId}: Stale trends, triggering lite refresh in background`);
+      this.trendsService.refreshTrendsLite(updatedThread.channelId.toString())
+        .then((freshTopics) => {
+          if (freshTopics.length > 0) {
+            this.logger.log(`Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`);
+          }
+        })
+        .catch((error) => {
+          this.logger.warn(`Lite trends refresh failed: ${error.message}`);
+        });
+    }
+
+    let aiResponse: { content: string; usage?: TokenUsage };
+    let sources: any[] = [];
+
+    if (needsResearch) {
+      this.logger.log(`Thread ${threadId}: Research detected, using web search`);
+      const searchResult = await this.openaiService.chatWithSearch({
+        userMessage: dto.content,
+        systemPrompt: systemPrompt + '\n\n' + dynamicContext,
+        conversationHistory: contextMessages.slice(0, -1),
+      });
+      aiResponse = { content: searchResult.content, usage: searchResult.usage };
+      sources = searchResult.sources;
+    } else {
+      aiResponse = await this.openaiService.chat({
+        messages: [{ role: 'user', content: dto.content }],
+        channel: channel || undefined,
+        conversationHistory: contextMessages.slice(0, -1),
+        threadId: threadId.toString(),
+        systemPromptOverride: systemPrompt,
+        dynamicContext,
+        temperature: skill.getTemperature?.() ?? 0.7,
+      });
+    }
+
+    // Save AI response atomically
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: aiResponse.content,
+      metadata: {
+        category: resolvedSkill,
+        ...(sources.length > 0 ? { sources } : {}),
+      },
+      createdAt: new Date(),
+    } as any;
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: assistantMessage },
+      $set: { updatedAt: new Date() },
+      $inc: {
+        totalPromptTokens: aiResponse.usage?.promptTokens || 0,
+        totalCompletionTokens: aiResponse.usage?.completionTokens || 0,
+        totalCachedTokens: aiResponse.usage?.cachedTokens || 0,
+      },
+    });
+
+    // Store in ChromaDB
+    try {
+      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
+        `User: ${dto.content}\nAssistant: ${aiResponse.content}`,
+        { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
+    } catch { /* RAG optional */ }
+
+    // Log AI output
+    await this.logAiOutput({
+      channelId: updatedThread.channelId.toString(), operation: 'chat', threadId: threadId.toString(),
+      inputSummary: dto.content.substring(0, 200), output: { content: aiResponse.content }, usage: aiResponse.usage,
+    });
+
+    return assistantMessage;
+  }
+
+  /**
+   * Stream a message — returns an async generator that yields chunks.
+   */
+  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage }> {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const health = await this.checkThreadHealth(thread);
+    if (!health.ok) {
+      yield { type: 'error', content: health.error };
+      return;
+    }
+
+    // Auto-name from first user message (background, non-blocking)
+    this.handleFirstMessage(threadId, thread, dto.content);
+
+    // Save user message atomically — persists even if stream drops
+    const userMsg = { role: 'user' as const, content: dto.content, createdAt: new Date() };
+    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+
+    // Re-load thread to get the updated messages array
+    const updatedThread = await this.threadModel.findById(threadId);
+    if (!updatedThread) {
+      yield { type: 'error', content: 'Thread not found' };
+      return;
+    }
+
+    // Resolve skill: manual override (sticky if non-general) or auto-classify intent across all 8 skills
+    const resolvedSkill = (!dto.skill || dto.skill === 'general')
+      ? this.skillRegistry.classifyIntent(dto.content)
+      : dto.skill;
+
+    const channel = await this.channelModel.findById(updatedThread.channelId).lean();
+    const skill = this.skillRegistry.get(resolvedSkill);
+    const skillContext = await skill.loadContext(updatedThread.channelId.toString(), updatedThread.videoId || undefined);
+
+    // RAG context
+    const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
+
+    // Build STATIC system prompt (byte-identical across requests for caching)
+    const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+
+    // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
+    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
+
+    // Build conversation history (last N messages)
+    const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    let contextMessages = allMessages;
+    let summaryToPrepend = updatedThread.summary;
+
+    if (allMessages.length > MAX_MESSAGES_BEFORE_SUMMARY) {
+      if (!summaryToPrepend) {
+        const summaryResult = await this.summarizeAndCompress(threadId.toString(), allMessages.slice(0, -5), channel || undefined);
+        summaryToPrepend = summaryResult.summary;
+        await this.threadModel.findByIdAndUpdate(threadId, { $set: { summary: summaryToPrepend } });
+      }
+      contextMessages = [
+        { role: 'user' as const, content: `[Previous conversation summary]\n${summaryToPrepend}` },
+        ...allMessages.slice(-5),
+      ];
+    }
+
+    const conversationHistory = contextMessages.slice(0, -1);
+
+    // Stream
+    let fullContent = '';
+    let finalUsage: TokenUsage | undefined;
+    let sources: any[] = [];
+
+    // Detect if research is needed
+    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+
+    // Auto-lite refresh: if trends are stale/empty, refresh in background
+    if (!this.areTrendsFresh(skillContext.trendingTopics)) {
+      this.logger.log(`Thread ${threadId}: Stale trends, triggering lite refresh in background`);
+      this.trendsService.refreshTrendsLite(updatedThread.channelId.toString())
+        .then(async (freshTopics) => {
+          if (freshTopics.length > 0) {
+            this.logger.log(`Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`);
+          }
+        })
+        .catch((error) => {
+          this.logger.warn(`Lite trends refresh failed: ${error.message}`);
+        });
+    }
+
+    if (needsResearch) {
+      this.logger.log(`Thread ${threadId}: Research detected in stream, using web search`);
+      try {
+        for await (const chunk of this.openaiService.chatWithSearchStream({
+          userMessage: dto.content,
+          systemPrompt: systemPrompt + '\n\n' + dynamicContext,
+          conversationHistory,
+        })) {
+          if (chunk.chunk) {
+            fullContent += chunk.chunk;
+            yield { type: 'chunk', content: chunk.chunk };
+          }
+          if (chunk.sources) sources = chunk.sources;
+          if (chunk.usage) finalUsage = chunk.usage;
+        }
+      } catch (error) {
+        this.logger.warn(`Stream research error for thread ${threadId}: ${error.message}`);
+        yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+        return;
+      }
+    } else {
+      try {
+        for await (const chunk of this.openaiService.chatStream({
+          messages: [{ role: 'user', content: dto.content }],
+          channel: channel || undefined,
+          conversationHistory,
+          threadId: threadId.toString(),
+          systemPromptOverride: systemPrompt,
+          dynamicContext,
+          temperature: skill.getTemperature?.() ?? 0.7,
+        })) {
+          if (chunk.chunk) {
+            fullContent += chunk.chunk;
+            yield { type: 'chunk', content: chunk.chunk };
+          }
+          if (chunk.usage) finalUsage = chunk.usage;
+        }
+      } catch (error) {
+        this.logger.warn(`Stream error for thread ${threadId}: ${error.message}`);
+        yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+        return;
+      }
+    }
+
+    // Only save if we got actual content (prevents saving partial content on mid-stream errors)
+    if (!fullContent) return;
+
+    // Save full response atomically
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: fullContent,
+      metadata: {
+        category: resolvedSkill,
+        ...(sources.length > 0 ? { sources } : {}),
+      },
+      createdAt: new Date(),
+    } as any;
+
+    const updateOps: any = {
+      $push: { messages: assistantMessage },
+      $set: { updatedAt: new Date() },
+    };
+    if (finalUsage) {
+      updateOps.$inc = {
+        totalPromptTokens: finalUsage.promptTokens || 0,
+        totalCompletionTokens: finalUsage.completionTokens || 0,
+        totalCachedTokens: finalUsage.cachedTokens || 0,
+      };
+    }
+
+    const savedThread = await this.threadModel.findByIdAndUpdate(threadId, updateOps, { new: true });
+
+    // Store in ChromaDB
+    try {
+      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
+        `User: ${dto.content}\nAssistant: ${fullContent}`,
+        { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
+    } catch { /* RAG optional */ }
+
+    // Log AI output
+    await this.logAiOutput({
+      channelId: updatedThread.channelId.toString(), operation: 'chat_stream', threadId: threadId.toString(),
+      inputSummary: dto.content.substring(0, 200), output: { content: fullContent }, usage: finalUsage,
+    });
+
+    const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
+    yield { type: 'done', messageId: lastMsgId, usage: finalUsage };
+  }
+
+  async archiveThread(id: string, reason: string) {
+    await this.threadModel.findByIdAndUpdate(id, { $set: { status: 'archived' } });
+    this.logger.log(`Thread ${id} archived: ${reason}`);
+  }
+
+  async archiveManual(id: string) {
+    await this.findById(id);
+    await this.archiveThread(id, 'manual');
+    return { success: true, threadId: id };
+  }
+
+  async remove(id: string) {
+    const thread = await this.findById(id);
+
+    // Clean up ChromaDB vectors for this thread
+    try {
+      await this.chromaService.deleteByMetadata('chat_messages', { threadId: id });
+    } catch (error) {
+      this.logger.warn(`Failed to clean ChromaDB for thread ${id}: ${error.message}`);
+    }
+
+    const removed = await this.threadModel.findByIdAndDelete(new Types.ObjectId(id)).lean();
+    return leanDoc(removed);
+  }
+
+  private async summarizeAndCompress(threadId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, channel?: any): Promise<{ summary: string }> {
+    const result = await this.openaiService.summarizeConversation({ messages, channel });
+    await this.logAiOutput({ channelId: '', operation: 'summarize', threadId, inputSummary: `Summarizing ${messages.length} messages`, output: { summary: result.summary }, usage: result.usage });
+    return { summary: result.summary };
+  }
+
+  private async logAiOutput(params: { channelId: string; operation: string; threadId?: string; videoId?: string; inputSummary: string; output: any; usage?: TokenUsage }) {
+    try {
+      await this.aiOutputLogModel.create({
+        channelId: params.channelId, operation: params.operation, threadId: params.threadId,
+        videoId: params.videoId, inputSummary: params.inputSummary, output: params.output,
+        promptTokens: params.usage?.promptTokens || 0, completionTokens: params.usage?.completionTokens || 0,
+        cachedTokens: params.usage?.cachedTokens || 0, cacheHitRate: params.usage?.cacheHitRate || 0, model: this.modelName,
+      });
+    } catch (error) { this.logger.error(`Failed to log AI output: ${error.message}`); }
+  }
+
+  async handleFileUpload(threadId: string, file: Express.Multer.File, content?: string) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const health = await this.checkThreadHealth(thread);
+    if (!health.ok) return { error: health.error, threadId, archived: true };
+
+    // Auto-name from first user message (background, non-blocking)
+    this.handleFirstMessage(threadId, thread, content || file.originalname);
+
+    const channel = await this.channelModel.findById(thread.channelId).lean();
+    const channelId = thread.channelId.toString();
+
+    // Sanitize filename to prevent path traversal
+    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+    const key = `uploads/${channelId}/${Date.now()}_${safeFilename}`;
+    const url = await this.minioService.uploadBuffer(key, file.buffer, file.mimetype);
+
+    let extractedText = '';
+    const isPdf = file.mimetype === 'application/pdf';
+    const isImage = file.mimetype.startsWith('image/');
+    const isText =
+      file.mimetype === 'text/plain' ||
+      file.mimetype.includes('markdown') ||
+      safeFilename.endsWith('.txt') ||
+      safeFilename.endsWith('.md');
+
+    if (isPdf) {
+      try {
+        const pdfParse = require('pdf-parse');
+        const data = await pdfParse(file.buffer);
+        extractedText = data.text.substring(0, 10000);
+      } catch (error) {
+        this.logger.warn(`PDF parse failed: ${error.message}`);
+      }
+    } else if (isText) {
+      extractedText = file.buffer.toString('utf-8').substring(0, 10000);
+    }
+
+    // Build user message
+    let userContent = content || '';
+    if (isPdf && extractedText) {
+      userContent += `\n\n[Uploaded PDF: ${safeFilename}]\n\n${extractedText}`;
+    } else if (isText && extractedText) {
+      userContent += `\n\n[Uploaded File: ${safeFilename}]\n\n${extractedText}`;
+    } else if (isImage) {
+      userContent += `\n\n[Image uploaded: ${safeFilename}]`;
+    } else {
+      userContent += `\n\n[File uploaded: ${safeFilename}]`;
+    }
+
+    // Save user message atomically
+    const userMsg = {
+      role: 'user' as const,
+      content: userContent,
+      metadata: {
+        attachments: [{
+          type: isPdf ? 'pdf' as const : 'image' as const,
+          url,
+          filename: safeFilename,
+          extractedText: isPdf ? extractedText : undefined,
+        }],
+      },
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+
+    // Re-load thread for conversation history
+    const updatedThread = await this.threadModel.findById(threadId);
+    if (!updatedThread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // Resolve skill from user-provided content only (not PDF extracted text)
+    // If no user text provided (pure file upload), default to 'general' skill
+    const resolvedSkill = content?.trim() ? this.skillRegistry.classifyIntent(content) : 'general';
+
+    // Get AI response with RAG context
+    const skill = this.skillRegistry.get(resolvedSkill);
+    const skillContext = await skill.loadContext(channelId, updatedThread.videoId || undefined);
+    const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+
+    // RAG context
+    const ragContext = await this.buildRagContext(userContent, resolvedSkill);
+
+    const dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
+    const conversationHistory = updatedThread.messages.slice(0, -1).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+
+    let aiResponse: { content: string; usage?: TokenUsage };
+
+    if (isImage) {
+      const presignedUrl = await this.minioService.getPresignedUrl(key, 3600);
+      aiResponse = await this.openaiService.chatWithVision({
+        imageUrl: presignedUrl,
+        userMessage: userContent,
+        systemPrompt,
+        conversationHistory,
+      });
+    } else {
+      aiResponse = await this.openaiService.chat({
+        messages: [{ role: 'user', content: userContent }],
+        channel: channel || undefined,
+        conversationHistory,
+        systemPromptOverride: systemPrompt,
+        dynamicContext,
+        temperature: skill.getTemperature?.() ?? 0.7,
+      });
+    }
+
+    // Save AI response atomically with token tracking
+    const assistantMsg: Message = {
+      role: 'assistant',
+      content: aiResponse.content,
+      metadata: { category: resolvedSkill },
+      createdAt: new Date(),
+    } as any;
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: assistantMsg },
+      $set: { updatedAt: new Date() },
+      $inc: {
+        totalPromptTokens: aiResponse.usage?.promptTokens || 0,
+        totalCompletionTokens: aiResponse.usage?.completionTokens || 0,
+        totalCachedTokens: aiResponse.usage?.cachedTokens || 0,
+      },
+    });
+
+    // Store in ChromaDB
+    try {
+      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
+        `User: ${userContent}\nAssistant: ${aiResponse.content}`,
+        { threadId: threadId.toString(), channelId, category: resolvedSkill });
+    } catch { /* RAG optional */ }
+
+    // Log AI output
+    await this.logAiOutput({
+      channelId, operation: 'chat_upload', threadId: threadId.toString(),
+      inputSummary: userContent.substring(0, 200), output: { content: aiResponse.content }, usage: aiResponse.usage,
+    });
+
+    return assistantMsg;
+  }
+
+  // ─── Shared helpers ─────────────────────────────────────────────────
+
+  /**
+   * Check if thread is active and not expired.
+   * Returns { ok: true } or { ok: false, error: string }.
+   */
+  private async checkThreadHealth(thread: ThreadDocument): Promise<{ ok: boolean; error?: string }> {
+    if (thread.status === 'archived') {
+      return { ok: false, error: 'This thread has been archived. Start a new conversation.' };
+    }
+    const daysSinceUpdate = Math.floor((Date.now() - (thread.updatedAt?.getTime() || thread.createdAt?.getTime() || Date.now())) / (1000 * 60 * 60 * 24));
+    if (daysSinceUpdate >= THREAD_EXPIRY_DAYS) {
+      await this.archiveThread(thread._id.toString(), 'expired_inactivity');
+      return { ok: false, error: 'This thread expired due to inactivity. Start a new conversation.' };
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Handle first-message auto-naming (fire-and-forget).
+   */
+  private handleFirstMessage(threadId: string, thread: ThreadDocument, content: string): void {
+    const userMessageCount = thread.messages.filter(m => m.role === 'user').length;
+    if (userMessageCount === 0) {
+      this.autoNameThread(threadId, content);
+    }
+  }
+
+  /**
+   * Build RAG context from ChromaDB — chat messages, SEO patterns, video metadata, and book passages.
+   */
+  private async buildRagContext(content: string, resolvedSkill: string): Promise<string> {
+    let ragContext = '';
+    try {
+      const [chatResults, seoResults, videoResults] = await Promise.all([
+        this.chromaService.query('chat_messages', content, 3),
+        this.chromaService.query('seo_suggestions', content, 2),
+        this.chromaService.query('video_metadata', content, 2),
+      ]);
+      const allResults = [...chatResults, ...seoResults, ...videoResults].filter(r => r.distance < 0.7);
+      if (allResults.length > 0) {
+        ragContext = '\n\n## RELEVANT CONTEXT FROM PAST INTERACTIONS\n' +
+          allResults.map(r => `- ${r.text.substring(0, 200)}`).join('\n');
+      }
+
+      // Search client book for script/general — adds authentic voice and story references
+      if (resolvedSkill === 'script' || resolvedSkill === 'general') {
+        try {
+          const bookResults = await this.chromaService.query('client_book', content, 3);
+          const relevantBook = bookResults.filter(r => r.distance < 0.75);
+          if (relevantBook.length > 0) {
+            ragContext += '\n\n## RELEVANT PASSAGES FROM "A ROAR IN HARLEM" (Unique\'s Book)\n' +
+              relevantBook.map(r => `- [${r.metadata.type || 'passage'}] ${r.text.substring(0, 300)}`).join('\n');
+          }
+        } catch { /* book collection may not exist yet */ }
+      }
+    } catch { /* RAG optional */ }
+    return ragContext;
+  }
+
+  /**
+   * Detect if the user message needs web search / research.
+   * Triggers for: outline/script skills, news keywords, and research-oriented questions.
+   */
+  private detectNeedsResearch(message: string, category?: string): boolean {
+    // Trends, outline, and script skills always benefit from current web research
+    if (category === 'outline' || category === 'script' || category === 'trends') return true;
+
+    const lower = message.trim().toLowerCase();
+
+    // Short option selection (e.g. "b", "option b", "1", "choice a") — inherit research context
+    if (/^(option\s*)?[a-d1-4]$/i.test(lower)) return true;
+
+    // News/current events keywords — terms that indicate live news or research
+    const newsKeywords = [
+      'latest news', 'recent news', 'current events', 'what happened',
+      'breaking news', 'update on', 'just happened', 'this week',
+      'today in', 'happening now', 'allegedly', 'trending', 'top stories',
+      'trending stories', 'what\'s trending',
+    ];
+    if (newsKeywords.some(kw => lower.includes(kw))) return true;
+
+    // Specific topic/person queries — "tell me about [X]", "what happened to [X]"
+    if (/\b(tell me about|what happened to|what's going on with|give me info on|research|look up)\b/i.test(lower)) return true;
+
+    return false;
+  }
+
+  /**
+   * Check if trending topics are fresh (less than 3 days old).
+   * Checks the NEWEST topic — if the newest is fresh, trends are usable.
+   */
+  private areTrendsFresh(trends: any[] | undefined): boolean {
+    if (!trends || trends.length === 0) return false;
+    const newestFetchAt = Math.max(...trends.map(t => new Date(t.fetchedAt).getTime()));
+    const daysSinceFetch = (Date.now() - newestFetchAt) / (1000 * 60 * 60 * 24);
+    return daysSinceFetch <= 3;
+  }
+
+  /**
+   * Generate a thumbnail image using video context, default MAE logo, user reference images & custom layout rules.
+   */
+  async generateThumbnailImage(
+    threadId: string,
+    dto: {
+      text: string;
+      visual: string;
+      colors: string;
+      conceptTitle?: string;
+      videoTitle?: string;
+      selectedHostImage?: string;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+      customLayoutInstructions?: string;
+      messageId?: string;
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // 0. Resolve Video Document for deep Video Context (showType, full video title)
+    let videoContextTitle = dto.videoTitle || thread.videoTitle;
+    let resolvedShowType: string | undefined;
+
+    if (thread.videoId) {
+      try {
+        const video = await this.videoModel.findById(thread.videoId).lean();
+        if (video) {
+          videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
+          resolvedShowType = video.showType || undefined;
+        }
+      } catch { /* optional */ }
+    }
+
+    if (!videoContextTitle || videoContextTitle === 'New Thread' || videoContextTitle === 'Video Thread') {
+      const firstUserMsg = thread.messages.find((m) => m.role === 'user')?.content;
+      videoContextTitle = thread.title && thread.title !== 'New Thread' ? thread.title : firstUserMsg ? firstUserMsg.slice(0, 80) : 'YouTube Video';
+    }
+
+    // 1. Inspect user prompt / messages for negative logo constraints ("no logo", "don't add logo")
+    const allUserText = thread.messages
+      .filter((m) => m.role === 'user')
+      .map((m) => m.content)
+      .join(' ')
+      .toLowerCase();
+
+    const excludeLogo =
+      dto.logoPosition === 'none' ||
+      /\b(no logo|don't add logo|dont add logo|without logo|remove logo|no brand)\b/i.test(
+        allUserText,
+      );
+
+    const result = await this.openaiService.generateThumbnailImage({
+      concept: { text: dto.text, description: dto.visual, colors: dto.colors },
+      videoTitle: videoContextTitle,
+      showType: resolvedShowType,
+      selectedHostImage: dto.selectedHostImage || 'host_1.png',
+      logoPosition: dto.logoPosition || 'top-left',
+      customLayoutInstructions: dto.customLayoutInstructions,
+      excludeLogo,
+    });
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: result.imageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: dto.conceptTitle || 'Concept',
+      textOverlay: dto.text || '',
+      visualDescription: dto.visual || '',
+      selectedHostImage: dto.selectedHostImage || 'host_1.png',
+      logoPosition: dto.logoPosition || 'top-left',
+      createdAt: new Date(),
+    };
+
+    if (dto.messageId && Types.ObjectId.isValid(dto.messageId)) {
+      await this.threadModel.updateOne(
+        { _id: threadId, 'messages._id': new Types.ObjectId(dto.messageId) },
+        { $push: { 'messages.$.metadata.images': imageObj } },
+      );
+    } else {
+      const targetMessage = thread.messages.slice().reverse().find(
+        (m) => m.role === 'assistant' && (m.content.includes('Concept') || (dto.text && m.content.toLowerCase().includes(dto.text.toLowerCase()))),
+      ) || thread.messages.slice().reverse().find((m) => m.role === 'assistant');
+
+      if (targetMessage && targetMessage._id) {
+        await this.threadModel.updateOne(
+          { _id: threadId, 'messages._id': targetMessage._id },
+          { $push: { 'messages.$.metadata.images': imageObj } },
+        );
+      } else if (thread.messages.length > 0) {
+        const lastMsgIdx = thread.messages.length - 1;
+        await this.threadModel.updateOne(
+          { _id: threadId },
+          { $push: { [`messages.${lastMsgIdx}.metadata.images`]: imageObj } },
+        );
+      }
+    }
+
+    return { ...result, image: imageObj };
+  }
+}

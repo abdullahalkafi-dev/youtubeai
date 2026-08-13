@@ -1,0 +1,566 @@
+'use client'
+
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { useAppSelector, useAppDispatch } from '@/store/hooks'
+import {
+  setActiveThread, createThread, selectThread,
+  fetchThreads, optimisticAddUserMessage,
+  appendStreamChunk, clearStreaming, finalizeStreamedMessage, removeLastUserMessage, renameThread,
+  setSelectedSkill,
+} from '@/store/slices/chat-slice'
+import { useIsMobile } from '@/lib/hooks/use-media-query'
+import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
+import { getCategoryColor } from '@/lib/category-colors'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2 } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { cn } from '@/lib/utils'
+import { toast } from 'sonner'
+import api, { formatAssetUrl } from '@/lib/api'
+import { MessageRenderer } from '@/components/chat/message-renderer'
+import { MessageActions } from '@/components/chat/message-actions'
+import { EmptyState } from '@/components/chat/empty-state'
+import { CategorySelector } from '@/components/chat/category-selector'
+import type { ThreadCategory, ChatImage } from '@/types/chat'
+
+export default function ChatPage() {
+  const dispatch = useAppDispatch()
+  const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, loading: threadsLoading } = useAppSelector(s => s.chat)
+  const channelId = useAppSelector(s => s.auth.activeChannelId)
+  const isMobile = useIsMobile()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [input, setInput] = useState('')
+  const [galleryOpen, setGalleryOpen] = useState(false)
+  const [generatingConceptText, setGeneratingConceptText] = useState<string | null>(null)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameValue, setRenameValue] = useState('')
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
+
+  const { isListening, transcript, isSupported: voiceSupported, startListening, stopListening } = useSpeechRecognition()
+
+  const currentSkill = selectedSkill || 'general'
+  const categoryColor = getCategoryColor(currentSkill)
+
+  useEffect(() => {
+    if (channelId) dispatch(fetchThreads(channelId))
+  }, [channelId, dispatch])
+
+  // Auto-load thread when activeThreadId is set but activeThread is null (e.g., after archive)
+  useEffect(() => {
+    if (activeThreadId && !activeThread) {
+      dispatch(selectThread(activeThreadId))
+    }
+  }, [activeThreadId, activeThread, dispatch])
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [activeThread?.messages?.length, streamingContent])
+
+  useEffect(() => {
+    if (transcript) setInput(transcript)
+  }, [transcript])
+
+  useEffect(() => {
+    return () => { abortControllerRef.current?.abort() }
+  }, [])
+
+  const allImages = useMemo(() => {
+    if (!activeThread) return []
+    const images: ChatImage[] = []
+    activeThread.messages.forEach(msg => {
+      if (msg.metadata?.images) images.push(...msg.metadata.images)
+    })
+    return images
+  }, [activeThread])
+
+  const hasMessages = activeThread && activeThread.messages.length > 1
+
+  const handleSend = async () => {
+    if ((!input.trim() && !selectedFile) || !activeThreadId) return
+
+    const messageContent = input
+    const fileToSend = selectedFile
+    setInput('')
+    setSelectedFile(null)
+
+    abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+
+    if (fileToSend) {
+      dispatch(optimisticAddUserMessage({ threadId: activeThreadId, content: messageContent || `📎 ${fileToSend.name}` }))
+      try {
+        await api.uploadFile(activeThreadId, fileToSend, messageContent)
+        dispatch(selectThread(activeThreadId))
+        dispatch(clearStreaming())
+      } catch (err: any) {
+        toast.error(err.message || 'Upload failed')
+        dispatch(removeLastUserMessage())
+        dispatch(clearStreaming())
+      }
+      return
+    }
+
+    dispatch(optimisticAddUserMessage({ threadId: activeThreadId, content: messageContent }))
+
+    // Capture threadId to guard against thread switches during stream
+    const streamThreadId = activeThreadId
+    let fullContent = ''
+    let streamCompleted = false
+    try {
+      await api.sendMessageStream(
+        activeThreadId,
+        messageContent,
+        selectedSkill || undefined,
+        (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
+        (messageId) => {
+          streamCompleted = true
+          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: currentSkill }))
+        },
+        (error) => {
+          // Only clean up if we're still on the same thread (user may have switched)
+          if (streamThreadId === activeThreadId) {
+            if (error !== 'The operation was aborted') {
+              toast.error(`Stream interrupted: ${error}`)
+            }
+            dispatch(clearStreaming())
+          }
+        },
+        abortControllerRef.current.signal,
+      )
+    } catch (err: any) {
+      if (streamThreadId === activeThreadId) {
+        if (err.name !== 'AbortError') {
+          toast.error(err.message || 'Stream failed')
+        }
+        dispatch(clearStreaming())
+      }
+    } finally {
+      // Safety: if stream ended without done event, clean up stuck UI
+      if (!streamCompleted && streamThreadId === activeThreadId) {
+        dispatch(clearStreaming())
+      }
+    }
+  }
+
+  const handleStopStreaming = () => { abortControllerRef.current?.abort() }
+
+  const handleCreateThread = () => {
+    if (!channelId) return
+    dispatch(createThread({ channelId, type: 'standalone' }))
+    setDrawerOpen(false)
+  }
+
+  const handleSelectThread = (threadId: string) => {
+    // Abort any in-progress stream before switching threads
+    abortControllerRef.current?.abort()
+    dispatch(setActiveThread(threadId))
+    dispatch(selectThread(threadId))
+    setDrawerOpen(false)
+  }
+
+  const handleRename = () => {
+    if (activeThreadId && renameValue.trim()) {
+      dispatch(renameThread({ threadId: activeThreadId, title: renameValue.trim() }))
+      setIsRenaming(false)
+    }
+  }
+
+  const handleSetThumbnail = async (image: ChatImage) => {
+    if (!activeThread?.videoId) { toast.error('No video linked to this thread'); return }
+    try { await api.setVideoThumbnail(activeThread.videoId, image.url); toast.success('Thumbnail set!') }
+    catch (err: any) { toast.error(err.message || 'Failed') }
+  }
+
+  const handleDownload = (image: ChatImage) => {
+    const link = document.createElement('a')
+    link.href = image.url; link.download = `thumbnail_${Date.now()}.png`; link.target = '_blank'
+    document.body.appendChild(link); link.click(); document.body.removeChild(link)
+    toast.success('Download started')
+  }
+
+  const handleVoiceToggle = () => { isListening ? stopListening() : startListening() }
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (fileInputRef.current) fileInputRef.current.value = ''
+    if (file) {
+      if (file.size > 10 * 1024 * 1024) { toast.error('File too large (max 10MB)'); return }
+      setSelectedFile(file)
+      toast.info(`File selected: ${file.name}`)
+    }
+  }
+
+  const handleSuggestionClick = (text: string) => { setInput(text) }
+
+  const threadList = (
+    <div className="flex flex-col h-full">
+      <div className="p-3 border-b border-gray-100 dark:border-gray-800">
+        <Button onClick={handleCreateThread} variant="outline" size="sm" className="w-full gap-1.5 text-xs">
+          <Plus className="w-3.5 h-3.5" />New Thread
+        </Button>
+      </div>
+      <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+        {threadsLoading && threads.length === 0 ? (
+          <div className="space-y-2 p-1">
+            {[1, 2, 3, 4, 5].map((i) => (
+              <div key={i} className="h-10 bg-gray-100 dark:bg-gray-800/80 rounded-lg animate-pulse p-2 space-y-1.5 border border-transparent">
+                <div className="h-2.5 w-3/4 bg-gray-200 dark:bg-gray-700 rounded" />
+                <div className="h-2 w-1/3 bg-gray-200 dark:bg-gray-700 rounded" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          threads.map((thread) => {
+            return (
+              <button
+                key={thread.id}
+                onClick={() => handleSelectThread(thread.id)}
+                className={cn(
+                  'w-full text-left rounded-lg px-2.5 py-2 transition border',
+                  thread.id === activeThreadId
+                    ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10'
+                    : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                )}
+              >
+                <div className="flex items-center gap-1.5">
+                  {thread.type === 'video' ? <Video className="w-3 h-3 text-indigo-500 shrink-0" /> : <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />}
+                  <p className={cn('text-xs font-medium truncate', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
+                    {thread.title}
+                  </p>
+                </div>
+                <div className="flex items-center gap-1.5 mt-0.5 ml-4.5">
+                  <span className="text-xs text-gray-400">{thread.messageCount} msgs</span>
+                </div>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="flex h-full max-w-[1600px] mx-auto">
+      {!isMobile && (
+        <div className="w-56 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0">
+          {threadList}
+        </div>
+      )}
+
+      {isMobile && drawerOpen && (
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl">
+            <div className="flex items-center justify-between p-3 border-b border-gray-100 dark:border-gray-800">
+              <span className="text-sm font-semibold text-gray-900 dark:text-white">Threads</span>
+              <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
+            </div>
+            {threadList}
+          </aside>
+        </div>
+      )}
+
+      <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
+        {/* Header */}
+        <div className="px-4 py-2.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              {isMobile && (
+                <button onClick={() => setDrawerOpen(true)} className="text-gray-400 hover:text-gray-600 p-1">
+                  <Menu className="w-4 h-4" />
+                </button>
+              )}
+              <div>
+                {isRenaming && activeThreadId ? (
+                  <div className="flex items-center gap-1">
+                    <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false) }} className="h-7 text-sm font-semibold" autoFocus />
+                    <button onClick={handleRename} className="text-green-500 p-1"><Check className="w-3.5 h-3.5" /></button>
+                    <button onClick={() => setIsRenaming(false)} className="text-gray-400 p-1"><X className="w-3.5 h-3.5" /></button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white font-heading">{activeThread?.title || 'Select a thread'}</h3>
+                    {activeThread && (
+                      <button onClick={() => { setRenameValue(activeThread.title); setIsRenaming(true) }} className="text-gray-400 hover:text-gray-600 p-0.5">
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mt-0.5">
+                  <p className="text-xs text-gray-400">
+                    {activeThread?.type === 'video' ? 'Video Thread' : 'Thread'} · {activeThread?.messages?.length || 0} messages
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <Button variant="ghost" size="icon" onClick={() => setGalleryOpen(!galleryOpen)} className={cn('w-8 h-8', galleryOpen ? 'text-indigo-500' : 'text-gray-400 hover:text-indigo-500')}>
+                <Grid3X3 className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 flex min-h-0">
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 lg:p-5">
+            {/* Empty State */}
+            {!hasMessages && !sending && activeThread && (
+              <EmptyState category={currentSkill} onSuggestionClick={handleSuggestionClick} />
+            )}
+
+            {hasMessages && (
+              <div className="space-y-4">
+                {activeThread.messages.map((msg) => (
+                  <div key={msg.id} className={cn('flex items-start gap-2.5 group', msg.role === 'user' ? 'justify-end' : '')}>
+                    {msg.role === 'assistant' && (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
+                        <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                      </div>
+                    )}
+                    <div className={cn(
+                      'rounded-2xl px-4 py-3 max-w-2xl shadow-sm',
+                      msg.role === 'user'
+                        ? 'bg-indigo-500 text-white rounded-tr-md'
+                        : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-tl-md'
+                    )}>
+                      {msg.role === 'user' ? (
+                        <p className="text-sm text-white whitespace-pre-wrap">{msg.content}</p>
+                      ) : (
+                        <>
+                          <MessageRenderer
+                            content={msg.content}
+                            category={msg.metadata?.category || 'general'}
+                            messageId={msg.id || msg._id}
+                            messageImages={msg.metadata?.images}
+                            onStartGenerate={(title) => {
+                              setGalleryOpen(true)
+                              setGeneratingConceptText(title)
+                            }}
+                            onFinishGenerate={() => setGeneratingConceptText(null)}
+                          />
+                          {/* Skill badge — shows which skill generated this response */}
+                          {msg.metadata?.category && (
+                            <div className="mt-2 pt-2 border-t border-gray-100 dark:border-gray-800">
+                              <span className={cn(
+                                'inline-flex items-center gap-1 text-[9px] px-1.5 py-0.5 rounded-full font-medium',
+                                getCategoryColor(msg.metadata.category).bg,
+                                getCategoryColor(msg.metadata.category).bgDark,
+                                getCategoryColor(msg.metadata.category).text,
+                                getCategoryColor(msg.metadata.category).textDark,
+                              )}>
+                                {msg.metadata.category}
+                              </span>
+                            </div>
+                          )}
+                        </>
+                      )}
+                      {/* Attachments */}
+                      {msg.metadata?.attachments?.map((att, idx) => (
+                        <div key={idx} className="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                          {att.type === 'image' ? (
+                            <img src={att.url} alt={att.filename} className="max-w-xs rounded" />
+                          ) : (
+                            <div className="flex items-center gap-2 text-xs text-gray-500">
+                              <Paperclip className="w-3 h-3" />
+                              <span>{att.filename}</span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    {/* Message Actions */}
+                    {msg.role === 'assistant' && (
+                      <MessageActions content={msg.content} role={msg.role} />
+                    )}
+                    {msg.role === 'user' && (
+                      <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
+                        <span className="text-xs font-bold text-gray-600 dark:text-gray-300">U</span>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Streaming content */}
+            {sending && streamingContent && (
+              <div className="flex items-start gap-2.5 mt-4">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
+                  <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                </div>
+                <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm max-w-2xl">
+                  <MessageRenderer content={streamingContent} category={currentSkill} isStreaming />
+                  <span className="inline-block w-1.5 h-4 bg-indigo-400 animate-pulse ml-0.5" />
+                </div>
+              </div>
+            )}
+
+            {/* Loading dots */}
+            {sending && !streamingContent && (
+              <div className="flex items-start gap-2.5 mt-4">
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
+                  <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
+                </div>
+                <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm">
+                  <div className="flex gap-1">
+                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
+                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '.1s' }} />
+                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '.2s' }} />
+                  </div>
+                </div>
+              </div>
+            )}
+
+            <div ref={messagesEndRef} />
+          </div>
+
+          {/* Image Gallery Panel */}
+          {galleryOpen && (
+            <div className="w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shrink-0 flex flex-col">
+              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Image className="w-4 h-4 text-indigo-500" />
+                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Generated Images</span>
+                </div>
+                <button onClick={() => setGalleryOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-3 space-y-3">
+                {/* Skeleton Card during active image generation */}
+                {generatingConceptText && (
+                  <div className="rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2.5 animate-pulse shadow-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-bold text-[10px]">
+                        {generatingConceptText}
+                      </span>
+                      <span className="text-[10px] text-violet-600 dark:text-violet-400 font-medium flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> Generating...
+                      </span>
+                    </div>
+                    <div className="aspect-video bg-violet-200/60 dark:bg-violet-900/40 rounded-md flex items-center justify-center">
+                      <Sparkles className="w-6 h-6 text-violet-500 animate-bounce" />
+                    </div>
+                    <p className="text-[10px] text-violet-600 dark:text-violet-300 font-medium text-center">
+                      Creating 16:9 HD AI Thumbnail...
+                    </p>
+                  </div>
+                )}
+
+                {allImages.length === 0 && !generatingConceptText ? (
+                  <div className="text-center py-8">
+                    <Image className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+                    <p className="text-xs text-gray-400">No images generated yet</p>
+                  </div>
+                ) : (
+                  allImages.map((img) => (
+                    <div key={img.id} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+                      <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
+                        <img src={formatAssetUrl(img.url)} alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'} className="w-full h-full object-cover" loading="lazy" />
+                        {img.conceptTitle && (
+                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
+                            {img.conceptTitle}
+                          </span>
+                        )}
+                      </div>
+                      <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
+                        {img.textOverlay && (
+                          <div className="bg-gray-900 text-white text-[10px] font-black tracking-wide uppercase px-2 py-1 rounded text-center leading-tight">
+                            {img.textOverlay}
+                          </div>
+                        )}
+                        <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
+                        <div className="flex gap-1.5 pt-0.5">
+                          {activeThread?.videoId && (
+                            <button onClick={() => handleSetThumbnail(img)} className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1">
+                              <Star className="w-3 h-3" />Set Thumbnail
+                            </button>
+                          )}
+                          <button onClick={() => handleDownload(img)} className={cn('flex-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1', !activeThread?.videoId && 'w-full')}>
+                            <Download className="w-3 h-3" />Download
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Input */}
+        <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
+          <div className="max-w-4xl mx-auto">
+            {/* Unified Floating Card Input */}
+            <div className="bg-gray-50/80 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-3 shadow-md shadow-gray-200/40 dark:shadow-none focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all space-y-2">
+              {/* Selected file preview */}
+              {selectedFile && (
+                <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-100/70 dark:bg-indigo-500/20 rounded-xl border border-indigo-200 dark:border-indigo-500/30">
+                  <Paperclip className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                  <span className="text-xs font-medium text-indigo-900 dark:text-indigo-200 truncate flex-1">{selectedFile.name}</span>
+                  <span className="text-[10px] text-indigo-400 font-mono">{(selectedFile.size / 1024).toFixed(0)}KB</span>
+                  <button onClick={() => setSelectedFile(null)} className="text-gray-400 hover:text-red-500 p-0.5 rounded-full transition"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              )}
+
+              {/* Textarea */}
+              <textarea
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    handleSend()
+                  }
+                }}
+                placeholder="Ask about script, SEO, thumbnail, trends... (Shift + Enter for new line)"
+                rows={2}
+                className="w-full bg-transparent border-0 px-1 py-1 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed"
+              />
+
+              {/* Bottom Control Bar */}
+              <div className="flex items-center justify-between pt-1 border-t border-gray-200/60 dark:border-gray-700/50">
+                <div className="flex items-center gap-2">
+                  <CategorySelector value={currentSkill} onChange={(skill) => dispatch(setSelectedSkill(skill))} />
+                  <input ref={fileInputRef} type="file" accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.gif" onChange={handleFileSelect} className="hidden" />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs"
+                    title="Attach file (.pdf, .txt, .md, images)"
+                  >
+                    <Paperclip className="w-4 h-4" />
+                  </button>
+                  {voiceSupported && (
+                    <button
+                      onClick={handleVoiceToggle}
+                      className={cn('p-1.5 rounded-lg transition flex items-center text-xs', isListening ? 'text-red-500 bg-red-50 dark:bg-red-500/10 animate-pulse' : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50')}
+                      title="Voice dictation"
+                    >
+                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                    </button>
+                  )}
+                </div>
+
+                <div>
+                  {sending ? (
+                    <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20">
+                      <Square className="w-3.5 h-3.5" />
+                    </Button>
+                  ) : (
+                    <Button onClick={handleSend} disabled={!input.trim() && !selectedFile} size="icon" className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-indigo-500/25 transition-all">
+                      <Send className="w-4 h-4" />
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

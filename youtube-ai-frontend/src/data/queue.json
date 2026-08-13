@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "id": "q_001",
+      "videoId": "vid_012",
+      "videoTitle": "Lil Durk How The Feds Move To Bring Him Down",
+      "status": "queued",
+      "queuedAt": "2026-06-26T09:45:00Z"
+    },
+    {
+      "id": "q_002",
+      "videoId": "vid_007",
+      "videoTitle": "Karmelo Anthony's Prison Fight: Is A Release Finally Coming?",
+      "status": "queued",
+      "queuedAt": "2026-06-26T09:40:00Z"
+    },
+    {
+      "id": "q_003",
+      "videoId": "vid_027",
+      "videoTitle": "Rex Heuermann sentenced in Gilgo Beach serial killings To LIFE",
+      "status": "processing",
+      "queuedAt": "2026-06-26T09:35:00Z"
+    },
+    {
+      "id": "q_004",
+      "videoId": "vid_001",
+      "videoTitle": "Karmelo Anthony's First Days: The Harsh Truth",
+      "status": "done",
+      "queuedAt": "2026-06-26T09:20:00Z",
+      "processedAt": "2026-06-26T09:22:00Z"
+    },
+    {
+      "id": "q_005",
+      "videoId": "vid_028",
+      "videoTitle": "hiram carrero 19-Year-Old Set Man On Fire On NYC Subway",
+      "status": "done",
+      "queuedAt": "2026-06-26T08:00:00Z",
+      "processedAt": "2026-06-26T08:02:00Z"
+    }
+  ],
+  "dailyUsed": 47,
+  "dailyCap": 120,
+  "cronInterval": 5,
+  "isActive": true,
+  "nextCronAt": "2026-06-26T09:50:00Z"
+}

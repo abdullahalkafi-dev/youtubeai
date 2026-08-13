@@ -1,0 +1,149 @@
+[
+  {
+    "id": "thread_001",
+    "type": "video",
+    "title": "Lil Durk First Night Inside",
+    "category": "script",
+    "videoId": "vid_012",
+    "videoTitle": "Lil Durk How The Feds Move To Bring Him Down",
+    "videoThumbnail": "/thumbnails/vid_012.jpg",
+    "messages": [
+      {
+        "id": "msg_001",
+        "role": "assistant",
+        "content": "Thread created for: Lil Durk First Night Inside\n\nI'll help you build a complete video package — script, SEO, thumbnail concept. What would you like to start with?",
+        "createdAt": "2026-06-26T09:00:00Z",
+        "metadata": { "category": "script" }
+      },
+      {
+        "id": "msg_002",
+        "role": "user",
+        "content": "Write the full script for Lil Durk's first night inside federal holding",
+        "createdAt": "2026-06-26T09:01:00Z"
+      },
+      {
+        "id": "msg_003",
+        "role": "assistant",
+        "content": "Here's the script structure:\n\n1. COLD OPEN (30-45s)\nEverybody saw the arrest. But nobody saw what happened when that door closed behind him.\n\n2. WHAT HAPPENED (2-3 min)\nFederal agents picked up Lil Durk at his Atlanta residence. The charges: conspiracy to commit murder-for-hire. The evidence: wiretaps, text messages, and cooperation from co-defendants.\n\n3. UNIQUE MECCA BREAKDOWN (8-12 min)\nThe street code says you never fold. But the feds don't test your reputation — they test your breaking point. When you walk into federal holding, your name means nothing. Your rap sheet means everything.\n\n💎 JEWEL: The streets test your reputation. The feds test your breaking point.\n\nWant me to continue with sections 4-6?",
+        "createdAt": "2026-06-26T09:03:00Z",
+        "metadata": {
+          "category": "script",
+          "images": [
+            {
+              "id": "img_001",
+              "url": "https://placehold.co/800x450/1a1a2e/ffffff?text=FIRST+NIGHT+INSIDE",
+              "prompt": "Dark prison hallway with dramatic lighting, bold text overlay FIRST NIGHT INSIDE",
+              "createdAt": "2026-06-26T09:05:00Z"
+            },
+            {
+              "id": "img_002",
+              "url": "https://placehold.co/800x450/0f3460/ffffff?text=FEDERAL+HOLDING",
+              "prompt": "Federal holding cell concept, cold blue tones, dramatic shadows",
+              "createdAt": "2026-06-26T09:06:00Z"
+            }
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-06-26T09:00:00Z",
+    "updatedAt": "2026-06-26T09:03:00Z"
+  },
+  {
+    "id": "thread_002",
+    "type": "video",
+    "title": "Karmelo Anthony First Days",
+    "category": "seo",
+    "videoId": "vid_001",
+    "videoTitle": "Karmelo Anthony's First Days: The Harsh Truth About Texas Prison Intake",
+    "videoThumbnail": "/thumbnails/vid_001.jpg",
+    "messages": [
+      {
+        "id": "msg_004",
+        "role": "assistant",
+        "content": "Thread created for: Karmelo Anthony First Days\n\nI have full context on this video — 64K views, 8.2% CTR, 28 min avg watch time. What would you like to optimize?",
+        "createdAt": "2026-06-25T14:00:00Z",
+        "metadata": { "category": "seo" }
+      },
+      {
+        "id": "msg_005",
+        "role": "user",
+        "content": "Generate a better title and description",
+        "createdAt": "2026-06-25T14:01:00Z"
+      },
+      {
+        "id": "msg_006",
+        "role": "assistant",
+        "content": "Based on your channel data and what performs best:\n\n**Title:** Karmelo Anthony's First Night Inside: What REALLY Happens Behind Bars\n\n**Description:** What really happens during Karmelo Anthony's first 48 hours in Texas prison? Unique Mecca Audio — who spent 26 years in federal prison — breaks down the strip search, the uniform, the cell, the first count, and the psychological breakdown that nobody talks about. This is not news. This is lived experience.\n\n**Tags:** karmelo anthony prison, first night inside, prison intake reality, texas federal prison, prison psychology, unique mecca audio\n\nWant me to generate thumbnail concepts too?",
+        "createdAt": "2026-06-25T14:03:00Z",
+        "metadata": { "category": "seo" }
+      },
+      {
+        "id": "msg_007",
+        "role": "user",
+        "content": "Yes give me thumbnail ideas",
+        "createdAt": "2026-06-25T14:04:00Z"
+      },
+      {
+        "id": "msg_008",
+        "role": "assistant",
+        "content": "Here are 3 thumbnail concepts:\n\n1. **\"FIRST NIGHT INSIDE\"** — Dark background, prison bars silhouette, bold white text\n2. **\"WHAT REALLY HAPPENS\"** — Split image: courtroom vs prison cell, question mark overlay\n3. **\"26 YEARS EXPERIENCE\"** — Your face with serious expression, prison backdrop, authority badge\n\nBest performer for your channel: Option 1 — simple, bold, creates curiosity.",
+        "createdAt": "2026-06-25T14:06:00Z",
+        "metadata": {
+          "category": "thumbnail",
+          "images": [
+            {
+              "id": "img_003",
+              "url": "https://placehold.co/800x450/16213e/ffffff?text=FIRST+NIGHT+INSIDE",
+              "prompt": "Dark background, prison bars silhouette, bold white text FIRST NIGHT INSIDE",
+              "createdAt": "2026-06-25T14:07:00Z"
+            },
+            {
+              "id": "img_004",
+              "url": "https://placehold.co/800x450/1a1a2e/ffffff?text=WHAT+REALLY+HAPPENS",
+              "prompt": "Split image: courtroom vs prison cell, question mark overlay, dramatic lighting",
+              "createdAt": "2026-06-25T14:08:00Z"
+            },
+            {
+              "id": "img_005",
+              "url": "https://placehold.co/800x450/0f3460/ffffff?text=26+YEARS+EXPERIENCE",
+              "prompt": "Portrait style, serious expression, prison backdrop, authority badge, 26 years text",
+              "createdAt": "2026-06-25T14:09:00Z"
+            }
+          ]
+        }
+      }
+    ],
+    "createdAt": "2026-06-25T14:00:00Z",
+    "updatedAt": "2026-06-25T14:06:00Z"
+  },
+  {
+    "id": "thread_003",
+    "type": "standalone",
+    "title": "Pooh Shiesty vs Big 30 Research",
+    "category": "trends",
+    "messages": [
+      {
+        "id": "msg_009",
+        "role": "assistant",
+        "content": "New thread: Pooh Shiesty vs Big 30 Research\n\nWhat would you like to explore about this topic?",
+        "createdAt": "2026-06-24T11:00:00Z",
+        "metadata": { "category": "trends" }
+      },
+      {
+        "id": "msg_010",
+        "role": "user",
+        "content": "What's trending about Pooh Shiesty and Big 30 right now?",
+        "createdAt": "2026-06-24T11:01:00Z"
+      },
+      {
+        "id": "msg_011",
+        "role": "assistant",
+        "content": "Current trends:\n\n1. **Pooh Shiesty release rumors** — Social media buzzing about potential early release\n2. **Big 30 cooperation allegations** — New documents surfaced suggesting cooperation\n3. **Memphis street politics** — Both camps reportedly in tension\n\nSearch demand: MEDIUM\nEmotional pressure: HIGH\nYour authority: STRONG (26 years experience)\n\nScore: 8.7 GREENLIGHT\n\nWant me to build a script outline?",
+        "createdAt": "2026-06-24T11:03:00Z",
+        "metadata": { "category": "trends" }
+      }
+    ],
+    "createdAt": "2026-06-24T11:00:00Z",
+    "updatedAt": "2026-06-24T11:03:00Z"
+  }
+]

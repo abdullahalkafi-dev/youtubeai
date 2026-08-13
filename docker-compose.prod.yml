@@ -1,0 +1,111 @@
+services:
+  frontend:
+    build:
+      context: ./youtube-ai-frontend
+      target: production
+    ports:
+      - '3000:3000'
+    env_file:
+      - ./youtube-ai-frontend/.env.prod
+    environment:
+      - PORT=3000
+    depends_on:
+      - backend
+    restart: always
+
+  backend:
+    build:
+      context: ./youtube-ai-backend
+      target: production
+    ports:
+      - '5001:5001'
+    env_file:
+      - ./youtube-ai-backend/.env.prod
+    depends_on:
+      mongodb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      chromadb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      ollama:
+        condition: service_started
+    restart: always
+
+  mongodb:
+    image: mongo:7
+    ports:
+      - '27017:27017'
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ['CMD', 'mongosh', '--eval', 'db.adminCommand("ping")']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  chromadb:
+    image: chromadb/chroma:latest
+    ports:
+      - '8000:8000'
+    volumes:
+      - chroma_data:/chroma/chroma
+    healthcheck:
+      test: ['CMD-SHELL', 'curl -f http://localhost:8000/api/v1/heartbeat || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - '6379:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  minio:
+    image: minio/minio
+    ports:
+      - '9000:9000'
+      - '9001:9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio_data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: always
+
+  ollama:
+    image: ollama/ollama
+    ports:
+      - '11434:11434'
+    volumes:
+      - ollama_data:/root/.ollama
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+    restart: always
+
+volumes:
+  mongo_data:
+  chroma_data:
+  redis_data:
+  minio_data:
+  ollama_data:

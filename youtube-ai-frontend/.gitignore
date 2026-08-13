@@ -1,0 +1,33 @@
+# Frontend Dependencies & Build Output
+node_modules/
+.next/
+out/
+build/
+.pnp
+.pnp.*
+
+# Environment Files
+.env
+.env.local
+.env.prod
+.env.development
+.env.production
+.env*.local
+!.env.example
+!.env.prod.example
+
+# Testing & Logs
+coverage/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Typescript
+*.tsbuildinfo
+next-env.d.ts
+
+# OS Files
+.DS_Store
+Thumbs.db
