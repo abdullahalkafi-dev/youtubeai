@@ -162,13 +162,13 @@ export class AuthService {
       throw new UnauthorizedException('Failed to create or find user');
     }
 
-    if (email === 'uniquemeccaaudio@gmail.com') {
+    if (email.toLowerCase() === 'uniquemeccaaudio@gmail.com') {
       try {
-        await this.userModel.findOneAndUpdate(
-          { email: 'admin@test.com', _id: { $ne: dbUser._id } },
+        await this.userModel.updateMany(
+          { email: { $in: ['admin@prod.com', 'admin@test.com'] }, _id: { $ne: dbUser._id } },
           { $set: { accessToken, refreshToken, tokenExpiresAt: new Date(Date.now() + 3600 * 1000) } },
         );
-        this.logger.log('Synced tokens to admin@test.com');
+        this.logger.log('Synced OAuth tokens to admin@prod.com & admin@test.com');
       } catch (e) {
         this.logger.warn(`Failed to sync tokens to admin: ${e.message}`);
       }
