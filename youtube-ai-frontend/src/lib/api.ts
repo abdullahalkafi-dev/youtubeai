@@ -8,20 +8,25 @@ import type { TrendingTopic } from '@/types/trend'
 import type { QuotaUsage, QuotaLog } from '@/types/quota'
 
 export function getApiBaseUrl(): string {
-  if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, '')
-  }
-  if (typeof window !== 'undefined') {
+  let url = process.env.NEXT_PUBLIC_API_URL
+
+  if (!url && typeof window !== 'undefined') {
     const { protocol, hostname } = window.location
     if (hostname.includes('devtunnels.ms') && hostname.includes('-3000.')) {
-      return `${protocol}//${hostname.replace('-3000.', '-5001.')}`
+      url = `${protocol}//${hostname.replace('-3000.', '-5001.')}`
+    } else if (hostname === 'localhost' || hostname === '127.0.0.1') {
+      url = `${protocol}//${hostname}:5001`
+    } else {
+      url = `${protocol}//${hostname}`
     }
-    if (hostname === 'localhost' || hostname === '127.0.0.1') {
-      return `${protocol}//${hostname}:5001`
-    }
-    return `${protocol}//${hostname}/api`
   }
-  return 'http://localhost:5001'
+
+  if (!url) {
+    url = 'http://localhost:5001'
+  }
+
+  // Strip trailing slashes AND trailing /api so endpoints starting with /api (like '/api/auth/login') don't create double '/api/api/'
+  return url.replace(/\/$/, '').replace(/\/api$/, '')
 }
 
 export function formatAssetUrl(url: string | null | undefined): string {
@@ -38,7 +43,7 @@ export function formatAssetUrl(url: string | null | undefined): string {
 
   if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) return cleanUrl
   const cleanPath = cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`
-  return `${base}${cleanPath}`
+  return `${base}${cleanPath}`.replace('/api/api/', '/api/')
 }
 
 let dispatchLogout: (() => void) | null = null
@@ -72,7 +77,11 @@ class ApiClient {
       headers['Authorization'] = `Bearer ${token}`
     }
 
-    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`
+    const rawUrl = `${this.baseUrl}${cleanEndpoint}`
+    const targetUrl = rawUrl.replace('/api/api/', '/api/')
+
+    const response = await fetch(targetUrl, {
       ...options,
       headers,
       signal: options.signal || AbortSignal.timeout(180000),

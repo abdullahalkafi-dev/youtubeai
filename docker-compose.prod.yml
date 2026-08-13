@@ -4,7 +4,7 @@ services:
       context: ./youtube-ai-frontend
       target: production
       args:
-        NEXT_PUBLIC_API_URL: https://meccaaudio.com/api
+        NEXT_PUBLIC_API_URL: https://meccaaudio.com
     ports:
       - '3000:3000'
     env_file:
