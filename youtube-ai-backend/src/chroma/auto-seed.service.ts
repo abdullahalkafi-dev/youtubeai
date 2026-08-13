@@ -1,4 +1,4 @@
-import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChromaService } from './chroma.service';
 
@@ -150,7 +150,7 @@ const BOOK_PASSAGES = [
 ];
 
 @Injectable()
-export class AutoSeedService implements OnModuleInit {
+export class AutoSeedService implements OnApplicationBootstrap {
   private readonly logger = new Logger(AutoSeedService.name);
 
   constructor(
@@ -158,9 +158,9 @@ export class AutoSeedService implements OnModuleInit {
     private readonly configService: ConfigService,
   ) {}
 
-  async onModuleInit() {
-    // Run async seed worker after module initialization to avoid blocking NestJS startup
-    setImmediate(() => this.runAutoSeed());
+  async onApplicationBootstrap() {
+    // Run async seed worker after application bootstrap to ensure ChromaDB collections are created
+    setTimeout(() => this.runAutoSeed(), 3000);
   }
 
   private async ensureOllamaModel(ollamaUrl: string): Promise<boolean> {
