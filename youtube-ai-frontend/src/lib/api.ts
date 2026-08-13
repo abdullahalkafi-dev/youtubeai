@@ -19,6 +19,7 @@ export function getApiBaseUrl(): string {
     if (hostname === 'localhost' || hostname === '127.0.0.1') {
       return `${protocol}//${hostname}:5001`
     }
+    return `${protocol}//${hostname}/api`
   }
   return 'http://localhost:5001'
 }

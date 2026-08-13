@@ -69,7 +69,7 @@ services:
     volumes:
       - chroma_data:/chroma/chroma
     healthcheck:
-      test: ['CMD-SHELL', 'curl -f http://localhost:8000/api/v1/heartbeat || exit 1']
+      test: ["CMD-SHELL", "perl -MIO::Socket::INET -e '$s=IO::Socket::INET->new(\"127.0.0.1:8000\") or exit 1'"]
       interval: 10s
       timeout: 5s
       retries: 5

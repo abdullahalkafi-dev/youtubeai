@@ -27,4 +27,4 @@ COPY --from=base /app/src/assets ./src/assets
 
 EXPOSE 5001
 
-CMD ["node", "dist/src/main"]
+CMD ["node", "dist/main"]
