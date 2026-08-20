@@ -25,32 +25,76 @@ class OllamaEmbeddingFunction implements IEmbeddingFunction {
   private readonly url: string;
   private readonly model: string;
   private readonly logger = new Logger('OllamaEmbeddingFunction');
+  private readonly batchChunkSize: number = 20;
 
   constructor(url: string, model: string = 'nomic-embed-text') {
     this.url = url;
     this.model = model;
   }
 
-  async generate(texts: string[]): Promise<number[][]> {
-    const embeddings: number[][] = [];
-    for (const text of texts) {
-      try {
-        const res = await fetch(`${this.url}/api/embeddings`, {
+  private async fetchEmbedChunk(chunk: string[], attempt: number = 1): Promise<number[][]> {
+    try {
+      // 1. Try modern batch /api/embed endpoint
+      const res = await fetch(`${this.url}/api/embed`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model: this.model, input: chunk }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        if (data && Array.isArray(data.embeddings) && data.embeddings.length === chunk.length) {
+          return data.embeddings;
+        }
+      }
+
+      // 2. Fallback to /api/embeddings per item if /api/embed is not available
+      const singleEmbeddings: number[][] = [];
+      for (const text of chunk) {
+        const singleRes = await fetch(`${this.url}/api/embeddings`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ model: this.model, prompt: text }),
         });
-        const data = await res.json();
-        if (!data || !Array.isArray(data.embedding)) {
+        if (!singleRes.ok) {
+          const errData = await singleRes.json().catch(() => ({}));
+          throw new Error(errData?.error || `HTTP ${singleRes.status}: ${singleRes.statusText}`);
+        }
+        const singleData = await singleRes.json();
+        if (!singleData || !Array.isArray(singleData.embedding)) {
           throw new Error('Invalid embedding response format from Ollama');
         }
-        embeddings.push(data.embedding);
+        singleEmbeddings.push(singleData.embedding);
+      }
+      return singleEmbeddings;
+    } catch (error) {
+      if (attempt < 3) {
+        const delay = attempt * 1000;
+        this.logger.warn(`Embedding request failed (attempt ${attempt}/3). Retrying in ${delay}ms... Error: ${error.message}`);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        return this.fetchEmbedChunk(chunk, attempt + 1);
+      }
+      throw error;
+    }
+  }
+
+  async generate(texts: string[]): Promise<number[][]> {
+    if (!texts || texts.length === 0) return [];
+    const embeddings: number[][] = [];
+
+    // Process in chunks of 20 to avoid overloading Ollama CPU queue
+    for (let i = 0; i < texts.length; i += this.batchChunkSize) {
+      const chunk = texts.slice(i, i + this.batchChunkSize);
+      try {
+        const chunkEmbeddings = await this.fetchEmbedChunk(chunk);
+        embeddings.push(...chunkEmbeddings);
       } catch (error) {
-        const snippet = typeof text === 'string' ? text.substring(0, 50) : '';
-        this.logger.error(`Ollama embedding failed for text snippet "${snippet}...": ${error.message}`);
+        const sample = chunk[0]?.substring(0, 50) || '';
+        this.logger.error(`Ollama embedding batch failed for snippet "${sample}...": ${error.message}`);
         throw error;
       }
     }
+
     return embeddings;
   }
 }

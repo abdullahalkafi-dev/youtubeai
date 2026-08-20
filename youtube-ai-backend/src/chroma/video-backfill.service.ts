@@ -4,7 +4,7 @@ import { Model } from 'mongoose';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { ChromaService } from './chroma.service';
 
-const BATCH_SIZE = 100;
+const BATCH_SIZE = 25;
 
 /**
  * Auto-backfills video_metadata in ChromaDB on first startup.
@@ -21,10 +21,12 @@ export class VideoBackfillService implements OnApplicationBootstrap {
   ) {}
 
   async onApplicationBootstrap() {
-    // Run in background — don't block app startup
-    this.backfillIfNeeded().catch((err) => {
-      this.logger.error(`Video metadata backfill failed: ${err.message}`);
-    });
+    // Run in background with a slight delay to allow Ollama model checks to settle
+    setTimeout(() => {
+      this.backfillIfNeeded().catch((err) => {
+        this.logger.error(`Video metadata backfill failed: ${err.message}`);
+      });
+    }, 6000);
   }
 
   private async backfillIfNeeded(): Promise<void> {

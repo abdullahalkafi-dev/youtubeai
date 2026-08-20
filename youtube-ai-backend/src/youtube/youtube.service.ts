@@ -1,5 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { google, youtube_v3 } from 'googleapis';
+import { Readable } from 'stream';
+import sharp from 'sharp';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { User, UserDocument } from '../mongo/schemas/user.schema';
@@ -249,6 +251,39 @@ export class YouTubeService {
     if (!currentSnippet) throw new Error('Video not found on YouTube');
     await retryWithBackoff(() => youtube.videos.update({ part: ['snippet'], requestBody: { id: videoId, snippet: { ...currentSnippet, title, description, tags: sanitizedTags } } }), { operationName: 'YouTube Update Video' });
     return { success: true };
+  }
+
+  async setThumbnail(accessToken: string, videoId: string, imageBuffer: Buffer): Promise<{ success: boolean; url?: string | null }> {
+    const youtube = this.getClient(accessToken);
+
+    // Normalize to standard YouTube 1280x720 JPEG under 2MB
+    let uploadBuffer: Buffer;
+    let mimeType = 'image/jpeg';
+    try {
+      uploadBuffer = await sharp(imageBuffer)
+        .resize(1280, 720, { fit: 'cover', position: 'center' })
+        .jpeg({ quality: 92, mozjpeg: true })
+        .toBuffer();
+      this.logger.log(`Optimized thumbnail for YouTube upload: ${(uploadBuffer.length / 1024).toFixed(1)} KB`);
+    } catch (err: any) {
+      this.logger.warn(`Sharp thumbnail optimization failed (${err.message}), uploading raw buffer`);
+      uploadBuffer = imageBuffer;
+      mimeType = 'image/png';
+    }
+
+    const response = await retryWithBackoff(
+      () =>
+        youtube.thumbnails.set({
+          videoId,
+          media: {
+            mimeType,
+            body: Readable.from(uploadBuffer),
+          },
+        }),
+      { operationName: 'YouTube Set Thumbnail' },
+    );
+    const newUrl = response.data.items?.[0]?.maxres?.url || response.data.items?.[0]?.high?.url || response.data.items?.[0]?.default?.url;
+    return { success: true, url: newUrl ?? null };
   }
 
   /**

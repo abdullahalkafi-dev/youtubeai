@@ -107,12 +107,15 @@ services:
     image: ollama/ollama
     ports:
       - '11434:11434'
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_PARALLEL=2
     volumes:
       - ollama_data:/root/.ollama
     deploy:
       resources:
         limits:
-          memory: 2G
+          memory: 4G
 
 volumes:
   mongo_data:

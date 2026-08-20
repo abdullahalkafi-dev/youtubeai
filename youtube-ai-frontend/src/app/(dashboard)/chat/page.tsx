@@ -170,15 +170,42 @@ export default function ChatPage() {
 
   const handleSetThumbnail = async (image: ChatImage) => {
     if (!activeThread?.videoId) { toast.error('No video linked to this thread'); return }
-    try { await api.setVideoThumbnail(activeThread.videoId, image.url); toast.success('Thumbnail set!') }
-    catch (err: any) { toast.error(err.message || 'Failed') }
+    const toastId = toast.loading('Uploading thumbnail to YouTube...')
+    try {
+      await api.setVideoThumbnail(activeThread.videoId, image.url)
+      toast.success('Thumbnail set & uploaded to YouTube!', { id: toastId })
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to upload thumbnail to YouTube', { id: toastId })
+    }
   }
 
-  const handleDownload = (image: ChatImage) => {
-    const link = document.createElement('a')
-    link.href = image.url; link.download = `thumbnail_${Date.now()}.png`; link.target = '_blank'
-    document.body.appendChild(link); link.click(); document.body.removeChild(link)
-    toast.success('Download started')
+  const handleDownload = async (image: ChatImage) => {
+    const assetUrl = formatAssetUrl(image.url)
+    const toastId = toast.loading('Downloading thumbnail...')
+    try {
+      const res = await fetch(assetUrl)
+      if (!res.ok) throw new Error('Failed to fetch image')
+      const blob = await res.blob()
+      const blobUrl = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = blobUrl
+      link.download = `thumbnail_${Date.now()}.png`
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(blobUrl)
+      toast.success('Thumbnail downloaded!', { id: toastId })
+    } catch {
+      // Fallback direct link
+      const link = document.createElement('a')
+      link.href = assetUrl
+      link.download = `thumbnail_${Date.now()}.png`
+      link.target = '_blank'
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      toast.success('Download started', { id: toastId })
+    }
   }
 
   const handleVoiceToggle = () => { isListening ? stopListening() : startListening() }
@@ -363,7 +390,7 @@ export default function ChatPage() {
                       {msg.metadata?.attachments?.map((att, idx) => (
                         <div key={idx} className="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           {att.type === 'image' ? (
-                            <img src={att.url} alt={att.filename} className="max-w-xs rounded" />
+                            <img src={formatAssetUrl(att.url)} alt={att.filename} className="max-w-xs rounded" />
                           ) : (
                             <div className="flex items-center gap-2 text-xs text-gray-500">
                               <Paperclip className="w-3 h-3" />

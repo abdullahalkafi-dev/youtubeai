@@ -13,7 +13,7 @@ import { VideosService } from './videos.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChannelOwnershipGuard } from '../common/guards/channel-ownership.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
-import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
+import { VideoQueryDto, UpdateVideoDto, SetThumbnailDto } from './dto/video-query.dto';
 
 @Controller()
 @UseGuards(JwtAuthGuard, ChannelOwnershipGuard)
@@ -56,6 +56,15 @@ export class VideosController {
   @Post('videos/:id/push-to-youtube')
   pushToYoutube(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.videosService.pushToYoutube(id, userId);
+  }
+
+  @Post('videos/:id/thumbnail')
+  setThumbnail(
+    @Param('id') id: string,
+    @Body() dto: SetThumbnailDto,
+    @CurrentUser('id') userId: string,
+  ) {
+    return this.videosService.setThumbnail(id, dto.thumbnailUrl, userId);
   }
 
   @Patch('videos/:id')

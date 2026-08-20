@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useAppSelector } from '@/store/hooks'
-import api from '@/lib/api'
+import api, { formatAssetUrl } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { RefreshCw, TrendingUp, Eye, ArrowRight } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -93,7 +93,7 @@ export default function RevivalPage() {
                   {/* Thumbnail */}
                   {video.thumbnailUrl && (
                     <img
-                      src={video.thumbnailUrl}
+                      src={formatAssetUrl(video.thumbnailUrl)}
                       alt=""
                       className="w-24 h-14 object-cover rounded-md flex-shrink-0"
                     />

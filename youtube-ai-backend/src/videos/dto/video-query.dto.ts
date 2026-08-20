@@ -1,4 +1,4 @@
-import { IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { IsOptional, IsString, IsInt, Min, Max, IsArray } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class VideoQueryDto {
@@ -29,11 +29,38 @@ export class VideoQueryDto {
 }
 
 export class UpdateVideoDto {
+  @IsOptional()
+  @IsString()
   title?: string;
+
+  @IsOptional()
+  @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
   tags?: string[];
+
+  @IsOptional()
+  @IsString()
   seoStatus?: string;
+
+  @IsOptional()
+  @IsString()
   showType?: string;
+
+  @IsOptional()
+  @IsString()
   status?: string;
+
+  @IsOptional()
+  @IsString()
   thumbnailUrl?: string;
 }
+
+export class SetThumbnailDto {
+  @IsString()
+  thumbnailUrl: string;
+}
+

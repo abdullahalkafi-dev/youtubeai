@@ -36,9 +36,11 @@ export function formatAssetUrl(url: string | null | undefined): string {
   // Clean double bucket prefixes if present in legacy URLs (e.g. /thumbnails/thumbnails/...)
   let cleanUrl = url.replace(/\/thumbnails\/thumbnails\//g, '/thumbnails/')
 
-  // Convert direct localhost MinIO URLs to backend proxy route when on remote devtunnels
-  if (cleanUrl.includes('localhost:9000/thumbnails/') || cleanUrl.includes('localhost:9005/thumbnails/')) {
-    cleanUrl = cleanUrl.replace(/^http:\/\/localhost:900[05]\/thumbnails\//, '/api/assets/minio/')
+  // Convert direct localhost/minio URLs to backend proxy route
+  if (cleanUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1|minio)(?::900[0-9])?\/thumbnails\//i)) {
+    cleanUrl = cleanUrl.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1|minio)(?::900[0-9])?\/thumbnails\//i, '/api/assets/minio/')
+  } else if (cleanUrl.includes(':9000/thumbnails/') || cleanUrl.includes(':9005/thumbnails/')) {
+    cleanUrl = cleanUrl.replace(/^https?:\/\/[^/]+:(?:9000|9005)\/thumbnails\//i, '/api/assets/minio/')
   }
 
   if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) return cleanUrl
@@ -202,7 +204,7 @@ class ApiClient {
   }
 
   async setVideoThumbnail(videoId: string, thumbnailUrl: string) {
-    return this.patch<Video>(`/api/videos/${videoId}`, { thumbnailUrl })
+    return this.post<Video>(`/api/videos/${videoId}/thumbnail`, { thumbnailUrl })
   }
 
   async getDriftedVideos(channelId: string) {
