@@ -6,6 +6,7 @@ import { SeoVersion, SeoVersionDocument } from '../mongo/schemas/seo-version.sch
 import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { ChromaService } from '../chroma/chroma.service';
+import { MinioService } from '../minio/minio.service';
 import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 
@@ -19,6 +20,7 @@ export class VideosService {
     private readonly youtubeAnalyticsService: YoutubeAnalyticsService,
     private readonly youtubeService: YouTubeService,
     private readonly chromaService: ChromaService,
+    private readonly minioService: MinioService,
   ) {}
 
   async findAll(channelId: string, query: VideoQueryDto) {
@@ -35,9 +37,12 @@ export class VideosService {
     // Handle deleted video filter and SEO status filter
     if (status === 'deleted') {
       filter.deletedFromYoutube = true;
+    } else if (status === 'not_started') {
+      filter.seoStatus = { $in: ['not_started', null] };
+      filter.deletedFromYoutube = { $ne: true };
     } else if (status && status !== 'all') {
       // SEO status values filter on seoStatus field, not status field
-      if (['optimized', 'pending', 'processing', 'not_started', 'approved'].includes(status)) {
+      if (['optimized', 'pending', 'processing', 'approved'].includes(status)) {
         filter.seoStatus = status;
       } else {
         filter.status = status;
@@ -254,6 +259,18 @@ export class VideosService {
     const accessToken = await this.youtubeService.getValidAccessToken(userId);
     try {
       await this.youtubeService.updateVideo(accessToken, video.youtubeId, video.title, video.description || '', video.tags || []);
+
+      // Also upload custom thumbnail if set and not already a standard YouTube CDN URL
+      if (video.thumbnailUrl && !video.thumbnailUrl.includes('ytimg.com')) {
+        try {
+          const imageBuffer = await this.getImageBuffer(video.thumbnailUrl);
+          await this.youtubeService.setThumbnail(accessToken, video.youtubeId, imageBuffer);
+          this.logger.log(`Uploaded custom thumbnail to YouTube for ${video.youtubeId}`);
+        } catch (e: any) {
+          this.logger.warn(`Could not push thumbnail to YouTube for ${video.youtubeId}: ${e.message}`);
+        }
+      }
+
       // Update youtubeTitle to match — only after successful push
       await this.videoModel.findByIdAndUpdate(video._id, {
         $set: {
@@ -274,5 +291,83 @@ export class VideosService {
     }
 
     return this.videoModel.findById(video._id).lean();
+  }
+
+  async setThumbnail(id: string, thumbnailUrl: string, userId: string) {
+    const video = await this.videoModel.findById(new Types.ObjectId(id));
+    if (!video) throw new NotFoundException(`Video ${id} not found`);
+
+    let youtubeUploaded = false;
+    let youtubeThumbnailUrl: string | null | undefined;
+
+    // 1. Fetch image buffer from MinIO / URL
+    const imageBuffer = await this.getImageBuffer(thumbnailUrl);
+
+    // 2. If video is synced from YouTube and not deleted, upload directly to YouTube Data API
+    if (video.youtubeId && !video.deletedFromYoutube) {
+      try {
+        const accessToken = await this.youtubeService.getValidAccessToken(userId);
+        const result = await this.youtubeService.setThumbnail(accessToken, video.youtubeId, imageBuffer);
+        youtubeUploaded = true;
+        youtubeThumbnailUrl = result.url;
+        this.logger.log(`✅ Successfully uploaded thumbnail to YouTube video ${video.youtubeId}`);
+      } catch (error: any) {
+        this.logger.error(`❌ Failed to upload thumbnail to YouTube for video ${video.youtubeId}: ${error.message}`);
+        throw new Error(`Failed to upload thumbnail to YouTube: ${error.message}`);
+      }
+    }
+
+    // 3. Update MongoDB video record
+    const updated = await this.videoModel.findByIdAndUpdate(
+      new Types.ObjectId(id),
+      { $set: { thumbnailUrl } },
+      { new: true },
+    ).lean();
+
+    return {
+      ...leanDoc(updated),
+      youtubeUploaded,
+      youtubeThumbnailUrl,
+    };
+  }
+
+  private async getImageBuffer(url: string): Promise<Buffer> {
+    if (!url) throw new Error('Thumbnail URL is required');
+
+    if (url.startsWith('data:')) {
+      const base64Data = url.split(',')[1];
+      return Buffer.from(base64Data, 'base64');
+    }
+
+    // Try extracting key from MinIO URLs
+    const minioPatterns = ['/thumbnails/', '/api/assets/minio/'];
+    for (const pattern of minioPatterns) {
+      if (url.includes(pattern)) {
+        const key = url.split(pattern)[1]?.split('?')[0];
+        if (key) {
+          try {
+            const stream = await this.minioService.getFileStream(key);
+            const chunks: Buffer[] = [];
+            for await (const chunk of stream) {
+              chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+            }
+            if (chunks.length > 0) {
+              return Buffer.concat(chunks);
+            }
+          } catch (e) {
+            this.logger.warn(`Failed to read from MinIO directly: ${e.message}`);
+          }
+        }
+      }
+    }
+
+    // Direct HTTP fetch (support localhost or remote)
+    const fetchUrl = url.startsWith('/') ? `http://localhost:5001${url}` : url;
+    const response = await fetch(fetchUrl);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch thumbnail image (${response.statusText})`);
+    }
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
   }
 }

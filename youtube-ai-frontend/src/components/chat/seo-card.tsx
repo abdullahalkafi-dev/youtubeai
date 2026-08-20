@@ -5,6 +5,7 @@ import { Copy, Check, Tag, Hash } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import type { SeoContent } from '@/lib/content-detector'
+import { FormattedDescription } from '@/components/shared/formatted-description'
 
 interface SeoCardProps {
   content: SeoContent
@@ -62,7 +63,7 @@ export function SeoCard({ content }: SeoCardProps) {
           </button>
         </div>
         <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 rounded-xl p-3.5">
-          <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">{content.description}</p>
+          <FormattedDescription text={content.description} className="text-xs text-gray-700 dark:text-gray-300" />
         </div>
       </div>
 

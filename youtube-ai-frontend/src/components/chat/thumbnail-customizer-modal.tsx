@@ -46,7 +46,7 @@ export function ThumbnailCustomizerModal({
   const [logoAssets, setLogoAssets] = useState<LogoAsset[]>([])
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [selectedHostImage, setSelectedHostImage] = useState<string>('host_1.png')
-  const [logoPosition, setLogoPosition] = useState<'top-left' | 'top-right' | 'none'>('top-left')
+  const [logoPosition, setLogoPosition] = useState<'top-left' | 'top-right' | 'none'>('top-right')
   const [textOverlay, setTextOverlay] = useState<string>(defaultText)
   const [isGenerating, setIsGenerating] = useState(false)
 
@@ -214,8 +214,8 @@ export function ThumbnailCustomizerModal({
 
             <div className="grid grid-cols-3 gap-3">
               {[
-                { id: 'top-left', label: 'Top-Left (Default)', desc: 'Official placement' },
-                { id: 'top-right', label: 'Top-Right', desc: 'Alternate placement' },
+                { id: 'top-right', label: 'Top-Right (Default)', desc: 'Official placement' },
+                { id: 'top-left', label: 'Top-Left', desc: 'Alternate placement' },
                 { id: 'none', label: 'No Logo', desc: 'Omit brand logo' },
               ].map((opt) => {
                 const isSelected = logoPosition === opt.id

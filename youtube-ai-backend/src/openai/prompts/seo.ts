@@ -70,7 +70,7 @@ The description string MUST include ALL of the following sections in exact order
 
 6. Series Block (ONLY IF related series videos are explicitly provided in the user prompt):
    📺 PREVIOUS EPISODES IN THIS SERIES:
-   - Part 1: [Title of Part 1]
+   - Part 1: [Exact Title of Part 1] ➡️ https://youtu.be/[ID]
    (If NO related series videos are provided, DO NOT include any series section at all!).
 
 7. Engagement Question & Channel CTAs:
@@ -115,6 +115,7 @@ export function buildSeoPrompt(params: {
     title: string;
     views?: number;
     publishedDaysAgo?: number;
+    youtubeId?: string;
   }>;
 }): { system: string; user: string } {
   const userParts: string[] = [];
@@ -159,9 +160,10 @@ export function buildSeoPrompt(params: {
     userParts.push(`SERIES CONTEXT — PREVIOUS VIDEOS ON THIS EXACT SAME SPECIFIC CASE/PERSON ON YOUR CHANNEL:`);
     params.relatedSeriesVideos.forEach((v, i) => {
       const viewsStr = v.views !== undefined ? ` — ${v.views.toLocaleString()} views` : '';
-      userParts.push(`${i + 1}. "${v.title}"${viewsStr}`);
+      const urlStr = v.youtubeId ? ` (Link: https://youtu.be/${v.youtubeId})` : '';
+      userParts.push(`${i + 1}. "${v.title}"${viewsStr}${urlStr}`);
     });
-    userParts.push(`INSTRUCTION: This video is a continuation of the exact same case/person. Reference these specific previous episode titles in the description under "📺 PREVIOUS EPISODES IN THIS SERIES:" and add a shared series tag.`);
+    userParts.push(`INSTRUCTION: This video is a continuation of the exact same case/person. Reference these specific previous episode titles in the description under "📺 PREVIOUS EPISODES IN THIS SERIES:" along with their direct YouTube URL hyperlink (e.g. - Part 1: [Title] ➡️ https://youtu.be/[ID]) so viewers can directly click through to watch previous parts, and add a shared series tag.`);
   } else {
     userParts.push('');
     userParts.push(`NO PREVIOUS SERIES VIDEOS FOUND FOR THIS TOPIC. DO NOT INCLUDE ANY "PREVIOUS EPISODES IN THIS SERIES" SECTION.`);

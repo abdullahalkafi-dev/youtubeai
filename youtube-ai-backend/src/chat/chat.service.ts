@@ -781,7 +781,7 @@ export class ChatService {
       videoTitle: videoContextTitle,
       showType: resolvedShowType,
       selectedHostImage: dto.selectedHostImage || 'host_1.png',
-      logoPosition: dto.logoPosition || 'top-left',
+      logoPosition: dto.logoPosition || 'top-right',
       customLayoutInstructions: dto.customLayoutInstructions,
       excludeLogo,
     });
@@ -794,7 +794,7 @@ export class ChatService {
       textOverlay: dto.text || '',
       visualDescription: dto.visual || '',
       selectedHostImage: dto.selectedHostImage || 'host_1.png',
-      logoPosition: dto.logoPosition || 'top-left',
+      logoPosition: dto.logoPosition || 'top-right',
       createdAt: new Date(),
     };
 

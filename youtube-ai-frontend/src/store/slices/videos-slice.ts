@@ -49,8 +49,12 @@ const videosSlice = createSlice({
       state.filters = { ...state.filters, ...action.payload }
       state.pagination.page = 1
     },
-    setPage(state, action) {
+    setPage(state, action: PayloadAction<number>) {
       state.pagination.page = action.payload
+    },
+    setLimit(state, action: PayloadAction<number>) {
+      state.pagination.limit = action.payload
+      state.pagination.page = 1
     },
     clearSelectedVideo(state) {
       state.selectedVideo = null
@@ -87,5 +91,5 @@ const videosSlice = createSlice({
   },
 })
 
-export const { setFilters, setPage, clearSelectedVideo, updateSelectedVideo } = videosSlice.actions
+export const { setFilters, setPage, setLimit, clearSelectedVideo, updateSelectedVideo } = videosSlice.actions
 export default videosSlice.reducer

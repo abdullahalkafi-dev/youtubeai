@@ -6,13 +6,13 @@ import { useEffect, useRef, useCallback, useState } from 'react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { createThread } from '@/store/slices/chat-slice'
 import { generateSeo } from '@/store/slices/seo-slice'
-import { fetchVideos } from '@/store/slices/videos-slice'
+import { fetchVideos, setLimit } from '@/store/slices/videos-slice'
 import { Badge } from '@/components/ui/badge'
 import { formatNumber, formatDate } from '@/lib/utils'
 import { SEO_STATUS } from '@/lib/constants'
-import { Play, Sparkles, MessageSquare, ExternalLink, ArrowDown, ArrowUp, Loader2 } from 'lucide-react'
+import { Play, Sparkles, MessageSquare, ExternalLink, ArrowDown, ArrowUp, Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { toast } from 'sonner'
-import api from '@/lib/api'
+import api, { formatAssetUrl } from '@/lib/api'
 
 export function VideoTable() {
   const router = useRouter()
@@ -91,13 +91,39 @@ export function VideoTable() {
     dispatch(fetchVideos({ channelId, page, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
   }, [channelId, dispatch, pagination.limit, filters.search, filters.status, filters.sort])
 
-  const pageNumbers = []
-  const maxPages = Math.min(pagination.totalPages, 5)
-  const startPage = Math.max(1, pagination.page - 2)
-  const endPage = Math.min(pagination.totalPages, startPage + maxPages - 1)
-  for (let i = startPage; i <= endPage; i++) {
-    pageNumbers.push(i)
+  const handleLimitChange = useCallback((newLimit: number) => {
+    if (!channelId) return
+    dispatch(setLimit(newLimit))
+    dispatch(fetchVideos({ channelId, page: 1, limit: newLimit, search: filters.search, status: filters.status, sort: filters.sort }))
+  }, [channelId, dispatch, filters.search, filters.status, filters.sort])
+
+  const getPageItems = (current: number, total: number) => {
+    if (total <= 7) {
+      return Array.from({ length: total }, (_, i) => i + 1)
+    }
+    const pages: (number | 'ellipsis')[] = []
+    if (current <= 4) {
+      for (let i = 1; i <= 5; i++) pages.push(i)
+      pages.push('ellipsis')
+      pages.push(total)
+    } else if (current >= total - 3) {
+      pages.push(1)
+      pages.push('ellipsis')
+      for (let i = total - 4; i <= total; i++) pages.push(i)
+    } else {
+      pages.push(1)
+      pages.push('ellipsis')
+      pages.push(current - 1)
+      pages.push(current)
+      pages.push(current + 1)
+      pages.push('ellipsis')
+      pages.push(total)
+    }
+    return pages
   }
+
+  const fromItem = pagination.total === 0 ? 0 : (pagination.page - 1) * pagination.limit + 1
+  const toItem = Math.min(pagination.page * pagination.limit, pagination.total)
 
   return (
     <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden">
@@ -122,7 +148,7 @@ export function VideoTable() {
                     <Link href={`/videos/${video.id}`} className="flex items-center gap-3">
                       <div className="w-16 h-10 bg-gray-100 dark:bg-gray-800 rounded-lg shrink-0 overflow-hidden flex items-center justify-center">
                         {video.thumbnailUrl ? (
-                          <img src={video.thumbnailUrl} alt="" className="w-full h-full object-cover" />
+                          <img src={formatAssetUrl(video.thumbnailUrl)} alt="" className="w-full h-full object-cover" />
                         ) : (
                           <Play className="w-5 h-5 text-gray-400" />
                         )}
@@ -228,36 +254,93 @@ export function VideoTable() {
           </tbody>
         </table>
       </div>
-      <div className="px-5 py-3 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between bg-gray-50/50 dark:bg-gray-800/20">
-        <p className="text-xs text-gray-400">Showing {videos.length} of {formatNumber(pagination.total)} videos</p>
+      <div className="px-5 py-3.5 border-t border-gray-100 dark:border-gray-800 flex flex-col sm:flex-row items-center justify-between gap-3 bg-gray-50/50 dark:bg-gray-800/20">
+        {/* Summary & Per Page Selector */}
+        <div className="flex flex-wrap items-center gap-3 text-xs text-gray-500 dark:text-gray-400">
+          <span>
+            Showing <strong className="text-gray-900 dark:text-white font-semibold">{fromItem}–{toItem}</strong> of <strong className="text-gray-900 dark:text-white font-semibold">{formatNumber(pagination.total)}</strong> videos
+          </span>
+          <div className="flex items-center gap-1.5 sm:border-l sm:border-gray-200 sm:dark:border-gray-700 sm:pl-3">
+            <span className="text-gray-400 text-xs">Per page:</span>
+            <select
+              value={pagination.limit}
+              onChange={(e) => handleLimitChange(Number(e.target.value))}
+              className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-semibold text-gray-700 dark:text-gray-200 px-2 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
+            >
+              <option value={10}>10</option>
+              <option value={20}>20</option>
+              <option value={50}>50</option>
+              <option value={100}>100</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Page Navigation */}
         {pagination.totalPages > 1 && (
           <div className="flex items-center gap-1">
+            {/* First Page */}
+            <button
+              onClick={() => handlePageChange(1)}
+              disabled={pagination.page <= 1}
+              className="p-1.5 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+              title="First Page"
+            >
+              <ChevronsLeft className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Previous Page */}
             <button
               onClick={() => handlePageChange(pagination.page - 1)}
               disabled={pagination.page <= 1}
-              className="px-2.5 py-1 text-xs text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:text-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-1.5 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+              title="Previous Page"
             >
-              &larr;
+              <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            {pageNumbers.map(page => (
-              <button
-                key={page}
-                onClick={() => handlePageChange(page)}
-                className={`px-2.5 py-1 text-xs rounded-lg font-bold shadow-sm ${
-                  page === pagination.page
-                    ? 'text-white bg-indigo-500'
-                    : 'text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:text-gray-600'
-                } transition`}
-              >
-                {page}
-              </button>
-            ))}
+
+            {/* Numbered Page Buttons with Ellipses */}
+            {getPageItems(pagination.page, pagination.totalPages).map((item, idx) => {
+              if (item === 'ellipsis') {
+                return (
+                  <span key={`ellipsis-${idx}`} className="px-1.5 py-1 text-xs text-gray-400 select-none">
+                    ...
+                  </span>
+                )
+              }
+              const isCurrent = item === pagination.page
+              return (
+                <button
+                  key={item}
+                  onClick={() => handlePageChange(item)}
+                  className={`min-w-[28px] h-7 px-2 text-xs rounded-lg font-bold transition shadow-sm flex items-center justify-center ${
+                    isCurrent
+                      ? 'text-white bg-indigo-600 shadow-indigo-500/20'
+                      : 'text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white'
+                  }`}
+                >
+                  {item}
+                </button>
+              )
+            })}
+
+            {/* Next Page */}
             <button
               onClick={() => handlePageChange(pagination.page + 1)}
               disabled={pagination.page >= pagination.totalPages}
-              className="px-2.5 py-1 text-xs text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:text-gray-600 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              className="p-1.5 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+              title="Next Page"
             >
-              &rarr;
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+
+            {/* Last Page */}
+            <button
+              onClick={() => handlePageChange(pagination.totalPages)}
+              disabled={pagination.page >= pagination.totalPages}
+              className="p-1.5 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 hover:text-gray-900 dark:hover:text-white transition disabled:opacity-30 disabled:cursor-not-allowed shadow-sm"
+              title="Last Page"
+            >
+              <ChevronsRight className="w-3.5 h-3.5" />
             </button>
           </div>
         )}

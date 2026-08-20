@@ -6,7 +6,7 @@ import { useRouter } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchVideoById, clearSelectedVideo, updateSelectedVideo } from '@/store/slices/videos-slice'
 import { generateSeo, approveSeoAsync } from '@/store/slices/seo-slice'
-import { api } from '@/lib/api'
+import { api, formatAssetUrl } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber, formatDate } from '@/lib/utils'
@@ -14,6 +14,7 @@ import { ArrowLeft, Check, Clock, RotateCcw, MessageSquare, Sparkles, Loader2, C
 import { toast } from 'sonner'
 import type { VideoVersion } from '@/types/video'
 import { CommentsSection } from '@/components/comments/comments-section'
+import { FormattedDescription } from '@/components/shared/formatted-description'
 
 export default function VideoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -162,7 +163,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl p-5 shadow-sm">
           <div className="flex items-start gap-4">
             {video.thumbnailUrl && (
-              <img src={video.thumbnailUrl} alt="" className="w-36 h-20 object-cover rounded-xl shrink-0 border border-gray-100 dark:border-gray-800 shadow-sm" />
+              <img src={formatAssetUrl(video.thumbnailUrl)} alt="" className="w-36 h-20 object-cover rounded-xl shrink-0 border border-gray-100 dark:border-gray-800 shadow-sm" />
             )}
             <div>
               <div className="flex items-center gap-2 flex-wrap mb-1">
@@ -316,7 +317,9 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                             Copy
                           </button>
                         </div>
-                        <p className="text-xs text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800/80 rounded-xl p-3 border border-red-100 dark:border-red-500/20 min-h-[160px] max-h-[220px] overflow-y-auto whitespace-pre-wrap leading-relaxed">{seo.description}</p>
+                        <div className="bg-white dark:bg-gray-800/80 rounded-xl p-3 border border-red-100 dark:border-red-500/20 min-h-[160px] max-h-[220px] overflow-y-auto">
+                          <FormattedDescription text={seo.description} className="text-xs text-gray-600 dark:text-gray-300" />
+                        </div>
                       </div>
                       <div>
                         <div className="flex items-center justify-between mb-1.5">
@@ -382,7 +385,9 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                         Copy
                       </button>
                     </div>
-                    <p className="text-xs text-gray-600 dark:text-gray-300 bg-white dark:bg-gray-800/80 rounded-xl p-3 border border-emerald-100 dark:border-emerald-500/20 min-h-[160px] max-h-[220px] overflow-y-auto whitespace-pre-wrap leading-relaxed">{video.suggestedSeo.description}</p>
+                    <div className="bg-white dark:bg-gray-800/80 rounded-xl p-3 border border-emerald-100 dark:border-emerald-500/20 min-h-[160px] max-h-[220px] overflow-y-auto">
+                      <FormattedDescription text={video.suggestedSeo.description} className="text-xs text-gray-600 dark:text-gray-300" />
+                    </div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -637,9 +642,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                     </button>
                   </div>
                   <div className="p-3.5 bg-gray-50 dark:bg-gray-800/50 rounded-xl border border-gray-100 dark:border-gray-800 max-h-56 overflow-y-auto custom-scrollbar">
-                    <p className="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
-                      {selectedVersionForModal.seo.description}
-                    </p>
+                    <FormattedDescription text={selectedVersionForModal.seo.description} className="text-xs text-gray-700 dark:text-gray-300" />
                   </div>
                 </div>
               )}

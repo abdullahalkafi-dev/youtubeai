@@ -76,8 +76,8 @@ export class ThumbnailComposerService {
       }
     }
 
-    // 3. Process Logo (Preserve logo 100% exact, Top-Left / Top-Right)
-    const logoPos = options.logoPosition || 'top-left';
+    // 3. Process Logo (Preserve logo 100% exact, Top-Right / Top-Left)
+    const logoPos = options.logoPosition || 'top-right';
     if (logoPos !== 'none') {
       try {
         const logoBuffer = await this.resolveLogoBuffer(options);
@@ -210,8 +210,8 @@ export class ThumbnailComposerService {
     canvasWidth: number,
     canvasHeight: number,
   ): Promise<OverlayOptions[]> {
-    // Standard logo height ~64px
-    const logoHeight = 64;
+    // Standard logo height ~84px (enlarged for better brand prominence)
+    const logoHeight = 84;
 
     const resizedLogo = await sharp(logoBuffer)
       .resize({ height: logoHeight, fit: 'contain' })

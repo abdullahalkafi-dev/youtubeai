@@ -69,6 +69,7 @@ export default function VideosPage() {
             className="bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-xs text-gray-500 px-3 py-2"
           >
             <option value="all">All Status</option>
+            <option value="not_started">Not Started</option>
             <option value="optimized">Optimized</option>
             <option value="pending">Pending</option>
             <option value="approved">Approved</option>

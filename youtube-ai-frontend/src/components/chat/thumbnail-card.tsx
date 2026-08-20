@@ -106,7 +106,7 @@ export function ThumbnailCard({
         conceptTitle,
         videoTitle: activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined,
         selectedHostImage: options?.selectedHostImage || 'host_1.png',
-        logoPosition: options?.logoPosition || 'top-left',
+        logoPosition: options?.logoPosition || 'top-right',
         messageId,
       })
 

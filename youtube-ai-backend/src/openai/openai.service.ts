@@ -126,6 +126,7 @@ export class OpenAIService {
       title: string;
       views?: number;
       publishedDaysAgo?: number;
+      youtubeId?: string;
     }>;
     transcriptAnchors?: string;
     customInstructions?: string;
@@ -882,7 +883,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       const composedBuffer = await this.composerService.composeThumbnail({
         backgroundInput: baseImageUrl,
         selectedHostImage: params.selectedHostImage,
-        logoPosition: params.excludeLogo ? 'none' : params.logoPosition || 'top-left',
+        logoPosition: params.excludeLogo ? 'none' : params.logoPosition || 'top-right',
       });
 
       let imageUrl: string;

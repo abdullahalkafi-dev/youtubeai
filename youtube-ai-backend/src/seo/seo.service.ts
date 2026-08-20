@@ -116,7 +116,7 @@ export class SeoService {
       }
 
       // 3. Detect existing related series videos on the channel for multi-part topic context
-      let relatedSeriesVideos: Array<{ title: string; views?: number; publishedDaysAgo?: number }> = [];
+      let relatedSeriesVideos: Array<{ title: string; views?: number; publishedDaysAgo?: number; youtubeId?: string }> = [];
       try {
         const STOP_WORDS = new Set([
           'brutal', 'truth', 'shocking', 'full', 'case', 'video', 'breakdown', 'episode',
@@ -138,10 +138,11 @@ export class SeoService {
             _id: { $ne: video._id },
             deletedFromYoutube: { $ne: true },
             $and: conditions.slice(0, 2),
-          }).sort({ publishedAt: 1 }).limit(5).select('title viewCount publishedAt').lean();
+          }).sort({ publishedAt: 1 }).limit(5).select('title youtubeId viewCount publishedAt').lean();
 
           relatedSeriesVideos = seriesDocs.map((v: any) => ({
             title: v.title,
+            youtubeId: v.youtubeId,
             views: v.viewCount,
             publishedDaysAgo: v.publishedAt ? Math.round((Date.now() - new Date(v.publishedAt).getTime()) / (1000 * 60 * 60 * 24)) : undefined,
           }));
