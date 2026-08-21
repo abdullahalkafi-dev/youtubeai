@@ -5,10 +5,14 @@ export type ThreadStatus = 'active' | 'archived'
 export interface ChatImage {
   id: string
   url: string
+  cleanBackgroundUrl?: string
   prompt: string
   conceptTitle?: string
   textOverlay?: string
   visualDescription?: string
+  selectedHostImage?: string
+  mode?: 'thumbnail' | 'scene'
+  isSceneImage?: boolean
   createdAt: string
 }
 

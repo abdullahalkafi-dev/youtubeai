@@ -60,8 +60,8 @@ export class ThumbnailComposerService {
         .toBuffer();
     }
 
-    // Resize background to exact 1280x720 standard YouTube thumbnail resolution
-    let canvas = sharp(baseBuffer).resize(width, height, { fit: 'cover', position: 'center' });
+    // Resize background to exact 1280x720 standard YouTube thumbnail resolution (position: north preserves top title headroom)
+    let canvas = sharp(baseBuffer).resize(width, height, { fit: 'cover', position: 'north' });
 
     const compositeLayers: OverlayOptions[] = [];
 

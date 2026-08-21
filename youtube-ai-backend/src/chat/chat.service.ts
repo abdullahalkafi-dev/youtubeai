@@ -806,12 +806,13 @@ export class ChatService {
     let videoContextTitle = dto.videoTitle || thread.videoTitle;
     let resolvedShowType: string | undefined;
 
+    let videoDoc: any = null;
     if (thread.videoId) {
       try {
-        const video = await this.videoModel.findById(thread.videoId).lean();
-        if (video) {
-          videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
-          resolvedShowType = video.showType || undefined;
+        videoDoc = await this.videoModel.findById(thread.videoId).lean();
+        if (videoDoc) {
+          videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+          resolvedShowType = videoDoc.showType || undefined;
         }
       } catch { /* optional */ }
     }
@@ -834,6 +835,13 @@ export class ChatService {
         allUserText,
       );
 
+    const storyContext = await this.openaiService.extractStoryContextFromThread({
+      videoTitle: videoContextTitle,
+      videoDescription: videoDoc?.description,
+      recentMessages: thread.messages,
+      userPrompt: dto.text,
+    });
+
     const result = await this.openaiService.generateThumbnailImage({
       concept: { text: dto.text, description: dto.visual, colors: dto.colors },
       videoTitle: videoContextTitle,
@@ -842,6 +850,7 @@ export class ChatService {
       logoPosition: dto.logoPosition || 'top-right',
       customLayoutInstructions: dto.customLayoutInstructions,
       excludeLogo,
+      storyContext,
     });
 
     const imageObj = {
@@ -854,6 +863,7 @@ export class ChatService {
       visualDescription: dto.visual || '',
       selectedHostImage: dto.selectedHostImage || 'host_1.png',
       logoPosition: dto.logoPosition || 'top-right',
+      mode: 'thumbnail',
       createdAt: new Date(),
     };
 
@@ -904,13 +914,21 @@ export class ChatService {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
+    let videoDoc: any = null;
     let videoContextTitle = dto.videoTitle || thread.title;
     if (thread.videoId) {
       try {
-        const video = await this.videoModel.findById(thread.videoId).lean();
-        if (video) videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
+        videoDoc = await this.videoModel.findById(thread.videoId).lean();
+        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
       } catch { /* optional */ }
     }
+
+    const storyContext = await this.openaiService.extractStoryContextFromThread({
+      videoTitle: videoContextTitle,
+      videoDescription: videoDoc?.description,
+      recentMessages: thread.messages,
+      userPrompt: dto.scene,
+    });
 
     const result = await this.openaiService.generateSceneImage({
       scene: dto.scene,
@@ -918,12 +936,13 @@ export class ChatService {
       colors: dto.colors,
       textOverlay: dto.textOverlay,
       videoTitle: videoContextTitle,
+      storyContext,
       referenceImageUrl: dto.referenceImageUrl,
     });
 
     // Optionally composite logo only (no host face)
     let finalImageUrl = result.imageUrl;
-    if (dto.logoPosition !== 'none') {
+    if (dto.logoPosition && dto.logoPosition !== 'none') {
       try {
         const composedBuffer = await this.composerService.composeThumbnail({
           backgroundInput: result.imageUrl,
@@ -953,11 +972,13 @@ export class ChatService {
     const imageObj = {
       id: new Types.ObjectId().toString(),
       url: finalImageUrl,
+      cleanBackgroundUrl: result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: 'Scene',
       textOverlay: dto.textOverlay || '',
       visualDescription: dto.scene || '',
       isSceneImage: true,
+      mode: 'scene',
       createdAt: new Date(),
     };
 
@@ -1003,6 +1024,22 @@ export class ChatService {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
+    let videoDoc: any = null;
+    let videoContextTitle = thread.title;
+    if (thread.videoId) {
+      try {
+        videoDoc = await this.videoModel.findById(thread.videoId).lean();
+        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+      } catch { /* optional */ }
+    }
+
+    const storyContext = await this.openaiService.extractStoryContextFromThread({
+      videoTitle: videoContextTitle,
+      videoDescription: videoDoc?.description,
+      recentMessages: thread.messages,
+      userPrompt: dto.prompt,
+    });
+
     const result = await this.openaiService.editImageWithReference(
       dto.baseImageUrl,
       dto.prompt,
@@ -1010,6 +1047,7 @@ export class ChatService {
         referenceImageUrls: dto.referenceImageUrls,
         mode: dto.mode || 'thumbnail',
         selectedHostImage: dto.selectedHostImage,
+        storyContext,
       },
     );
 
@@ -1021,6 +1059,8 @@ export class ChatService {
       conceptTitle: 'Edit',
       textOverlay: '',
       visualDescription: dto.prompt,
+      selectedHostImage: dto.selectedHostImage,
+      mode: dto.mode || 'thumbnail',
       createdAt: new Date(),
     };
 
@@ -1058,19 +1098,28 @@ export class ChatService {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
+    let videoDoc: any = null;
     let videoContextTitle = dto.videoTitle || thread.title;
     if (thread.videoId) {
       try {
-        const video = await this.videoModel.findById(thread.videoId).lean();
-        if (video) videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
+        videoDoc = await this.videoModel.findById(thread.videoId).lean();
+        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
       } catch { /* optional */ }
     }
+
+    const storyContext = await this.openaiService.extractStoryContextFromThread({
+      videoTitle: videoContextTitle,
+      videoDescription: videoDoc?.description,
+      recentMessages: thread.messages,
+      userPrompt: dto.prompt,
+    });
 
     const result = await this.openaiService.generateSceneImage({
       scene: dto.prompt,
       style: 'Cinematic, dramatic, realistic photography',
       colors: '',
       videoTitle: videoContextTitle,
+      storyContext,
     });
 
     // Optionally composite logo only if explicitly requested

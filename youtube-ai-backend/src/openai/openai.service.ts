@@ -847,6 +847,7 @@ export class OpenAIService {
     referenceImages?: Array<{ type: 'logo' | 'host_photo' | 'reference'; url?: string; buffer?: Buffer }>;
     customLayoutInstructions?: string;
     excludeLogo?: boolean;
+    storyContext?: string;
   }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
     // 1. Strip logo/brand references so OpenAI doesn't paint duplicate logos
@@ -863,12 +864,19 @@ export class OpenAIService {
 STYLE: Cinematic dark, high-contrast photography, criminal psychology & courtroom breakdown aesthetic. Realistic photo style, NOT AI cartoon or 3D render.
 
 SCENE & SUBJECT: ${cleanDescription || 'Cinematic courtroom, prison reality, or high-stakes legal breakdown scene.'}
+${params.storyContext ? `STORY & CHARACTER CONTEXT: ${params.storyContext}` : ''}
 
-TYPOGRAPHY: Render bold, high-contrast headline text reading "${params.concept.text}" in the top-center / upper-middle area of the canvas. Style:
+SUBJECT PLACEMENT:
+- Position the main subject, celebrity face, or key character in the LEFT or CENTER area of the 16:9 canvas.
+- Keep the bottom-right corner clear of important subjects (host portrait sticker sits in bottom-right).
+
+TYPOGRAPHY & SAFE TITLE ZONE:
+- Render bold, high-contrast headline text reading "${params.concept.text}".
 - Bold UPPERCASE words: "${params.concept.text}"
-- Bright yellow or white with heavy black drop-shadow and sharp outline
-- Positioned in upper-center area (leave bottom-right corner clear)
-- Clean, crisp 2D graphic font
+- Bright yellow or white with heavy black drop-shadow and sharp outline.
+- SAFE MARGINS: Maintain generous breathing room from all image borders. The top edge of letters must NEVER touch, bleed into, or get clipped by the top edge of the frame (leave clear top margin padding).
+- Position in the upper-half / upper-center area comfortably below the top border.
+- Clean, crisp 2D graphic font.
 
 COMPOSITION: Dramatic ambient lighting across full 16:9 frame. ${params.concept.colors ? `Color theme: ${params.concept.colors} background atmosphere, subtle warm ambient lighting.` : ''}
 FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across subjects' faces or bodies, NO watermarks, NO borders, NO frames, NO channel logos.`;
@@ -999,6 +1007,57 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
   }
 
   /**
+   * Fast story & character context extractor using gpt-5.6-luna.
+   * Resolves ambiguous pronouns ("him", "the detective") and supplies
+   * named people, setting era, and courtroom/case facts from conversation history.
+   */
+  async extractStoryContextFromThread(params: {
+    videoTitle?: string;
+    videoDescription?: string;
+    recentMessages?: Array<{ role: string; content: string }>;
+    userPrompt?: string;
+  }): Promise<string> {
+    if (!params.recentMessages || params.recentMessages.length === 0) {
+      return params.videoDescription ? params.videoDescription.slice(0, 250) : '';
+    }
+
+    try {
+      const historySnippet = params.recentMessages
+        .slice(-5)
+        .map((m) => `${m.role === 'user' ? 'User' : 'Assistant'}: ${m.content.slice(0, 300)}`)
+        .join('\n');
+
+      const response = await this.client.chat.completions.create({
+        model: this.fastModel || 'gpt-5.6-luna',
+        messages: [
+          {
+            role: 'system',
+            content: `You are a visual scene context assistant for Unique Mecca Audio (true crime, courtroom breakdowns, prison reality).
+Given the video topic and recent conversation history, output a concise 1-2 sentence visual context summary identifying:
+1. Main subject(s) / real people named and their role/appearance
+2. The specific case / courtroom / setting or evidence discussed
+Keep it under 40 words. Output ONLY the visual context summary.`,
+          },
+          {
+            role: 'user',
+            content: `Video: ${params.videoTitle || 'YouTube Video'}
+History:
+${historySnippet}
+User Request: ${params.userPrompt || ''}`,
+          },
+        ],
+        max_tokens: 80,
+        temperature: 0.3,
+      });
+
+      return response.choices[0]?.message?.content?.trim() || '';
+    } catch (err: any) {
+      this.logger.warn(`Fast context extraction failed (${err.message}), falling back to direct snippet`);
+      return params.videoDescription ? params.videoDescription.slice(0, 200) : '';
+    }
+  }
+
+  /**
    * Edit an existing image using reference image + text prompt.
    * Uses OpenAI images.edit API with gpt-image-2.
    *
@@ -1015,6 +1074,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       inputFidelity?: 'high' | 'low';
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
+      storyContext?: string;
     },
   ): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     const { toFile } = await import('openai');
@@ -1056,8 +1116,11 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
     // Build edit params — input_fidelity ONLY for gpt-image-1/1.5, NOT gpt-image-2
     const editModel = 'gpt-image-2';
     let editPrompt = prompt;
+    if (options?.storyContext) {
+      editPrompt += `\nSTORY & CHARACTER CONTEXT: ${options.storyContext}`;
+    }
     if (options?.mode !== 'scene') {
-      editPrompt += `\nIMPORTANT: Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.`;
+      editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably below the top edge of the frame with generous top padding so no text touches or gets cut by the border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render in bold UPPERCASE with high-contrast yellow/white lettering and heavy black drop-shadow.`;
     }
 
     const editParams: Record<string, any> = {
@@ -1140,15 +1203,21 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
     colors: string;
     textOverlay?: string;
     videoTitle?: string;
+    storyContext?: string;
     referenceImageUrl?: string;
   }): Promise<{ imageUrl: string; revisedPrompt: string }> {
     let prompt = `Create a cinematic 16:9 scene image for a YouTube video titled "${params.videoTitle}".
 
-SCENE: ${params.scene}
-STYLE: ${params.style}
-COLORS: ${params.colors}
-${params.textOverlay ? `TEXT OVERLAY: Render "${params.textOverlay}" in clean, bold typography at the top-center area.` : ''}
-Composition: Full 16:9 frame, dramatic cinematic lighting, realistic photography style. NO watermarks, NO borders, NO frames, NO channel logos.`;
+USER DIRECTIVE & SCENE: ${params.scene}
+${params.storyContext ? `STORY & CHARACTER CONTEXT: ${params.storyContext}` : ''}
+STYLE: ${params.style || 'Cinematic dark, high-contrast realistic photography, criminal psychology & legal breakdown aesthetic'}
+${params.colors ? `COLORS: ${params.colors}` : ''}
+${params.textOverlay ? `TEXT OVERLAY: Render "${params.textOverlay}" in clean, bold typography comfortably within safe title margins.` : ''}
+
+PRIORITY INSTRUCTIONS:
+1. The user directive and reference image (if provided) are HIGHEST PRIORITY.
+2. Use the Story & Character Context to accurately depict named people, courtroom era, or evidence when the prompt is brief.
+3. Composition: Full 16:9 frame, dramatic cinematic lighting, realistic photography style. NO watermarks, NO borders, NO frames, NO channel logos.`;
 
     // If reference image provided, try edit API first
     if (params.referenceImageUrl) {

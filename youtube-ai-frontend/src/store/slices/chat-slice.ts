@@ -188,6 +188,8 @@ const chatSlice = createSlice({
       .addCase(selectThread.pending, (state) => { state.loading = true })
       .addCase(selectThread.fulfilled, (state, action) => {
         state.loading = false
+        state.sending = false
+        state.streamingContent = ''
         state.activeThread = action.payload
         state.activeThreadId = action.payload.id
       })

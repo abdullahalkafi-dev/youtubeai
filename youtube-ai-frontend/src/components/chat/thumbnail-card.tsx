@@ -23,7 +23,7 @@ interface ThumbnailCardProps {
   }>
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, cleanBackgroundUrl?: string) => void
+  onEditImage?: (url: string, cleanBackgroundUrl?: string, selectedHostImage?: string) => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -35,17 +35,15 @@ function parseColorScheme(colors: string): string[] {
 
 function getColorClass(color: string): string {
   const lower = color.toLowerCase()
-  if (lower.includes('red') || lower.includes('#ff') || lower.includes('#e')) return 'bg-red-400'
-  if (lower.includes('blue') || lower.includes('#00') || lower.includes('#2') || lower.includes('#3')) return 'bg-blue-400'
-  if (lower.includes('green') || lower.includes('#0f') || lower.includes('#1')) return 'bg-emerald-400'
-  if (lower.includes('yellow') || lower.includes('#ff') || lower.includes('#f')) return 'bg-yellow-400'
-  if (lower.includes('purple') || lower.includes('#8') || lower.includes('#9')) return 'bg-violet-400'
-  if (lower.includes('orange') || lower.includes('#f9') || lower.includes('#fb')) return 'bg-orange-400'
-  if (lower.includes('black') || lower.includes('#000')) return 'bg-gray-900'
-  if (lower.includes('white') || lower.includes('#fff')) return 'bg-white border border-gray-200'
-  if (lower.includes('gold') || lower.includes('#d4')) return 'bg-amber-400'
-  if (lower.includes('dark')) return 'bg-gray-700'
-  return 'bg-gray-400'
+  if (lower.includes('gold') || lower.includes('yellow') || lower.includes('amber')) return 'bg-amber-500/20 text-amber-300 border-amber-500/30'
+  if (lower.includes('blue') || lower.includes('navy') || lower.includes('cobalt')) return 'bg-blue-500/20 text-blue-300 border-blue-500/30'
+  if (lower.includes('red') || lower.includes('crimson') || lower.includes('scarlet')) return 'bg-red-500/20 text-red-300 border-red-500/30'
+  if (lower.includes('green') || lower.includes('emerald')) return 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'
+  if (lower.includes('purple') || lower.includes('violet')) return 'bg-purple-500/20 text-purple-300 border-purple-500/30'
+  if (lower.includes('orange')) return 'bg-orange-500/20 text-orange-300 border-orange-500/30'
+  if (lower.includes('black') || lower.includes('dark')) return 'bg-gray-800 text-gray-300 border-gray-700'
+  if (lower.includes('white') || lower.includes('light')) return 'bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 border-gray-300 dark:border-gray-700'
+  return 'bg-violet-500/20 text-violet-300 border-violet-500/30'
 }
 
 export function ThumbnailCard({
@@ -62,7 +60,7 @@ export function ThumbnailCard({
   const activeThreadId = useAppSelector((s) => s.chat.activeThreadId)
   const activeThread = useAppSelector((s) => s.chat.activeThread)
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
-  const [generatedImages, setGeneratedImages] = useState<Record<number, { url: string; cleanBackgroundUrl?: string }>>({})
+  const [generatedImages, setGeneratedImages] = useState<Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string }>>({})
   const [modalState, setModalState] = useState<{ isOpen: boolean; concept: ThumbnailConcept | null; idx: number }>({
     isOpen: false,
     concept: null,
@@ -72,7 +70,7 @@ export function ThumbnailCard({
   // Hydrate generated images strictly from this message's metadata images
   useEffect(() => {
     if (messageImages && thumbnails) {
-      const restored: Record<number, { url: string; cleanBackgroundUrl?: string }> = {}
+      const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string }> = {}
       for (const img of messageImages) {
         const idx = thumbnails.findIndex(
           (c, i) =>
@@ -80,7 +78,7 @@ export function ThumbnailCard({
             img.conceptTitle === `Concept ${i + 1}`,
         )
         if (idx !== -1 && img.url) {
-          restored[idx] = { url: img.url, cleanBackgroundUrl: img.cleanBackgroundUrl }
+          restored[idx] = { url: img.url, cleanBackgroundUrl: img.cleanBackgroundUrl, selectedHostImage: img.selectedHostImage }
         }
       }
       setGeneratedImages(restored)
@@ -120,7 +118,11 @@ export function ThumbnailCard({
       if (result.imageUrl) {
         setGeneratedImages((prev) => ({
           ...prev,
-          [idx]: { url: result.imageUrl, cleanBackgroundUrl: (result as any).cleanBackgroundUrl },
+          [idx]: {
+            url: result.imageUrl,
+            cleanBackgroundUrl: (result as any).cleanBackgroundUrl,
+            selectedHostImage: options?.selectedHostImage || 'host_1.png',
+          },
         }))
         await dispatch(selectThread(activeThreadId)).unwrap()
         toast.success(`Pristine Thumbnail ${conceptTitle} generated!`)
@@ -157,6 +159,7 @@ export function ThumbnailCard({
           const imgData = generatedImages[idx]
           const generatedUrl = typeof imgData === 'string' ? imgData : imgData?.url
           const cleanUrl = typeof imgData === 'object' ? imgData?.cleanBackgroundUrl : undefined
+          const hostImg = typeof imgData === 'object' ? imgData?.selectedHostImage : undefined
           const isGenerating = generatingIdx === idx
 
           return (
@@ -242,7 +245,7 @@ export function ThumbnailCard({
               {/* Edit / Iterate button */}
               {generatedUrl && onEditImage && (
                 <button
-                  onClick={() => onEditImage(generatedUrl, cleanUrl)}
+                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
                 >
                   <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate

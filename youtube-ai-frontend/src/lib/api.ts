@@ -313,6 +313,7 @@ class ApiClient {
       baseImageUrl: string
       referenceImageUrls?: string[]
       mode?: 'thumbnail' | 'scene'
+      selectedHostImage?: string
     },
   ) {
     return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/edit-image`, data)

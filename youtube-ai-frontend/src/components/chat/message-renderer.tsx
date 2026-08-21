@@ -21,7 +21,7 @@ interface MessageRendererProps {
   messageImages?: any[]
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, mode: 'thumbnail' | 'scene', cleanUrl?: string) => void
+  onEditImage?: (url: string, mode: 'thumbnail' | 'scene', cleanUrl?: string, selectedHostImage?: string) => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -50,7 +50,7 @@ export function MessageRenderer({ content, category, isStreaming, messageId, mes
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
-          onEditImage={(url, cleanUrl) => onEditImage?.(url, 'thumbnail', cleanUrl)}
+          onEditImage={(url, cleanUrl, hostImg) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg)}
           videoTitle={videoTitle}
           threadTitle={threadTitle}
         />
@@ -96,7 +96,7 @@ export function MessageRenderer({ content, category, isStreaming, messageId, mes
                     </p>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl)}
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
                       >
                         <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate

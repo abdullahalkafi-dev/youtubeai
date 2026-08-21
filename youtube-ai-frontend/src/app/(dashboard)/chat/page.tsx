@@ -12,7 +12,7 @@ import {
 import { useIsMobile } from '@/lib/hooks/use-media-query'
 import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -41,7 +41,7 @@ export default function ChatPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
-  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene'; cleanUrl?: string } | null>(null)
+  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene'; cleanUrl?: string; selectedHostImage?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -191,7 +191,9 @@ export default function ChatPage() {
           baseImageUrl: pinnedImage.cleanUrl || pinnedImage.url,
           referenceImageUrls: referenceUrls,
           mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
+          selectedHostImage: pinnedImage.selectedHostImage,
         })
+        dispatch(clearStreaming())
         dispatch(selectThread(threadId))
         toast.success('Image edited!', { id: toastId })
       } catch (err: any) {
@@ -211,6 +213,7 @@ export default function ChatPage() {
           prompt: messageContent,
           videoTitle: activeThread?.videoTitle || activeThread?.title,
         })
+        dispatch(clearStreaming())
         dispatch(selectThread(threadId))
         toast.success('Image generated!', { id: toastId })
       } catch (err: any) {
@@ -560,7 +563,7 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
-                            onEditImage={(url, mode, cleanUrl) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url })}
+                            onEditImage={(url, mode, cleanUrl, hostImg) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url, selectedHostImage: hostImg })}
                             videoTitle={activeThread?.videoTitle || activeThread?.title}
                             threadTitle={activeThread?.title}
                           />
@@ -704,13 +707,24 @@ export default function ChatPage() {
                         )}
                         <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
                         <div className="flex gap-1.5 pt-0.5">
+                          <button
+                            onClick={() => setIteratingImage({
+                              url: img.url,
+                              mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
+                              cleanUrl: (img as any).cleanBackgroundUrl || img.url,
+                              selectedHostImage: (img as any).selectedHostImage,
+                            })}
+                            className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
+                          >
+                            <Wand2 className="w-3 h-3" /> Edit
+                          </button>
                           {activeThread?.videoId && (
                             <button onClick={() => handleSetThumbnail(img)} className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1">
-                              <Star className="w-3 h-3" />Set Thumbnail
+                              <Star className="w-3 h-3" /> Set
                             </button>
                           )}
-                          <button onClick={() => handleDownload(img)} className={cn('flex-1 bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1', !activeThread?.videoId && 'w-full')}>
-                            <Download className="w-3 h-3" />Download
+                          <button onClick={() => handleDownload(img)} className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold px-2 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1">
+                            <Download className="w-3 h-3" />
                           </button>
                         </div>
                       </div>
