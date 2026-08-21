@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-topic.schema';
+import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { ChatService } from '../chat/chat.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { YouTubeSuggestionsService } from '../youtube/youtube-suggestions.service';
@@ -13,7 +14,6 @@ import { QuotaService } from '../quota/quota.service';
 import { RedisService } from '../redis/redis.service';
 import { buildTrendsSearchPrompt, buildEntityExtractionPrompt } from './prompts';
 import { validateExtractedEntity, SearchListQuotaCounter } from './trends.utils';
-import { fetchGoogleNewsRss } from './rss-fetcher';
 
 const TREND_HISTORY_DAYS = 5;
 
@@ -25,6 +25,7 @@ export class TrendsService implements OnModuleInit {
   constructor(
     @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
     @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
+    @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
     @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
     private readonly youtubeService: YouTubeService,
@@ -162,11 +163,38 @@ export class TrendsService implements OnModuleInit {
       throw new NotFoundException(`Channel ${channelId} not found`);
     }
     this.logger.log(`[refreshTrends] channel found: "${channel.name}" subs=${channel.subscriberCount} videos=${channel.totalVideos} views=${channel.totalViews}`);
-    const channelContext = channel ? `\nChannel stats: ${channel.subscriberCount} subscribers, ${channel.totalVideos} videos, ${Number(channel.totalViews).toLocaleString()} views.` : '';
 
-    // Pre-check quota: mostPopular (1) + up to 10 search.list (1000) = 1001 units
+    // Load last 10 videos for context
+    const recentVideos = await this.videoModel
+      .find({ channelId })
+      .sort({ publishedAt: -1 })
+      .limit(10)
+      .select('title description viewCount')
+      .lean();
+
+    const videoList = recentVideos.length > 0
+      ? recentVideos.map((v, i) =>
+          `${i + 1}. "${v.title}" (${(v.viewCount || 0).toLocaleString()} views)` +
+          (v.description ? `\n   Description: ${v.description.substring(0, 150)}` : '')
+        ).join('\n')
+      : 'No recent videos recorded yet.';
+
+    const channelContext = `
+CHANNEL: ${channel.name} (${channel.handle || 'N/A'})
+SUBSCRIBERS: ${(channel.subscriberCount || 0).toLocaleString()}
+DESCRIPTION: ${(channel.description || 'N/A').substring(0, 300)}
+
+CREATOR: Unique Mecca Audio — 62-year-old former federal prisoner (26 years inside, 1993-2020). Criminal psychology professor. Breaks down mindset of criminals using lived experience. Topics: federal cases, rapper trials, prison psychology, street-to-courtroom translation, sentencing, accountability. Mission: prevention and youth education.
+
+RECENT VIDEOS (last 10 — what this channel actually covers):
+${videoList}
+
+Use these recent videos as a reference for what topics and angles this channel covers. Find NEW stories in the same lanes.
+`;
+
+    // Pre-check quota (300 units worst-case for AI-first pipeline)
     if (channel?.userId) {
-      await this.quotaService.checkQuota(channelId, 'refreshTrends (mostPopular + search)', 1001);
+      await this.quotaService.checkQuota(channelId, 'refreshTrends', 300);
       this.logger.log(`[refreshTrends] quota check passed`);
     }
 
@@ -190,6 +218,7 @@ export class TrendsService implements OnModuleInit {
       allTopics = this.extractCleanJsonArray(text);
       this.logger.log(`[refreshTrends] Phase 1: parsed ${allTopics.length} web topics from AI`);
       allTopics.forEach((t, i) => {
+        if (!t.source && t.sourceName) t.source = t.sourceName;
         this.logger.log(`[refreshTrends] Phase 1:   [${i}] "${t.title}" publishedAt=${t.publishedAt ?? 'null'} source=${t.source ?? 'null'}`);
       });
     } catch (parseError) {
@@ -198,75 +227,56 @@ export class TrendsService implements OnModuleInit {
       throw new Error(`AI returned malformed JSON: ${parseError.message}`);
     }
 
-    // Phase 2: YouTube mostPopular (real trending data, 1 unit) + Google News RSS (0 units)
-    this.logger.log(`[refreshTrends] Phase 2: YouTube mostPopular + Google News RSS`);
-    let popularTopics: any[] = [];
-    const nicheKeywords = (process.env.TREND_NICHE_KEYWORDS || 'prison,jail,inmate,incarceration,court,trial,sentenced,sentence,arrested,indicted,federal,criminal,crime,murder,homicide,guilty,verdict,appeal,probation,parole,felony,robbery,trafficking,shooting,violence,rapper,hip hop,hip-hop,trump,clemency,pardon,deal,youth').split(',').map(s => s.trim());
-    
-    // Ingest Google News RSS feeds at 0 YouTube Quota Cost
-    let rssTopics: any[] = [];
-    try {
-      rssTopics = await fetchGoogleNewsRss(nicheKeywords);
-    } catch (rssErr) {
-      this.logger.warn(`[refreshTrends] Phase 2: Google News RSS fetch warning: ${rssErr.message}`);
-    }
+    // Two-Tier Relevance Gate
+    const TIER1_MANDATORY = [
+      'indicted', 'convicted', 'sentenced', 'federal', 'prison', 'inmate',
+      'racketeering', 'trafficking', 'guilty', 'plea', 'verdict', 'murder',
+      'homicide', 'solitary', 'probation', 'parole', 'incarceration',
+      'arrested', 'charges', 'felony', 'conspiracy', 'cartel',
+    ];
 
-    try {
-      if (channel?.userId) {
-        const accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
-        this.logger.log(`[refreshTrends] Phase 2: access token obtained, fetching most popular videos...`);
-        const popularVideos = await this.youtubeService.getMostPopularVideos(accessToken, 50);
-        this.logger.log(`[refreshTrends] Phase 2: fetched ${popularVideos.length} most popular videos`);
-        const musicVideoPatterns = ['official video', 'official music video', 'official audio'];
-        const relevant = popularVideos.filter(v => {
-          const titleLower = v.title.toLowerCase();
-          const isNiche = nicheKeywords.some(kw =>
-            titleLower.includes(kw) ||
-            v.tags.some((t: string) => t.toLowerCase().includes(kw))
-          );
-          if (!isNiche) return false;
-          return !musicVideoPatterns.some(p => titleLower.includes(p));
-        });
-        popularTopics = relevant.map(v => ({
-          title: v.title,
-          summary: `Trending on YouTube — ${(v.viewCount || 0).toLocaleString()} views by ${v.channelTitle || 'YouTube'}`,
-          source: v.channelTitle || 'YouTube',
-          publishedAt: v.publishedAt,
-          sourceType: 'most_popular',
-        }));
-        this.logger.log(`[refreshTrends] Phase 2: ${popularTopics.length} niche-relevant topics from ${popularVideos.length} videos`);
-        
-        // Log quota usage for mostPopular
-        await this.quotaService.logCall({
-          channelId, endpoint: 'refreshTrends (mostPopular)', quotaCost: 1, success: true,
-        });
+    const NEGATIVE_DISQUALIFIERS = [
+      'ncaa', 'nba', 'nfl', 'mlb', 'basketball', 'football', 'soccer', 'tennis',
+      'zoning', 'construction', 'ballroom', 'real estate', 'school board',
+      'cryptocurrency', 'crypto token', 'dividend', 'stock market', 'quarterly revenue',
+    ];
+
+    const passesRelevanceGate = (title: string, summary: string): boolean => {
+      const combined = `${title} ${summary}`.toLowerCase();
+      const isNegative = NEGATIVE_DISQUALIFIERS.some(kw => combined.includes(kw));
+      if (isNegative) return false;
+      const hasTier1 = TIER1_MANDATORY.some(kw => combined.includes(kw));
+      return hasTier1;
+    };
+
+    const filteredWebTopics = allTopics.filter(topic => {
+      if (!passesRelevanceGate(topic.title || '', topic.summary || '')) {
+        this.logger.log(`[refreshTrends] Rejected (no Tier 1 keyword or negative match): "${topic.title}"`);
+        return false;
       }
-    } catch (error) {
-      this.logger.warn(`[refreshTrends] Phase 2: mostPopular FAILED: ${error.message}`);
-    }
+      return true;
+    });
+    this.logger.log(`[refreshTrends] Phase 1: ${allTopics.length} → ${filteredWebTopics.length} after relevance gate`);
+    allTopics = filteredWebTopics;
 
-    // Merge web search + RSS news + mostPopular topics
-    const webTopics = allTopics.map((t: any) => ({ ...t, sourceType: t.sourceType || 'web_search' }));
-    const mergedTopics = [...webTopics, ...rssTopics, ...popularTopics];
-    this.logger.log(`[refreshTrends] Merged: ${webTopics.length} web + ${rssTopics.length} RSS + ${popularTopics.length} popular = ${mergedTopics.length} total`);
-
-    this.logger.log(`[refreshTrends] Phase 3: Date filter (21 days, since ${twentyOneDaysAgoStr})`);
-    let topics = mergedTopics.filter((t: any) => {
+    // Phase 2: Date filter — all topics come from AI web search (Phase 1), already relevance-gated
+    this.logger.log(`[refreshTrends] Phase 2: Date filter (21 days, since ${twentyOneDaysAgoStr})`);
+    let topics = allTopics.filter((t: any) => {
       if (!t.publishedAt) return true;
       const published = new Date(t.publishedAt);
       return !isNaN(published.getTime()) && published >= twentyOneDaysAgo;
     });
-    this.logger.log(`[refreshTrends] Phase 3: ${topics.length} topics passed 21-day filter`);
+    this.logger.log(`[refreshTrends] Phase 2: ${topics.length} topics passed 21-day filter`);
 
     if (topics.length === 0) {
       const fortyFiveDaysAgo = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
-      this.logger.log(`[refreshTrends] Phase 3: falling back to 45-day window`);
-      topics = mergedTopics.filter((t: any) => {
+      this.logger.log(`[refreshTrends] Phase 2: falling back to 45-day window`);
+      topics = allTopics.filter((t: any) => {
         if (!t.publishedAt) return true;
         const published = new Date(t.publishedAt);
         return !isNaN(published.getTime()) && published >= fortyFiveDaysAgo;
       });
-      this.logger.log(`[refreshTrends] Phase 3: ${topics.length} topics passed 45-day filter`);
+      this.logger.log(`[refreshTrends] Phase 2: ${topics.length} topics passed 45-day filter`);
     }
 
     const deduplicatedTopics = this.deduplicateTopics(topics);
@@ -427,6 +437,30 @@ export class TrendsService implements OnModuleInit {
       sourceType: topic.sourceType || 'web_search',
     };
 
+    // If AI search already provided a YouTube video URL, verify via oEmbed first (0 quota units)
+    if (topic.youtubeVideoUrl) {
+      try {
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(topic.youtubeVideoUrl)}&format=json`;
+        const oembedRes = await fetch(oembedUrl);
+        if (oembedRes.ok) {
+          const oembed: any = await oembedRes.json();
+          const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+          if (!hasCJK) {
+            const videoIdMatch = topic.youtubeVideoUrl.match(/(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+            const videoId = videoIdMatch ? videoIdMatch[1] : null;
+            if (videoId) {
+              base.youtubeVideoId = videoId;
+              base.youtubeThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+              base.youtubeChannelTitle = oembed.author_name || topic.youtubeChannelName || 'YouTube';
+              base.youtubeVideoUrl = topic.youtubeVideoUrl;
+              base.extractedEntity = topic.title;
+              return base;
+            }
+          }
+        }
+      } catch { /* Fall through to entity extraction and search */ }
+    }
+
     let extractedEntity: string | null = null;
     try {
       const extractionPrompt = buildEntityExtractionPrompt({ title: topic.title, summary: topic.summary });
@@ -487,9 +521,28 @@ export class TrendsService implements OnModuleInit {
         return !reactionPatterns.some(p => titleLower.includes(p) || chLower.includes(p));
       });
 
-      let chosen = nonReactionResults.length > 0 ? nonReactionResults[0] : results[0];
+      let chosen: any = nonReactionResults.length > 0 ? nonReactionResults[0] : null;
 
-      // Conditional niche creator search: only for breaking/viral topics if no primary match found
+      // Verify chosen candidate via oEmbed (free, 0 quota units)
+      if (chosen) {
+        try {
+          const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${chosen.videoId}&format=json`;
+          const oembedRes = await fetch(oembedUrl);
+          if (!oembedRes.ok) {
+            this.logger.log(`[refreshTrends] oEmbed: video ${chosen.videoId} returned ${oembedRes.status}, resetting candidate`);
+            chosen = null;
+          } else {
+            const oembed: any = await oembedRes.json();
+            const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+            if (hasCJK) {
+              this.logger.log(`[refreshTrends] oEmbed: non-English CJK video rejected: "${oembed.title}"`);
+              chosen = null;
+            }
+          }
+        } catch { /* oembed network issue, proceed */ }
+      }
+
+      // Conditional niche creator search: only for breaking/viral topics if primary candidate failed or is null
       const isBreakingOrViral = (topic.publishedAt && (Date.now() - new Date(topic.publishedAt).getTime() < 24 * 60 * 60 * 1000)) || topic.sourceType === 'rss_news';
       if (!chosen && isBreakingOrViral) {
         const nicheQuota = await this.quota.canUse();
@@ -508,7 +561,20 @@ export class TrendsService implements OnModuleInit {
               channelId, endpoint: 'refreshTrends (niche search.list)', quotaCost: 100, success: true,
             });
             if (nicheResults.length > 0) {
-              chosen = nicheResults[0];
+              const nicheCandidate = nicheResults[0];
+              try {
+                const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${nicheCandidate.videoId}&format=json`;
+                const oembedRes = await fetch(oembedUrl);
+                if (oembedRes.ok) {
+                  const oembed: any = await oembedRes.json();
+                  const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+                  if (!hasCJK) {
+                    chosen = nicheCandidate;
+                  }
+                }
+              } catch {
+                chosen = nicheCandidate;
+              }
             }
           } catch { /* niche search optional */ }
         }
@@ -547,12 +613,12 @@ export class TrendsService implements OnModuleInit {
     const isBreaking = (topic.publishedAt && (Date.now() - new Date(topic.publishedAt).getTime() < 24 * 60 * 60 * 1000)) || topic.sourceType === 'rss_news';
 
     if (!topic.youtubeVideoId) {
-      if (!topic.extractedEntity) return { score: 50, label: 'Unknown', badge: isBreaking ? 'breaking' : undefined };
-      return { score: 100, label: 'Open Gap', badge: 'gap' };
+      if (!topic.extractedEntity) return { score: 30, label: 'Unknown', badge: isBreaking ? 'breaking' : undefined };
+      return { score: 50, label: 'Unverified', badge: isBreaking ? 'breaking' : undefined };
     }
 
     const topViews = viewCounts.get(topic.youtubeVideoId) || 0;
-    if (topViews === 0) return { score: 90, label: 'Low Competition', badge: 'gap' };
+    if (topViews === 0) return { score: 75, label: 'Low Competition', badge: 'gap' };
 
     const viewRatio = Math.min(1, avgChannelViews / (topViews + 1));
     const recencyBoost = topic.publishedAt ? Math.max(0, 1 - (Date.now() - new Date(topic.publishedAt).getTime()) / (21 * 24 * 60 * 60 * 1000)) : 0;
@@ -606,9 +672,9 @@ export class TrendsService implements OnModuleInit {
     }
 
     // Step 1: Search YouTube for niche-relevant recent videos (100 quota units)
-    // More relevant than mostPopular which is global and rarely has crime/psychology content
+    const currentYear = new Date().getFullYear();
     const searchQueries = [
-      'federal indictment 2026',
+      `federal indictment ${currentYear}`,
       'rapper sentenced prison',
       'criminal case update',
     ];
@@ -644,8 +710,14 @@ export class TrendsService implements OnModuleInit {
       return [];
     }
 
-    // Step 2: Filter out music videos and deduplicate
+    // Step 2: Filter out music videos, deduplicate, and apply relevance gate
     const musicVideoPatterns = ['official video', 'official music video', 'official audio'];
+    const TIER1_LITE = [
+      'indicted', 'convicted', 'sentenced', 'federal', 'prison', 'inmate',
+      'racketeering', 'trafficking', 'guilty', 'plea', 'verdict', 'murder',
+      'homicide', 'solitary', 'probation', 'parole', 'incarceration',
+      'arrested', 'charges', 'felony', 'conspiracy', 'cartel',
+    ];
     const seen = new Set<string>();
     const relevant = allSearchResults.filter(v => {
       const titleLower = v.title.toLowerCase();
@@ -653,6 +725,8 @@ export class TrendsService implements OnModuleInit {
       const key = titleLower.replace(/[^a-z0-9]/g, '').substring(0, 60);
       if (seen.has(key)) return false;
       seen.add(key);
+      // Relevance gate: must contain at least one Tier 1 criminal keyword
+      if (!TIER1_LITE.some(kw => titleLower.includes(kw))) return false;
       return true;
     }).slice(0, 8);
 

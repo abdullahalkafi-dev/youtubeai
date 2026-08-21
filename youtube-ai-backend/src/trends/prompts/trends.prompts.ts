@@ -32,26 +32,44 @@ His voice: Dark, direct, street-wise, professorial. Never glorifies prison or cr
  */
 export const TRENDS_SEARCH_SYSTEM_PROMPT = `${NICHE_IDENTITY}
 
-Focus your search on trending criminal cases, federal indictments, rapper legal cases, sentencing news, prison stories, and courtroom drama that would fit this channel's audience.
+You are searching for stories that match this specific channel's content.
+Look at the RECENT VIDEOS listed in the context — the stories you find should be in the SAME lanes and angles.
 
-OUTPUT FORMAT:
-Return a JSON array with EXACTLY this structure — nothing else:
+SEARCH LANES (match the channel's recent videos):
+1. Federal criminal cases (indictments, trials, sentencing, verdicts, appeals)
+2. Rapper / hip-hop artist legal cases (arrests, charges, cooperation, trials)
+3. High-profile prison stories (incarceration, solitary, escapes, policy changes)
+4. Major sentencing hearings with psychological depth
+5. Street violence cases with legal consequences and courtroom drama
+6. Celebrity criminal cases with accountability/prevention angle
+
+FOR EACH STORY, also search YouTube for the best video covering it:
+- Search: "[person name] Court TV", "[person name] federal case", "[case name] sentencing 2026"
+- Pick the video from a REPUTABLE source: Court TV, Law & Crime Network, AP, CBS, NBC, 1090 Jake, DJ Akademiks, VladTV
+- If no YouTube video exists, set youtubeVideoUrl to null — do NOT guess or hallucinate
+
+OUTPUT — return ONLY a raw JSON array:
 [
   {
     "title": "Short headline (max 80 chars)",
-    "summary": "2-3 sentence summary of the story and why it matters",
-    "source": "Source URL if available, otherwise null",
-    "publishedAt": "ISO 8601 date string (e.g. 2025-07-01T00:00:00Z) of when the article was published, or null if unknown"
+    "summary": "2-3 sentences: what happened + why it matters for this channel",
+    "sourceName": "Court TV",
+    "sourceUrl": "https://...",
+    "publishedAt": "ISO 8601 date",
+    "youtubeVideoUrl": "https://www.youtube.com/watch?v=..." or null,
+    "youtubeChannelName": "Court TV" or null,
+    "nicheRelevance": "federal case"
   }
 ]
 
-IMPORTANT RULES:
-- SOURCE DIVERSITY: Do NOT return more than 2 articles from justice.gov or any single domain. Actively include diverse mainstream & true-crime legal news outlets (e.g., Court TV, Law & Crime Network, CBS News, NBC News, AP News, Billboard, Rolling Stone, HipHopDX, etc.).
-- Do NOT write scripts, outlines, time stamps, or show segments.
-- Do NOT score the ideas or suggest show types.
-- Do NOT add thumbnail ideas, title suggestions, or video angles.
-- Do NOT add any text before or after the JSON array.
-- Return ONLY the raw JSON array. No markdown, no code blocks, no explanations.`;
+STRICT RULES:
+- Maximum 12 results, ordered by recency (newest first)
+- EVERY result MUST involve criminal charges, federal cases, sentencing, or prison developments
+- EVERY result MUST be from the last 14 days
+- If fewer than 5 strong stories exist, return only those — do NOT pad with weak topics
+- NEVER return: sports trades, games, business deals, real estate, entertainment gossip, local blotters, politics without charges
+- NEVER hallucinate YouTube video URLs — only include URLs you actually found via search
+- Return ONLY the raw JSON array, no markdown fences, no explanations.`;
 
 /**
  * Build the full prompt for the news discovery step (Phase A).
@@ -73,11 +91,12 @@ export function buildTrendsSearchPrompt(params: {
   userParts.push(`Today's date is ${params.today}.`);
   userParts.push('');
   userParts.push(
-    `What are up to 10 trending topics in criminal psychology, federal cases, prison stories, and sentencing news from the last 21 days (since ${params.twentyOneDaysAgoStr})? Search the web for current, real-time news.`,
-  );
-  userParts.push('');
-  userParts.push(
-    `IMPORTANT: You MUST use web search to find real-time, breaking updates. Prioritize stories from the LAST 48 HOURS to 7 DAYS — these must appear FIRST. Strictly ignore stale or outdated historical events unless there is breaking news, a fresh indictment, recent sentencing, or significant new developments within the search window. Ensure accurate publishedAt ISO dates and order results by recency — newest first.`,
+    `Find 6-12 trending stories that match this channel's niche. ` +
+    `The channel covers criminal psychology, federal cases, rapper trials, and prison reality. ` +
+    `Look at the RECENT VIDEOS above to understand the exact type of stories and angles. ` +
+    `Search the web AND YouTube for real stories with real video coverage. ` +
+    `Quality over quantity — if only 2-3 stories are strong, return only those. ` +
+    `Do NOT return topics that don't match the channel's niche.`
   );
 
   return { system: TRENDS_SEARCH_SYSTEM_PROMPT, user: userParts.join('\n') };

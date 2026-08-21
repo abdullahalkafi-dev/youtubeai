@@ -5,6 +5,7 @@ import { TrendsService } from './trends.service';
 import { TrendsController } from './trends.controller';
 import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
 import { TrendingTopic, TrendingTopicSchema } from '../mongo/schemas/trending-topic.schema';
+import { Video, VideoSchema } from '../mongo/schemas/video.schema';
 import { OpenAIModule } from '../openai/openai.module';
 import { ChatModule } from '../chat/chat.module';
 import { YouTubeModule } from '../youtube/youtube.module';
@@ -18,6 +19,7 @@ import { QuotaModule } from '../quota/quota.module';
     MongooseModule.forFeature([
       { name: Channel.name, schema: ChannelSchema },
       { name: TrendingTopic.name, schema: TrendingTopicSchema },
+      { name: Video.name, schema: VideoSchema },
     ]),
     OpenAIModule,
     forwardRef(() => ChatModule),
