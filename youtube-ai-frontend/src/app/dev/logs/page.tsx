@@ -1,6 +1,6 @@
 'use client'
 
-import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef, Component } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -12,25 +12,18 @@ import {
   Copy,
   Check,
   Download,
-  Filter,
   Flame,
-  Globe,
   HelpCircle,
   Lock,
-  Play,
   RefreshCw,
   Search,
-  Server,
   ShieldAlert,
-  SlidersHorizontal,
   Terminal,
   Trash2,
-  User,
   X,
   Zap,
   ChevronLeft,
   ChevronRight,
-  Code,
   FileText,
   CornerDownRight,
   Send,
@@ -83,9 +76,43 @@ const STATUS_CHIPS: StatusChip[] = [
 
 type ModalTab = 'all' | 'request' | 'response' | 'stack'
 
+// Safe Error Boundary to isolate modal/table errors
+class SafeErrorBoundary extends Component<{ children: React.ReactNode; fallbackText?: string }, { hasError: boolean; error: string | null }> {
+  constructor(props: { children: React.ReactNode; fallbackText?: string }) {
+    super(props)
+    this.state = { hasError: false, error: null }
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error?.message || 'Unknown render error' }
+  }
+
+  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    console.error('SafeErrorBoundary caught error:', error, errorInfo)
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 rounded-xl bg-rose-950/40 border border-rose-800 text-rose-300 text-xs font-mono">
+          <p className="font-bold flex items-center gap-1.5">
+            <AlertTriangle className="w-4 h-4 text-rose-400" />
+            {this.props.fallbackText || 'Unable to render diagnostic section.'}
+          </p>
+          <p className="text-[11px] text-rose-400/80 mt-1">{this.state.error}</p>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
 export default function DevLogsPage() {
   const router = useRouter()
   const searchInputRef = useRef<HTMLInputElement>(null)
+
+  // Mounted guard to prevent Recharts SSR hydration errors
+  const [mounted, setMounted] = useState(false)
 
   // Auth state check
   const [hasToken, setHasToken] = useState<boolean | null>(null)
@@ -121,17 +148,18 @@ export default function DevLogsPage() {
   const [showClearModal, setShowClearModal] = useState(false)
   const [clearing, setClearing] = useState(false)
 
+  // Set mounted on client
+  useEffect(() => {
+    setMounted(true)
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    setHasToken(!!token)
+  }, [])
+
   // Toast auto-hide
   const showToast = (text: string, type: 'success' | 'error' | 'info' = 'info') => {
     setToastMessage({ text, type })
     setTimeout(() => setToastMessage(null), 4000)
   }
-
-  // Check token on mount
-  useEffect(() => {
-    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
-    setHasToken(!!token)
-  }, [])
 
   // Keyboard shortcut listener (/ to search, Esc to close modal)
   useEffect(() => {
@@ -258,9 +286,9 @@ export default function DevLogsPage() {
     }
   }
 
-  // Safe formatting helper
+  // Ultra-safe JSON formatting helper
   const safeFormatJson = (val: unknown): string => {
-    if (val === null || val === undefined) return 'None'
+    if (val === null || val === undefined) return '// None'
     if (typeof val === 'string') {
       try {
         const parsed = JSON.parse(val)
@@ -277,24 +305,29 @@ export default function DevLogsPage() {
   }
 
   // Copy as cURL helper
-  const copyAsCurl = (log: HttpLogItem) => {
-    const fullUrl = log.url.startsWith('http') ? log.url : `https://meccaaudio.com${log.url}`
-    let curl = `curl -X ${log.method} "${fullUrl}"`
-    
-    if (log.requestHeaders && typeof log.requestHeaders === 'object') {
-      for (const [k, v] of Object.entries(log.requestHeaders)) {
-        if (typeof v === 'string' && !['authorization', 'cookie'].includes(k.toLowerCase())) {
-          curl += ` \\\n  -H "${k}: ${v}"`
+  const copyAsCurl = (log?: HttpLogItem | null) => {
+    if (!log) return
+    try {
+      const fullUrl = log.url ? (log.url.startsWith('http') ? log.url : `https://meccaaudio.com${log.url}`) : 'https://meccaaudio.com'
+      let curl = `curl -X ${log.method || 'GET'} "${fullUrl}"`
+
+      if (log.requestHeaders && typeof log.requestHeaders === 'object' && !Array.isArray(log.requestHeaders)) {
+        for (const [k, v] of Object.entries(log.requestHeaders)) {
+          if (typeof v === 'string' && !['authorization', 'cookie', 'set-cookie'].includes(k.toLowerCase())) {
+            curl += ` \\\n  -H "${k}: ${v}"`
+          }
         }
       }
-    }
 
-    if (log.requestBody) {
-      const bodyStr = typeof log.requestBody === 'string' ? log.requestBody : JSON.stringify(log.requestBody)
-      curl += ` \\\n  -d '${bodyStr.replace(/'/g, "'\\''")}'`
-    }
+      if (log.requestBody) {
+        const bodyStr = typeof log.requestBody === 'string' ? log.requestBody : JSON.stringify(log.requestBody)
+        curl += ` \\\n  -d '${bodyStr.replace(/'/g, "'\\''")}'`
+      }
 
-    copyToClipboard(curl, 'curl-copy')
+      copyToClipboard(curl, 'curl-copy')
+    } catch {
+      showToast('Failed to generate cURL command', 'error')
+    }
   }
 
   // Trigger test 500 error
@@ -319,7 +352,7 @@ export default function DevLogsPage() {
     setClearing(true)
     try {
       const res = await api.clearDevLogs({ onlyErrors })
-      showToast(`Purged ${res.deletedCount || 0} log records.`, 'success')
+      showToast(`Purged ${res?.deletedCount || 0} log records.`, 'success')
       setShowClearModal(false)
       fetchLogs()
       fetchStats()
@@ -348,40 +381,42 @@ export default function DevLogsPage() {
   }
 
   // Status badge styling helper
-  const getStatusBadge = (code: number) => {
-    if (code >= 500) {
+  const getStatusBadge = (code?: number) => {
+    const statusCode = code ?? 200
+    if (statusCode >= 500) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-md bg-rose-500/15 text-rose-400 border border-rose-500/30">
           <Flame className="w-3.5 h-3.5" />
-          {code}
+          {statusCode}
         </span>
       )
     }
-    if (code >= 400) {
+    if (statusCode >= 400) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-md bg-amber-500/15 text-amber-400 border border-amber-500/30">
           <AlertTriangle className="w-3.5 h-3.5" />
-          {code}
+          {statusCode}
         </span>
       )
     }
-    if (code >= 300) {
+    if (statusCode >= 300) {
       return (
         <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-md bg-blue-500/15 text-blue-400 border border-blue-500/30">
-          {code}
+          {statusCode}
         </span>
       )
     }
     return (
       <span className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-mono font-bold rounded-md bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
         <CheckCircle2 className="w-3.5 h-3.5" />
-        {code}
+        {statusCode}
       </span>
     )
   }
 
   // Method badge styling helper
-  const getMethodBadge = (m: string) => {
+  const getMethodBadge = (m?: string) => {
+    const methodStr = m || 'GET'
     const map: Record<string, string> = {
       GET: 'bg-sky-500/15 text-sky-400 border-sky-500/30',
       POST: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
@@ -392,26 +427,27 @@ export default function DevLogsPage() {
     return (
       <span
         className={`px-2 py-0.5 text-[11px] font-mono font-bold rounded border ${
-          map[m] || 'bg-gray-800 text-gray-400 border-gray-700'
+          map[methodStr] || 'bg-gray-800 text-gray-400 border-gray-700'
         }`}
       >
-        {m}
+        {methodStr}
       </span>
     )
   }
 
   // Latency styling helper
-  const getLatencyBadge = (ms: number) => {
-    if (ms > 3000) {
-      return <span className="font-mono text-xs font-bold text-rose-400">{ms}ms</span>
+  const getLatencyBadge = (ms?: number) => {
+    const latency = ms ?? 0
+    if (latency > 3000) {
+      return <span className="font-mono text-xs font-bold text-rose-400">{latency}ms</span>
     }
-    if (ms > 1000) {
-      return <span className="font-mono text-xs font-bold text-amber-400">{ms}ms</span>
+    if (latency > 1000) {
+      return <span className="font-mono text-xs font-bold text-amber-400">{latency}ms</span>
     }
-    return <span className="font-mono text-xs text-gray-400">{ms}ms</span>
+    return <span className="font-mono text-xs text-gray-400">{latency}ms</span>
   }
 
-  // Formatted date
+  // Formatted time
   const formatTime = (isoString?: string) => {
     if (!isoString) return '-'
     try {
@@ -423,7 +459,8 @@ export default function DevLogsPage() {
     }
   }
 
-  const formatFullDate = (isoString?: string) => {
+  // Formatted date
+  const formatFullDate = (isoString?: string | Date) => {
     if (!isoString) return '-'
     try {
       const d = new Date(isoString)
@@ -441,7 +478,7 @@ export default function DevLogsPage() {
   }
 
   // If token check fails
-  if (hasToken === false) {
+  if (mounted && hasToken === false) {
     return (
       <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center p-6">
         <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-2xl p-8 text-center shadow-2xl space-y-6">
@@ -596,7 +633,7 @@ export default function DevLogsPage() {
               <Activity className="w-4 h-4 text-indigo-400" />
             </div>
             <div className="text-2xl font-bold text-white font-mono mt-2">
-              {statsLoading ? '...' : (stats?.summary.totalRequests || 0).toLocaleString()}
+              {statsLoading ? '...' : (stats?.summary?.totalRequests || 0).toLocaleString()}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">Recorded in period</div>
           </div>
@@ -607,7 +644,7 @@ export default function DevLogsPage() {
               <Flame className="w-4 h-4 text-rose-500" />
             </div>
             <div className="text-2xl font-bold text-rose-400 font-mono mt-2">
-              {statsLoading ? '...' : stats?.summary.total500Errors || 0}
+              {statsLoading ? '...' : stats?.summary?.total500Errors || 0}
             </div>
             <div className="text-[11px] text-rose-400/70 mt-1">Unhandled exceptions</div>
           </div>
@@ -618,7 +655,7 @@ export default function DevLogsPage() {
               <AlertTriangle className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-2xl font-bold text-amber-300 font-mono mt-2">
-              {statsLoading ? '...' : (stats?.summary.totalErrors || 0) - (stats?.summary.total500Errors || 0)}
+              {statsLoading ? '...' : (stats?.summary?.totalErrors || 0) - (stats?.summary?.total500Errors || 0)}
             </div>
             <div className="text-[11px] text-amber-400/70 mt-1">Auth, Not Found, Bad Req</div>
           </div>
@@ -629,7 +666,7 @@ export default function DevLogsPage() {
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-2xl font-bold text-emerald-400 font-mono mt-2">
-              {statsLoading ? '...' : (stats?.summary.totalSuccess || 0).toLocaleString()}
+              {statsLoading ? '...' : (stats?.summary?.totalSuccess || 0).toLocaleString()}
             </div>
             <div className="text-[11px] text-emerald-400/70 mt-1">Healthy responses</div>
           </div>
@@ -640,7 +677,7 @@ export default function DevLogsPage() {
               <ShieldAlert className="w-4 h-4 text-rose-400" />
             </div>
             <div className="text-2xl font-bold text-white font-mono mt-2">
-              {statsLoading ? '...' : `${stats?.summary.errorRatePercentage || 0}%`}
+              {statsLoading ? '...' : `${stats?.summary?.errorRatePercentage || 0}%`}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">Errors / Total requests</div>
           </div>
@@ -651,7 +688,7 @@ export default function DevLogsPage() {
               <Clock className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-2xl font-bold text-white font-mono mt-2">
-              {statsLoading ? '...' : `${stats?.summary.avgResponseTimeMs || 0}ms`}
+              {statsLoading ? '...' : `${stats?.summary?.avgResponseTimeMs || 0}ms`}
             </div>
             <div className="text-[11px] text-slate-400 mt-1">Global response speed</div>
           </div>
@@ -692,7 +729,7 @@ export default function DevLogsPage() {
             </div>
 
             <div className="h-64 w-full">
-              {stats?.dailyTimeline && stats.dailyTimeline.length > 0 ? (
+              {mounted && stats?.dailyTimeline && stats.dailyTimeline.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <AreaChart
                     data={stats.dailyTimeline}
@@ -713,7 +750,7 @@ export default function DevLogsPage() {
                       dataKey="date"
                       stroke="#64748B"
                       fontSize={11}
-                      tickFormatter={(val) => (typeof val === 'string' && val.length >= 5 ? val.slice(5) : val)}
+                      tickFormatter={(val) => (typeof val === 'string' && val.length >= 5 ? val.slice(5) : String(val))}
                     />
                     <YAxis stroke="#64748B" fontSize={11} />
                     <Tooltip
@@ -755,7 +792,7 @@ export default function DevLogsPage() {
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-slate-500 text-xs">
                   <Activity className="w-8 h-8 text-slate-700 mb-2" />
-                  No traffic activity recorded in this date range.
+                  {statsLoading ? 'Loading chart telemetry...' : 'No traffic activity recorded in this date range.'}
                 </div>
               )}
             </div>
@@ -777,19 +814,19 @@ export default function DevLogsPage() {
                   <button
                     key={i}
                     onClick={() => {
-                      setSearch(ep.path)
+                      setSearch(ep?.path || '')
                       setStatusCode('all')
                     }}
                     className="w-full text-left p-2.5 rounded-xl bg-slate-950/60 border border-slate-800/80 hover:border-slate-700 hover:bg-slate-900 transition flex items-center justify-between gap-3 group"
                   >
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        {getMethodBadge(ep.method)}
+                        {getMethodBadge(ep?.method)}
                         <span className="text-xs font-mono text-slate-200 truncate group-hover:text-indigo-400 transition">
-                          {ep.path}
+                          {ep?.path}
                         </span>
                       </div>
-                      {ep.lastError && (
+                      {ep?.lastError && (
                         <p className="text-[11px] text-rose-400/90 truncate mt-1 font-mono">
                           {ep.lastError}
                         </p>
@@ -797,7 +834,7 @@ export default function DevLogsPage() {
                     </div>
                     <div className="text-right flex-shrink-0">
                       <span className="px-2 py-0.5 text-xs font-mono font-bold rounded bg-rose-500/15 text-rose-400 border border-rose-500/30">
-                        {ep.count} errs
+                        {ep?.count || 0} errs
                       </span>
                     </div>
                   </button>
@@ -907,151 +944,158 @@ export default function DevLogsPage() {
             </div>
 
             <div className="text-xs text-slate-400 font-mono">
-              Found <strong className="text-white">{total.toLocaleString()}</strong> logs
+              Found <strong className="text-white">{(total || 0).toLocaleString()}</strong> logs
             </div>
           </div>
         </div>
 
         {/* Log Stream Table */}
-        <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-md shadow-xl">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs font-mono">
-              <thead className="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase text-[11px] tracking-wider">
-                <tr>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-3 py-3 font-semibold">Method</th>
-                  <th className="px-4 py-3 font-semibold">Endpoint Path</th>
-                  <th className="px-4 py-3 font-semibold">Latency</th>
-                  <th className="px-4 py-3 font-semibold">Error Message / Diagnostic</th>
-                  <th className="px-4 py-3 font-semibold">User / Client</th>
-                  <th className="px-4 py-3 font-semibold text-right">Time</th>
-                  <th className="px-3 py-3 font-semibold text-center">Inspect</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800/60">
-                {loading ? (
+        <SafeErrorBoundary fallbackText="Error rendering log stream table. Click Refresh.">
+          <div className="bg-slate-900/80 border border-slate-800 rounded-2xl overflow-hidden backdrop-blur-md shadow-xl">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs font-mono">
+                <thead className="bg-slate-950/80 border-b border-slate-800 text-slate-400 uppercase text-[11px] tracking-wider">
                   <tr>
-                    <td colSpan={8} className="py-16 text-center text-slate-400">
-                      <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
-                      Loading log records from MongoDB...
-                    </td>
+                    <th className="px-4 py-3 font-semibold">Status</th>
+                    <th className="px-3 py-3 font-semibold">Method</th>
+                    <th className="px-4 py-3 font-semibold">Endpoint Path</th>
+                    <th className="px-4 py-3 font-semibold">Latency</th>
+                    <th className="px-4 py-3 font-semibold">Error Message / Diagnostic</th>
+                    <th className="px-4 py-3 font-semibold">User / Client</th>
+                    <th className="px-4 py-3 font-semibold text-right">Time</th>
+                    <th className="px-3 py-3 font-semibold text-center">Inspect</th>
                   </tr>
-                ) : logs.length === 0 ? (
-                  <tr>
-                    <td colSpan={8} className="py-16 text-center text-slate-500">
-                      <HelpCircle className="w-10 h-10 mx-auto mb-3 text-slate-600" />
-                      <p className="text-sm text-slate-300 font-sans font-medium">No logs found matching your filters.</p>
-                      <p className="text-xs text-slate-500 mt-1">Try resetting the search terms or widening the date range.</p>
-                    </td>
-                  </tr>
-                ) : (
-                  logs.map((log) => {
-                    const is500 = log.statusCode >= 500
-                    const isError = log.statusCode >= 400
-                    return (
-                      <tr
-                        key={log.id || log._id}
-                        onClick={() => {
-                          setSelectedLog(log)
-                          setActiveModalTab(log.errorMessage || log.errorStack ? 'stack' : 'all')
-                        }}
-                        className={`cursor-pointer transition hover:bg-slate-800/60 ${
-                          is500
-                            ? 'bg-rose-950/15 hover:bg-rose-950/30'
-                            : isError
-                            ? 'bg-amber-950/10 hover:bg-amber-950/20'
-                            : ''
-                        }`}
-                      >
-                        {/* Status Code */}
-                        <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(log.statusCode)}</td>
-
-                        {/* HTTP Method */}
-                        <td className="px-3 py-3 whitespace-nowrap">{getMethodBadge(log.method)}</td>
-
-                        {/* Path */}
-                        <td className="px-4 py-3 whitespace-nowrap max-w-[280px] truncate text-slate-200 font-medium">
-                          {log.path}
-                        </td>
-
-                        {/* Latency */}
-                        <td className="px-4 py-3 whitespace-nowrap">{getLatencyBadge(log.responseTimeMs)}</td>
-
-                        {/* Error Message */}
-                        <td className="px-4 py-3 max-w-[320px] truncate text-slate-400">
-                          {log.errorMessage ? (
-                            <span className="text-rose-400 font-semibold truncate block">
-                              {log.errorMessage}
-                            </span>
-                          ) : (
-                            <span className="text-slate-600">-</span>
-                          )}
-                        </td>
-
-                        {/* User / Client */}
-                        <td className="px-4 py-3 whitespace-nowrap text-slate-400">
-                          {log.userEmail ? (
-                            <span className="text-indigo-300 font-sans">{log.userEmail}</span>
-                          ) : log.ip ? (
-                            <span className="text-slate-500">{log.ip}</span>
-                          ) : (
-                            <span className="text-slate-600">Anonymous</span>
-                          )}
-                        </td>
-
-                        {/* Timestamp */}
-                        <td className="px-4 py-3 whitespace-nowrap text-right text-slate-400" title={log.createdAt}>
-                          {formatTime(log.createdAt)}
-                        </td>
-
-                        {/* Inspect action */}
-                        <td className="px-3 py-3 text-center whitespace-nowrap">
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation()
+                </thead>
+                <tbody className="divide-y divide-slate-800/60">
+                  {loading ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center text-slate-400">
+                        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto mb-3" />
+                        Loading log records from MongoDB...
+                      </td>
+                    </tr>
+                  ) : logs.length === 0 ? (
+                    <tr>
+                      <td colSpan={8} className="py-16 text-center text-slate-500">
+                        <HelpCircle className="w-10 h-10 mx-auto mb-3 text-slate-600" />
+                        <p className="text-sm text-slate-300 font-sans font-medium">No logs found matching your filters.</p>
+                        <p className="text-xs text-slate-500 mt-1">Try resetting the search terms or widening the date range.</p>
+                      </td>
+                    </tr>
+                  ) : (
+                    logs.map((log) => {
+                      const statusCode = log?.statusCode ?? 200
+                      const is500 = statusCode >= 500
+                      const isError = statusCode >= 400
+                      return (
+                        <tr
+                          key={log?.id || log?._id || Math.random().toString()}
+                          onClick={() => {
+                            if (log) {
                               setSelectedLog(log)
                               setActiveModalTab(log.errorMessage || log.errorStack ? 'stack' : 'all')
-                            }}
-                            className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-indigo-600 transition"
-                            title="Inspect Request, Response & Stack Trace"
-                          >
-                            <Terminal className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    )
-                  })
-                )}
-              </tbody>
-            </table>
-          </div>
+                            }
+                          }}
+                          className={`cursor-pointer transition hover:bg-slate-800/60 ${
+                            is500
+                              ? 'bg-rose-950/15 hover:bg-rose-950/30'
+                              : isError
+                              ? 'bg-amber-950/10 hover:bg-amber-950/20'
+                              : ''
+                          }`}
+                        >
+                          {/* Status Code */}
+                          <td className="px-4 py-3 whitespace-nowrap">{getStatusBadge(log?.statusCode)}</td>
 
-          {/* Pagination Controls */}
-          <div className="bg-slate-950/80 border-t border-slate-800 px-6 py-3.5 flex items-center justify-between">
-            <div className="text-xs text-slate-400 font-mono">
-              Page <span className="text-white font-bold">{page}</span> of{' '}
-              <span className="text-white font-bold">{totalPages}</span> ({total} total records)
+                          {/* HTTP Method */}
+                          <td className="px-3 py-3 whitespace-nowrap">{getMethodBadge(log?.method)}</td>
+
+                          {/* Path */}
+                          <td className="px-4 py-3 whitespace-nowrap max-w-[280px] truncate text-slate-200 font-medium">
+                            {log?.path || log?.url || '/'}
+                          </td>
+
+                          {/* Latency */}
+                          <td className="px-4 py-3 whitespace-nowrap">{getLatencyBadge(log?.responseTimeMs)}</td>
+
+                          {/* Error Message */}
+                          <td className="px-4 py-3 max-w-[320px] truncate text-slate-400">
+                            {log?.errorMessage ? (
+                              <span className="text-rose-400 font-semibold truncate block">
+                                {log.errorMessage}
+                              </span>
+                            ) : (
+                              <span className="text-slate-600">-</span>
+                            )}
+                          </td>
+
+                          {/* User / Client */}
+                          <td className="px-4 py-3 whitespace-nowrap text-slate-400">
+                            {log?.userEmail ? (
+                              <span className="text-indigo-300 font-sans">{log.userEmail}</span>
+                            ) : log?.ip ? (
+                              <span className="text-slate-500">{log.ip}</span>
+                            ) : (
+                              <span className="text-slate-600">Anonymous</span>
+                            )}
+                          </td>
+
+                          {/* Timestamp */}
+                          <td className="px-4 py-3 whitespace-nowrap text-right text-slate-400" title={log?.createdAt}>
+                            {formatTime(log?.createdAt)}
+                          </td>
+
+                          {/* Inspect action */}
+                          <td className="px-3 py-3 text-center whitespace-nowrap">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (log) {
+                                  setSelectedLog(log)
+                                  setActiveModalTab(log.errorMessage || log.errorStack ? 'stack' : 'all')
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-indigo-600 transition"
+                              title="Inspect Request, Response & Stack Trace"
+                            >
+                              <Terminal className="w-3.5 h-3.5" />
+                            </button>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  )}
+                </tbody>
+              </table>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={page <= 1 || loading}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 hover:text-white hover:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-              >
-                <ChevronLeft className="w-4 h-4" />
-                Previous
-              </button>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={page >= totalPages || loading}
-                className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 hover:text-white hover:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-              >
-                Next
-                <ChevronRight className="w-4 h-4" />
-              </button>
+
+            {/* Pagination Controls */}
+            <div className="bg-slate-950/80 border-t border-slate-800 px-6 py-3.5 flex items-center justify-between">
+              <div className="text-xs text-slate-400 font-mono">
+                Page <span className="text-white font-bold">{page}</span> of{' '}
+                <span className="text-white font-bold">{totalPages}</span> ({total} total records)
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={page <= 1 || loading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 hover:text-white hover:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  <ChevronLeft className="w-4 h-4" />
+                  Previous
+                </button>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={page >= totalPages || loading}
+                  className="flex items-center gap-1 px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 hover:text-white hover:border-slate-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+                >
+                  Next
+                  <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
-        </div>
+        </SafeErrorBoundary>
       </main>
 
       {/* Deep Diagnostic Modal / Drawer with Request & Response Inspector */}
@@ -1067,10 +1111,10 @@ export default function DevLogsPage() {
             {/* Modal Header */}
             <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
               <div className="flex items-center gap-3 min-w-0">
-                {getStatusBadge(selectedLog.statusCode)}
-                {getMethodBadge(selectedLog.method)}
-                <span className="text-sm font-bold text-white truncate max-w-md" title={selectedLog.path}>
-                  {selectedLog.path}
+                {getStatusBadge(selectedLog?.statusCode)}
+                {getMethodBadge(selectedLog?.method)}
+                <span className="text-sm font-bold text-white truncate max-w-md" title={selectedLog?.path}>
+                  {selectedLog?.path || selectedLog?.url || '/'}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1134,7 +1178,7 @@ export default function DevLogsPage() {
                 <FileText className="w-3.5 h-3.5 text-emerald-400" />
                 Response Payload
               </button>
-              {(selectedLog.errorMessage || selectedLog.errorStack) && (
+              {(selectedLog?.errorMessage || selectedLog?.errorStack) && (
                 <button
                   onClick={() => setActiveModalTab('stack')}
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
@@ -1150,176 +1194,178 @@ export default function DevLogsPage() {
             </div>
 
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1">
-              {/* Meta info grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <div className="text-slate-500 text-[10px] uppercase">Timestamp</div>
-                  <div className="text-white font-medium mt-1">{formatFullDate(selectedLog.createdAt)}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <div className="text-slate-500 text-[10px] uppercase">Latency</div>
-                  <div className="text-white font-medium mt-1">{selectedLog.responseTimeMs} ms</div>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <div className="text-slate-500 text-[10px] uppercase">Client IP</div>
-                  <div className="text-white font-medium mt-1">{selectedLog.ip || 'Unknown'}</div>
-                </div>
-                <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <div className="text-slate-500 text-[10px] uppercase">Auto-Purge Date</div>
-                  <div className="text-emerald-400 font-medium mt-1">
-                    {formatFullDate(selectedLog.expiresAt)}
+            <SafeErrorBoundary fallbackText="Error rendering diagnostic details for this entry.">
+              <div className="p-6 overflow-y-auto space-y-6 flex-1">
+                {/* Meta info grid */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <div className="text-slate-500 text-[10px] uppercase">Timestamp</div>
+                    <div className="text-white font-medium mt-1">{formatFullDate(selectedLog?.createdAt)}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <div className="text-slate-500 text-[10px] uppercase">Latency</div>
+                    <div className="text-white font-medium mt-1">{selectedLog?.responseTimeMs ?? 0} ms</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <div className="text-slate-500 text-[10px] uppercase">Client IP</div>
+                    <div className="text-white font-medium mt-1">{selectedLog?.ip || 'Unknown'}</div>
+                  </div>
+                  <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
+                    <div className="text-slate-500 text-[10px] uppercase">Auto-Purge Date</div>
+                    <div className="text-emerald-400 font-medium mt-1">
+                      {formatFullDate(selectedLog?.expiresAt)}
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Stack Trace Tab / Section */}
-              {(activeModalTab === 'all' || activeModalTab === 'stack') &&
-                (selectedLog.errorMessage || selectedLog.errorStack) && (
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-sm">
-                        <Flame className="w-4 h-4" />
-                        Exception Stack Trace (500 Error Root Cause)
-                      </span>
-                      {selectedLog.errorStack && (
-                        <button
-                          onClick={() => copyToClipboard(selectedLog.errorStack!, 'stack-copy')}
-                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition text-xs font-semibold"
-                        >
-                          {copiedKey === 'stack-copy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                          Copy Stack Trace
-                        </button>
-                      )}
+                {/* Stack Trace Tab / Section */}
+                {(activeModalTab === 'all' || activeModalTab === 'stack') &&
+                  (selectedLog?.errorMessage || selectedLog?.errorStack) && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-sm">
+                          <Flame className="w-4 h-4" />
+                          Exception Stack Trace (500 Error Root Cause)
+                        </span>
+                        {selectedLog?.errorStack && (
+                          <button
+                            onClick={() => copyToClipboard(selectedLog.errorStack || '', 'stack-copy')}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition text-xs font-semibold"
+                          >
+                            {copiedKey === 'stack-copy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            Copy Stack Trace
+                          </button>
+                        )}
+                      </div>
+                      <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed shadow-inner">
+                        <strong className="text-rose-400 text-xs block mb-2">{selectedLog?.errorMessage || 'Error occurred'}</strong>
+                        {selectedLog?.errorStack || 'No stack trace captured.'}
+                      </div>
                     </div>
-                    <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed shadow-inner">
-                      <strong className="text-rose-400 text-xs block mb-2">{selectedLog.errorMessage}</strong>
-                      {selectedLog.errorStack || 'No stack trace captured.'}
+                  )}
+
+                {/* Request Details Tab / Section */}
+                {(activeModalTab === 'all' || activeModalTab === 'request') && (
+                  <div className="space-y-4">
+                    <div className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <CornerDownRight className="w-4 h-4" />
+                      Incoming Request Data
+                    </div>
+
+                    {/* Request URL & Query */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-300">Request URL & Query</span>
+                        <button
+                          onClick={() => copyToClipboard(selectedLog?.url || '', 'url-copy')}
+                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                        >
+                          {copiedKey === 'url-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          Copy URL
+                        </button>
+                      </div>
+                      <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-sky-300 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px]">
+                        {selectedLog?.url || '/'}
+                      </pre>
+                    </div>
+
+                    {/* Request Body */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-300">Request Body (Payload)</span>
+                        {selectedLog?.requestBody && (
+                          <button
+                            onClick={() => copyToClipboard(safeFormatJson(selectedLog?.requestBody), 'req-body-copy')}
+                            className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                          >
+                            {copiedKey === 'req-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            Copy Body
+                          </button>
+                        )}
+                      </div>
+                      <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-indigo-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-60">
+                        {safeFormatJson(selectedLog?.requestBody)}
+                      </pre>
+                    </div>
+
+                    {/* Request Headers */}
+                    {selectedLog?.requestHeaders && (
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <span className="font-semibold text-slate-300">Request Headers (Sanitized)</span>
+                          <button
+                            onClick={() => copyToClipboard(safeFormatJson(selectedLog?.requestHeaders), 'req-hdr-copy')}
+                            className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                          >
+                            {copiedKey === 'req-hdr-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            Copy Headers
+                          </button>
+                        </div>
+                        <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-48">
+                          {safeFormatJson(selectedLog?.requestHeaders)}
+                        </pre>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Response Details Tab / Section */}
+                {(activeModalTab === 'all' || activeModalTab === 'response') && (
+                  <div className="space-y-4 pt-2">
+                    <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                      <FileText className="w-4 h-4" />
+                      Response Returned to Client
+                    </div>
+
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-300">Response Payload</span>
+                          {getStatusBadge(selectedLog?.statusCode)}
+                          <span className="text-slate-400">({selectedLog?.responseTimeMs ?? 0}ms)</span>
+                        </div>
+                        {selectedLog?.responseBody && (
+                          <button
+                            onClick={() => copyToClipboard(safeFormatJson(selectedLog?.responseBody), 'res-body-copy')}
+                            className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                          >
+                            {copiedKey === 'res-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                            Copy Response
+                          </button>
+                        )}
+                      </div>
+                      <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-80 shadow-inner">
+                        {safeFormatJson(selectedLog?.responseBody)}
+                      </pre>
                     </div>
                   </div>
                 )}
 
-              {/* Request Details Tab / Section */}
-              {(activeModalTab === 'all' || activeModalTab === 'request') && (
-                <div className="space-y-4">
-                  <div className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <CornerDownRight className="w-4 h-4" />
-                    Incoming Request Data
-                  </div>
-
-                  {/* Request URL & Query */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-300">Request URL & Query</span>
-                      <button
-                        onClick={() => copyToClipboard(selectedLog.url, 'url-copy')}
-                        className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
-                      >
-                        {copiedKey === 'url-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                        Copy URL
-                      </button>
+                {/* Client & User Details */}
+                <div className="space-y-2 pt-2">
+                  <span className="font-semibold text-slate-300">Client Context</span>
+                  <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-slate-300 font-mono text-[11px]">
+                    <div className="flex gap-2">
+                      <span className="text-slate-500 w-24">User Email:</span>
+                      <span className="text-white">{selectedLog?.userEmail || 'Unauthenticated'}</span>
                     </div>
-                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-sky-300 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px]">
-                      {selectedLog.url}
-                    </pre>
-                  </div>
-
-                  {/* Request Body */}
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-300">Request Body (Payload)</span>
-                      {selectedLog.requestBody && (
-                        <button
-                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.requestBody), 'req-body-copy')}
-                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
-                        >
-                          {copiedKey === 'req-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                          Copy Body
-                        </button>
-                      )}
+                    <div className="flex gap-2">
+                      <span className="text-slate-500 w-24">User ID:</span>
+                      <span className="text-white">{selectedLog?.userId || 'N/A'}</span>
                     </div>
-                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-indigo-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-60">
-                      {selectedLog.requestBody ? safeFormatJson(selectedLog.requestBody) : '// No request body'}
-                    </pre>
-                  </div>
-
-                  {/* Request Headers */}
-                  {selectedLog.requestHeaders && (
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold text-slate-300">Request Headers (Sanitized)</span>
-                        <button
-                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.requestHeaders), 'req-hdr-copy')}
-                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
-                        >
-                          {copiedKey === 'req-hdr-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                          Copy Headers
-                        </button>
-                      </div>
-                      <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-48">
-                        {safeFormatJson(selectedLog.requestHeaders)}
-                      </pre>
+                    <div className="flex gap-2">
+                      <span className="text-slate-500 w-24">User Agent:</span>
+                      <span className="text-slate-400 break-all">{selectedLog?.userAgent || 'Unknown'}</span>
                     </div>
-                  )}
-                </div>
-              )}
-
-              {/* Response Details Tab / Section */}
-              {(activeModalTab === 'all' || activeModalTab === 'response') && (
-                <div className="space-y-4 pt-2">
-                  <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <FileText className="w-4 h-4" />
-                    Response Returned to Client
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="font-semibold text-slate-300">Response Payload</span>
-                        {getStatusBadge(selectedLog.statusCode)}
-                        <span className="text-slate-400">({selectedLog.responseTimeMs}ms)</span>
-                      </div>
-                      {selectedLog.responseBody && (
-                        <button
-                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.responseBody), 'res-body-copy')}
-                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
-                        >
-                          {copiedKey === 'res-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                          Copy Response
-                        </button>
-                      )}
-                    </div>
-                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-80 shadow-inner">
-                      {selectedLog.responseBody ? safeFormatJson(selectedLog.responseBody) : '// No response payload recorded'}
-                    </pre>
-                  </div>
-                </div>
-              )}
-
-              {/* Client & User Details */}
-              <div className="space-y-2 pt-2">
-                <span className="font-semibold text-slate-300">Client Context</span>
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-slate-300 font-mono text-[11px]">
-                  <div className="flex gap-2">
-                    <span className="text-slate-500 w-24">User Email:</span>
-                    <span className="text-white">{selectedLog.userEmail || 'Unauthenticated'}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="text-slate-500 w-24">User ID:</span>
-                    <span className="text-white">{selectedLog.userId || 'N/A'}</span>
-                  </div>
-                  <div className="flex gap-2">
-                    <span className="text-slate-500 w-24">User Agent:</span>
-                    <span className="text-slate-400 break-all">{selectedLog.userAgent || 'Unknown'}</span>
                   </div>
                 </div>
               </div>
-            </div>
+            </SafeErrorBoundary>
 
             {/* Modal Footer */}
             <div className="px-6 py-3 border-t border-slate-800 flex items-center justify-between bg-slate-950/80">
               <div className="text-[11px] text-slate-500">
-                Log ID: <span className="text-slate-400 font-mono">{selectedLog.id || selectedLog._id}</span>
+                Log ID: <span className="text-slate-400 font-mono">{selectedLog?.id || selectedLog?._id || 'N/A'}</span>
               </div>
               <button
                 onClick={() => setSelectedLog(null)}
@@ -1334,8 +1380,14 @@ export default function DevLogsPage() {
 
       {/* Clear Logs Confirmation Modal */}
       {showClearModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#0D1321] border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200"
+          onClick={() => setShowClearModal(false)}
+        >
+          <div
+            className="bg-[#0D1321] border border-slate-800 rounded-2xl w-full max-w-md p-6 shadow-2xl space-y-5"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="flex items-center gap-3 text-rose-400">
               <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
                 <Trash2 className="w-6 h-6" />

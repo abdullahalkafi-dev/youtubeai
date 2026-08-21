@@ -14,6 +14,24 @@ export interface SpeechRecognitionHook {
   resetTranscript: () => void
 }
 
+function joinTexts(...parts: (string | undefined | null)[]): string {
+  return parts
+    .map(p => (p || '').trim())
+    .filter(Boolean)
+    .join(' ')
+}
+
+function cleanupInstance(instance: any) {
+  if (!instance) return
+  instance.onstart = null
+  instance.onresult = null
+  instance.onerror = null
+  instance.onend = null
+  try {
+    instance.abort()
+  } catch {}
+}
+
 export function useSpeechRecognition(): SpeechRecognitionHook {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
@@ -24,70 +42,98 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
 
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
-  const accumulatedFinalRef = useRef('')
-  const currentSessionFinalRef = useRef('')
+  const isExplicitlyStoppedRef = useRef(true)
+  const restartTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
-  useEffect(() => {
-    if (typeof window === 'undefined') return
+  const committedTextRef = useRef('')
+  const currentSessionFinalRef = useRef('')
+  const currentSessionInterimRef = useRef('')
+
+  const spawnRecognition = useCallback(() => {
+    if (typeof window === 'undefined') return null
+    if (isExplicitlyStoppedRef.current || !isListeningRef.current) return null
 
     const SpeechRecognitionClass =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
 
     if (!SpeechRecognitionClass) {
       setIsSupported(false)
-      return
+      return null
     }
 
-    setIsSupported(true)
+    // Clean up any lingering prior instance before spawning a fresh one
+    if (recognitionRef.current) {
+      cleanupInstance(recognitionRef.current)
+      recognitionRef.current = null
+    }
+
     const recognition = new SpeechRecognitionClass()
     recognition.continuous = true
     recognition.interimResults = true
     recognition.lang = 'en-US'
 
     recognition.onstart = () => {
+      // Rapid toggle race guard: if user stopped while start was initializing, abort immediately
+      if (isExplicitlyStoppedRef.current) {
+        cleanupInstance(recognition)
+        setIsListening(false)
+        return
+      }
       setIsListening(true)
       setError(null)
     }
 
     recognition.onresult = (event: any) => {
+      if (isExplicitlyStoppedRef.current) return
+
       let sessionFinal = ''
-      let interim = ''
+      let sessionInterim = ''
 
       for (let i = 0; i < event.results.length; i++) {
         const item = event.results[i]
+        const text = item[0]?.transcript || ''
         if (item.isFinal) {
-          sessionFinal += (sessionFinal ? ' ' : '') + item[0].transcript.trim()
+          sessionFinal = joinTexts(sessionFinal, text)
         } else {
-          interim += (interim ? ' ' : '') + item[0].transcript.trim()
+          sessionInterim = joinTexts(sessionInterim, text)
         }
       }
 
       currentSessionFinalRef.current = sessionFinal
+      currentSessionInterimRef.current = sessionInterim
 
-      const totalFinal = accumulatedFinalRef.current
-        ? (sessionFinal ? `${accumulatedFinalRef.current} ${sessionFinal}` : accumulatedFinalRef.current)
-        : sessionFinal
+      const totalFinal = joinTexts(committedTextRef.current, sessionFinal)
+      const fullText = joinTexts(committedTextRef.current, sessionFinal, sessionInterim)
 
-      const fullTranscript = interim
-        ? (totalFinal ? `${totalFinal} ${interim}` : interim)
-        : totalFinal
-
-      setInterimTranscript(interim)
+      setInterimTranscript(sessionInterim)
       setFinalTranscript(totalFinal)
-      setTranscript(fullTranscript)
+      setTranscript(fullText)
     }
 
     recognition.onerror = (event: any) => {
       const err = event.error
-      // Ignore normal silence timeouts or aborted actions during restarts
+      // 'no-speech' and 'aborted' are normal silence/lifecycle events in Chromium, ignore safely
       if (err === 'no-speech' || err === 'aborted') {
         return
       }
 
       if (err === 'not-allowed' || err === 'service-not-allowed') {
+        isExplicitlyStoppedRef.current = true
         isListeningRef.current = false
+        cleanupInstance(recognition)
+        recognitionRef.current = null
         setIsListening(false)
-        setError('Microphone access was denied. Please allow microphone permissions in your browser.')
+        setError('Microphone permission was denied. Please allow microphone access in your browser settings.')
+        return
+      }
+
+      if (err === 'audio-capture') {
+        isExplicitlyStoppedRef.current = true
+        isListeningRef.current = false
+        cleanupInstance(recognition)
+        recognitionRef.current = null
+        setIsListening(false)
+        setError('No microphone was detected. Please check your microphone hardware.')
         return
       }
 
@@ -96,39 +142,33 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
         return
       }
 
-      if (err === 'audio-capture') {
-        isListeningRef.current = false
-        setIsListening(false)
-        setError('No microphone was detected. Please verify your microphone connection.')
-        return
-      }
-
-      setError(`Speech error: ${err}`)
+      setError(`Speech recognition error: ${err}`)
     }
 
     recognition.onend = () => {
-      // If user is still supposed to be listening (e.g. browser timed out after silence)
-      if (isListeningRef.current) {
-        // Roll over session final to accumulated
-        if (currentSessionFinalRef.current) {
-          accumulatedFinalRef.current = accumulatedFinalRef.current
-            ? `${accumulatedFinalRef.current} ${currentSessionFinalRef.current}`
-            : currentSessionFinalRef.current
-          currentSessionFinalRef.current = ''
+      // Commit whatever final text was recognized in this completed session
+      if (currentSessionFinalRef.current) {
+        committedTextRef.current = joinTexts(committedTextRef.current, currentSessionFinalRef.current)
+        currentSessionFinalRef.current = ''
+        currentSessionInterimRef.current = ''
+      }
+
+      // Detach listeners from this ended instance before creating any new one
+      cleanupInstance(recognition)
+      recognitionRef.current = null
+
+      // If user still intends to listen and has not explicitly stopped
+      if (!isExplicitlyStoppedRef.current && isListeningRef.current) {
+        if (restartTimeoutRef.current) {
+          clearTimeout(restartTimeoutRef.current)
         }
 
-        // Restart recognition cleanly
-        try {
-          recognition.start()
-        } catch (e) {
-          setTimeout(() => {
-            if (isListeningRef.current && recognitionRef.current) {
-              try {
-                recognitionRef.current.start()
-              } catch (e2) {}
-            }
-          }, 100)
-        }
+        // Micro-delay (100ms) ensures Chromium has fully released audio hardware
+        restartTimeoutRef.current = setTimeout(() => {
+          if (!isExplicitlyStoppedRef.current && isListeningRef.current) {
+            spawnRecognition()
+          }
+        }, 100)
       } else {
         setIsListening(false)
       }
@@ -136,70 +176,94 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
 
     recognitionRef.current = recognition
 
-    return () => {
-      isListeningRef.current = false
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.onend = null
-          recognitionRef.current.onerror = null
-          recognitionRef.current.onresult = null
-          recognitionRef.current.stop()
-        } catch (e) {}
+    try {
+      recognition.start()
+    } catch (err) {
+      if (!isExplicitlyStoppedRef.current && isListeningRef.current) {
+        if (restartTimeoutRef.current) clearTimeout(restartTimeoutRef.current)
+        restartTimeoutRef.current = setTimeout(() => {
+          if (!isExplicitlyStoppedRef.current && isListeningRef.current) {
+            spawnRecognition()
+          }
+        }, 150)
+      } else {
+        setIsListening(false)
       }
     }
+
+    return recognition
   }, [])
 
   const startListening = useCallback(() => {
-    if (!recognitionRef.current) return
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current)
+      restartTimeoutRef.current = null
+    }
+
+    isExplicitlyStoppedRef.current = false
     isListeningRef.current = true
-    accumulatedFinalRef.current = ''
+    committedTextRef.current = ''
     currentSessionFinalRef.current = ''
+    currentSessionInterimRef.current = ''
     setTranscript('')
     setInterimTranscript('')
     setFinalTranscript('')
     setError(null)
 
-    try {
-      recognitionRef.current.start()
-      setIsListening(true)
-    } catch (err) {
-      // If recognition was already running or in transition, stop and restart
-      try {
-        recognitionRef.current.stop()
-        setTimeout(() => {
-          if (isListeningRef.current && recognitionRef.current) {
-            try {
-              recognitionRef.current.start()
-              setIsListening(true)
-            } catch (e) {}
-          }
-        }, 150)
-      } catch (e) {}
-    }
-  }, [])
+    spawnRecognition()
+  }, [spawnRecognition])
 
   const stopListening = useCallback(() => {
+    isExplicitlyStoppedRef.current = true
     isListeningRef.current = false
+
+    if (restartTimeoutRef.current) {
+      clearTimeout(restartTimeoutRef.current)
+      restartTimeoutRef.current = null
+    }
+
     if (currentSessionFinalRef.current) {
-      accumulatedFinalRef.current = accumulatedFinalRef.current
-        ? `${accumulatedFinalRef.current} ${currentSessionFinalRef.current}`
-        : currentSessionFinalRef.current
+      committedTextRef.current = joinTexts(committedTextRef.current, currentSessionFinalRef.current)
       currentSessionFinalRef.current = ''
+      currentSessionInterimRef.current = ''
     }
+
     if (recognitionRef.current) {
-      try {
-        recognitionRef.current.stop()
-      } catch (e) {}
+      cleanupInstance(recognitionRef.current)
+      recognitionRef.current = null
     }
+
     setIsListening(false)
   }, [])
 
   const resetTranscript = useCallback(() => {
-    accumulatedFinalRef.current = ''
+    committedTextRef.current = ''
     currentSessionFinalRef.current = ''
+    currentSessionInterimRef.current = ''
     setTranscript('')
     setInterimTranscript('')
     setFinalTranscript('')
+  }, [])
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const SpeechRecognitionClass =
+        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+      setIsSupported(Boolean(SpeechRecognitionClass))
+    }
+
+    return () => {
+      isExplicitlyStoppedRef.current = true
+      isListeningRef.current = false
+      if (restartTimeoutRef.current) {
+        clearTimeout(restartTimeoutRef.current)
+        restartTimeoutRef.current = null
+      }
+      if (recognitionRef.current) {
+        cleanupInstance(recognitionRef.current)
+        recognitionRef.current = null
+      }
+    }
   }, [])
 
   return {
