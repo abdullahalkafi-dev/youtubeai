@@ -1046,7 +1046,7 @@ ${historySnippet}
 User Request: ${params.userPrompt || ''}`,
           },
         ],
-        max_tokens: 80,
+        max_completion_tokens: 80,
         temperature: 0.3,
       });
 

@@ -347,6 +347,7 @@ export class ChatService {
     let fullContent = '';
     let finalUsage: TokenUsage | undefined;
     let sources: any[] = [];
+    let savedThread: any = null;
 
     // Detect if research is needed
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
@@ -365,93 +366,100 @@ export class ChatService {
         });
     }
 
-    if (needsResearch) {
-      this.logger.log(`Thread ${threadId}: Research detected in stream, using web search`);
-      try {
-        for await (const chunk of this.openaiService.chatWithSearchStream({
-          userMessage: dto.content,
-          systemPrompt: systemPrompt + '\n\n' + dynamicContext,
-          conversationHistory,
-        })) {
-          if (chunk.chunk) {
-            fullContent += chunk.chunk;
-            yield { type: 'chunk', content: chunk.chunk };
-          }
-          if (chunk.sources) sources = chunk.sources;
-          if (chunk.usage) finalUsage = chunk.usage;
-        }
-      } catch (error) {
-        this.logger.warn(`Stream research error for thread ${threadId}: ${error.message}`);
-        yield { type: 'error', content: 'Stream interrupted. Please try again.' };
-        return;
-      }
-    } else {
-      try {
-        for await (const chunk of this.openaiService.chatStream({
-          messages: [{ role: 'user', content: dto.content }],
-          channel: channel || undefined,
-          conversationHistory,
-          threadId: threadId.toString(),
-          systemPromptOverride: systemPrompt,
-          dynamicContext,
-          temperature: skill.getTemperature?.() ?? 0.7,
-        })) {
-          if (chunk.chunk) {
-            fullContent += chunk.chunk;
-            yield { type: 'chunk', content: chunk.chunk };
-          }
-          if (chunk.usage) finalUsage = chunk.usage;
-        }
-      } catch (error) {
-        this.logger.warn(`Stream error for thread ${threadId}: ${error.message}`);
-        yield { type: 'error', content: 'Stream interrupted. Please try again.' };
-        return;
-      }
-    }
-
-    // Only save if we got actual content (prevents saving partial content on mid-stream errors)
-    if (!fullContent) return;
-
-    // Save full response atomically
-    const assistantMessage: Message = {
-      role: 'assistant',
-      content: fullContent,
-      metadata: {
-        category: resolvedSkill,
-        ...(sources.length > 0 ? { sources } : {}),
-      },
-      createdAt: new Date(),
-    } as any;
-
-    const updateOps: any = {
-      $push: { messages: assistantMessage },
-      $set: { updatedAt: new Date() },
-    };
-    if (finalUsage) {
-      updateOps.$inc = {
-        totalPromptTokens: finalUsage.promptTokens || 0,
-        totalCompletionTokens: finalUsage.completionTokens || 0,
-        totalCachedTokens: finalUsage.cachedTokens || 0,
-      };
-    }
-
-    const savedThread = await this.threadModel.findByIdAndUpdate(threadId, updateOps, { new: true });
-
-    // Store in ChromaDB
     try {
-      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
-        `User: ${dto.content}\nAssistant: ${fullContent}`,
-        { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
-    } catch { /* RAG optional */ }
+      if (needsResearch) {
+        this.logger.log(`Thread ${threadId}: Research detected in stream, using web search`);
+        try {
+          for await (const chunk of this.openaiService.chatWithSearchStream({
+            userMessage: dto.content,
+            systemPrompt: systemPrompt + '\n\n' + dynamicContext,
+            conversationHistory,
+          })) {
+            if (chunk.chunk) {
+              fullContent += chunk.chunk;
+              yield { type: 'chunk', content: chunk.chunk };
+            }
+            if (chunk.sources) sources = chunk.sources;
+            if (chunk.usage) finalUsage = chunk.usage;
+          }
+        } catch (error) {
+          this.logger.warn(`Stream research error for thread ${threadId}: ${error.message}`);
+          yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+          return;
+        }
+      } else {
+        try {
+          for await (const chunk of this.openaiService.chatStream({
+            messages: [{ role: 'user', content: dto.content }],
+            channel: channel || undefined,
+            conversationHistory,
+            threadId: threadId.toString(),
+            systemPromptOverride: systemPrompt,
+            dynamicContext,
+            temperature: skill.getTemperature?.() ?? 0.7,
+          })) {
+            if (chunk.chunk) {
+              fullContent += chunk.chunk;
+              yield { type: 'chunk', content: chunk.chunk };
+            }
+            if (chunk.usage) finalUsage = chunk.usage;
+          }
+        } catch (error) {
+          this.logger.warn(`Stream error for thread ${threadId}: ${error.message}`);
+          yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+          return;
+        }
+      }
+    } finally {
+      // Save response atomically — GUARANTEED to execute even on client abort/disconnect
+      if (fullContent && fullContent.trim().length > 0) {
+        try {
+          const assistantMessage: Message = {
+            role: 'assistant',
+            content: fullContent,
+            metadata: {
+              category: resolvedSkill,
+              ...(sources.length > 0 ? { sources } : {}),
+            },
+            createdAt: new Date(),
+          } as any;
 
-    // Log AI output
-    await this.logAiOutput({
-      channelId: updatedThread.channelId.toString(), operation: 'chat_stream', threadId: threadId.toString(),
-      inputSummary: dto.content.substring(0, 200), output: { content: fullContent }, usage: finalUsage,
-    });
+          const updateOps: any = {
+            $push: { messages: assistantMessage },
+            $set: { updatedAt: new Date() },
+          };
+          if (finalUsage) {
+            updateOps.$inc = {
+              totalPromptTokens: finalUsage.promptTokens || 0,
+              totalCompletionTokens: finalUsage.completionTokens || 0,
+              totalCachedTokens: finalUsage.cachedTokens || 0,
+            };
+          }
 
-    const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
-    yield { type: 'done', messageId: lastMsgId, usage: finalUsage };
+          savedThread = await this.threadModel.findByIdAndUpdate(threadId, updateOps, { new: true });
+
+          // Store in ChromaDB
+          try {
+            await this.chromaService.upsert('chat_messages', `${threadId}_${(updatedThread?.messages?.length || 0) + 1}`,
+              `User: ${dto.content}\nAssistant: ${fullContent}`,
+              { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
+          } catch { /* RAG optional */ }
+
+          // Log AI output
+          await this.logAiOutput({
+            channelId: updatedThread.channelId.toString(), operation: 'chat_stream', threadId: threadId.toString(),
+            inputSummary: dto.content.substring(0, 200), output: { content: fullContent }, usage: finalUsage,
+          });
+        } catch (saveError: any) {
+          this.logger.error(`Failed to persist stream message to DB: ${saveError.message}`);
+        }
+      }
+    }
+
+    if (savedThread) {
+      const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
+      yield { type: 'done', messageId: lastMsgId, usage: finalUsage };
+    }
   }
 
   async archiveThread(id: string, reason: string) {

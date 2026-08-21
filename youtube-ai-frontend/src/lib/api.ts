@@ -403,6 +403,9 @@ class ApiClient {
         }
       }
     } catch (error: any) {
+      if (signal?.aborted || error?.name === 'AbortError' || error?.message?.includes('aborted')) {
+        return
+      }
       onError(error.message)
     }
   }
