@@ -175,6 +175,8 @@ export class ChatController {
       prompt: string;
       baseImageUrl: string;
       referenceImageUrls?: string[];
+      mode?: 'thumbnail' | 'scene';
+      selectedHostImage?: string;
     },
   ) {
     return this.chatService.editImage(id, body);

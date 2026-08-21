@@ -210,30 +210,30 @@ export class ThumbnailComposerService {
     canvasWidth: number,
     canvasHeight: number,
   ): Promise<OverlayOptions[]> {
-    // Standard logo height ~120px (prominent and readable on thumbnails)
-    const logoHeight = 120;
+    // 1.75x enlarged logo height (~210px) for maximum brand prominence and readability on YouTube thumbnails
+    const logoHeight = 210;
 
     const resizedLogo = await sharp(logoBuffer)
       .resize({ height: logoHeight, fit: 'contain' })
       .toBuffer();
 
     const metadata = await sharp(resizedLogo).metadata();
-    const logoWidth = metadata.width || 180;
+    const logoWidth = metadata.width || 270;
 
-    const top = 28;
-    const left = position === 'top-left' ? 28 : Math.max(0, canvasWidth - logoWidth - 28);
+    const top = 24;
+    const left = position === 'top-left' ? 24 : Math.max(0, canvasWidth - logoWidth - 24);
 
     // Soft dark radial halo behind logo watermark to ensure readability over any background
-    const shadowWidth = logoWidth + 40;
-    const shadowHeight = logoHeight + 40;
-    const shadowLeft = Math.max(0, left - 20);
-    const shadowTop = Math.max(0, top - 20);
+    const shadowWidth = logoWidth + 60;
+    const shadowHeight = logoHeight + 60;
+    const shadowLeft = Math.max(0, left - 30);
+    const shadowTop = Math.max(0, top - 30);
 
     const logoShadowSvg = Buffer.from(`
       <svg width="${shadowWidth}" height="${shadowHeight}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="logohalo" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#000000" stop-opacity="0.65"/>
+            <stop offset="0%" stop-color="#000000" stop-opacity="0.75"/>
             <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
           </radialGradient>
         </defs>

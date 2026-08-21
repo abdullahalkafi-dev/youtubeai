@@ -994,7 +994,12 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
   async editImageWithReference(
     baseImageUrl: string,
     prompt: string,
-    options?: { referenceImageUrls?: string[]; inputFidelity?: 'high' | 'low' },
+    options?: {
+      referenceImageUrls?: string[];
+      inputFidelity?: 'high' | 'low';
+      mode?: 'thumbnail' | 'scene';
+      selectedHostImage?: string;
+    },
   ): Promise<{ imageUrl: string; revisedPrompt: string }> {
     const { toFile } = await import('openai');
 
@@ -1054,24 +1059,42 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
     if (!b64) throw new Error('No image data returned from edit API');
 
     const editedBuffer = Buffer.from(b64, 'base64');
+    let finalBuffer: Buffer = editedBuffer;
+
+    // For thumbnail mode (default): Re-composite pristine host sticker (bottom-right) and 1.75x logo (top-right)
+    if (options?.mode !== 'scene') {
+      try {
+        this.logger.log(`Re-compositing pristine host sticker and 1.75x logo on edited thumbnail...`);
+        const composed = await this.composerService.composeThumbnail({
+          backgroundInput: editedBuffer,
+          selectedHostImage: options?.selectedHostImage,
+          logoPosition: 'top-right',
+        });
+        finalBuffer = Buffer.from(composed);
+      } catch (composeErr: any) {
+        this.logger.warn(`Failed to re-composite overlays on edited thumbnail: ${composeErr.message}. Using raw edit.`);
+        finalBuffer = editedBuffer;
+      }
+    }
+
     let imageUrl: string;
     const isMinioReady = await this.minioService.isAvailable().catch(() => false);
     if (isMinioReady) {
       try {
-        imageUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, editedBuffer);
+        imageUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, finalBuffer);
       } catch (minioErr: any) {
         this.logger.warn(`MinIO upload failed for edited image (${minioErr.message}), saving locally...`);
         const filename = `edited_${Date.now()}.png`;
         const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
         if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
-        fs.writeFileSync(path.join(genDir, filename), editedBuffer);
+        fs.writeFileSync(path.join(genDir, filename), finalBuffer);
         imageUrl = `/api/assets/generated/${filename}`;
       }
     } else {
       const filename = `edited_${Date.now()}.png`;
       const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
       if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
-      fs.writeFileSync(path.join(genDir, filename), editedBuffer);
+      fs.writeFileSync(path.join(genDir, filename), finalBuffer);
       imageUrl = `/api/assets/generated/${filename}`;
     }
 

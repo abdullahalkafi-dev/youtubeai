@@ -190,6 +190,7 @@ export default function ChatPage() {
           prompt: messageContent,
           baseImageUrl: pinnedImage.url,
           referenceImageUrls: referenceUrls,
+          mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
         })
         dispatch(selectThread(threadId))
         toast.success('Image edited!', { id: toastId })

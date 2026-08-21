@@ -995,6 +995,8 @@ export class ChatService {
       prompt: string;
       baseImageUrl: string;
       referenceImageUrls?: string[];
+      mode?: 'thumbnail' | 'scene';
+      selectedHostImage?: string;
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -1003,7 +1005,11 @@ export class ChatService {
     const result = await this.openaiService.editImageWithReference(
       dto.baseImageUrl,
       dto.prompt,
-      { referenceImageUrls: dto.referenceImageUrls },
+      {
+        referenceImageUrls: dto.referenceImageUrls,
+        mode: dto.mode || 'thumbnail',
+        selectedHostImage: dto.selectedHostImage,
+      },
     );
 
     const imageObj = {

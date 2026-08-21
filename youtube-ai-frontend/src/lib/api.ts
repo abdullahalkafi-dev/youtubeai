@@ -312,6 +312,7 @@ class ApiClient {
       prompt: string
       baseImageUrl: string
       referenceImageUrls?: string[]
+      mode?: 'thumbnail' | 'scene'
     },
   ) {
     return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/edit-image`, data)
