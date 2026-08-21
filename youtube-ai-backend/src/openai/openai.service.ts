@@ -657,7 +657,7 @@ export class OpenAIService {
     });
 
     const stream = await retryWithBackoff(
-      () => this.client.chat.completions.create(streamReq),
+      () => this.client.chat.completions.create(streamReq as OpenAI.ChatCompletionCreateParamsStreaming),
       { operationName: 'OpenAI Chat Stream' },
     );
 

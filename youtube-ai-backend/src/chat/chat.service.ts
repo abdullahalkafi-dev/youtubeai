@@ -57,7 +57,7 @@ export class ChatService {
         const video = await this.videoModel.findById(dto.videoId).lean();
         if (video) {
           videoTitle = video.youtubeTitle || video.title;
-          videoThumbnail = video.thumbnailUrl || (video.thumbnails as any)?.default?.url;
+          videoThumbnail = video.thumbnailUrl || (video as any)?.thumbnails?.default?.url;
           if (!title) title = videoTitle?.slice(0, 50) || 'Video Thread';
         }
       }
