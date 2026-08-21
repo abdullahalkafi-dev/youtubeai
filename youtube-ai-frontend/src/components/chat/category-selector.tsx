@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers } from 'lucide-react'
+import { ChevronDown, MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getCategoryColor, CATEGORY_COLORS } from '@/lib/category-colors'
 import type { ThreadCategory } from '@/types/chat'
@@ -12,7 +12,7 @@ interface CategorySelectorProps {
 }
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers,
+  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film,
 }
 
 const CATEGORY_DESCRIPTIONS: Record<ThreadCategory, string> = {
@@ -20,14 +20,15 @@ const CATEGORY_DESCRIPTIONS: Record<ThreadCategory, string> = {
   script: 'Write video scripts with timestamps',
   seo: 'Generate titles, descriptions, tags',
   thumbnail: 'Design thumbnail concepts',
+  image: 'Generate 16:9 scene images for video b-roll & backgrounds',
   competitor: 'Analyze competing channels',
   trends: 'Find trending topics',
   ideas: 'Score content ideas',
   outline: 'Research topic, get hooks, build outline',
 }
 
-// Visible selectable tabs in UI (General and Thumbnail only; others preserved in code for future use)
-const VISIBLE_CATEGORIES: ThreadCategory[] = ['general', 'thumbnail']
+// Visible selectable tabs in UI
+const VISIBLE_CATEGORIES: ThreadCategory[] = ['general', 'thumbnail', 'image']
 
 export function CategorySelector({ value, onChange }: CategorySelectorProps) {
   return (

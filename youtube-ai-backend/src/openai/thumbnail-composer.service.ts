@@ -210,8 +210,8 @@ export class ThumbnailComposerService {
     canvasWidth: number,
     canvasHeight: number,
   ): Promise<OverlayOptions[]> {
-    // Standard logo height ~84px (enlarged for better brand prominence)
-    const logoHeight = 84;
+    // Standard logo height ~120px (prominent and readable on thumbnails)
+    const logoHeight = 120;
 
     const resizedLogo = await sharp(logoBuffer)
       .resize({ height: logoHeight, fit: 'contain' })

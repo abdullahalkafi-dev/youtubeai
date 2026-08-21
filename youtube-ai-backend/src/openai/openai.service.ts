@@ -846,7 +846,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
 
         const requestParams: Record<string, any> = {
           model,
-          prompt: prompt.substring(0, 1000),
+          prompt: prompt,
           n: 1,
           size: '1536x864',
           quality: 'medium',
@@ -928,6 +928,169 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       }
       throw lastError || composeErr;
     }
+  }
+
+  /**
+   * Edit an existing image using reference image + text prompt.
+   * Uses OpenAI images.edit API with gpt-image-2.
+   *
+   * SDK type: image: Uploadable (File | Response | FsReadStream | BunFile)
+   * CRITICAL: input_fidelity is NOT supported for gpt-image-2 (400 error).
+   * GPT models return b64_json only (never url).
+   * Supports multiple images: base image + optional reference images (up to 16).
+   */
+  async editImageWithReference(
+    baseImageUrl: string,
+    prompt: string,
+    options?: { referenceImageUrls?: string[]; inputFidelity?: 'high' | 'low' },
+  ): Promise<{ imageUrl: string; revisedPrompt: string }> {
+    const { toFile } = await import('openai');
+
+    // Helper to download image from URL or local path
+    const downloadImage = async (url: string, index: number): Promise<Buffer> => {
+      if (url.startsWith('/api/assets/generated/') || url.includes('/generated/')) {
+        const filename = path.basename(url);
+        const localPath = path.join(process.cwd(), 'src', 'assets', 'generated', filename);
+        if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
+        throw new Error(`Local image not found: ${localPath}`);
+      }
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to fetch image ${index}: ${response.statusText}`);
+      return Buffer.from(await response.arrayBuffer());
+    };
+
+    // Download base image + all reference images
+    const allUrls = [baseImageUrl, ...(options?.referenceImageUrls || [])];
+    const files: File[] = [];
+    for (let i = 0; i < allUrls.length; i++) {
+      const buffer = await downloadImage(allUrls[i], i);
+      files.push(await toFile(buffer, `image_${i}.png`, { type: 'image/png' }));
+    }
+
+    // Build edit params — input_fidelity ONLY for gpt-image-1/1.5, NOT gpt-image-2
+    const editModel = 'gpt-image-2';
+    const editParams: Record<string, any> = {
+      model: editModel,
+      image: files.length === 1 ? files[0] : files,
+      prompt,
+      quality: 'medium',
+      size: '1536x864',
+    };
+    if (options?.inputFidelity && editModel !== 'gpt-image-2') {
+      editParams.input_fidelity = options.inputFidelity;
+    }
+
+    const result = await retryWithBackoff(
+      () => this.client.images.edit(editParams as any),
+      { operationName: 'OpenAI Image Edit' },
+    );
+
+    const b64 = (result.data?.[0] as any)?.b64_json;
+    if (!b64) throw new Error('No image data returned from edit API');
+
+    const editedBuffer = Buffer.from(b64, 'base64');
+    let imageUrl: string;
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    if (isMinioReady) {
+      try {
+        imageUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, editedBuffer);
+      } catch (minioErr: any) {
+        this.logger.warn(`MinIO upload failed for edited image (${minioErr.message}), saving locally...`);
+        const filename = `edited_${Date.now()}.png`;
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        fs.writeFileSync(path.join(genDir, filename), editedBuffer);
+        imageUrl = `/api/assets/generated/${filename}`;
+      }
+    } else {
+      const filename = `edited_${Date.now()}.png`;
+      const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+      if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+      fs.writeFileSync(path.join(genDir, filename), editedBuffer);
+      imageUrl = `/api/assets/generated/${filename}`;
+    }
+
+    return { imageUrl, revisedPrompt: prompt };
+  }
+
+  /**
+   * Generate a 16:9 scene image (no host face compositing, no logo overlay).
+   * For "Generate Image" mode — raw AI scene for video b-roll/backgrounds.
+   */
+  async generateSceneImage(params: {
+    scene: string;
+    style: string;
+    colors: string;
+    textOverlay?: string;
+    videoTitle?: string;
+    referenceImageUrl?: string;
+  }): Promise<{ imageUrl: string; revisedPrompt: string }> {
+    let prompt = `Create a cinematic 16:9 scene image for a YouTube video titled "${params.videoTitle}".
+
+SCENE: ${params.scene}
+STYLE: ${params.style}
+COLORS: ${params.colors}
+${params.textOverlay ? `TEXT OVERLAY: Render "${params.textOverlay}" in clean, bold typography at the top-center area.` : ''}
+Composition: Full 16:9 frame, dramatic cinematic lighting, realistic photography style. NO watermarks, NO borders, NO frames, NO channel logos.`;
+
+    // If reference image provided, try edit API first
+    if (params.referenceImageUrl) {
+      try {
+        return await this.editImageWithReference(params.referenceImageUrl, prompt, {});
+      } catch (editErr: any) {
+        this.logger.warn(`Image edit failed, falling back to generate: ${editErr.message}`);
+        prompt += `\n\nREFERENCE STYLE: Match the visual style, color palette, and mood of the provided reference as closely as possible.`;
+      }
+    }
+
+    // Standard generation (same fallback pattern as generateThumbnailImage)
+    const primaryModel = this.configService.get<string>('OPENAI_IMAGE_MODEL', 'gpt-image-2');
+    const modelsToTry = Array.from(new Set([primaryModel, 'gpt-image-2', 'gpt-image-1.5']));
+
+    let lastError: any = '';
+    let imageUrl = '';
+
+    for (const model of modelsToTry) {
+      try {
+        const response = await this.client.images.generate({
+          model,
+          prompt,
+          n: 1,
+          size: '1536x864',
+          quality: 'medium',
+        });
+
+        const b64 = (response.data?.[0] as any)?.b64_json;
+        if (b64) {
+          const imageBuffer = Buffer.from(b64, 'base64');
+          const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+          if (isMinioReady) {
+            try {
+              imageUrl = await this.minioService.uploadThumbnail('system', `scene_${Date.now()}.png`, imageBuffer);
+            } catch {
+              const filename = `scene_${Date.now()}.png`;
+              const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+              if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+              fs.writeFileSync(path.join(genDir, filename), imageBuffer);
+              imageUrl = `/api/assets/generated/${filename}`;
+            }
+          } else {
+            const filename = `scene_${Date.now()}.png`;
+            const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+            if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+            fs.writeFileSync(path.join(genDir, filename), imageBuffer);
+            imageUrl = `/api/assets/generated/${filename}`;
+          }
+          break;
+        }
+      } catch (error: any) {
+        lastError = error;
+        this.logger.warn(`Scene image gen with model '${model}' failed: ${error.message}`);
+      }
+    }
+
+    if (!imageUrl) throw lastError || new Error('Scene image generation failed');
+    return { imageUrl, revisedPrompt: prompt };
   }
 
   /**

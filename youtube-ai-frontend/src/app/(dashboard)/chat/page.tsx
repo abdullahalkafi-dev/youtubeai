@@ -1,17 +1,18 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import {
   setActiveThread, createThread, selectThread,
   fetchThreads, optimisticAddUserMessage,
   appendStreamChunk, clearStreaming, finalizeStreamedMessage, removeLastUserMessage, renameThread,
-  setSelectedSkill,
+  setSelectedSkill, enterDraftMode, deleteThread,
 } from '@/store/slices/chat-slice'
 import { useIsMobile } from '@/lib/hooks/use-media-query'
 import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2 } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -25,9 +26,12 @@ import type { ThreadCategory, ChatImage } from '@/types/chat'
 
 export default function ChatPage() {
   const dispatch = useAppDispatch()
-  const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, loading: threadsLoading } = useAppSelector(s => s.chat)
+  const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, isDraftThread, loading: threadsLoading } = useAppSelector(s => s.chat)
   const channelId = useAppSelector(s => s.auth.activeChannelId)
   const isMobile = useIsMobile()
+  const searchParams = useSearchParams()
+  const urlVideoId = searchParams.get('videoId')
+  const urlVideoTitle = searchParams.get('videoTitle')
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [input, setInput] = useState('')
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -35,6 +39,9 @@ export default function ChatPage() {
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
+  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene' } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -87,6 +94,32 @@ export default function ChatPage() {
     return () => { abortControllerRef.current?.abort() }
   }, [])
 
+  // Auto-open video thread from URL params (e.g. from "Open in AI Chat" button)
+  useEffect(() => {
+    if (!urlVideoId || !channelId) return
+
+    // Query backend directly (don't rely on local threads array which may not be loaded yet)
+    api.findThreadByVideoId(channelId, urlVideoId).then(existing => {
+      if (existing) {
+        handleSelectThread(existing.id)
+      } else {
+        dispatch(createThread({
+          channelId,
+          type: 'video',
+          videoId: urlVideoId,
+          title: urlVideoTitle || undefined,
+        }))
+      }
+    }).catch(() => {
+      dispatch(createThread({
+        channelId,
+        type: 'video',
+        videoId: urlVideoId,
+        title: urlVideoTitle || undefined,
+      }))
+    })
+  }, [urlVideoId, channelId])
+
   const allImages = useMemo(() => {
     if (!activeThread) return []
     const images: ChatImage[] = []
@@ -99,7 +132,7 @@ export default function ChatPage() {
   const hasMessages = activeThread && activeThread.messages.length > 1
 
   const handleSend = async () => {
-    if ((!input.trim() && !selectedFile) || !activeThreadId) return
+    if ((!input.trim() && !selectedFile) || (!activeThreadId && !isDraftThread)) return
 
     if (isListening) {
       stopListening()
@@ -109,17 +142,81 @@ export default function ChatPage() {
 
     const messageContent = input
     const fileToSend = selectedFile
+    const pinnedImage = iteratingImage
     setInput('')
     setSelectedFile(null)
+    setIteratingImage(null)
 
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
 
-    if (fileToSend) {
-      dispatch(optimisticAddUserMessage({ threadId: activeThreadId, content: messageContent || `📎 ${fileToSend.name}` }))
+    // If draft thread, create real thread first
+    let threadId = activeThreadId
+    if (isDraftThread) {
+      if (!channelId) return
       try {
-        await api.uploadFile(activeThreadId, fileToSend, messageContent)
-        dispatch(selectThread(activeThreadId))
+        const newThread = await dispatch(createThread({ channelId, type: 'standalone' })).unwrap()
+        threadId = newThread.id
+      } catch (err: any) {
+        toast.error(err.message || 'Failed to create thread')
+        dispatch(clearStreaming())
+        return
+      }
+    }
+
+    if (!threadId) return
+
+    // === DIRECT IMAGE EDIT — pinned image + text feedback ===
+    if (pinnedImage && messageContent.trim()) {
+      dispatch(optimisticAddUserMessage({ threadId, content: messageContent }))
+      const toastId = toast.loading('Editing image...')
+      try {
+        // Upload reference image if user attached one
+        const referenceUrls: string[] = []
+        if (fileToSend) {
+          const uploaded = await api.uploadFile(threadId, fileToSend)
+          if (uploaded?.url) referenceUrls.push(uploaded.url)
+        }
+        await api.editImage(threadId, {
+          prompt: messageContent,
+          baseImageUrl: pinnedImage.url,
+          referenceImageUrls: referenceUrls,
+        })
+        dispatch(selectThread(threadId))
+        toast.success('Image edited!', { id: toastId })
+      } catch (err: any) {
+        toast.error(err.message || 'Image edit failed', { id: toastId })
+        dispatch(removeLastUserMessage())
+        dispatch(clearStreaming())
+      }
+      return
+    }
+
+    // === DIRECT IMAGE GENERATION — Generate Image mode, no pinned image ===
+    if (currentSkill === 'image' && !pinnedImage && !fileToSend && messageContent.trim()) {
+      dispatch(optimisticAddUserMessage({ threadId, content: messageContent }))
+      const toastId = toast.loading('Generating image...')
+      try {
+        await api.generateImageDirect(threadId, {
+          prompt: messageContent,
+          videoTitle: activeThread?.videoTitle || activeThread?.title,
+        })
+        dispatch(selectThread(threadId))
+        toast.success('Image generated!', { id: toastId })
+      } catch (err: any) {
+        toast.error(err.message || 'Image generation failed', { id: toastId })
+        dispatch(removeLastUserMessage())
+        dispatch(clearStreaming())
+      }
+      return
+    }
+
+    // === FILE UPLOAD ===
+    if (fileToSend) {
+      dispatch(optimisticAddUserMessage({ threadId, content: messageContent || `📎 ${fileToSend.name}` }))
+      try {
+        await api.uploadFile(threadId, fileToSend, messageContent)
+        dispatch(selectThread(threadId))
         dispatch(clearStreaming())
       } catch (err: any) {
         toast.error(err.message || 'Upload failed')
@@ -129,15 +226,16 @@ export default function ChatPage() {
       return
     }
 
-    dispatch(optimisticAddUserMessage({ threadId: activeThreadId, content: messageContent }))
+    // === NORMAL CHAT STREAM ===
+    dispatch(optimisticAddUserMessage({ threadId, content: messageContent }))
 
     // Capture threadId to guard against thread switches during stream
-    const streamThreadId = activeThreadId
+    const streamThreadId = threadId
     let fullContent = ''
     let streamCompleted = false
     try {
       await api.sendMessageStream(
-        activeThreadId,
+        threadId,
         messageContent,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
@@ -174,8 +272,7 @@ export default function ChatPage() {
   const handleStopStreaming = () => { abortControllerRef.current?.abort() }
 
   const handleCreateThread = () => {
-    if (!channelId) return
-    dispatch(createThread({ channelId, type: 'standalone' }))
+    dispatch(enterDraftMode())
     setDrawerOpen(false)
   }
 
@@ -245,11 +342,28 @@ export default function ChatPage() {
     }
   }
 
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (fileInputRef.current) fileInputRef.current.value = ''
     if (file) {
       if (file.size > 10 * 1024 * 1024) { toast.error('File too large (max 10MB)'); return }
+
+      // If in image mode and no pinned image, upload and auto-pin for editing
+      if (currentSkill === 'image' && !iteratingImage && file.type.startsWith('image/') && activeThreadId) {
+        try {
+          const toastId = toast.loading('Uploading reference image...')
+          const result = await api.uploadFile(activeThreadId, file)
+          if (result?.url) {
+            setIteratingImage({ url: result.url, mode: 'scene' })
+            toast.success('Image pinned for editing. Type your changes below.', { id: toastId })
+            return
+          }
+        } catch (err: any) {
+          toast.error(err.message || 'Upload failed')
+          return
+        }
+      }
+
       setSelectedFile(file)
       toast.info(`File selected: ${file.name}`)
     }
@@ -259,10 +373,18 @@ export default function ChatPage() {
 
   const threadList = (
     <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-gray-100 dark:border-gray-800">
-        <Button onClick={handleCreateThread} variant="outline" size="sm" className="w-full gap-1.5 text-xs">
-          <Plus className="w-3.5 h-3.5" />New Thread
-        </Button>
+      <div className="p-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+        {!sidebarCollapsed && (
+          <Button onClick={handleCreateThread} variant="outline" size="sm" className="flex-1 gap-1.5 text-xs">
+            <Plus className="w-3.5 h-3.5" />New Thread
+          </Button>
+        )}
+        <button
+          onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+          className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition ml-1"
+        >
+          {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
+        </button>
       </div>
       <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
         {threadsLoading && threads.length === 0 ? (
@@ -277,26 +399,45 @@ export default function ChatPage() {
         ) : (
           threads.map((thread) => {
             return (
-              <button
-                key={thread.id}
-                onClick={() => handleSelectThread(thread.id)}
-                className={cn(
-                  'w-full text-left rounded-lg px-2.5 py-2 transition border',
-                  thread.id === activeThreadId
-                    ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10'
-                    : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
+              <div key={thread.id} className="group relative">
+                <button
+                  onClick={() => handleSelectThread(thread.id)}
+                  className={cn(
+                    'w-full text-left rounded-lg transition border',
+                    sidebarCollapsed ? 'px-1.5 py-2 flex justify-center' : 'px-2.5 py-2',
+                    thread.id === activeThreadId
+                      ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10'
+                      : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
+                  )}
+                >
+                  {sidebarCollapsed ? (
+                    <div className="flex items-center justify-center">
+                      {thread.type === 'video' ? <Video className="w-4 h-4 text-indigo-500" /> : <Lightbulb className="w-4 h-4 text-amber-500" />}
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5">
+                        {thread.type === 'video' ? <Video className="w-3 h-3 text-indigo-500 shrink-0" /> : <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />}
+                        <p className={cn('text-xs font-medium truncate', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
+                          {thread.title}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5 ml-4.5">
+                        <span className="text-xs text-gray-400">{thread.messageCount} msgs</span>
+                      </div>
+                    </>
+                  )}
+                </button>
+                {!sidebarCollapsed && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteModalThread({ id: thread.id, title: thread.title }) }}
+                    className="absolute right-1 top-1 p-1 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+                    title="Delete thread"
+                  >
+                    <Trash2 className="w-3 h-3" />
+                  </button>
                 )}
-              >
-                <div className="flex items-center gap-1.5">
-                  {thread.type === 'video' ? <Video className="w-3 h-3 text-indigo-500 shrink-0" /> : <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />}
-                  <p className={cn('text-xs font-medium truncate', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
-                    {thread.title}
-                  </p>
-                </div>
-                <div className="flex items-center gap-1.5 mt-0.5 ml-4.5">
-                  <span className="text-xs text-gray-400">{thread.messageCount} msgs</span>
-                </div>
-              </button>
+              </div>
             )
           })
         )}
@@ -305,9 +446,13 @@ export default function ChatPage() {
   )
 
   return (
-    <div className="flex h-full max-w-[1600px] mx-auto">
+    <>
+    <div className="flex h-[calc(100vh-3.5rem)] max-w-[1600px] mx-auto overflow-hidden">
       {!isMobile && (
-        <div className="w-56 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0">
+        <div className={cn(
+          "bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200",
+          sidebarCollapsed ? "w-12" : "w-56"
+        )}>
           {threadList}
         </div>
       )}
@@ -376,7 +521,7 @@ export default function ChatPage() {
             )}
 
             {hasMessages && (
-              <div className="space-y-4">
+              <div className="max-w-3xl mx-auto space-y-4">
                 {activeThread.messages.map((msg) => (
                   <div key={msg.id} className={cn('flex items-start gap-2.5 group', msg.role === 'user' ? 'justify-end' : '')}>
                     {msg.role === 'assistant' && (
@@ -391,7 +536,7 @@ export default function ChatPage() {
                         : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-tl-md'
                     )}>
                       {msg.role === 'user' ? (
-                        <p className="text-sm text-white whitespace-pre-wrap">{msg.content}</p>
+                        <p className="text-sm text-white whitespace-pre-wrap">{typeof msg.content === 'string' ? msg.content : ''}</p>
                       ) : (
                         <>
                           <MessageRenderer
@@ -404,6 +549,9 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
+                            onEditImage={(url, mode) => setIteratingImage({ url, mode })}
+                            videoTitle={activeThread?.videoTitle || activeThread?.title}
+                            threadTitle={activeThread?.title}
                           />
                           {/* Skill badge — shows which skill generated this response */}
                           {msg.metadata?.category && (
@@ -436,9 +584,18 @@ export default function ChatPage() {
                       ))}
                     </div>
                     {/* Message Actions */}
-                    {msg.role === 'assistant' && (
-                      <MessageActions content={msg.content} role={msg.role} />
-                    )}
+                    <MessageActions
+                      content={msg.content}
+                      role={msg.role}
+                      threadId={activeThreadId || undefined}
+                      messageId={msg.id || msg._id}
+                      onDelete={() => {
+                        if (activeThread) {
+                          dispatch(setActiveThread(activeThreadId))
+                          dispatch(selectThread(activeThreadId!))
+                        }
+                      }}
+                    />
                     {msg.role === 'user' && (
                       <div className="w-7 h-7 rounded-full bg-gray-200 dark:bg-gray-700 flex items-center justify-center shrink-0">
                         <span className="text-xs font-bold text-gray-600 dark:text-gray-300">U</span>
@@ -599,6 +756,27 @@ export default function ChatPage() {
                 </div>
               )}
 
+              {/* Iterating Image Preview */}
+              {iteratingImage && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-pink-50/70 dark:bg-pink-500/10 rounded-xl border border-pink-200 dark:border-pink-500/30">
+                  <img src={formatAssetUrl(iteratingImage.url)} alt="Editing" className="w-16 h-9 object-cover rounded" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-pink-700 dark:text-pink-300">Editing this image</p>
+                    <p className="text-[9px] text-pink-500 truncate">Describe changes below</p>
+                  </div>
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    className="p-1 text-gray-400 hover:text-pink-500 dark:hover:text-pink-400 rounded transition"
+                    title="Upload reference image"
+                  >
+                    <Paperclip className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => setIteratingImage(null)} className="text-gray-400 hover:text-red-500 p-0.5">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Textarea */}
               <textarea
                 value={input}
@@ -666,5 +844,36 @@ export default function ChatPage() {
         </div>
       </div>
     </div>
+
+    {/* Delete Thread Confirmation Modal */}
+    {deleteModalThread && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+        <div className="w-full max-w-sm bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-2xl shadow-2xl p-6">
+          <h3 className="text-base font-bold text-gray-900 dark:text-white mb-2">Delete Thread?</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 mb-1">
+            This will permanently delete <span className="font-semibold text-gray-700 dark:text-gray-300">"{deleteModalThread.title}"</span> and all its messages.
+          </p>
+          <p className="text-xs text-gray-400 dark:text-gray-500 mb-5">Video data in Video Library is preserved.</p>
+          <div className="flex items-center justify-end gap-2">
+            <button
+              onClick={() => setDeleteModalThread(null)}
+              className="px-4 py-2 text-xs font-semibold text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                dispatch(deleteThread(deleteModalThread.id))
+                setDeleteModalThread(null)
+              }}
+              className="px-4 py-2 text-xs font-semibold text-white bg-red-500 hover:bg-red-600 rounded-lg transition shadow-sm"
+            >
+              Delete
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

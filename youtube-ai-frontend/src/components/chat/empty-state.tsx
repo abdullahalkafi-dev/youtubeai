@@ -1,6 +1,6 @@
 'use client'
 
-import { MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers } from 'lucide-react'
+import { MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film } from 'lucide-react'
 import { getCategoryColor } from '@/lib/category-colors'
 import type { ThreadCategory } from '@/types/chat'
 
@@ -30,6 +30,11 @@ const SUGGESTIONS: Record<ThreadCategory, Array<{ icon: string; text: string }>>
     { icon: 'Image', text: 'What text should I put on my thumbnail?' },
     { icon: 'Image', text: 'Suggest color schemes for a courtroom video' },
   ],
+  image: [
+    { icon: 'Film', text: 'Generate 3 scene concepts for my video background' },
+    { icon: 'Film', text: 'Create a cinematic courtroom scene' },
+    { icon: 'Film', text: 'Design a dramatic prison hallway visual' },
+  ],
   competitor: [
     { icon: 'Target', text: 'Analyze what top channels in my niche are doing' },
     { icon: 'Target', text: 'Find content gaps I can fill' },
@@ -53,7 +58,7 @@ const SUGGESTIONS: Record<ThreadCategory, Array<{ icon: string; text: string }>>
 }
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers,
+  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film,
 }
 
 export function EmptyState({ category, onSuggestionClick }: EmptyStateProps) {

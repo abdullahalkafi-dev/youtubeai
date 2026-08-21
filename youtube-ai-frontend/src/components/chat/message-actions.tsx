@@ -1,17 +1,21 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Copy, Check, RotateCcw, Volume2, VolumeX } from 'lucide-react'
+import { Copy, Check, RotateCcw, Volume2, VolumeX, Trash2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import api from '@/lib/api'
 
 interface MessageActionsProps {
   content: string
   role: 'user' | 'assistant'
+  threadId?: string
+  messageId?: string
   onRegenerate?: () => void
+  onDelete?: () => void
 }
 
-export function MessageActions({ content, role, onRegenerate }: MessageActionsProps) {
+export function MessageActions({ content, role, threadId, messageId, onRegenerate, onDelete }: MessageActionsProps) {
   const [copied, setCopied] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
 
@@ -100,6 +104,23 @@ export function MessageActions({ content, role, onRegenerate }: MessageActionsPr
           title="Regenerate response"
         >
           <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+      )}
+      {threadId && messageId && (
+        <button
+          onClick={async () => {
+            try {
+              await api.deleteMessage(threadId, messageId)
+              onDelete?.()
+              toast.success('Message deleted')
+            } catch (err: any) {
+              toast.error(err.message || 'Failed to delete message')
+            }
+          }}
+          className="p-1.5 rounded-md text-gray-400 hover:text-red-500 dark:hover:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+          title="Delete message"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
       )}
     </div>

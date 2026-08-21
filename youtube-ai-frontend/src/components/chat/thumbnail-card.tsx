@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Image, Palette, Sparkles, Loader2, Download, ExternalLink } from 'lucide-react'
+import { Image, Palette, Sparkles, Loader2, Download, ExternalLink, Wand2 } from 'lucide-react'
 import type { ThumbnailConcept } from '@/lib/content-detector'
 import api, { formatAssetUrl } from '@/lib/api'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -22,6 +22,9 @@ interface ThumbnailCardProps {
   }>
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
+  onEditImage?: (url: string) => void
+  videoTitle?: string
+  threadTitle?: string
 }
 
 function parseColorScheme(colors: string): string[] {
@@ -50,6 +53,9 @@ export function ThumbnailCard({
   messageImages,
   onStartGenerate,
   onFinishGenerate,
+  onEditImage,
+  videoTitle,
+  threadTitle,
 }: ThumbnailCardProps) {
   const dispatch = useAppDispatch()
   const activeThreadId = useAppSelector((state) => state.chat.activeThreadId)
@@ -134,6 +140,13 @@ export function ThumbnailCard({
         </span>
       </div>
 
+      {/* Context Anchor */}
+      <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/50 rounded-lg px-3 py-2 mb-1">
+        <span>Target Subject: {videoTitle || 'Not set'}</span>
+        <span>&middot;</span>
+        <span>Video Context: {threadTitle || 'General'}</span>
+      </div>
+
       <div className="grid gap-3">
         {thumbnails.map((concept, idx) => {
           const colors = parseColorScheme(concept.colors)
@@ -191,7 +204,7 @@ export function ThumbnailCard({
                 <label className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">Text Overlay</label>
                 <div className="mt-1 bg-gray-900 rounded-lg p-3 flex items-center justify-center min-h-[48px]">
                   <span className="text-white font-black text-lg tracking-wide uppercase text-center leading-tight">
-                    {concept.text}
+                    {typeof concept.text === 'string' ? concept.text : ''}
                   </span>
                 </div>
               </div>
@@ -218,6 +231,16 @@ export function ThumbnailCard({
                     />
                   </div>
                 </div>
+              )}
+
+              {/* Edit / Iterate button */}
+              {generatedUrl && onEditImage && (
+                <button
+                  onClick={() => onEditImage(generatedUrl)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
+                >
+                  <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate
+                </button>
               )}
 
               {/* Visual Concept */}

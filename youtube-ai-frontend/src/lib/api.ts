@@ -30,8 +30,8 @@ export function getApiBaseUrl(): string {
   return url.replace(/\/$/, '').replace(/\/api$/, '')
 }
 
-export function formatAssetUrl(url: string | null | undefined): string {
-  if (!url) return ''
+export function formatAssetUrl(url: any): string {
+  if (!url || typeof url !== 'string') return ''
   const base = getApiBaseUrl()
 
   // Clean double bucket prefixes if present in legacy URLs (e.g. /thumbnails/thumbnails/...)
@@ -285,6 +285,44 @@ class ApiClient {
     return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
   }
 
+  async generateSceneImage(
+    threadId: string,
+    data: {
+      scene: string
+      style: string
+      colors: string
+      textOverlay?: string
+      videoTitle?: string
+      referenceImageUrl?: string
+      logoPosition?: 'top-right' | 'none'
+      messageId?: string
+    },
+  ) {
+    return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-scene-image`, data)
+  }
+
+  async editImage(
+    threadId: string,
+    data: {
+      prompt: string
+      baseImageUrl: string
+      referenceImageUrls?: string[]
+    },
+  ) {
+    return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/edit-image`, data)
+  }
+
+  async generateImageDirect(
+    threadId: string,
+    data: {
+      prompt: string
+      videoTitle?: string
+      logoPosition?: 'top-right' | 'none'
+    },
+  ) {
+    return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/generate-image-direct`, data)
+  }
+
   async sendMessage(threadId: string, content: string, skill?: string) {
     return this.post<SendMessageResponse>(`/api/threads/${threadId}/messages`, { content, skill })
   }
@@ -399,6 +437,14 @@ class ApiClient {
 
   async deleteThread(id: string) {
     return this.delete<{ id: string }>(`/api/threads/${id}`)
+  }
+
+  async findThreadByVideoId(channelId: string, videoId: string) {
+    return this.get<Thread | null>(`/api/channels/${channelId}/threads/video/${videoId}`)
+  }
+
+  async deleteMessage(threadId: string, messageId: string) {
+    return this.delete<{ success: boolean }>(`/api/threads/${threadId}/messages/${messageId}`)
   }
 
   // Queue

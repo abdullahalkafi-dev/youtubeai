@@ -1,4 +1,4 @@
-export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'competitor' | 'trends' | 'ideas' | 'outline'
+export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline'
 
 export interface CategoryColor {
   name: string
@@ -66,6 +66,19 @@ export const CATEGORY_COLORS: Record<ThreadCategory, CategoryColor> = {
     borderDark: 'dark:border-violet-500/20',
     text: 'text-violet-600',
     textDark: 'dark:text-violet-400',
+  },
+  image: {
+    name: 'Generate Image',
+    icon: 'Film',
+    primary: '#ec4899',
+    light: '#fce7f3',
+    dark: '#f472b6',
+    bg: 'bg-pink-50',
+    bgDark: 'dark:bg-pink-500/10',
+    border: 'border-pink-200',
+    borderDark: 'dark:border-pink-500/20',
+    text: 'text-pink-600',
+    textDark: 'dark:text-pink-400',
   },
   competitor: {
     name: 'Competitor',

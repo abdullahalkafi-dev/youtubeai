@@ -17,6 +17,7 @@ const CONTEXT_DATA: Record<ThreadCategory, string[]> = {
   script: ['Channel voice & style loaded', 'Script structure template ready', 'Trending topics available'],
   seo: ['Top performing videos loaded', 'Approved SEO patterns ready', 'Channel keywords available'],
   thumbnail: ['Channel style guide loaded', 'Thumbnail best practices ready'],
+  image: ['Scene generation ready', '16:9 cinematic mode active'],
   competitor: ['Trending topics loaded', 'Channel positioning data ready'],
   trends: ['15 latest trending topics loaded', 'Opportunity scores calculated'],
   ideas: ['Scoring criteria loaded', 'Channel context available'],

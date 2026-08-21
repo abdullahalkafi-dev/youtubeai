@@ -113,10 +113,13 @@ export function CommentItem({
 
           {/* Action Bar */}
           <div className="flex items-center gap-3 mt-2.5">
-            <button className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-indigo-500 transition">
-              <ThumbsUp className="w-3 h-3" />
+            <span
+              className="flex items-center gap-1 text-[11px] text-gray-400 select-none cursor-default"
+              title={likeCount > 0 ? `${likeCount} ${likeCount === 1 ? 'like' : 'likes'} on YouTube` : '0 likes on YouTube'}
+            >
+              <ThumbsUp className="w-3 h-3 text-gray-400" />
               {likeCount > 0 && <span>{likeCount}</span>}
-            </button>
+            </span>
 
             {!isReply && (
               <button

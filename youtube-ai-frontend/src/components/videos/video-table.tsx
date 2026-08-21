@@ -44,8 +44,15 @@ export function VideoTable() {
     }
   }
 
-  const handleOpenChat = (video: typeof videos[0]) => {
+  const handleOpenChat = async (video: typeof videos[0]) => {
     if (!channelId) return
+    // Check if thread already exists for this video
+    const existing = await api.findThreadByVideoId(channelId, video.id).catch(() => null)
+    if (existing) {
+      router.push('/chat')
+      return
+    }
+    // Create new video thread (empty, no welcome message)
     dispatch(createThread({
       channelId,
       title: video.title.length > 40 ? video.title.slice(0, 40) + '...' : video.title,

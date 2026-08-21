@@ -10,7 +10,8 @@ interface ChatState {
   sending: boolean
   streamingContent: string
   error: string | null
-  selectedSkill: ThreadCategory | null  // Ephemeral — sticky until page refresh. null = general (auto-classify)
+  selectedSkill: ThreadCategory | null
+  isDraftThread: boolean
 }
 
 const initialState: ChatState = {
@@ -22,6 +23,7 @@ const initialState: ChatState = {
   streamingContent: '',
   error: null,
   selectedSkill: null,
+  isDraftThread: false,
 }
 
 export const fetchThreads = createAsyncThunk(
@@ -64,6 +66,14 @@ export const archiveThread = createAsyncThunk<string, string>(
   },
 )
 
+export const deleteThread = createAsyncThunk<string, string>(
+  'chat/deleteThread',
+  async (threadId: string) => {
+    await api.deleteThread(threadId)
+    return threadId
+  },
+)
+
 const chatSlice = createSlice({
   name: 'chat',
   initialState,
@@ -81,6 +91,25 @@ const chatSlice = createSlice({
     },
     setSelectedSkill(state, action: PayloadAction<ThreadCategory | null>) {
       state.selectedSkill = action.payload
+    },
+    enterDraftMode(state) {
+      state.isDraftThread = true
+      state.activeThreadId = null
+      state.activeThread = {
+        id: 'draft_' + Date.now(),
+        channelId: '',
+        type: 'standalone',
+        title: 'New Thread',
+        status: 'active',
+        messages: [],
+        totalPromptTokens: 0,
+        totalCompletionTokens: 0,
+        totalCachedTokens: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      }
+      state.streamingContent = ''
+      state.sending = false
     },
     optimisticAddUserMessage(state, action: PayloadAction<{ threadId: string; content: string }>) {
       if (state.activeThread?.id === action.payload.threadId) {
@@ -154,6 +183,7 @@ const chatSlice = createSlice({
         })
         state.activeThreadId = thread.id
         state.activeThread = thread
+        state.isDraftThread = false
       })
       .addCase(selectThread.pending, (state) => { state.loading = true })
       .addCase(selectThread.fulfilled, (state, action) => {
@@ -175,10 +205,21 @@ const chatSlice = createSlice({
       .addCase(archiveThread.fulfilled, (state, action) => {
         state.threads = state.threads.filter(t => t.id !== action.payload)
         if (state.activeThreadId === action.payload) {
-          // Auto-select the first remaining thread
           if (state.threads.length > 0) {
             state.activeThreadId = state.threads[0].id
-            state.activeThread = null // Clear stale messages — selectThread will load fresh data
+            state.activeThread = null
+          } else {
+            state.activeThreadId = null
+            state.activeThread = null
+          }
+        }
+      })
+      .addCase(deleteThread.fulfilled, (state, action) => {
+        state.threads = state.threads.filter(t => t.id !== action.payload)
+        if (state.activeThreadId === action.payload) {
+          if (state.threads.length > 0) {
+            state.activeThreadId = state.threads[0].id
+            state.activeThread = null
           } else {
             state.activeThreadId = null
             state.activeThread = null
@@ -192,6 +233,7 @@ export const {
   setActiveThread,
   clearError,
   setSelectedSkill,
+  enterDraftMode,
   optimisticAddUserMessage,
   appendStreamChunk,
   clearStreaming,

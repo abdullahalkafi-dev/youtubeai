@@ -3,6 +3,7 @@
 import { detectAndParse } from '@/lib/content-detector'
 import { SeoCard } from './seo-card'
 import { ThumbnailCard } from './thumbnail-card'
+import { SceneCard } from './scene-card'
 import { ScoreCard } from './score-card'
 import { ScriptRenderer } from './script-renderer'
 import { TrendsCard } from './trends-card'
@@ -18,15 +19,21 @@ interface MessageRendererProps {
   messageImages?: any[]
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
+  onEditImage?: (url: string, mode: 'thumbnail' | 'scene') => void
+  videoTitle?: string
+  threadTitle?: string
 }
 
-export function MessageRenderer({ content, category, isStreaming, messageId, messageImages, onStartGenerate, onFinishGenerate }: MessageRendererProps) {
+export function MessageRenderer({ content, category, isStreaming, messageId, messageImages, onStartGenerate, onFinishGenerate, onEditImage, videoTitle, threadTitle }: MessageRendererProps) {
   // During active streaming, render Markdown directly to avoid UI parsing flickers
   if (isStreaming) {
     // Strip trailing incomplete HTML tags like "<span" or "<div" during active stream
-    const cleanStreamingContent = content.replace(/<[^>]*$/g, '')
+    const rawContent = typeof content === 'string' ? content : ''
+    const cleanStreamingContent = rawContent.replace(/<[^>]*$/g, '')
     return <MarkdownRenderer content={cleanStreamingContent} />
   }
+
+  if (!content || typeof content !== 'string') return <MarkdownRenderer content="" />
 
   const parsed = detectAndParse(content, category)
 
@@ -41,6 +48,20 @@ export function MessageRenderer({ content, category, isStreaming, messageId, mes
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
+          onEditImage={(url) => onEditImage?.(url, 'thumbnail')}
+          videoTitle={videoTitle}
+          threadTitle={threadTitle}
+        />
+      ) : parsed.type === 'image' && parsed.sceneConcepts ? (
+        <SceneCard
+          concepts={parsed.sceneConcepts}
+          messageId={messageId}
+          messageImages={messageImages}
+          onStartGenerate={onStartGenerate}
+          onFinishGenerate={onFinishGenerate}
+          onEditImage={(url) => onEditImage?.(url, 'scene')}
+          videoTitle={videoTitle}
+          threadTitle={threadTitle}
         />
       ) : parsed.type === 'ideas' && parsed.ideaScore ? (
         <div className="space-y-4">

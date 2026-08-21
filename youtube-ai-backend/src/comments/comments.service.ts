@@ -9,7 +9,7 @@ const QUOTA_COST_COMMENT_REPLIES = 2;
 const QUOTA_COST_COMMENT_INSERT = 50;
 
 export interface AiReplyOption {
-  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Engaging';
+  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Informal';
   text: string;
   label: string;
 }
@@ -143,7 +143,8 @@ export class CommentsService {
   }
 
   /**
-   * Generates 5 distinct, highly-contextual reply variations with counter-questions.
+   * Generates 5 distinct, highly-contextual reply variations matching standard tone types:
+   * General, Humorous, Thankful, Witty, Informal
    */
   async generateReplies(
     commentText: string,
@@ -165,17 +166,17 @@ CRITICAL GUIDELINES:
 3. COUNTER-QUESTION: Every single reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
 4. Channel Voice: Direct, thoughtful, authentic, intelligent, street-wise professorial tone (Unique Mecca Audio style).
 
-Generate exactly 5 distinct tone variations:
+Generate exactly 5 distinct tone variations with these exact 5 types:
 1. "General": Thoughtful, direct, balanced perspective on their comment + relevant discussion question.
 2. "Humorous": Clever, witty, lighthearted with relevant emojis (e.g. 😜, 🔥, 👑, 🎬) while staying focused on the topic + a funny/sharp question.
 3. "Thankful": Genuine appreciation for their specific perspective or deep point (🙏, ❤️) + an insightful follow-up question.
 4. "Witty": Sharp, street-wise, confident analysis of their statement + a provocative counter-question.
-5. "Engaging": High-curiosity question specifically exploring or challenging their viewpoint further.
+5. "Informal": Casual, friendly, warm, conversational everyday chat tone (e.g. "Aww thanks!", "Appreciate you!", "Super cool you noticed that!") + an engaging conversational question.
 
 OUTPUT FORMAT:
 Respond with ONLY a valid JSON array of 5 objects with keys:
-- "tone": ("General" | "Humorous" | "Thankful" | "Witty" | "Engaging")
-- "label": (human readable tone name)
+- "tone": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal")
+- "label": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal")
 - "text": (1 to 3 concise sentences)
 
 Do not include markdown codeblocks or extra text.`;
@@ -219,9 +220,9 @@ Do not include markdown codeblocks or extra text.`;
         text: `Real talk right there. When you look at the deeper facts, how do you see this playing out next?`,
       },
       {
-        tone: 'Engaging',
-        label: 'Engaging',
-        text: `That's a crucial angle. If you were in their shoes, what decision would you have made differently?`,
+        tone: 'Informal',
+        label: 'Informal',
+        text: `Aww, thanks! So glad you're enjoying this part of "${snippet}". What stood out to you the most?`,
       },
     ];
   }
@@ -240,17 +241,29 @@ Do not include markdown codeblocks or extra text.`;
     return replies[0]?.text || 'Thank you for watching!';
   }
 
+  private normalizeTone(rawTone?: string): 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Informal' {
+    const t = String(rawTone || '').trim().toLowerCase();
+    if (t.includes('humor') || t.includes('funny') || t.includes('joke') || t.includes('light')) return 'Humorous';
+    if (t.includes('thank') || t.includes('appreciat') || t.includes('grat')) return 'Thankful';
+    if (t.includes('wit') || t.includes('sharp') || t.includes('street') || t.includes('provoc')) return 'Witty';
+    if (t.includes('informal') || t.includes('casual') || t.includes('curious') || t.includes('engag') || t.includes('friendly')) return 'Informal';
+    return 'General';
+  }
+
   private parseJsonReplies(raw: string): AiReplyOption[] | null {
     try {
       const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
       const parsed = JSON.parse(cleaned);
       if (Array.isArray(parsed) && parsed.length > 0) {
         return parsed
-          .map((item: any) => ({
-            tone: item.tone || 'General',
-            label: item.label || item.tone || 'General',
-            text: String(item.text || '').trim(),
-          }))
+          .map((item: any) => {
+            const canonicalTone = this.normalizeTone(item.tone || item.label);
+            return {
+              tone: canonicalTone,
+              label: canonicalTone,
+              text: String(item.text || '').trim(),
+            };
+          })
           .filter((i: any) => i.text.length > 0);
       }
     } catch {
@@ -260,11 +273,14 @@ Do not include markdown codeblocks or extra text.`;
           const parsed = JSON.parse(match[0]);
           if (Array.isArray(parsed)) {
             return parsed
-              .map((item: any) => ({
-                tone: item.tone || 'General',
-                label: item.label || item.tone || 'General',
-                text: String(item.text || '').trim(),
-              }))
+              .map((item: any) => {
+                const canonicalTone = this.normalizeTone(item.tone || item.label);
+                return {
+                  tone: canonicalTone,
+                  label: canonicalTone,
+                  text: String(item.text || '').trim(),
+                };
+              })
               .filter((i: any) => i.text.length > 0);
           }
         } catch {}

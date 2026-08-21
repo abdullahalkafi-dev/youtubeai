@@ -1,4 +1,4 @@
-export type ContentType = 'seo' | 'thumbnail' | 'ideas' | 'trends' | 'script' | 'outline' | 'markdown'
+export type ContentType = 'seo' | 'thumbnail' | 'ideas' | 'trends' | 'script' | 'outline' | 'image' | 'markdown'
 
 export interface SeoContent {
   title: string
@@ -11,6 +11,13 @@ export interface ThumbnailConcept {
   text: string
   visual: string
   colors: string
+}
+
+export interface SceneConcept {
+  scene: string
+  style: string
+  colors: string
+  textOverlay?: string
 }
 
 export interface IdeaScore {
@@ -34,6 +41,7 @@ export interface ParsedContent {
   raw: string
   seo?: SeoContent
   thumbnails?: ThumbnailConcept[]
+  sceneConcepts?: SceneConcept[]
   ideaScore?: IdeaScore
   trends?: TrendItem[]
   sources?: Array<{ title: string; url: string }>
@@ -124,6 +132,21 @@ function parseThumbnailContent(content: string): ThumbnailConcept[] | null {
   return concepts.length > 0 ? concepts : null
 }
 
+function parseSceneConcepts(content: string): SceneConcept[] | null {
+  const concepts: SceneConcept[] = []
+  const conceptRegex = /### Scene Concept \d+\s*\n([\s\S]*?)(?=### Scene Concept|###|$)/gi
+  let match
+  while ((match = conceptRegex.exec(content)) !== null) {
+    const section = match[1]
+    const scene = section.match(/\*\*Scene:\*\*\s*(.+)/i)?.[1]?.trim() || ''
+    const style = section.match(/\*\*Style:\*\*\s*(.+)/i)?.[1]?.trim() || ''
+    const colors = section.match(/\*\*Colors:\*\*\s*(.+)/i)?.[1]?.trim() || ''
+    const textOverlay = section.match(/\*\*Text overlay.*:\*\*\s*(.+)/i)?.[1]?.trim() || ''
+    if (scene || style) concepts.push({ scene, style, colors, textOverlay })
+  }
+  return concepts.length > 0 ? concepts : null
+}
+
 function parseIdeaScore(content: string): IdeaScore | null {
   const scoreSection = extractSection(content, 'Score')
   if (!scoreSection) return null
@@ -182,61 +205,72 @@ function parseTrendItems(content: string): TrendItem[] | null {
   return trends.length > 0 ? trends : null
 }
 
-export function detectAndParse(content: string, category: string): ParsedContent {
-  const sources = extractSources(content)
+export function detectAndParse(content: any, category: string): ParsedContent {
+  const textContent = typeof content === 'string' ? content : (content ? String(content) : '')
+  const sources = extractSources(textContent)
 
   // Try parsing based on category first
   if (category === 'seo') {
-    const seo = parseSeoContent(content)
-    if (seo) return { type: 'seo', raw: content, seo, sources }
+    const seo = parseSeoContent(textContent)
+    if (seo) return { type: 'seo', raw: textContent, seo, sources }
   }
 
   if (category === 'thumbnail') {
-    const thumbnails = parseThumbnailContent(content)
-    if (thumbnails) return { type: 'thumbnail', raw: content, thumbnails, sources }
+    const thumbnails = parseThumbnailContent(textContent)
+    if (thumbnails) return { type: 'thumbnail', raw: textContent, thumbnails, sources }
+  }
+
+  if (category === 'image') {
+    const scenes = parseSceneConcepts(textContent)
+    if (scenes) return { type: 'image', raw: textContent, sceneConcepts: scenes, sources }
   }
 
   if (category === 'ideas') {
-    const ideaScore = parseIdeaScore(content)
-    if (ideaScore) return { type: 'ideas', raw: content, ideaScore, sources }
+    const ideaScore = parseIdeaScore(textContent)
+    if (ideaScore) return { type: 'ideas', raw: textContent, ideaScore, sources }
   }
 
   if (category === 'trends') {
-    const trends = parseTrendItems(content)
-    if (trends) return { type: 'trends', raw: content, trends, sources }
+    const trends = parseTrendItems(textContent)
+    if (trends) return { type: 'trends', raw: textContent, trends, sources }
   }
 
-  if (category === 'outline' && content.includes('## Hook Options')) {
-    return { type: 'outline', raw: content, sources }
+  if (category === 'outline' && textContent.includes('## Hook Options')) {
+    return { type: 'outline', raw: textContent, sources }
   }
 
   if (category === 'script') {
-    return { type: 'script', raw: content, sources }
+    return { type: 'script', raw: textContent, sources }
   }
 
   // Content-based detection (fallback)
-  if (content.includes('## Title') && content.includes('## Description') && content.includes('## Tags')) {
-    const seo = parseSeoContent(content)
-    if (seo) return { type: 'seo', raw: content, seo, sources }
+  if (textContent.includes('## Title') && textContent.includes('## Description') && textContent.includes('## Tags')) {
+    const seo = parseSeoContent(textContent)
+    if (seo) return { type: 'seo', raw: textContent, seo, sources }
   }
 
-  if (content.includes('### Concept') && content.includes('**Text overlay:**')) {
-    const thumbnails = parseThumbnailContent(content)
-    if (thumbnails) return { type: 'thumbnail', raw: content, thumbnails, sources }
+  if (textContent.includes('### Concept') && textContent.includes('**Text overlay:**')) {
+    const thumbnails = parseThumbnailContent(textContent)
+    if (thumbnails) return { type: 'thumbnail', raw: textContent, thumbnails, sources }
   }
 
-  if (content.includes('## Score') && content.includes('## Criteria')) {
-    const ideaScore = parseIdeaScore(content)
-    if (ideaScore) return { type: 'ideas', raw: content, ideaScore, sources }
+  if (textContent.includes('### Scene Concept') && textContent.includes('**Scene:**')) {
+    const scenes = parseSceneConcepts(textContent)
+    if (scenes) return { type: 'image', raw: textContent, sceneConcepts: scenes, sources }
   }
 
-  if (content.includes('## Hook Options') && content.includes('## Outline')) {
-    return { type: 'outline', raw: content, sources }
+  if (textContent.includes('## Score') && textContent.includes('## Criteria')) {
+    const ideaScore = parseIdeaScore(textContent)
+    if (ideaScore) return { type: 'ideas', raw: textContent, ideaScore, sources }
   }
 
-  if (content.includes('💎 JEWEL') || content.includes('COLD OPEN') || content.includes('## COLD OPEN')) {
-    return { type: 'script', raw: content, sources }
+  if (textContent.includes('## Hook Options') && textContent.includes('## Outline')) {
+    return { type: 'outline', raw: textContent, sources }
   }
 
-  return { type: 'markdown', raw: content, sources }
+  if (textContent.includes('💎 JEWEL') || textContent.includes('COLD OPEN') || textContent.includes('## COLD OPEN')) {
+    return { type: 'script', raw: textContent, sources }
+  }
+
+  return { type: 'markdown', raw: textContent, sources }
 }

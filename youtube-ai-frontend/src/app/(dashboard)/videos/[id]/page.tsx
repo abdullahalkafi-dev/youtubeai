@@ -196,7 +196,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
               </a>
             )}
             <button
-              onClick={() => router.push('/chat')}
+              onClick={() => router.push(`/chat?videoId=${video.id}&videoTitle=${encodeURIComponent(video.title || video.youtubeTitle || '')}`)}
               className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold px-4 py-2.5 rounded-xl border border-indigo-100 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5 shadow-sm"
             >
               <MessageSquare className="w-4 h-4" />Open in AI Chat

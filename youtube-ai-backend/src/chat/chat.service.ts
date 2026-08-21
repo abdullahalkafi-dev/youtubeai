@@ -11,6 +11,7 @@ import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-topic.schema';
 import { AIOutputLog, AIOutputLogDocument } from '../mongo/schemas/ai-output-log.schema';
 import { OpenAIService, TokenUsage } from '../openai/openai.service';
+import { ThumbnailComposerService } from '../openai/thumbnail-composer.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { SkillRegistry } from './skills/skill-registry';
@@ -34,6 +35,7 @@ export class ChatService {
     @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
     @InjectModel(AIOutputLog.name) private readonly aiOutputLogModel: Model<AIOutputLogDocument>,
     private readonly openaiService: OpenAIService,
+    private readonly composerService: ThumbnailComposerService,
     private readonly minioService: MinioService,
     private readonly chromaService: ChromaService,
     private readonly skillRegistry: SkillRegistry,
@@ -68,12 +70,7 @@ export class ChatService {
       title,
       videoId: dto.videoId,
       status: 'active',
-      messages: [{
-        role: 'assistant',
-        content: `Thread created: ${title}\n\nI'll help you with any question about your channel — script, SEO, thumbnails, trends, competitor analysis, or strategy. What would you like to work on?`,
-        metadata: { category: 'general' },
-        createdAt: new Date(),
-      }],
+      messages: [],
     });
     return this.findById(thread._id.toString());
   }
@@ -86,6 +83,15 @@ export class ChatService {
     if (!includeArchived) filter.status = 'active';
     const threads = await this.threadModel.find(filter).sort({ updatedAt: -1 }).lean();
     return leanDocs(threads);
+  }
+
+  async findByVideoId(channelId: string, videoId: string) {
+    const thread = await this.threadModel.findOne({
+      channelId: new Types.ObjectId(channelId),
+      videoId: videoId,
+      status: 'active',
+    }).lean();
+    return thread ? leanDoc(thread) : null;
   }
 
   async findById(id: string) {
@@ -467,6 +473,39 @@ export class ChatService {
     return leanDoc(removed);
   }
 
+  async deleteMessage(threadId: string, messageId: string) {
+    if (!Types.ObjectId.isValid(messageId)) {
+      throw new BadRequestException(`Invalid message ID format: ${messageId}`);
+    }
+
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const msgIndex = thread.messages.findIndex(
+      m => m._id?.toString() === messageId
+    );
+    if (msgIndex === -1) throw new NotFoundException(`Message ${messageId} not found`);
+
+    // Best-effort cleanup: if it's an assistant message with generated images, delete from MinIO
+    const msg = thread.messages[msgIndex];
+    if (msg.role === 'assistant' && msg.metadata?.images) {
+      for (const img of msg.metadata.images) {
+        try {
+          const urlParts = img.url.split('/thumbnails/');
+          if (urlParts[1]) {
+            await this.minioService.deleteFile(urlParts[1]);
+          }
+        } catch { /* best effort */ }
+      }
+    }
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $pull: { messages: { _id: new Types.ObjectId(messageId) } }
+    });
+
+    return { success: true, threadId, messageId };
+  }
+
   private async summarizeAndCompress(threadId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, channel?: any): Promise<{ summary: string }> {
     const result = await this.openaiService.summarizeConversation({ messages, channel });
     await this.logAiOutput({ channelId: '', operation: 'summarize', threadId, inputSummary: `Summarizing ${messages.length} messages`, output: { summary: result.summary }, usage: result.usage });
@@ -823,5 +862,244 @@ export class ChatService {
     }
 
     return { ...result, image: imageObj };
+  }
+
+  /**
+   * Generate a scene image (16:9 cinematic b-roll/background).
+   * No host face compositing — only optional logo overlay.
+   */
+  async generateSceneImage(
+    threadId: string,
+    dto: {
+      scene: string;
+      style: string;
+      colors: string;
+      textOverlay?: string;
+      videoTitle?: string;
+      referenceImageUrl?: string;
+      logoPosition?: 'top-right' | 'none';
+      messageId?: string;
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    let videoContextTitle = dto.videoTitle || thread.title;
+    if (thread.videoId) {
+      try {
+        const video = await this.videoModel.findById(thread.videoId).lean();
+        if (video) videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
+      } catch { /* optional */ }
+    }
+
+    const result = await this.openaiService.generateSceneImage({
+      scene: dto.scene,
+      style: dto.style,
+      colors: dto.colors,
+      textOverlay: dto.textOverlay,
+      videoTitle: videoContextTitle,
+      referenceImageUrl: dto.referenceImageUrl,
+    });
+
+    // Optionally composite logo only (no host face)
+    let finalImageUrl = result.imageUrl;
+    if (dto.logoPosition !== 'none') {
+      try {
+        const composedBuffer = await this.composerService.composeThumbnail({
+          backgroundInput: result.imageUrl,
+          logoPosition: dto.logoPosition || 'top-right',
+        });
+        const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+        if (isMinioReady) {
+          try {
+            finalImageUrl = await this.minioService.uploadThumbnail('system', `scene_composed_${Date.now()}.png`, composedBuffer);
+          } catch {
+            const filename = `scene_composed_${Date.now()}.png`;
+            const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+            if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+            fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+            finalImageUrl = `/api/assets/generated/${filename}`;
+          }
+        } else {
+          const filename = `scene_composed_${Date.now()}.png`;
+          const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+          if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+          fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+          finalImageUrl = `/api/assets/generated/${filename}`;
+        }
+      } catch { /* use raw image if compositing fails */ }
+    }
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: finalImageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: 'Scene',
+      textOverlay: dto.textOverlay || '',
+      visualDescription: dto.scene || '',
+      isSceneImage: true,
+      createdAt: new Date(),
+    };
+
+    // Store in message (same pattern as generateThumbnailImage)
+    if (dto.messageId && Types.ObjectId.isValid(dto.messageId)) {
+      await this.threadModel.updateOne(
+        { _id: threadId, 'messages._id': new Types.ObjectId(dto.messageId) },
+        { $push: { 'messages.$.metadata.images': imageObj } },
+      );
+    } else {
+      const targetMessage = thread.messages.slice().reverse().find(m => m.role === 'assistant');
+      if (targetMessage && targetMessage._id) {
+        await this.threadModel.updateOne(
+          { _id: threadId, 'messages._id': targetMessage._id },
+          { $push: { 'messages.$.metadata.images': imageObj } },
+        );
+      } else if (thread.messages.length > 0) {
+        const lastMsgIdx = thread.messages.length - 1;
+        await this.threadModel.updateOne(
+          { _id: threadId },
+          { $push: { [`messages.${lastMsgIdx}.metadata.images`]: imageObj } },
+        );
+      }
+    }
+
+    return { ...result, image: imageObj };
+  }
+
+  /**
+   * Direct image edit — takes base image + prompt + optional reference images.
+   * Calls images.edit API directly, stores result in message metadata.
+   */
+  async editImage(
+    threadId: string,
+    dto: {
+      prompt: string;
+      baseImageUrl: string;
+      referenceImageUrls?: string[];
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const result = await this.openaiService.editImageWithReference(
+      dto.baseImageUrl,
+      dto.prompt,
+      { referenceImageUrls: dto.referenceImageUrls },
+    );
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: result.imageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: 'Edit',
+      textOverlay: '',
+      visualDescription: dto.prompt,
+      createdAt: new Date(),
+    };
+
+    // Store as assistant message with image
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: `Edited image: ${dto.prompt}`,
+      metadata: {
+        category: 'image',
+        images: [imageObj],
+      },
+      createdAt: new Date(),
+    } as any;
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: assistantMessage },
+      $set: { updatedAt: new Date() },
+    });
+
+    return { imageUrl: result.imageUrl, image: imageObj };
+  }
+
+  /**
+   * Direct image generation — takes a text prompt, generates image directly.
+   * No concept cards, no intermediate steps. For "Generate Image" mode.
+   */
+  async generateImageDirect(
+    threadId: string,
+    dto: {
+      prompt: string;
+      videoTitle?: string;
+      logoPosition?: 'top-right' | 'none';
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    let videoContextTitle = dto.videoTitle || thread.title;
+    if (thread.videoId) {
+      try {
+        const video = await this.videoModel.findById(thread.videoId).lean();
+        if (video) videoContextTitle = video.youtubeTitle || video.title || videoContextTitle;
+      } catch { /* optional */ }
+    }
+
+    const result = await this.openaiService.generateSceneImage({
+      scene: dto.prompt,
+      style: 'Cinematic, dramatic, realistic photography',
+      colors: '',
+      videoTitle: videoContextTitle,
+    });
+
+    // Optionally composite logo
+    let finalImageUrl = result.imageUrl;
+    if (dto.logoPosition !== 'none') {
+      try {
+        const composedBuffer = await this.composerService.composeThumbnail({
+          backgroundInput: result.imageUrl,
+          logoPosition: dto.logoPosition || 'top-right',
+        });
+        const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+        if (isMinioReady) {
+          try {
+            finalImageUrl = await this.minioService.uploadThumbnail('system', `direct_${Date.now()}.png`, composedBuffer);
+          } catch {
+            const filename = `direct_${Date.now()}.png`;
+            const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+            if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+            fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+            finalImageUrl = `/api/assets/generated/${filename}`;
+          }
+        } else {
+          const filename = `direct_${Date.now()}.png`;
+          const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+          if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+          fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+          finalImageUrl = `/api/assets/generated/${filename}`;
+        }
+      } catch { /* use raw image */ }
+    }
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: finalImageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: 'Generated',
+      textOverlay: '',
+      visualDescription: dto.prompt,
+      createdAt: new Date(),
+    };
+
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: dto.prompt,
+      metadata: {
+        category: 'image',
+        images: [imageObj],
+      },
+      createdAt: new Date(),
+    } as any;
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: assistantMessage },
+      $set: { updatedAt: new Date() },
+    });
+
+    return { imageUrl: finalImageUrl, image: imageObj };
   }
 }

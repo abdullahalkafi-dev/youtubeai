@@ -598,6 +598,46 @@ ${scriptFormat}`,
       getFormatInstructions: () => outlineFormat,
       getTemperature: () => 0.7,
     });
+
+    // Scene image skill — 16:9 cinematic b-roll/background generation
+    const imageFormat = `Format 3 scene concepts in this exact structure:
+
+### Scene Concept 1
+**Scene:** [Detailed description of the 16:9 scene]
+**Style:** [Cinematic style — lighting, mood, camera angle]
+**Colors:** [Primary colors and atmosphere]
+**Text overlay (optional):** [If applicable, 2-4 words]
+
+### Scene Concept 2
+...
+
+### Scene Concept 3
+...
+
+🎯 Context Anchor: [What subject/topic this image is for, what video it belongs to]`;
+    this.register({
+      name: 'Scene Image Generator',
+      category: 'image',
+      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a scene image concept generator for YouTube video production.
+
+When the user asks for an image, generate 3 DISTINCT scene concepts as structured text.
+Each concept describes a 16:9 cinematic scene for video b-roll, background visuals, or standalone images.
+
+CRITICAL RULES:
+- DO NOT generate images directly. Present concepts as text FIRST.
+- Each concept MUST include: Scene description, Style/mood, Color palette, Optional text overlay.
+- Concepts should be cinematic, dramatic, and match the channel's dark/true-crime aesthetic.
+- If the user provides a reference image, describe how the concept relates to it.
+- If user says "regenerate" or "change X", iterate on the previous concept with modifications.
+- Keep scene descriptions concise but vivid — 1-2 sentences per field.
+
+${imageFormat}`,
+      loadContext: async (channelId, videoId) => {
+        return this.loadBaseContext(channelId, videoId);
+      },
+      getFormatInstructions: () => imageFormat,
+      getTemperature: () => 0.8,
+    });
   }
 
   register(skill: ChatSkill) {
@@ -665,6 +705,9 @@ ${scriptFormat}`,
 
     // Outline
     if (/\b(outline|structure|organize|plan.*video|hook|angle)\b/i.test(lower)) return 'outline';
+
+    // Image / Scene
+    if (/\b(generate.*image|create.*image|scene.*image|b.?roll|background.*image|cinematic.*image|make.*image|image.*for.*video)\b/i.test(lower)) return 'image';
 
     return 'general';
   }

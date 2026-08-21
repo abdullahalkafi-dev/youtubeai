@@ -1,5 +1,5 @@
 export interface AiReplyOption {
-  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Engaging' | string
+  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Informal' | string
   text: string
   label: string
 }

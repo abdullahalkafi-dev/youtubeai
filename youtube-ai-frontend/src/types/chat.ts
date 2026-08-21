@@ -1,5 +1,5 @@
 export type ThreadType = 'video' | 'standalone'
-export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'competitor' | 'trends' | 'ideas' | 'outline'
+export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline'
 export type ThreadStatus = 'active' | 'archived'
 
 export interface ChatImage {

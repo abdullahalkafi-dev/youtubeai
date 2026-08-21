@@ -49,6 +49,14 @@ export class ChatController {
     return this.chatService.findAll(channelId, includeArchived === 'true');
   }
 
+  @Get('channels/:channelId/threads/video/:videoId')
+  findByVideoId(
+    @Param('channelId') channelId: string,
+    @Param('videoId') videoId: string,
+  ) {
+    return this.chatService.findByVideoId(channelId, videoId);
+  }
+
   @Get('threads/:id')
   findOne(@Param('id') id: string) {
     return this.chatService.findById(id);
@@ -115,6 +123,14 @@ export class ChatController {
     return this.chatService.remove(id);
   }
 
+  @Delete('threads/:id/messages/:messageId')
+  deleteMessage(
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return this.chatService.deleteMessage(id, messageId);
+  }
+
   @Post('threads/:id/generate-thumbnail-image')
   generateThumbnailImage(
     @Param('id') id: string,
@@ -132,5 +148,47 @@ export class ChatController {
     },
   ) {
     return this.chatService.generateThumbnailImage(id, body);
+  }
+
+  @Post('threads/:id/generate-scene-image')
+  generateSceneImage(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      scene: string;
+      style: string;
+      colors: string;
+      textOverlay?: string;
+      videoTitle?: string;
+      referenceImageUrl?: string;
+      logoPosition?: 'top-right' | 'none';
+      messageId?: string;
+    },
+  ) {
+    return this.chatService.generateSceneImage(id, body);
+  }
+
+  @Post('threads/:id/edit-image')
+  editImage(
+    @Param('id') id: string,
+    @Body() body: {
+      prompt: string;
+      baseImageUrl: string;
+      referenceImageUrls?: string[];
+    },
+  ) {
+    return this.chatService.editImage(id, body);
+  }
+
+  @Post('threads/:id/generate-image-direct')
+  generateImageDirect(
+    @Param('id') id: string,
+    @Body() body: {
+      prompt: string;
+      videoTitle?: string;
+      logoPosition?: 'top-right' | 'none';
+    },
+  ) {
+    return this.chatService.generateImageDirect(id, body);
   }
 }
