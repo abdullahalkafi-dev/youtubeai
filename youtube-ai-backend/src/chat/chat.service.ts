@@ -847,6 +847,7 @@ export class ChatService {
     const imageObj = {
       id: new Types.ObjectId().toString(),
       url: result.imageUrl,
+      cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: dto.conceptTitle || 'Concept',
       textOverlay: dto.text || '',
@@ -1015,6 +1016,7 @@ export class ChatService {
     const imageObj = {
       id: new Types.ObjectId().toString(),
       url: result.imageUrl,
+      cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: 'Edit',
       textOverlay: '',
@@ -1071,9 +1073,9 @@ export class ChatService {
       videoTitle: videoContextTitle,
     });
 
-    // Optionally composite logo
+    // Optionally composite logo only if explicitly requested
     let finalImageUrl = result.imageUrl;
-    if (dto.logoPosition !== 'none') {
+    if (dto.logoPosition && dto.logoPosition !== 'none') {
       try {
         const composedBuffer = await this.composerService.composeThumbnail({
           backgroundInput: result.imageUrl,

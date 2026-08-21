@@ -15,6 +15,7 @@ interface ThumbnailCardProps {
   messageImages?: Array<{
     id: string
     url: string
+    cleanBackgroundUrl?: string
     conceptTitle?: string
     textOverlay?: string
     selectedHostImage?: string
@@ -22,7 +23,7 @@ interface ThumbnailCardProps {
   }>
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string) => void
+  onEditImage?: (url: string, cleanBackgroundUrl?: string) => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -58,10 +59,10 @@ export function ThumbnailCard({
   threadTitle,
 }: ThumbnailCardProps) {
   const dispatch = useAppDispatch()
-  const activeThreadId = useAppSelector((state) => state.chat.activeThreadId)
-  const activeThread = useAppSelector((state) => state.chat.threads.find((t) => t.id === activeThreadId))
+  const activeThreadId = useAppSelector((s) => s.chat.activeThreadId)
+  const activeThread = useAppSelector((s) => s.chat.activeThread)
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
-  const [generatedImages, setGeneratedImages] = useState<Record<number, string>>({})
+  const [generatedImages, setGeneratedImages] = useState<Record<number, { url: string; cleanBackgroundUrl?: string }>>({})
   const [modalState, setModalState] = useState<{ isOpen: boolean; concept: ThumbnailConcept | null; idx: number }>({
     isOpen: false,
     concept: null,
@@ -71,7 +72,7 @@ export function ThumbnailCard({
   // Hydrate generated images strictly from this message's metadata images
   useEffect(() => {
     if (messageImages && thumbnails) {
-      const restored: Record<number, string> = {}
+      const restored: Record<number, { url: string; cleanBackgroundUrl?: string }> = {}
       for (const img of messageImages) {
         const idx = thumbnails.findIndex(
           (c, i) =>
@@ -79,7 +80,7 @@ export function ThumbnailCard({
             img.conceptTitle === `Concept ${i + 1}`,
         )
         if (idx !== -1 && img.url) {
-          restored[idx] = img.url
+          restored[idx] = { url: img.url, cleanBackgroundUrl: img.cleanBackgroundUrl }
         }
       }
       setGeneratedImages(restored)
@@ -117,7 +118,10 @@ export function ThumbnailCard({
       })
 
       if (result.imageUrl) {
-        setGeneratedImages((prev) => ({ ...prev, [idx]: result.imageUrl }))
+        setGeneratedImages((prev) => ({
+          ...prev,
+          [idx]: { url: result.imageUrl, cleanBackgroundUrl: (result as any).cleanBackgroundUrl },
+        }))
         await dispatch(selectThread(activeThreadId)).unwrap()
         toast.success(`Pristine Thumbnail ${conceptTitle} generated!`)
       } else {
@@ -150,7 +154,9 @@ export function ThumbnailCard({
       <div className="grid gap-3">
         {thumbnails.map((concept, idx) => {
           const colors = parseColorScheme(concept.colors)
-          const generatedUrl = generatedImages[idx]
+          const imgData = generatedImages[idx]
+          const generatedUrl = typeof imgData === 'string' ? imgData : imgData?.url
+          const cleanUrl = typeof imgData === 'object' ? imgData?.cleanBackgroundUrl : undefined
           const isGenerating = generatingIdx === idx
 
           return (
@@ -236,7 +242,7 @@ export function ThumbnailCard({
               {/* Edit / Iterate button */}
               {generatedUrl && onEditImage && (
                 <button
-                  onClick={() => onEditImage(generatedUrl)}
+                  onClick={() => onEditImage(generatedUrl, cleanUrl)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
                 >
                   <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate

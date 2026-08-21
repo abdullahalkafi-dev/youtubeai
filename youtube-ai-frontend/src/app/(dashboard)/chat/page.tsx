@@ -41,7 +41,7 @@ export default function ChatPage() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
-  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene' } | null>(null)
+  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene'; cleanUrl?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -188,7 +188,7 @@ export default function ChatPage() {
         }
         await api.editImage(threadId, {
           prompt: messageContent,
-          baseImageUrl: pinnedImage.url,
+          baseImageUrl: pinnedImage.cleanUrl || pinnedImage.url,
           referenceImageUrls: referenceUrls,
           mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
         })
@@ -560,7 +560,7 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
-                            onEditImage={(url, mode) => setIteratingImage({ url, mode })}
+                            onEditImage={(url, mode, cleanUrl) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url })}
                             videoTitle={activeThread?.videoTitle || activeThread?.title}
                             threadTitle={activeThread?.title}
                           />

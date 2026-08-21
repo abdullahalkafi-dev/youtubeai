@@ -847,7 +847,7 @@ export class OpenAIService {
     referenceImages?: Array<{ type: 'logo' | 'host_photo' | 'reference'; url?: string; buffer?: Buffer }>;
     customLayoutInstructions?: string;
     excludeLogo?: boolean;
-  }): Promise<{ imageUrl: string; revisedPrompt: string }> {
+  }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
     // 1. Strip logo/brand references so OpenAI doesn't paint duplicate logos
     cleanDescription = cleanDescription
@@ -900,7 +900,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
           model,
           prompt: prompt,
           n: 1,
-          size: '1536x864',
+          size: '1536x1024',
           quality: 'medium',
         };
 
@@ -930,6 +930,23 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       throw lastError || new Error('Image generation failed on all available models.');
     }
 
+    // Save clean un-composited background to MinIO for clean future iterations
+    let cleanBackgroundUrl: string | undefined;
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    if (isMinioReady) {
+      try {
+        let cleanBuffer: Buffer;
+        if (baseImageUrl.startsWith('data:image/')) {
+          cleanBuffer = Buffer.from(baseImageUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        } else if (baseImageUrl.startsWith('http')) {
+          cleanBuffer = await this.composerService['fetchBufferFromUrl'](baseImageUrl);
+        } else {
+          cleanBuffer = Buffer.from(baseImageUrl);
+        }
+        cleanBackgroundUrl = await this.minioService.uploadThumbnail('system', `clean_bg_${Date.now()}.png`, cleanBuffer);
+      } catch { /* optional */ }
+    }
+
     // Run Sharp composition to composite exact host face sticker and exact pristine logo badge
     try {
       this.logger.log(`Compositing pristine host face & logo with Sharp...`);
@@ -940,7 +957,6 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       });
 
       let imageUrl: string;
-      const isMinioReady = await this.minioService.isAvailable().catch(() => false);
 
       if (isMinioReady) {
         try {
@@ -972,11 +988,11 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
         this.logger.log(`Pristine composite thumbnail saved locally: ${imageUrl}`);
       }
 
-      return { imageUrl, revisedPrompt };
+      return { imageUrl, cleanBackgroundUrl: cleanBackgroundUrl || imageUrl, revisedPrompt };
     } catch (composeErr: any) {
       this.logger.error(`Sharp compositing failed unexpectedly: ${composeErr.message}`, composeErr.stack);
       if (baseImageUrl) {
-        return { imageUrl: baseImageUrl, revisedPrompt };
+        return { imageUrl: baseImageUrl, cleanBackgroundUrl: baseImageUrl, revisedPrompt };
       }
       throw lastError || composeErr;
     }
@@ -1000,7 +1016,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
     },
-  ): Promise<{ imageUrl: string; revisedPrompt: string }> {
+  ): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     const { toFile } = await import('openai');
 
     // Helper to download image from URL or local path or MinIO
@@ -1039,12 +1055,17 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
 
     // Build edit params — input_fidelity ONLY for gpt-image-1/1.5, NOT gpt-image-2
     const editModel = 'gpt-image-2';
+    let editPrompt = prompt;
+    if (options?.mode !== 'scene') {
+      editPrompt += `\nIMPORTANT: Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.`;
+    }
+
     const editParams: Record<string, any> = {
       model: editModel,
       image: files.length === 1 ? files[0] : files,
-      prompt,
+      prompt: editPrompt,
       quality: 'medium',
-      size: '1536x864',
+      size: '1536x1024',
     };
     if (options?.inputFidelity && editModel !== 'gpt-image-2') {
       editParams.input_fidelity = options.inputFidelity;
@@ -1060,6 +1081,15 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
 
     const editedBuffer = Buffer.from(b64, 'base64');
     let finalBuffer: Buffer = editedBuffer;
+
+    // Save clean un-composited background for clean future iterations
+    let cleanBackgroundUrl: string | undefined;
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    if (isMinioReady) {
+      try {
+        cleanBackgroundUrl = await this.minioService.uploadThumbnail('system', `clean_edit_${Date.now()}.png`, editedBuffer);
+      } catch { /* optional */ }
+    }
 
     // For thumbnail mode (default): Re-composite pristine host sticker (bottom-right) and 1.75x logo (top-right)
     if (options?.mode !== 'scene') {
@@ -1078,7 +1108,6 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
     }
 
     let imageUrl: string;
-    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
     if (isMinioReady) {
       try {
         imageUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, finalBuffer);
@@ -1098,7 +1127,7 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       imageUrl = `/api/assets/generated/${filename}`;
     }
 
-    return { imageUrl, revisedPrompt: prompt };
+    return { imageUrl, cleanBackgroundUrl: cleanBackgroundUrl || imageUrl, revisedPrompt: prompt };
   }
 
   /**
@@ -1144,7 +1173,7 @@ Composition: Full 16:9 frame, dramatic cinematic lighting, realistic photography
           model,
           prompt,
           n: 1,
-          size: '1536x864',
+          size: '1536x1024',
           quality: 'medium',
         });
 
