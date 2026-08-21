@@ -3,7 +3,7 @@ import type { Channel } from '@/types/channel'
 import type { SeoSuggestion } from '@/types/seo'
 import type { Thread, ThreadListItem, Message, SendMessageResponse } from '@/types/chat'
 import type { QueueItem, QueueStats } from '@/types/queue'
-import type { CommentsResponse, Comment } from '@/types/comment'
+import type { CommentsResponse, Comment, AiReplyOption } from '@/types/comment'
 import type { TrendingTopic } from '@/types/trend'
 import type { QuotaUsage, QuotaLog } from '@/types/quota'
 import type { HttpLogItem, LogStatsResponse, PaginatedLogsResponse, LogQueryParams } from '@/types/dev-log'
@@ -448,7 +448,14 @@ class ApiClient {
   }
 
   async generateReply(videoId: string, commentId: string, commentText: string) {
-    return this.post<{ reply: string }>(`/api/videos/${videoId}/comments/generate-reply`, {
+    return this.post<{ reply: string; replies?: AiReplyOption[] }>(`/api/videos/${videoId}/comments/generate-reply`, {
+      commentId,
+      commentText,
+    })
+  }
+
+  async generateReplies(videoId: string, commentId: string, commentText: string) {
+    return this.post<{ reply: string; replies: AiReplyOption[] }>(`/api/videos/${videoId}/comments/generate-replies`, {
       commentId,
       commentText,
     })

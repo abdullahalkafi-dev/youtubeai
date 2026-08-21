@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import {
   setActiveThread, createThread, selectThread,
@@ -38,17 +38,32 @@ export default function ChatPage() {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const initialInputRef = useRef('')
+
+  const handleTranscript = useCallback((spokenText: string) => {
+    const base = initialInputRef.current
+    if (!base) {
+      setInput(spokenText)
+    } else {
+      const needsSpace = !base.endsWith(' ') && !base.endsWith('\n')
+      setInput(`${base}${needsSpace ? ' ' : ''}${spokenText}`)
+    }
+  }, [])
+
+  const handleVoiceError = useCallback((err: string) => {
+    toast.error(err)
+  }, [])
 
   const {
     isListening,
-    transcript,
     isSupported: voiceSupported,
-    error: voiceError,
     startListening,
     stopListening,
     resetTranscript,
-  } = useSpeechRecognition()
-  const initialInputRef = useRef('')
+  } = useSpeechRecognition({
+    onTranscript: handleTranscript,
+    onError: handleVoiceError,
+  })
 
   const currentSkill = selectedSkill || 'general'
   const categoryColor = getCategoryColor(currentSkill)
@@ -67,27 +82,6 @@ export default function ChatPage() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeThread?.messages?.length, streamingContent])
-
-  // Display speech recognition errors gracefully
-  useEffect(() => {
-    if (voiceError) {
-      toast.error(voiceError)
-    }
-  }, [voiceError])
-
-  // Synchronize voice transcript without wiping pre-existing input
-  useEffect(() => {
-    if (!isListening && !transcript) return
-    if (transcript) {
-      const base = initialInputRef.current
-      if (!base) {
-        setInput(transcript)
-      } else {
-        const needsSpace = !base.endsWith(' ') && !base.endsWith('\n')
-        setInput(`${base}${needsSpace ? ' ' : ''}${transcript}`)
-      }
-    }
-  }, [transcript, isListening])
 
   useEffect(() => {
     return () => { abortControllerRef.current?.abort() }

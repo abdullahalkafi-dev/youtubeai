@@ -33,18 +33,42 @@ export class CommentsController {
   ) {}
 
   @Get()
-  async getComments(@Param('videoId') videoId: string, @Query('pageToken') pageToken?: string, @Query('order') order?: string) {
+  async getComments(
+    @Param('videoId') videoId: string,
+    @Query('pageToken') pageToken?: string,
+    @Query('order') order?: string,
+  ) {
     const ctx = await this.getVideoContext(videoId);
     if (ctx.demoMode) return { comments: [], commentsDisabled: false, totalCount: 0, nextPageToken: null, demoMode: true };
     const validOrder = order === 'time' ? 'time' : 'relevance';
-    return this.commentsService.getComments(ctx.youtubeId, ctx.channelId, ctx.accessToken!, pageToken, validOrder);
+    return this.commentsService.getComments(
+      ctx.youtubeId,
+      ctx.channelId,
+      ctx.accessToken!,
+      pageToken,
+      validOrder,
+      ctx.channelYoutubeId,
+      ctx.channelName,
+    );
   }
 
   @Get(':commentId/replies')
-  async getReplies(@Param('videoId') videoId: string, @Param('commentId') commentId: string, @Query('pageToken') pageToken?: string) {
+  async getReplies(
+    @Param('videoId') videoId: string,
+    @Param('commentId') commentId: string,
+    @Query('pageToken') pageToken?: string,
+  ) {
     const ctx = await this.getVideoContext(videoId);
     if (ctx.demoMode) return { replies: [], nextPageToken: null, demoMode: true };
-    return this.commentsService.getReplies(ctx.youtubeId, commentId, ctx.channelId, ctx.accessToken!, pageToken);
+    return this.commentsService.getReplies(
+      ctx.youtubeId,
+      commentId,
+      ctx.channelId,
+      ctx.accessToken!,
+      pageToken,
+      ctx.channelYoutubeId,
+      ctx.channelName,
+    );
   }
 
   @Post('sync')
@@ -52,16 +76,54 @@ export class CommentsController {
     const ctx = await this.getVideoContext(videoId);
     if (ctx.demoMode) return { comments: [], commentsDisabled: false, totalCount: 0, nextPageToken: null, demoMode: true };
     const validOrder = body?.order === 'time' ? 'time' : 'relevance';
-    return this.commentsService.syncComments(ctx.youtubeId, ctx.channelId, ctx.accessToken!, validOrder);
+    return this.commentsService.syncComments(
+      ctx.youtubeId,
+      ctx.channelId,
+      ctx.accessToken!,
+      validOrder,
+      ctx.channelYoutubeId,
+      ctx.channelName,
+    );
   }
 
   @Post('generate-reply')
-  async generateReply(@Param('videoId') videoId: string, @Body() body: { commentId: string; commentText: string }) {
+  async generateReply(
+    @Param('videoId') videoId: string,
+    @Body() body: { commentId: string; commentText: string },
+  ) {
     const video = await this.videoModel.findById(videoId).lean();
     if (!video) throw new NotFoundException('Video not found');
     const channel = await this.channelModel.findById(video.channelId).lean();
-    const reply = await this.commentsService.generateReply(body.commentText, video.title || 'Unknown Video', channel?.name || 'Unknown Channel', channel?.id || '');
-    return { reply };
+    const replies = await this.commentsService.generateReplies(
+      body.commentText,
+      video.title || 'Unknown Video',
+      channel?.name || 'Unique Mecca Audio',
+      channel?.id || '',
+    );
+    return {
+      reply: replies[0]?.text || '',
+      replies,
+    };
+  }
+
+  @Post('generate-replies')
+  async generateReplies(
+    @Param('videoId') videoId: string,
+    @Body() body: { commentId: string; commentText: string },
+  ) {
+    const video = await this.videoModel.findById(videoId).lean();
+    if (!video) throw new NotFoundException('Video not found');
+    const channel = await this.channelModel.findById(video.channelId).lean();
+    const replies = await this.commentsService.generateReplies(
+      body.commentText,
+      video.title || 'Unknown Video',
+      channel?.name || 'Unique Mecca Audio',
+      channel?.id || '',
+    );
+    return {
+      reply: replies[0]?.text || '',
+      replies,
+    };
   }
 
   @Post('reply')
@@ -76,24 +138,55 @@ export class CommentsController {
     if (!video) throw new NotFoundException('Video not found');
 
     const channel = await this.channelModel.findById(video.channelId).lean();
+    const channelYoutubeId = channel?.youtubeChannelId || '';
+    const channelName = channel?.name || '';
+
     if (!channel?.userId) {
       this.logger.warn(`Demo mode: channel ${video.channelId} has no userId linked`);
-      return { channelId: video.channelId.toString(), youtubeId: video.youtubeId, accessToken: null, demoMode: true };
+      return {
+        channelId: video.channelId.toString(),
+        youtubeId: video.youtubeId,
+        accessToken: null,
+        channelYoutubeId,
+        channelName,
+        demoMode: true,
+      };
     }
 
     const user = await this.userModel.findById(channel.userId).lean();
 
     if (!user?._id) {
       this.logger.warn(`Demo mode: user not found for channel ${video.channelId}, userId=${channel.userId}`);
-      return { channelId: video.channelId.toString(), youtubeId: video.youtubeId, accessToken: null, demoMode: true };
+      return {
+        channelId: video.channelId.toString(),
+        youtubeId: video.youtubeId,
+        accessToken: null,
+        channelYoutubeId,
+        channelName,
+        demoMode: true,
+      };
     }
 
     try {
       const accessToken = await this.youtubeService.getValidAccessToken(user._id.toString());
-      return { channelId: video.channelId.toString(), youtubeId: video.youtubeId, accessToken, demoMode: false };
+      return {
+        channelId: video.channelId.toString(),
+        youtubeId: video.youtubeId,
+        accessToken,
+        channelYoutubeId,
+        channelName,
+        demoMode: false,
+      };
     } catch (error: any) {
       this.logger.warn(`Demo mode: OAuth token failed for user ${user._id} — ${error?.code || error?.message || error}`);
-      return { channelId: video.channelId.toString(), youtubeId: video.youtubeId, accessToken: null, demoMode: true };
+      return {
+        channelId: video.channelId.toString(),
+        youtubeId: video.youtubeId,
+        accessToken: null,
+        channelYoutubeId,
+        channelName,
+        demoMode: true,
+      };
     }
   }
 }

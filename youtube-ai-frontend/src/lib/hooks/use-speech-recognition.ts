@@ -2,6 +2,11 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 
+export interface UseSpeechRecognitionOptions {
+  onTranscript?: (transcript: string) => void
+  onError?: (error: string) => void
+}
+
 export interface SpeechRecognitionHook {
   isListening: boolean
   transcript: string
@@ -21,6 +26,41 @@ function joinTexts(...parts: (string | undefined | null)[]): string {
     .join(' ')
 }
 
+/**
+ * Merges committed transcript and newly incoming session transcript,
+ * removing any duplicate boundary words caused by microphone audio buffer overlap.
+ */
+function mergeTranscriptsWithoutOverlap(committed: string, incoming: string): string {
+  const c = (committed || '').trim()
+  const inc = (incoming || '').trim()
+
+  if (!c) return inc
+  if (!inc) return c
+
+  const committedWords = c.split(/\s+/)
+  const incomingWords = inc.split(/\s+/)
+
+  // Check for overlap of up to min(5, len) words between the end of committed and start of incoming
+  const maxOverlap = Math.min(committedWords.length, incomingWords.length, 5)
+  let overlapCount = 0
+
+  for (let len = maxOverlap; len >= 1; len--) {
+    const committedSuffix = committedWords.slice(-len).map(w => w.toLowerCase().replace(/[^\w]/g, '')).join(' ')
+    const incomingPrefix = incomingWords.slice(0, len).map(w => w.toLowerCase().replace(/[^\w]/g, '')).join(' ')
+    if (committedSuffix && committedSuffix === incomingPrefix) {
+      overlapCount = len
+      break
+    }
+  }
+
+  if (overlapCount > 0) {
+    const nonOverlappingIncoming = incomingWords.slice(overlapCount).join(' ')
+    return nonOverlappingIncoming ? `${c} ${nonOverlappingIncoming}` : c
+  }
+
+  return `${c} ${inc}`
+}
+
 function cleanupInstance(instance: any) {
   if (!instance) return
   instance.onstart = null
@@ -32,7 +72,7 @@ function cleanupInstance(instance: any) {
   } catch {}
 }
 
-export function useSpeechRecognition(): SpeechRecognitionHook {
+export function useSpeechRecognition(options?: UseSpeechRecognitionOptions): SpeechRecognitionHook {
   const [isListening, setIsListening] = useState(false)
   const [transcript, setTranscript] = useState('')
   const [interimTranscript, setInterimTranscript] = useState('')
@@ -49,6 +89,9 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
   const currentSessionFinalRef = useRef('')
   const currentSessionInterimRef = useRef('')
 
+  const optionsRef = useRef(options)
+  optionsRef.current = options
+
   const spawnRecognition = useCallback(() => {
     if (typeof window === 'undefined') return null
     if (isExplicitlyStoppedRef.current || !isListeningRef.current) return null
@@ -61,7 +104,7 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       return null
     }
 
-    // Clean up any lingering prior instance before spawning a fresh one
+    // Clean up any lingering instance before spawning a fresh one
     if (recognitionRef.current) {
       cleanupInstance(recognitionRef.current)
       recognitionRef.current = null
@@ -102,12 +145,18 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
       currentSessionFinalRef.current = sessionFinal
       currentSessionInterimRef.current = sessionInterim
 
-      const totalFinal = joinTexts(committedTextRef.current, sessionFinal)
-      const fullText = joinTexts(committedTextRef.current, sessionFinal, sessionInterim)
+      const sessionTotal = joinTexts(sessionFinal, sessionInterim)
+      const fullText = mergeTranscriptsWithoutOverlap(committedTextRef.current, sessionTotal)
+      const totalFinal = mergeTranscriptsWithoutOverlap(committedTextRef.current, sessionFinal)
 
       setInterimTranscript(sessionInterim)
       setFinalTranscript(totalFinal)
       setTranscript(fullText)
+
+      // Directly notify listener with deduplicated spoken text
+      if (optionsRef.current?.onTranscript) {
+        optionsRef.current.onTranscript(fullText)
+      }
     }
 
     recognition.onerror = (event: any) => {
@@ -123,7 +172,9 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
         cleanupInstance(recognition)
         recognitionRef.current = null
         setIsListening(false)
-        setError('Microphone permission was denied. Please allow microphone access in your browser settings.')
+        const msg = 'Microphone permission was denied. Please allow microphone access in your browser settings.'
+        setError(msg)
+        optionsRef.current?.onError?.(msg)
         return
       }
 
@@ -133,22 +184,31 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
         cleanupInstance(recognition)
         recognitionRef.current = null
         setIsListening(false)
-        setError('No microphone was detected. Please check your microphone hardware.')
+        const msg = 'No microphone was detected. Please check your microphone hardware.'
+        setError(msg)
+        optionsRef.current?.onError?.(msg)
         return
       }
 
       if (err === 'network') {
-        setError('Speech recognition network error. Please check your internet connection.')
+        const msg = 'Speech recognition network error. Please check your internet connection.'
+        setError(msg)
+        optionsRef.current?.onError?.(msg)
         return
       }
 
-      setError(`Speech recognition error: ${err}`)
+      const msg = `Speech recognition error: ${err}`
+      setError(msg)
+      optionsRef.current?.onError?.(msg)
     }
 
     recognition.onend = () => {
       // Commit whatever final text was recognized in this completed session
       if (currentSessionFinalRef.current) {
-        committedTextRef.current = joinTexts(committedTextRef.current, currentSessionFinalRef.current)
+        committedTextRef.current = mergeTranscriptsWithoutOverlap(
+          committedTextRef.current,
+          currentSessionFinalRef.current
+        )
         currentSessionFinalRef.current = ''
         currentSessionInterimRef.current = ''
       }
@@ -223,7 +283,10 @@ export function useSpeechRecognition(): SpeechRecognitionHook {
     }
 
     if (currentSessionFinalRef.current) {
-      committedTextRef.current = joinTexts(committedTextRef.current, currentSessionFinalRef.current)
+      committedTextRef.current = mergeTranscriptsWithoutOverlap(
+        committedTextRef.current,
+        currentSessionFinalRef.current
+      )
       currentSessionFinalRef.current = ''
       currentSessionInterimRef.current = ''
     }

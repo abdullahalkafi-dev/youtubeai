@@ -1,24 +1,34 @@
+export interface AiReplyOption {
+  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Engaging' | string
+  text: string
+  label: string
+}
+
 export interface Comment {
   id: string
   youtubeCommentId: string
   parentId: string | null
   authorName: string
   authorAvatar: string | null
+  authorChannelId?: string
   text: string
   likeCount: number
   replyCount: number
   publishedAt: string
+  isCreatorReply?: boolean
 }
 
 export interface CommentThread {
   id: string
   authorName: string
   authorAvatar: string | null
+  authorChannelId?: string
   text: string
   likeCount: number
   replyCount: number
   publishedAt: string
   updatedAt: string
+  hasCreatorReplied?: boolean
   replies: Comment[]
 }
 

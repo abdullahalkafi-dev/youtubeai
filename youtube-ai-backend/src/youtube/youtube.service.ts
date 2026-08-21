@@ -181,10 +181,24 @@ export class YouTubeService {
       const comments = (response.data.items || []).map(item => {
         const snippet = item.snippet?.topLevelComment?.snippet;
         return {
-          id: item.id || '', authorName: snippet?.authorDisplayName || '', authorAvatar: snippet?.authorProfileImageUrl || null,
-          text: snippet?.textDisplay || '', likeCount: snippet?.likeCount || 0, replyCount: item.snippet?.totalReplyCount || 0,
-          publishedAt: snippet?.publishedAt || '', updatedAt: snippet?.updatedAt || '',
-          replies: (item.replies?.comments || []).map(r => ({ id: r.id || '', authorName: r.snippet?.authorDisplayName || '', authorAvatar: r.snippet?.authorProfileImageUrl || null, text: r.snippet?.textDisplay || '', likeCount: r.snippet?.likeCount || 0, publishedAt: r.snippet?.publishedAt || '' })),
+          id: item.id || '',
+          authorName: snippet?.authorDisplayName || '',
+          authorAvatar: snippet?.authorProfileImageUrl || null,
+          authorChannelId: snippet?.authorChannelId?.value || '',
+          text: snippet?.textDisplay || '',
+          likeCount: snippet?.likeCount || 0,
+          replyCount: item.snippet?.totalReplyCount || 0,
+          publishedAt: snippet?.publishedAt || '',
+          updatedAt: snippet?.updatedAt || '',
+          replies: (item.replies?.comments || []).map(r => ({
+            id: r.id || '',
+            authorName: r.snippet?.authorDisplayName || '',
+            authorAvatar: r.snippet?.authorProfileImageUrl || null,
+            authorChannelId: r.snippet?.authorChannelId?.value || '',
+            text: r.snippet?.textDisplay || '',
+            likeCount: r.snippet?.likeCount || 0,
+            publishedAt: r.snippet?.publishedAt || '',
+          })),
         };
       });
       return { comments, nextPageToken: response.data.nextPageToken || undefined, totalResults: response.data.pageInfo?.totalResults || 0 };
@@ -197,7 +211,18 @@ export class YouTubeService {
   async getCommentReplies(accessToken: string, parentId: string, pageToken?: string, maxResults = 20) {
     const youtube = this.getClient(accessToken);
     const response = await retryWithBackoff(() => youtube.comments.list({ part: ['snippet'], parentId, maxResults, pageToken }), { operationName: 'YouTube Comment Replies' });
-    return { replies: (response.data.items || []).map(i => ({ id: i.id || '', authorName: i.snippet?.authorDisplayName || '', authorAvatar: i.snippet?.authorProfileImageUrl || null, text: i.snippet?.textDisplay || '', likeCount: i.snippet?.likeCount || 0, publishedAt: i.snippet?.publishedAt || '' })), nextPageToken: response.data.nextPageToken || undefined };
+    return {
+      replies: (response.data.items || []).map(i => ({
+        id: i.id || '',
+        authorName: i.snippet?.authorDisplayName || '',
+        authorAvatar: i.snippet?.authorProfileImageUrl || null,
+        authorChannelId: i.snippet?.authorChannelId?.value || '',
+        text: i.snippet?.textDisplay || '',
+        likeCount: i.snippet?.likeCount || 0,
+        publishedAt: i.snippet?.publishedAt || '',
+      })),
+      nextPageToken: response.data.nextPageToken || undefined,
+    };
   }
 
   async insertCommentReply(accessToken: string, parentId: string, text: string) {
