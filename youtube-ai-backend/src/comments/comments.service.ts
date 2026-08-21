@@ -110,7 +110,7 @@ export class CommentsService {
     const result = await this.youtubeService.getCommentReplies(accessToken, commentId, pageToken);
     if (!pageToken) await this.cache.setReplies(videoId, commentId, result.replies);
     await this.quotaService.logCall({ channelId, endpoint: 'comments.list', quotaCost: QUOTA_COST_COMMENT_REPLIES, relatedId: commentId });
-    
+
     const enrichedReplies = result.replies.map((r: any) => ({
       ...r,
       isCreatorReply:
@@ -143,41 +143,48 @@ export class CommentsService {
   }
 
   /**
-   * Generates 5 distinct reply variations across different tones with counter-questions.
+   * Generates 5 distinct, highly-contextual reply variations with counter-questions.
    */
   async generateReplies(
     commentText: string,
     videoTitle: string,
     channelName: string,
     channelId: string,
+    videoDescription?: string,
   ): Promise<AiReplyOption[]> {
-    const systemPrompt = `You are an expert YouTube community manager and AI copywriter for the YouTube channel "${channelName}".
-Your task is to generate exactly 5 distinct reply variations to the viewer's comment, each with a unique tone.
-EVERY reply MUST end with a natural, conversational counter-question to provoke the viewer to reply back and boost YouTube algorithm engagement.
+    const contextPrompt = videoDescription
+      ? `Video Title: "${videoTitle}"\nVideo Summary: "${videoDescription.slice(0, 300)}"\nViewer Comment: "${commentText}"`
+      : `Video Title: "${videoTitle}"\nViewer Comment: "${commentText}"`;
 
-Generate responses for these 5 tones:
-1. "General": Natural, friendly, polite, acknowledging the comment directly, ending with a relevant question.
-2. "Humorous": Playful, witty, upbeat, with relevant emojis (e.g. 😜, 🔥, 👑, 🎬), making a funny/lighthearted observation before asking a question.
-3. "Thankful": Warm, heartfelt appreciation for their support and time, with appreciative emojis (🙏, ❤️), followed by an engaging question.
-4. "Witty": Clever, direct, street-wise professorial tone (Unique Mecca Audio voice), sharp insight, ending with a thought-provoking counter-question.
-5. "Engaging": High-curiosity question-driven reply designed specifically to start a deeper discussion in the comments section.
+    const systemPrompt = `You are an expert YouTube community manager and content creator for "${channelName}".
+Your mission is to craft 5 authentic, contextual replies to the viewer's specific comment.
 
-Format output:
+CRITICAL GUIDELINES:
+1. SPECIFICITY: Directly analyze and address the specific point, argument, or question in the viewer's comment. If they discuss legal rights, trials, prison systems, specific people, or quotes, engage directly on that topic.
+2. NO GENERIC FLUFF: Do not use generic phrases like "thanks for watching", "enjoying the experience", or "applying tips to your setup" unless the comment is specifically about that.
+3. COUNTER-QUESTION: Every single reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
+4. Channel Voice: Direct, thoughtful, authentic, intelligent, street-wise professorial tone (Unique Mecca Audio style).
+
+Generate exactly 5 distinct tone variations:
+1. "General": Thoughtful, direct, balanced perspective on their comment + relevant discussion question.
+2. "Humorous": Clever, witty, lighthearted with relevant emojis (e.g. 😜, 🔥, 👑, 🎬) while staying focused on the topic + a funny/sharp question.
+3. "Thankful": Genuine appreciation for their specific perspective or deep point (🙏, ❤️) + an insightful follow-up question.
+4. "Witty": Sharp, street-wise, confident analysis of their statement + a provocative counter-question.
+5. "Engaging": High-curiosity question specifically exploring or challenging their viewpoint further.
+
+OUTPUT FORMAT:
 Respond with ONLY a valid JSON array of 5 objects with keys:
-- "tone": (one of: "General", "Humorous", "Thankful", "Witty", "Engaging")
-- "label": (human-readable tone label)
-- "text": (the reply message string, 1-3 sentences max)
+- "tone": ("General" | "Humorous" | "Thankful" | "Witty" | "Engaging")
+- "label": (human readable tone name)
+- "text": (1 to 3 concise sentences)
 
-Do not include markdown codeblocks or extra explanations.`;
-
-    const userMessage = `Video Title: "${videoTitle}"\nViewer Comment: "${commentText}"`;
+Do not include markdown codeblocks or extra text.`;
 
     try {
       const raw = await this.openaiService.chatFast({
         systemPrompt,
-        userMessage,
-        temperature: 0.75,
-        maxCompletionTokens: 600,
+        userMessage: contextPrompt,
+        maxCompletionTokens: 1200,
       });
 
       const parsed = this.parseJsonReplies(raw);
@@ -188,32 +195,33 @@ Do not include markdown codeblocks or extra explanations.`;
       this.logger.warn(`Failed to generate multi-tone replies: ${error?.message || error}`);
     }
 
-    // High quality contextual fallback templates
+    // Dynamic contextual fallbacks that reference the comment text
+    const snippet = commentText.length > 50 ? `${commentText.slice(0, 45)}...` : commentText;
     return [
       {
         tone: 'General',
         label: 'General',
-        text: `Thank you so much! It's always a pleasure to create content that you find educational. Which part of "${videoTitle}" stood out to you most?`,
+        text: `You bring up an important point regarding "${snippet}". What do you think is the biggest factor at play here?`,
       },
       {
         tone: 'Humorous',
         label: 'Humorous',
-        text: `My content so good it made you learn twice! 😜 Glad you're enjoying the Mecca Audio experience! What topic should we tackle next?`,
+        text: `That's one way to look at it! 😜 Do you think others seeing this situation would agree with your take?`,
       },
       {
         tone: 'Thankful',
         label: 'Thankful',
-        text: `I truly appreciate your words and support! 🙏 It means a lot to know you love the content. How long have you been following the channel?`,
+        text: `Appreciate you sharing your perspective on this! 🙏 What specific part of this story stood out most to you?`,
       },
       {
         tone: 'Witty',
         label: 'Witty',
-        text: `Phenomenal content and a pleasure to learn from? Sounds like we're doing something right! What's the #1 takeaway you got from this one?`,
+        text: `Real talk right there. When you look at the deeper facts, how do you see this playing out next?`,
       },
       {
         tone: 'Engaging',
         label: 'Engaging',
-        text: `Aww, thanks! So glad you're loving the videos and finding value here. Are you applying any of these tips to your own setup?`,
+        text: `That's a crucial angle. If you were in their shoes, what decision would you have made differently?`,
       },
     ];
   }
@@ -221,8 +229,14 @@ Do not include markdown codeblocks or extra explanations.`;
   /**
    * Backwards compatible single-string generator.
    */
-  async generateReply(commentText: string, videoTitle: string, channelName: string, channelId: string): Promise<string> {
-    const replies = await this.generateReplies(commentText, videoTitle, channelName, channelId);
+  async generateReply(
+    commentText: string,
+    videoTitle: string,
+    channelName: string,
+    channelId: string,
+    videoDescription?: string,
+  ): Promise<string> {
+    const replies = await this.generateReplies(commentText, videoTitle, channelName, channelId, videoDescription);
     return replies[0]?.text || 'Thank you for watching!';
   }
 

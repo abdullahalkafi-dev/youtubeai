@@ -99,6 +99,7 @@ export class CommentsController {
       video.title || 'Unknown Video',
       channel?.name || 'Unique Mecca Audio',
       channel?.id || '',
+      video.description || '',
     );
     return {
       reply: replies[0]?.text || '',
@@ -119,6 +120,7 @@ export class CommentsController {
       video.title || 'Unknown Video',
       channel?.name || 'Unique Mecca Audio',
       channel?.id || '',
+      video.description || '',
     );
     return {
       reply: replies[0]?.text || '',

@@ -96,8 +96,7 @@ export class OpenAIService {
             { role: 'system', content: params.systemPrompt },
             { role: 'user', content: params.userMessage },
           ],
-          temperature: params.temperature ?? 0.3,
-          max_completion_tokens: params.maxCompletionTokens ?? 200,
+          max_completion_tokens: params.maxCompletionTokens ?? 800,
         }),
       { operationName: 'OpenAI Chat Fast' },
     );
