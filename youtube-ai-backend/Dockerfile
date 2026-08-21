@@ -10,6 +10,7 @@ RUN pnpm install
 
 # Build layer
 COPY . .
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 RUN pnpm run build
 
 # Production layer
