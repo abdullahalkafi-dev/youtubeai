@@ -100,7 +100,7 @@ export default function ChatPage() {
 
     // Query backend directly (don't rely on local threads array which may not be loaded yet)
     api.findThreadByVideoId(channelId, urlVideoId).then(existing => {
-      if (existing) {
+      if (existing?.id) {
         handleSelectThread(existing.id)
       } else {
         dispatch(createThread({
@@ -108,7 +108,11 @@ export default function ChatPage() {
           type: 'video',
           videoId: urlVideoId,
           title: urlVideoTitle || undefined,
-        }))
+        })).unwrap().then(newThread => {
+          if (newThread?.id) {
+            handleSelectThread(newThread.id)
+          }
+        })
       }
     }).catch(() => {
       dispatch(createThread({
@@ -116,7 +120,11 @@ export default function ChatPage() {
         type: 'video',
         videoId: urlVideoId,
         title: urlVideoTitle || undefined,
-      }))
+      })).unwrap().then(newThread => {
+        if (newThread?.id) {
+          handleSelectThread(newThread.id)
+        }
+      })
     })
   }, [urlVideoId, channelId])
 
@@ -129,7 +137,7 @@ export default function ChatPage() {
     return images
   }, [activeThread])
 
-  const hasMessages = activeThread && activeThread.messages.length > 1
+  const hasMessages = Boolean(activeThread && activeThread.messages && activeThread.messages.length > 0)
 
   const handleSend = async () => {
     if ((!input.trim() && !selectedFile) || (!activeThreadId && !isDraftThread)) return
@@ -590,11 +598,11 @@ export default function ChatPage() {
                       content={msg.content}
                       role={msg.role}
                       threadId={activeThreadId || undefined}
-                      messageId={msg.id || msg._id}
+                      messageId={typeof msg.id === 'string' ? msg.id : (typeof msg._id === 'string' ? msg._id : msg.id || msg._id?.toString?.())}
                       onDelete={() => {
-                        if (activeThread) {
+                        if (activeThreadId) {
                           dispatch(setActiveThread(activeThreadId))
-                          dispatch(selectThread(activeThreadId!))
+                          dispatch(selectThread(activeThreadId))
                         }
                       }}
                     />

@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchVideoById, clearSelectedVideo, updateSelectedVideo } from '@/store/slices/videos-slice'
+import { createThread, selectThread } from '@/store/slices/chat-slice'
 import { generateSeo, approveSeoAsync } from '@/store/slices/seo-slice'
 import { api, formatAssetUrl } from '@/lib/api'
 import { Badge } from '@/components/ui/badge'
@@ -20,6 +21,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
   const { id } = use(params)
   const router = useRouter()
   const dispatch = useAppDispatch()
+  const channelId = useAppSelector(s => s.auth.activeChannelId)
   const video = useAppSelector(s => s.videos.selectedVideo)
   const [regenerateOpen, setRegenerateOpen] = useState(false)
   const [regenerateNotes, setRegenerateNotes] = useState('')
@@ -31,6 +33,29 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
   const [approving, setApproving] = useState(false)
   const [analyticsLoading, setAnalyticsLoading] = useState(false)
   const [versionsKey, setVersionsKey] = useState(0)
+
+  const handleOpenChat = async () => {
+    if (!video) return
+    if (channelId) {
+      try {
+        const existing = await api.findThreadByVideoId(channelId, video.id).catch(() => null)
+        if (existing?.id) {
+          dispatch(selectThread(existing.id))
+        } else {
+          const newThread = await dispatch(createThread({
+            channelId,
+            type: 'video',
+            videoId: video.id,
+            title: video.title || video.youtubeTitle || undefined,
+          })).unwrap().catch(() => null)
+          if (newThread?.id) {
+            dispatch(selectThread(newThread.id))
+          }
+        }
+      } catch { /* proceed to navigation */ }
+    }
+    router.push(`/chat?videoId=${video.id}&videoTitle=${encodeURIComponent(video.title || video.youtubeTitle || '')}`)
+  }
 
   useEffect(() => {
     dispatch(fetchVideoById(id))
@@ -196,7 +221,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
               </a>
             )}
             <button
-              onClick={() => router.push(`/chat?videoId=${video.id}&videoTitle=${encodeURIComponent(video.title || video.youtubeTitle || '')}`)}
+              onClick={handleOpenChat}
               className="bg-indigo-50 dark:bg-indigo-500/10 text-indigo-600 dark:text-indigo-400 text-xs font-semibold px-4 py-2.5 rounded-xl border border-indigo-100 dark:border-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/20 transition flex items-center justify-center gap-1.5 shadow-sm"
             >
               <MessageSquare className="w-4 h-4" />Open in AI Chat

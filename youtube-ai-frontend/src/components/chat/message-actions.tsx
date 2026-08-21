@@ -109,8 +109,13 @@ export function MessageActions({ content, role, threadId, messageId, onRegenerat
       {threadId && messageId && (
         <button
           onClick={async () => {
+            const rawMessageId = typeof messageId === 'string' ? messageId : (messageId?.id || messageId?._id || String(messageId || ''))
+            if (!rawMessageId || rawMessageId === '[object Object]') {
+              toast.error('Invalid message identifier')
+              return
+            }
             try {
-              await api.deleteMessage(threadId, messageId)
+              await api.deleteMessage(threadId, rawMessageId)
               onDelete?.()
               toast.success('Message deleted')
             } catch (err: any) {

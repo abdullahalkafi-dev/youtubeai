@@ -45,22 +45,25 @@ export function VideoTable() {
   }
 
   const handleOpenChat = async (video: typeof videos[0]) => {
-    if (!channelId) return
-    // Check if thread already exists for this video
-    const existing = await api.findThreadByVideoId(channelId, video.id).catch(() => null)
-    if (existing) {
-      router.push('/chat')
-      return
+    if (channelId) {
+      try {
+        const existing = await api.findThreadByVideoId(channelId, video.id).catch(() => null)
+        if (existing?.id) {
+          dispatch(selectThread(existing.id))
+        } else {
+          const newThread = await dispatch(createThread({
+            channelId,
+            type: 'video',
+            videoId: video.id,
+            title: video.title || undefined,
+          })).unwrap().catch(() => null)
+          if (newThread?.id) {
+            dispatch(selectThread(newThread.id))
+          }
+        }
+      } catch { /* proceed to navigation */ }
     }
-    // Create new video thread (empty, no welcome message)
-    dispatch(createThread({
-      channelId,
-      title: video.title.length > 40 ? video.title.slice(0, 40) + '...' : video.title,
-      type: 'video',
-      videoId: video.id,
-    }))
-    toast.success("Thread created", { description: video.title })
-    router.push('/chat')
+    router.push(`/chat?videoId=${video.id}&videoTitle=${encodeURIComponent(video.title || '')}`)
   }
 
   const handlePullFromYoutube = async (videoId: string, title: string) => {

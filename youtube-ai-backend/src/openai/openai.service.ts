@@ -77,6 +77,49 @@ export class OpenAIService {
     this.trendsModel = configService.get<string>('OPENAI_TRENDS_MODEL', 'gpt-5.6-terra');
   }
 
+  private isReasoningModel(model?: string): boolean {
+    const m = (model || this.model || '').toLowerCase();
+    return (
+      m.startsWith('o1') ||
+      m.startsWith('o3') ||
+      m.startsWith('gpt-5') ||
+      m.includes('terra') ||
+      m.includes('reasoning')
+    );
+  }
+
+  private buildCompletionParams(params: {
+    model: string;
+    messages: any[];
+    temperature?: number;
+    max_completion_tokens?: number;
+    response_format?: any;
+    stream?: boolean;
+    stream_options?: any;
+  }): any {
+    const isReasoning = this.isReasoningModel(params.model);
+    const result: any = {
+      model: params.model,
+      messages: params.messages,
+    };
+    if (params.max_completion_tokens) {
+      result.max_completion_tokens = params.max_completion_tokens;
+    }
+    if (params.response_format) {
+      result.response_format = params.response_format;
+    }
+    if (params.stream) {
+      result.stream = params.stream;
+    }
+    if (params.stream_options) {
+      result.stream_options = params.stream_options;
+    }
+    if (!isReasoning && params.temperature !== undefined && params.temperature !== 1) {
+      result.temperature = params.temperature;
+    }
+    return result;
+  }
+
   /**
    * Lightweight chat using the fast model.
    * For simple tasks: entity extraction, comment replies, thread naming.
@@ -88,16 +131,17 @@ export class OpenAIService {
     temperature?: number;
     maxCompletionTokens?: number;
   }): Promise<string> {
+    const req = this.buildCompletionParams({
+      model: this.fastModel,
+      messages: [
+        { role: 'system', content: params.systemPrompt },
+        { role: 'user', content: params.userMessage },
+      ],
+      max_completion_tokens: params.maxCompletionTokens ?? 800,
+      temperature: params.temperature,
+    });
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.fastModel,
-          messages: [
-            { role: 'system', content: params.systemPrompt },
-            { role: 'user', content: params.userMessage },
-          ],
-          max_completion_tokens: params.maxCompletionTokens ?? 800,
-        }),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Chat Fast' },
     );
     return response.choices[0]?.message?.content?.trim() || '';
@@ -156,18 +200,19 @@ export class OpenAIService {
       ? `${user}\n\nAdditional instructions from user: ${params.customInstructions}`
       : user;
 
+    const req = this.buildCompletionParams({
+      model: this.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: userMessage },
+      ],
+      response_format: { type: 'json_object' as const },
+      temperature: 0.7,
+      max_completion_tokens: 2048,
+    });
+
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: userMessage },
-          ],
-          response_format: { type: 'json_object' as const },
-          temperature: 0.7,
-          max_completion_tokens: 2048,
-        } as OpenAI.ChatCompletionCreateParamsNonStreaming),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI SEO Generation' },
     );
 
@@ -245,14 +290,15 @@ export class OpenAIService {
 
     const finalMessages = messages;
 
+    const req = this.buildCompletionParams({
+      model: this.model,
+      messages: finalMessages,
+      temperature: params.temperature ?? 0.7,
+      max_completion_tokens: 4096,
+    });
+
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.model,
-          messages: finalMessages,
-          temperature: params.temperature ?? 0.7,
-          max_completion_tokens: 4096,
-        }),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Chat' },
     );
 
@@ -538,13 +584,15 @@ export class OpenAIService {
       ],
     });
 
+    const req = this.buildCompletionParams({
+      model: this.model,
+      messages,
+      temperature: 0.7,
+      max_completion_tokens: 4096,
+    });
+
     const response = await retryWithBackoff(
-      () => this.client.chat.completions.create({
-        model: this.model,
-        messages,
-        temperature: 0.7,
-        max_completion_tokens: 4096,
-      }),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Vision Chat' },
     );
 
@@ -599,16 +647,17 @@ export class OpenAIService {
 
     const finalMessages = messages;
 
+    const streamReq = this.buildCompletionParams({
+      model: this.model,
+      messages: finalMessages,
+      temperature: params.temperature ?? 0.7,
+      max_completion_tokens: 4096,
+      stream: true,
+      stream_options: { include_usage: true },
+    });
+
     const stream = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.model,
-          messages: finalMessages,
-          temperature: params.temperature ?? 0.7,
-          max_completion_tokens: 4096,
-          stream: true,
-          stream_options: { include_usage: true },
-        }),
+      () => this.client.chat.completions.create(streamReq),
       { operationName: 'OpenAI Chat Stream' },
     );
 
@@ -661,18 +710,19 @@ export class OpenAIService {
       showType: params.showType,
     });
 
+    const req = this.buildCompletionParams({
+      model: this.fastModel,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      response_format: { type: 'json_object' as const },
+      temperature: 0.5,
+      max_completion_tokens: 640,
+    });
+
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.fastModel,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          response_format: { type: 'json_object' as const },
-          temperature: 0.5,
-          max_completion_tokens: 640,
-        } as OpenAI.ChatCompletionCreateParamsNonStreaming),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Score Idea' },
     );
 
@@ -708,18 +758,19 @@ export class OpenAIService {
       showType: params.showType,
     });
 
+    const req = this.buildCompletionParams({
+      model: this.model,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      response_format: { type: 'json_object' as const },
+      temperature: 0.8,
+      max_completion_tokens: 768,
+    });
+
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.model,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          response_format: { type: 'json_object' as const },
-          temperature: 0.8,
-          max_completion_tokens: 768,
-        } as OpenAI.ChatCompletionCreateParamsNonStreaming),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Thumbnail Generation' },
     );
 
@@ -762,17 +813,18 @@ export class OpenAIService {
       channelStats,
     });
 
+    const req = this.buildCompletionParams({
+      model: this.fastModel,
+      messages: [
+        { role: 'system', content: system },
+        { role: 'user', content: user },
+      ],
+      temperature: 0.3,
+      max_completion_tokens: 768,
+    });
+
     const response = await retryWithBackoff(
-      () =>
-        this.client.chat.completions.create({
-          model: this.fastModel,
-          messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
-          ],
-          temperature: 0.3,
-          max_completion_tokens: 768,
-        }),
+      () => this.client.chat.completions.create(req),
       { operationName: 'OpenAI Summarize' },
     );
 

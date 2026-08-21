@@ -48,14 +48,18 @@ export class ChatService {
 
   async createThread(channelId: string, dto: CreateThreadDto) {
     let title = dto.title;
+    let videoTitle: string | undefined;
+    let videoThumbnail: string | undefined;
 
     // Auto-name from video title
-    if (!title && dto.type === 'video' && dto.videoId) {
+    if (dto.type === 'video' && dto.videoId) {
       if (Types.ObjectId.isValid(dto.videoId)) {
         const video = await this.videoModel.findById(dto.videoId).lean();
-        title = video?.title?.slice(0, 50) || 'Video Thread';
-      } else {
-        title = 'Video Thread';
+        if (video) {
+          videoTitle = video.youtubeTitle || video.title;
+          videoThumbnail = video.thumbnailUrl || (video.thumbnails as any)?.default?.url;
+          if (!title) title = videoTitle?.slice(0, 50) || 'Video Thread';
+        }
       }
     }
 
@@ -69,6 +73,8 @@ export class ChatService {
       type: dto.type,
       title,
       videoId: dto.videoId,
+      videoTitle: videoTitle || dto.title,
+      videoThumbnail,
       status: 'active',
       messages: [],
     });
@@ -474,17 +480,18 @@ export class ChatService {
   }
 
   async deleteMessage(threadId: string, messageId: string) {
-    if (!Types.ObjectId.isValid(messageId)) {
-      throw new BadRequestException(`Invalid message ID format: ${messageId}`);
+    const rawId = typeof messageId === 'string' ? messageId : String(messageId || '');
+    if (!rawId || !Types.ObjectId.isValid(rawId)) {
+      throw new BadRequestException(`Invalid message ID format: ${rawId}`);
     }
 
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
     const msgIndex = thread.messages.findIndex(
-      m => m._id?.toString() === messageId
+      m => m._id?.toString() === rawId || (m as any).id === rawId
     );
-    if (msgIndex === -1) throw new NotFoundException(`Message ${messageId} not found`);
+    if (msgIndex === -1) throw new NotFoundException(`Message ${rawId} not found`);
 
     // Best-effort cleanup: if it's an assistant message with generated images, delete from MinIO
     const msg = thread.messages[msgIndex];
@@ -500,10 +507,10 @@ export class ChatService {
     }
 
     await this.threadModel.findByIdAndUpdate(threadId, {
-      $pull: { messages: { _id: new Types.ObjectId(messageId) } }
+      $pull: { messages: { _id: new Types.ObjectId(rawId) } }
     });
 
-    return { success: true, threadId, messageId };
+    return { success: true, threadId, messageId: rawId };
   }
 
   private async summarizeAndCompress(threadId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, channel?: any): Promise<{ summary: string }> {
