@@ -598,7 +598,7 @@ export default function ChatPage() {
                       content={msg.content}
                       role={msg.role}
                       threadId={activeThreadId || undefined}
-                      messageId={typeof msg.id === 'string' ? msg.id : (typeof msg._id === 'string' ? msg._id : msg.id || msg._id?.toString?.())}
+                      messageId={msg.id || (msg as any)._id?.toString?.() || ''}
                       onDelete={() => {
                         if (activeThreadId) {
                           dispatch(setActiveThread(activeThreadId))

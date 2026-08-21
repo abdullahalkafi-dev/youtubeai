@@ -109,7 +109,7 @@ export function MessageActions({ content, role, threadId, messageId, onRegenerat
       {threadId && messageId && (
         <button
           onClick={async () => {
-            const rawMessageId = typeof messageId === 'string' ? messageId : (messageId?.id || messageId?._id || String(messageId || ''))
+            const rawMessageId = typeof messageId === 'string' ? messageId : String((messageId as any)?.id || (messageId as any)?._id || messageId || '')
             if (!rawMessageId || rawMessageId === '[object Object]') {
               toast.error('Invalid message identifier')
               return
