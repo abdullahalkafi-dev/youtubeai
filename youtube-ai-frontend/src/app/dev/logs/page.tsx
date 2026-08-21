@@ -107,6 +107,14 @@ class SafeErrorBoundary extends Component<{ children: React.ReactNode; fallbackT
   }
 }
 
+// Safe string conversion — prevents React Error #31 when log fields are objects/buffers
+function safeString(val: any): string {
+  if (val == null) return ''
+  if (typeof val === 'string') return val
+  if (typeof val === 'number' || typeof val === 'boolean') return String(val)
+  try { return JSON.stringify(val) } catch { return String(val) }
+}
+
 export default function DevLogsPage() {
   const router = useRouter()
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -1022,7 +1030,7 @@ export default function DevLogsPage() {
                           <td className="px-4 py-3 max-w-[320px] truncate text-slate-400">
                             {log?.errorMessage ? (
                               <span className="text-rose-400 font-semibold truncate block">
-                                {log.errorMessage}
+                                {safeString(log.errorMessage)}
                               </span>
                             ) : (
                               <span className="text-slate-600">-</span>
@@ -1238,8 +1246,8 @@ export default function DevLogsPage() {
                         )}
                       </div>
                       <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed shadow-inner">
-                        <strong className="text-rose-400 text-xs block mb-2">{selectedLog?.errorMessage || 'Error occurred'}</strong>
-                        {selectedLog?.errorStack || 'No stack trace captured.'}
+                        <strong className="text-rose-400 text-xs block mb-2">{safeString(selectedLog?.errorMessage) || 'Error occurred'}</strong>
+                        {safeString(selectedLog?.errorStack) || 'No stack trace captured.'}
                       </div>
                     </div>
                   )}

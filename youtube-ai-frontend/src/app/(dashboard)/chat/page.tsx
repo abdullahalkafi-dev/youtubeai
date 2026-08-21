@@ -175,7 +175,8 @@ export default function ChatPage() {
         const referenceUrls: string[] = []
         if (fileToSend) {
           const uploaded = await api.uploadFile(threadId, fileToSend)
-          if (uploaded?.url) referenceUrls.push(uploaded.url)
+          const refUrl = uploaded?.url || uploaded?.metadata?.attachments?.[0]?.url
+          if (refUrl) referenceUrls.push(refUrl)
         }
         await api.editImage(threadId, {
           prompt: messageContent,
@@ -353,8 +354,9 @@ export default function ChatPage() {
         try {
           const toastId = toast.loading('Uploading reference image...')
           const result = await api.uploadFile(activeThreadId, file)
-          if (result?.url) {
-            setIteratingImage({ url: result.url, mode: 'scene' })
+          const attachmentUrl = result?.url || result?.metadata?.attachments?.[0]?.url
+          if (attachmentUrl) {
+            setIteratingImage({ url: attachmentUrl, mode: 'scene' })
             toast.success('Image pinned for editing. Type your changes below.', { id: toastId })
             return
           }

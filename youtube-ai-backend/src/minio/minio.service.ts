@@ -207,6 +207,19 @@ export class MinioService implements OnModuleInit {
     this.logger.log(`Deleted file: ${cleanKey}`);
   }
 
+  async getFileBuffer(key: string): Promise<Buffer> {
+    await this.ensureBucket();
+    const cleanKey = key.startsWith(`${this.bucket}/`)
+      ? key.substring(this.bucket.length + 1)
+      : key;
+    const stream = await this.client.getObject(this.bucket, cleanKey);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
   getFileUrl(key: string): string {
     const cleanKey = key.startsWith(`${this.bucket}/`)
       ? key.substring(this.bucket.length + 1)

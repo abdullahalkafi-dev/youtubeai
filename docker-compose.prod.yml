@@ -23,6 +23,8 @@ services:
       - '5001:5001'
     env_file:
       - ./youtube-ai-backend/.env.prod
+    environment:
+      - MINIO_PUBLIC_URL=https://meccaaudio.com
     depends_on:
       mongodb:
         condition: service_healthy

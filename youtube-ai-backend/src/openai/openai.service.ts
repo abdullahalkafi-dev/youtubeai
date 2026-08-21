@@ -946,14 +946,25 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
   ): Promise<{ imageUrl: string; revisedPrompt: string }> {
     const { toFile } = await import('openai');
 
-    // Helper to download image from URL or local path
+    // Helper to download image from URL or local path or MinIO
     const downloadImage = async (url: string, index: number): Promise<Buffer> => {
+      // Local generated files
       if (url.startsWith('/api/assets/generated/') || url.includes('/generated/')) {
         const filename = path.basename(url);
         const localPath = path.join(process.cwd(), 'src', 'assets', 'generated', filename);
         if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
         throw new Error(`Local image not found: ${localPath}`);
       }
+      // MinIO internal/public URLs — use minioService directly (no network fetch)
+      if (url.includes('/thumbnails/')) {
+        try {
+          const key = url.split('/thumbnails/')[1];
+          if (key) {
+            return await this.minioService.getFileBuffer(key);
+          }
+        } catch { /* fall through to fetch */ }
+      }
+      // Public URLs
       const response = await fetch(url);
       if (!response.ok) throw new Error(`Failed to fetch image ${index}: ${response.statusText}`);
       return Buffer.from(await response.arrayBuffer());

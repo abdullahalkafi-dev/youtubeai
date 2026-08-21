@@ -612,9 +612,11 @@ export class ChatService {
     let aiResponse: { content: string; usage?: TokenUsage };
 
     if (isImage) {
-      const presignedUrl = await this.minioService.getPresignedUrl(key, 3600);
+      // Use base64 Data URL instead of presigned URL — OpenAI can't fetch internal Docker URLs
+      const base64 = file.buffer.toString('base64');
+      const dataUrl = `data:${file.mimetype};base64,${base64}`;
       aiResponse = await this.openaiService.chatWithVision({
-        imageUrl: presignedUrl,
+        imageUrl: dataUrl,
         userMessage: userContent,
         systemPrompt,
         conversationHistory,
@@ -661,7 +663,15 @@ export class ChatService {
       inputSummary: userContent.substring(0, 200), output: { content: aiResponse.content }, usage: aiResponse.usage,
     });
 
-    return assistantMsg;
+    return {
+      ...assistantMsg,
+      url,
+      userMessage: userMsg,
+      metadata: {
+        ...assistantMsg.metadata,
+        attachments: userMsg.metadata.attachments,
+      },
+    };
   }
 
   // ─── Shared helpers ─────────────────────────────────────────────────
