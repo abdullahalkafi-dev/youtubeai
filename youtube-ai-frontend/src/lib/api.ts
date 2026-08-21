@@ -37,14 +37,19 @@ export function formatAssetUrl(url: any): string {
   // Clean double bucket prefixes if present in legacy URLs (e.g. /thumbnails/thumbnails/...)
   let cleanUrl = url.replace(/\/thumbnails\/thumbnails\//g, '/thumbnails/')
 
-  // Convert direct localhost/minio URLs to backend proxy route
-  if (cleanUrl.match(/^https?:\/\/(?:localhost|127\.0\.0\.1|minio)(?::900[0-9])?\/thumbnails\//i)) {
-    cleanUrl = cleanUrl.replace(/^https?:\/\/(?:localhost|127\.0\.0\.1|minio)(?::900[0-9])?\/thumbnails\//i, '/api/assets/minio/')
-  } else if (cleanUrl.includes(':9000/thumbnails/') || cleanUrl.includes(':9005/thumbnails/')) {
-    cleanUrl = cleanUrl.replace(/^https?:\/\/[^/]+:(?:9000|9005)\/thumbnails\//i, '/api/assets/minio/')
+  // Convert all MinIO thumbnail paths to /api/assets/minio/
+  if (cleanUrl.includes('/thumbnails/')) {
+    cleanUrl = cleanUrl.replace(/^https?:\/\/[^/]+\/thumbnails\//i, '/api/assets/minio/')
+    cleanUrl = cleanUrl.replace(/^\/?thumbnails\//i, '/api/assets/minio/')
   }
 
-  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) return cleanUrl
+  // If it's an external third-party URL (e.g. YouTube CDN, Google user content)
+  if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
+    if (!cleanUrl.includes('meccaaudio.com') && !cleanUrl.includes('localhost') && !cleanUrl.includes('127.0.0.1')) {
+      return cleanUrl
+    }
+  }
+
   const cleanPath = cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`
   return `${base}${cleanPath}`.replace('/api/api/', '/api/')
 }

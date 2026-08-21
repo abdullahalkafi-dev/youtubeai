@@ -498,9 +498,11 @@ export class ChatService {
     if (msg.role === 'assistant' && msg.metadata?.images) {
       for (const img of msg.metadata.images) {
         try {
-          const urlParts = img.url.split('/thumbnails/');
-          if (urlParts[1]) {
-            await this.minioService.deleteFile(urlParts[1]);
+          const key = img.url.includes('/thumbnails/')
+            ? img.url.split('/thumbnails/')[1]
+            : img.url.split('/api/assets/minio/')[1];
+          if (key) {
+            await this.minioService.deleteFile(decodeURIComponent(key));
           }
         } catch { /* best effort */ }
       }

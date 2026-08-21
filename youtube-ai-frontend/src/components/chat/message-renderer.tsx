@@ -10,6 +10,8 @@ import { TrendsCard } from './trends-card'
 import { OutlineCard } from './outline-card'
 import { MarkdownRenderer } from './markdown-renderer'
 import { SourcesSection } from './sources-section'
+import { formatAssetUrl } from '@/lib/api'
+import { Wand2, ExternalLink } from 'lucide-react'
 
 interface MessageRendererProps {
   content: string
@@ -75,7 +77,45 @@ export function MessageRenderer({ content, category, isStreaming, messageId, mes
       ) : parsed.type === 'outline' ? (
         <OutlineCard content={parsed.raw} />
       ) : (
-        <MarkdownRenderer content={parsed.raw} />
+        <>
+          <MarkdownRenderer content={parsed.raw} />
+          {messageImages && messageImages.length > 0 && (
+            <div className="mt-3 space-y-3">
+              {messageImages.map((img: any, idx: number) => (
+                <div key={img.id || idx} className="rounded-xl overflow-hidden border border-indigo-200 dark:border-indigo-800/50 bg-white dark:bg-gray-900 shadow-md">
+                  <div className="relative aspect-video bg-gray-950 overflow-hidden">
+                    <img
+                      src={formatAssetUrl(img.url)}
+                      alt={img.prompt || 'Generated image'}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-3 bg-gray-50/80 dark:bg-gray-800/40 flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-800">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 flex-1">
+                      {img.prompt}
+                    </p>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail')}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
+                      >
+                        <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate
+                      </button>
+                      <a
+                        href={formatAssetUrl(img.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-400" /> Full View
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* Sources — shown for any type that has them */}

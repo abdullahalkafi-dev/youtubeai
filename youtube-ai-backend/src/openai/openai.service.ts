@@ -1007,12 +1007,14 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
         if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
         throw new Error(`Local image not found: ${localPath}`);
       }
-      // MinIO internal/public URLs — use minioService directly (no network fetch)
-      if (url.includes('/thumbnails/')) {
+      // MinIO internal/public URLs or proxy URLs — use minioService directly (no network fetch)
+      if (url.includes('/thumbnails/') || url.includes('/api/assets/minio/')) {
         try {
-          const key = url.split('/thumbnails/')[1];
+          const key = url.includes('/thumbnails/')
+            ? url.split('/thumbnails/')[1]
+            : url.split('/api/assets/minio/')[1];
           if (key) {
-            return await this.minioService.getFileBuffer(key);
+            return await this.minioService.getFileBuffer(decodeURIComponent(key));
           }
         } catch { /* fall through to fetch */ }
       }
