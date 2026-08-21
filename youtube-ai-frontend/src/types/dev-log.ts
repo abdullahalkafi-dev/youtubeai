@@ -10,8 +10,10 @@ export interface HttpLogItem {
   errorMessage?: string | null;
   errorStack?: string | null;
   errorName?: string | null;
+  requestHeaders?: Record<string, unknown> | null;
   requestQuery?: Record<string, unknown> | null;
   requestBody?: Record<string, unknown> | string | null;
+  responseBody?: Record<string, unknown> | string | null;
   ip?: string | null;
   userAgent?: string | null;
   userId?: string | null;

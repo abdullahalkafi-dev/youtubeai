@@ -14,8 +14,10 @@ export interface CreateHttpLogDto {
   errorMessage?: string | null;
   errorStack?: string | null;
   errorName?: string | null;
+  requestHeaders?: Record<string, unknown> | null;
   requestQuery?: Record<string, unknown> | null;
   requestBody?: Record<string, unknown> | string | null;
+  responseBody?: Record<string, unknown> | string | null;
   ip?: string | null;
   userAgent?: string | null;
   userId?: string | null;
@@ -26,9 +28,9 @@ export interface CreateHttpLogDto {
 export class DevLogsService {
   private readonly logger = new Logger(DevLogsService.name);
 
-  // Retention periods in milliseconds
-  private readonly RETENTION_ERROR_MS = 14 * 24 * 60 * 60 * 1000; // 14 days for 4xx/5xx & errors
-  private readonly RETENTION_SUCCESS_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for 2xx/3xx successes
+  // Retention periods in milliseconds (7 days for errors / 3 days for success)
+  private readonly RETENTION_ERROR_MS = 7 * 24 * 60 * 60 * 1000; // 7 days for 4xx/5xx & errors
+  private readonly RETENTION_SUCCESS_MS = 3 * 24 * 60 * 60 * 1000; // 3 days for 2xx/3xx successes
 
   constructor(
     @InjectModel(HttpLog.name)
@@ -37,7 +39,7 @@ export class DevLogsService {
 
   /**
    * Non-blocking persistent log writer.
-   * Masks sensitive fields and calculates 14d (errors) vs 7d (success) TTL.
+   * Masks sensitive fields, caps payload sizes, and sets 7d (errors) vs 3d (success) TTL.
    */
   async logRequest(entry: CreateHttpLogDto): Promise<void> {
     try {
@@ -59,9 +61,11 @@ export class DevLogsService {
             ? 'warn'
             : 'info');
 
-      // Sanitize sensitive fields from request body
+      // Sanitize sensitive fields from headers, request body, query, and response body
+      const sanitizedHeaders = this.sanitizeHeaders(entry.requestHeaders);
       const sanitizedBody = this.sanitize(entry.requestBody);
       const sanitizedQuery = this.sanitize(entry.requestQuery);
+      const sanitizedResponse = this.sanitize(entry.responseBody);
 
       await this.httpLogModel.create({
         method: entry.method.toUpperCase(),
@@ -73,8 +77,10 @@ export class DevLogsService {
         errorMessage: entry.errorMessage || null,
         errorStack: entry.errorStack || null,
         errorName: entry.errorName || null,
+        requestHeaders: sanitizedHeaders,
         requestQuery: sanitizedQuery,
         requestBody: sanitizedBody,
+        responseBody: sanitizedResponse,
         ip: entry.ip || null,
         userAgent: entry.userAgent || null,
         userId: entry.userId || null,
@@ -193,8 +199,8 @@ export class DevLogsService {
   /**
    * Aggregated metrics and timeline stats for visual dashboards.
    */
-  async getStats(days = 14) {
-    const safeDays = Math.min(Math.max(days, 1), 90);
+  async getStats(days = 7) {
+    const safeDays = Math.min(Math.max(days, 1), 30);
     const startDate = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000);
 
     // 1. Overall counts
@@ -249,17 +255,18 @@ export class DevLogsService {
       { $sort: { _id: 1 } },
       {
         $project: {
+          _id: 0,
           date: '$_id',
           total: 1,
           success: 1,
           errors: 1,
           serverErrors500: 1,
-          avgDuration: { $round: ['$avgDuration', 0] },
+          avgDuration: { $round: ['$avgDuration', 1] },
         },
       },
     ]);
 
-    // 3. Top Failing Endpoints
+    // 3. Top failing endpoints
     const topErrorEndpoints = await this.httpLogModel.aggregate([
       {
         $match: {
@@ -283,6 +290,7 @@ export class DevLogsService {
       { $limit: 10 },
       {
         $project: {
+          _id: 0,
           path: '$_id.path',
           method: '$_id.method',
           count: 1,
@@ -294,7 +302,7 @@ export class DevLogsService {
       },
     ]);
 
-    // 4. Status Code Breakdown
+    // 4. Status code distribution
     const statusDistribution = await this.httpLogModel.aggregate([
       { $match: { createdAt: { $gte: startDate } } },
       {
@@ -303,9 +311,10 @@ export class DevLogsService {
           count: { $sum: 1 },
         },
       },
-      { $sort: { count: -1 } },
+      { $sort: { _id: 1 } },
       {
         $project: {
+          _id: 0,
           statusCode: '$_id',
           count: 1,
         },
@@ -324,13 +333,14 @@ export class DevLogsService {
         },
       },
       { $sort: { avgDuration: -1 } },
-      { $limit: 8 },
+      { $limit: 10 },
       {
         $project: {
+          _id: 0,
           path: '$_id.path',
           method: '$_id.method',
-          avgDuration: { $round: ['$avgDuration', 0] },
-          maxDuration: '$maxDuration',
+          avgDuration: { $round: ['$avgDuration', 1] },
+          maxDuration: 1,
           count: 1,
         },
       },
@@ -357,8 +367,8 @@ export class DevLogsService {
         avgResponseTimeMs,
         errorRatePercentage,
         retentionPolicy: {
-          errorDays: 14,
-          successDays: 7,
+          errorDays: 7,
+          successDays: 3,
         },
       },
       dailyTimeline,
@@ -369,68 +379,100 @@ export class DevLogsService {
   }
 
   /**
-   * Delete logs (all or older than X).
+   * Manually delete logs (developer cleanup).
    */
-  async clearLogs(filter?: { olderThanDays?: number; onlyErrors?: boolean }) {
-    const query: FilterQuery<HttpLogDocument> = {};
-    if (filter?.olderThanDays) {
-      query.createdAt = {
-        $lte: new Date(Date.now() - filter.olderThanDays * 24 * 60 * 60 * 1000),
-      };
+  async clearLogs(options: boolean | { onlyErrors?: boolean; olderThanDays?: number } = false) {
+    const onlyErrors = typeof options === 'boolean' ? options : !!options?.onlyErrors;
+    const olderThanDays = typeof options === 'object' ? options?.olderThanDays : undefined;
+
+    const filter: FilterQuery<HttpLogDocument> = {};
+    if (onlyErrors) {
+      filter.statusCode = { $gte: 400 };
     }
-    if (filter?.onlyErrors) {
-      query.statusCode = { $gte: 400 };
+    if (olderThanDays && olderThanDays > 0) {
+      const cutoffDate = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000);
+      filter.createdAt = { $lte: cutoffDate };
     }
-    const result = await this.httpLogModel.deleteMany(query);
+
+    const result = await this.httpLogModel.deleteMany(filter);
     return { deletedCount: result.deletedCount };
   }
 
   /**
-   * Helper to sanitize sensitive keys (passwords, tokens, secrets)
+   * Sanitize headers, removing sensitive auth/session tokens.
    */
-  private sanitize(data: unknown): unknown {
-    if (!data) return data;
-    if (typeof data === 'string') {
-      try {
-        const parsed = JSON.parse(data);
-        return this.sanitize(parsed);
-      } catch {
-        return data.length > 500 ? `${data.slice(0, 500)}...[truncated]` : data;
-      }
-    }
-    if (typeof data !== 'object') return data;
-
-    if (Array.isArray(data)) {
-      return data.slice(0, 20).map((item) => this.sanitize(item));
-    }
-
-    const sensitiveKeys = [
-      'password',
-      'pass',
-      'token',
-      'accesstoken',
-      'access_token',
-      'refreshtoken',
-      'refresh_token',
-      'secret',
-      'apikey',
-      'api_key',
-      'authorization',
-      'bearer',
-    ];
-
+  private sanitizeHeaders(headers?: Record<string, unknown> | null): Record<string, unknown> | null {
+    if (!headers || typeof headers !== 'object') return null;
     const sanitized: Record<string, unknown> = {};
-    for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-      const lowerKey = key.toLowerCase();
-      if (sensitiveKeys.some((s) => lowerKey.includes(s))) {
-        sanitized[key] = '***MASKED***';
-      } else if (typeof value === 'object' && value !== null) {
-        sanitized[key] = this.sanitize(value);
+    const secretKeys = ['authorization', 'cookie', 'set-cookie', 'x-api-key', 'proxy-authorization'];
+
+    for (const [key, value] of Object.entries(headers)) {
+      if (secretKeys.includes(key.toLowerCase())) {
+        sanitized[key] = '[REDACTED]';
       } else {
         sanitized[key] = value;
       }
     }
     return sanitized;
+  }
+
+  /**
+   * Deep sanitize object to remove passwords, tokens, API keys, and cap size.
+   */
+  private sanitize(data: unknown, depth = 0): unknown {
+    if (!data || depth > 5) return data;
+
+    if (typeof data === 'string') {
+      // If payload is over 50KB, truncate
+      if (data.length > 50000) {
+        return data.slice(0, 50000) + '... [TRUNCATED]';
+      }
+      try {
+        const parsed = JSON.parse(data);
+        return this.sanitize(parsed, depth + 1);
+      } catch {
+        return data;
+      }
+    }
+
+    if (Array.isArray(data)) {
+      // Limit array sample to max 50 items to keep mongo light
+      return data.slice(0, 50).map((item) => this.sanitize(item, depth + 1));
+    }
+
+    if (typeof data === 'object') {
+      const sanitized: Record<string, unknown> = {};
+      const sensitiveKeys = [
+        'password',
+        'token',
+        'secret',
+        'authorization',
+        'apikey',
+        'api_key',
+        'accesstoken',
+        'access_token',
+        'refreshtoken',
+        'refresh_token',
+        'clientsecret',
+        'client_secret',
+      ];
+
+      for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
+        const lowerKey = key.toLowerCase();
+        if (sensitiveKeys.some((k) => lowerKey.includes(k))) {
+          sanitized[key] = '[REDACTED]';
+        } else if (typeof value === 'object' && value !== null) {
+          sanitized[key] = this.sanitize(value, depth + 1);
+        } else if (typeof value === 'string' && value.length > 50000) {
+          sanitized[key] = value.slice(0, 50000) + '... [TRUNCATED]';
+        } else {
+          sanitized[key] = value;
+        }
+      }
+      return sanitized;
+    }
+
+    return data;
   }
 
   private escapeRegExp(string: string): string {

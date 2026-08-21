@@ -33,11 +33,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let errorName = 'InternalServerError';
+    let rawErrorResponse: unknown = null;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       errorName = exception.name;
       const exResponse = exception.getResponse();
+      rawErrorResponse = exResponse;
       if (typeof exResponse === 'string') {
         message = exResponse;
       } else if (typeof exResponse === 'object' && exResponse !== null) {
@@ -52,8 +54,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
     } else if (exception instanceof Error) {
       message = exception.message;
       errorName = exception.name;
+      rawErrorResponse = { error: exception.name, message: exception.message };
     } else if (typeof exception === 'string') {
       message = exception;
+      rawErrorResponse = { message: exception };
     }
 
     const stack = exception instanceof Error ? exception.stack : '';
@@ -83,6 +87,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     const userAgent = request.get('user-agent') || null;
 
+    const errorPayload = {
+      statusCode: status,
+      message,
+      timestamp: new Date().toISOString(),
+      path: request.url,
+      raw: rawErrorResponse,
+    };
+
     // Persist full error diagnostic log to MongoDB asynchronously
     if (this.devLogsService) {
       this.devLogsService
@@ -96,8 +108,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
           errorMessage: message,
           errorStack: stack,
           errorName,
+          requestHeaders: request.headers as Record<string, unknown>,
           requestQuery: request.query,
           requestBody: request.body,
+          responseBody: errorPayload,
           ip,
           userAgent,
           userId,

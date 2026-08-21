@@ -7,13 +7,13 @@ import {
   Optional,
 } from '@nestjs/common';
 import { Observable } from 'rxjs';
-import { finalize, catchError } from 'rxjs/operators';
+import { finalize, tap, catchError } from 'rxjs/operators';
 import { Request, Response } from 'express';
 import { DevLogsService } from '../../dev-logs/dev-logs.service';
 
 /**
  * Logs incoming requests and response times.
- * Asynchronously persists request logs to MongoDB via DevLogsService.
+ * Asynchronously persists request & response logs to MongoDB via DevLogsService.
  */
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
@@ -35,7 +35,12 @@ export class LoggingInterceptor implements NestInterceptor {
     // Track start time on request object for exception filter
     (request as any)._startTime = now;
 
+    let responsePayload: unknown = null;
+
     return next.handle().pipe(
+      tap((data) => {
+        responsePayload = data;
+      }),
       finalize(() => {
         const elapsed = Date.now() - now;
 
@@ -80,8 +85,10 @@ export class LoggingInterceptor implements NestInterceptor {
               statusCode,
               level: statusCode >= 400 ? 'warn' : 'info',
               responseTimeMs: elapsed,
+              requestHeaders: request.headers as Record<string, unknown>,
               requestQuery: request.query,
               requestBody: request.body,
+              responseBody: responsePayload as Record<string, unknown> | string,
               ip,
               userAgent,
               userId,

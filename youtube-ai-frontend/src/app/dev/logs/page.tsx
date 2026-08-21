@@ -30,6 +30,11 @@ import {
   Zap,
   ChevronLeft,
   ChevronRight,
+  Code,
+  FileText,
+  CornerDownRight,
+  Send,
+  Layers,
 } from 'lucide-react'
 import {
   ResponsiveContainer,
@@ -49,13 +54,12 @@ import type {
   TopErrorEndpoint,
 } from '@/types/dev-log'
 
-// Date preset options
+// Date preset options aligned with 3d success / 7d error policy
 const DATE_PRESETS = [
   { label: 'Last 1 Hour', value: '1h' },
   { label: 'Last 24 Hours', value: '24h' },
   { label: 'Last 3 Days', value: '3d' },
   { label: 'Last 7 Days', value: '7d' },
-  { label: 'Last 14 Days', value: '14d' },
   { label: 'All Time', value: 'all' },
 ] as const
 
@@ -76,6 +80,8 @@ const STATUS_CHIPS: StatusChip[] = [
   { label: '2xx Success', level: 'all', statusCode: '2xx', icon: CheckCircle2, color: 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10' },
   { label: 'Slow (>1000ms)', level: 'all', statusCode: 'all', minDuration: 1000, icon: Zap, color: 'text-purple-400 border-purple-500/30 bg-purple-500/10' },
 ]
+
+type ModalTab = 'all' | 'request' | 'response' | 'stack'
 
 export default function DevLogsPage() {
   const router = useRouter()
@@ -100,7 +106,7 @@ export default function DevLogsPage() {
   const [level, setLevel] = useState<'all' | 'error' | 'warn' | 'info'>('all')
   const [statusCode, setStatusCode] = useState<string>('all')
   const [method, setMethod] = useState<string>('all')
-  const [datePreset, setDatePreset] = useState<string>('14d')
+  const [datePreset, setDatePreset] = useState<string>('7d')
   const [minDuration, setMinDuration] = useState<number | undefined>(undefined)
   const [customStartDate, setCustomStartDate] = useState('')
   const [customEndDate, setCustomEndDate] = useState('')
@@ -108,6 +114,7 @@ export default function DevLogsPage() {
   // UI Interactive state
   const [autoRefreshInterval, setAutoRefreshInterval] = useState<number>(0) // 0 = off
   const [selectedLog, setSelectedLog] = useState<HttpLogItem | null>(null)
+  const [activeModalTab, setActiveModalTab] = useState<ModalTab>('all')
   const [copiedKey, setCopiedKey] = useState<string | null>(null)
   const [testingError, setTestingError] = useState(false)
   const [toastMessage, setToastMessage] = useState<{ text: string; type: 'success' | 'error' | 'info' } | null>(null)
@@ -163,7 +170,6 @@ export default function DevLogsPage() {
     if (datePreset === '24h') return { startDate: new Date(now - 24 * 60 * 60 * 1000).toISOString() }
     if (datePreset === '3d') return { startDate: new Date(now - 3 * 24 * 60 * 60 * 1000).toISOString() }
     if (datePreset === '7d') return { startDate: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString() }
-    if (datePreset === '14d') return { startDate: new Date(now - 14 * 24 * 60 * 60 * 1000).toISOString() }
     return { startDate: undefined, endDate: undefined }
   }, [datePreset, customStartDate, customEndDate])
 
@@ -188,9 +194,9 @@ export default function DevLogsPage() {
         }
 
         const data = await api.getDevLogs(queryParams)
-        setLogs(data.logs || [])
-        setTotal(data.total || 0)
-        setTotalPages(data.totalPages || 1)
+        setLogs(data?.logs || [])
+        setTotal(data?.total || 0)
+        setTotalPages(data?.totalPages || 1)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         showToast(`Failed to load logs: ${msg}`, 'error')
@@ -208,7 +214,7 @@ export default function DevLogsPage() {
       if (!silent) setStatsLoading(true)
 
       try {
-        const days = datePreset === '7d' ? 7 : datePreset === '3d' ? 3 : datePreset === '24h' ? 1 : 14
+        const days = datePreset === '7d' ? 7 : datePreset === '3d' ? 3 : datePreset === '24h' ? 1 : 7
         const data = await api.getDevLogStats(days)
         setStats(data)
       } catch (err: unknown) {
@@ -242,10 +248,53 @@ export default function DevLogsPage() {
 
   // Copy to clipboard helper
   const copyToClipboard = (text: string, key: string) => {
-    navigator.clipboard.writeText(text)
-    setCopiedKey(key)
-    setTimeout(() => setCopiedKey(null), 2500)
-    showToast('Copied to clipboard!', 'success')
+    try {
+      navigator.clipboard.writeText(text)
+      setCopiedKey(key)
+      setTimeout(() => setCopiedKey(null), 2500)
+      showToast('Copied to clipboard!', 'success')
+    } catch {
+      showToast('Failed to copy', 'error')
+    }
+  }
+
+  // Safe formatting helper
+  const safeFormatJson = (val: unknown): string => {
+    if (val === null || val === undefined) return 'None'
+    if (typeof val === 'string') {
+      try {
+        const parsed = JSON.parse(val)
+        return JSON.stringify(parsed, null, 2)
+      } catch {
+        return val
+      }
+    }
+    try {
+      return JSON.stringify(val, null, 2)
+    } catch {
+      return String(val)
+    }
+  }
+
+  // Copy as cURL helper
+  const copyAsCurl = (log: HttpLogItem) => {
+    const fullUrl = log.url.startsWith('http') ? log.url : `https://meccaaudio.com${log.url}`
+    let curl = `curl -X ${log.method} "${fullUrl}"`
+    
+    if (log.requestHeaders && typeof log.requestHeaders === 'object') {
+      for (const [k, v] of Object.entries(log.requestHeaders)) {
+        if (typeof v === 'string' && !['authorization', 'cookie'].includes(k.toLowerCase())) {
+          curl += ` \\\n  -H "${k}: ${v}"`
+        }
+      }
+    }
+
+    if (log.requestBody) {
+      const bodyStr = typeof log.requestBody === 'string' ? log.requestBody : JSON.stringify(log.requestBody)
+      curl += ` \\\n  -d '${bodyStr.replace(/'/g, "'\\''")}'`
+    }
+
+    copyToClipboard(curl, 'curl-copy')
   }
 
   // Trigger test 500 error
@@ -253,9 +302,9 @@ export default function DevLogsPage() {
     setTestingError(true)
     try {
       await api.triggerTestError()
-    } catch (err: any) {
+    } catch {
       // Expected error: 500
-      showToast('Simulated 500 Error triggered successfully! Refreshing log stream...', 'success')
+      showToast('Simulated 500 Error recorded! Refreshing stream...', 'success')
       setTimeout(() => {
         fetchLogs(true)
         fetchStats(true)
@@ -284,14 +333,18 @@ export default function DevLogsPage() {
 
   // Export logs to JSON
   const handleExportJson = () => {
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(logs, null, 2))
-    const downloadAnchor = document.createElement('a')
-    downloadAnchor.setAttribute('href', dataStr)
-    downloadAnchor.setAttribute('download', `server-logs-${new Date().toISOString()}.json`)
-    document.body.appendChild(downloadAnchor)
-    downloadAnchor.click()
-    downloadAnchor.remove()
-    showToast('Exported logs as JSON', 'success')
+    try {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(logs, null, 2))
+      const downloadAnchor = document.createElement('a')
+      downloadAnchor.setAttribute('href', dataStr)
+      downloadAnchor.setAttribute('download', `server-logs-${new Date().toISOString()}.json`)
+      document.body.appendChild(downloadAnchor)
+      downloadAnchor.click()
+      downloadAnchor.remove()
+      showToast('Exported logs as JSON', 'success')
+    } catch {
+      showToast('Export failed', 'error')
+    }
   }
 
   // Status badge styling helper
@@ -361,20 +414,30 @@ export default function DevLogsPage() {
   // Formatted date
   const formatTime = (isoString?: string) => {
     if (!isoString) return '-'
-    const d = new Date(isoString)
-    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return '-'
+      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+    } catch {
+      return '-'
+    }
   }
 
   const formatFullDate = (isoString?: string) => {
     if (!isoString) return '-'
-    const d = new Date(isoString)
-    return d.toLocaleString([], {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
+    try {
+      const d = new Date(isoString)
+      if (isNaN(d.getTime())) return '-'
+      return d.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      })
+    } catch {
+      return '-'
+    }
   }
 
   // If token check fails
@@ -405,198 +468,183 @@ export default function DevLogsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#090D16] text-slate-100 font-sans selection:bg-indigo-500 selection:text-white">
-      {/* Toast Notification */}
+    <div className="min-h-screen bg-[#070B14] text-slate-100 flex flex-col font-sans selection:bg-indigo-500/30 selection:text-white">
+      {/* Live Toast Notification */}
       {toastMessage && (
-        <div className="fixed top-6 right-6 z-50 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-5 right-5 z-50 animate-in slide-in-from-top-3 duration-200">
           <div
-            className={`flex items-center gap-3 px-4 py-3 rounded-xl border shadow-2xl backdrop-blur-xl ${
-              toastMessage.type === 'error'
-                ? 'bg-rose-950/90 border-rose-800 text-rose-200'
-                : toastMessage.type === 'success'
-                ? 'bg-emerald-950/90 border-emerald-800 text-emerald-200'
-                : 'bg-slate-900/90 border-slate-800 text-slate-200'
+            className={`px-4 py-2.5 rounded-xl border text-xs font-medium shadow-2xl flex items-center gap-2.5 ${
+              toastMessage.type === 'success'
+                ? 'bg-emerald-950/90 text-emerald-200 border-emerald-500/40 shadow-emerald-950/50'
+                : toastMessage.type === 'error'
+                ? 'bg-rose-950/90 text-rose-200 border-rose-500/40 shadow-rose-950/50'
+                : 'bg-slate-900/90 text-slate-200 border-slate-700 shadow-black/50'
             }`}
           >
-            {toastMessage.type === 'error' ? (
-              <AlertTriangle className="w-5 h-5 text-rose-400" />
-            ) : toastMessage.type === 'success' ? (
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+            {toastMessage.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+            ) : toastMessage.type === 'error' ? (
+              <Flame className="w-4 h-4 text-rose-400 shrink-0" />
             ) : (
-              <Activity className="w-5 h-5 text-indigo-400" />
+              <Activity className="w-4 h-4 text-indigo-400 shrink-0" />
             )}
-            <span className="text-sm font-medium">{toastMessage.text}</span>
-            <button
-              onClick={() => setToastMessage(null)}
-              className="p-1 hover:bg-white/10 rounded-lg text-slate-400 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            <span>{toastMessage.text}</span>
           </div>
         </div>
       )}
 
-      {/* Top Header Bar */}
-      <header className="sticky top-0 z-30 bg-[#090D16]/90 backdrop-blur-xl border-b border-slate-800/80 px-6 py-4">
-        <div className="max-w-[1600px] mx-auto flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-center gap-4">
-            <Link
-              href="/dashboard"
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:border-slate-700 transition"
-              title="Return to Main App"
-            >
-              <ArrowLeft className="w-4 h-4" />
-            </Link>
+      {/* Header bar */}
+      <header className="sticky top-0 z-40 bg-slate-950/80 backdrop-blur-xl border-b border-slate-800/80 px-6 py-3.5 flex items-center justify-between shadow-lg">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/dashboard"
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            title="Return to Main Dashboard"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </Link>
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-white shadow-md shadow-indigo-500/20">
+              <Terminal className="w-5 h-5" />
+            </div>
             <div>
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-indigo-500/25">
-                  <Terminal className="w-4 h-4 text-white" />
-                </div>
-                <h1 className="text-lg font-bold text-white tracking-tight flex items-center gap-2">
-                  Developer Server Diagnostics
-                  <span className="px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider rounded-md bg-indigo-500/10 border border-indigo-500/30 text-indigo-400 font-semibold">
-                    Live Stream
-                  </span>
-                </h1>
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-2">
-                <span>Direct Console (MeccaAudio / Dev)</span>
-                <span>•</span>
-                <span className="text-emerald-400 flex items-center gap-1">
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-bold text-white tracking-tight">Developer Server Diagnostics</h1>
+                <span className="px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                  Auto-retention: 14d Errors / 7d Success
+                  Live Stream
                 </span>
+              </div>
+              <p className="text-xs text-slate-400">
+                Direct Console (MeccaAudio / Dev) · <span className="text-emerald-400 font-medium">Auto-retention: 7d Errors / 3d Success</span>
               </p>
             </div>
           </div>
+        </div>
 
-          {/* Action Toolbar */}
-          <div className="flex items-center gap-2.5">
-            {/* Auto-Refresh Select */}
-            <div className="flex items-center bg-slate-900/90 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300 gap-2">
-              <RefreshCw
-                className={`w-3.5 h-3.5 text-slate-400 ${autoRefreshInterval > 0 ? 'animate-spin' : ''}`}
-                style={{ animationDuration: '4s' }}
-              />
-              <span className="text-slate-400">Poll:</span>
-              <select
-                value={autoRefreshInterval}
-                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
-                className="bg-transparent text-white focus:outline-none cursor-pointer font-medium"
-              >
-                <option value={0} className="bg-slate-900 text-white">Manual</option>
-                <option value={3} className="bg-slate-900 text-white">Every 3s</option>
-                <option value={5} className="bg-slate-900 text-white">Every 5s</option>
-                <option value={15} className="bg-slate-900 text-white">Every 15s</option>
-                <option value={30} className="bg-slate-900 text-white">Every 30s</option>
-              </select>
-            </div>
-
-            {/* Refresh Button */}
-            <button
-              onClick={() => {
-                fetchLogs()
-                fetchStats()
-                showToast('Refreshed logs and statistics', 'info')
-              }}
-              disabled={loading}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition"
-              title="Manual Refresh"
+        {/* Global actions */}
+        <div className="flex items-center gap-2.5">
+          {/* Polling Interval Select */}
+          <div className="flex items-center gap-1.5 bg-slate-900 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-300">
+            <RefreshCw className={`w-3.5 h-3.5 text-slate-400 ${autoRefreshInterval > 0 ? 'animate-spin text-indigo-400' : ''}`} />
+            <span className="text-slate-400">Poll:</span>
+            <select
+              value={autoRefreshInterval}
+              onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+              className="bg-transparent text-white font-medium focus:outline-none cursor-pointer"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-
-            {/* Test 500 Crash Button */}
-            <button
-              onClick={handleTriggerTestError}
-              disabled={testingError}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 hover:bg-rose-500/25 hover:border-rose-500/50 transition text-xs font-semibold"
-              title="Simulates a 500 Server Error to test logging instantly"
-            >
-              <Flame className={`w-3.5 h-3.5 ${testingError ? 'animate-bounce' : ''}`} />
-              {testingError ? 'Simulating...' : 'Test 500 Crash'}
-            </button>
-
-            {/* Export JSON */}
-            <button
-              onClick={handleExportJson}
-              disabled={logs.length === 0}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition"
-              title="Export Current View as JSON"
-            >
-              <Download className="w-4 h-4" />
-            </button>
-
-            {/* Clear Logs */}
-            <button
-              onClick={() => setShowClearModal(true)}
-              className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-900/50 transition"
-              title="Purge Logs"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+              <option value={0} className="bg-slate-900 text-white">Manual</option>
+              <option value={3} className="bg-slate-900 text-white">Every 3s</option>
+              <option value={5} className="bg-slate-900 text-white">Every 5s</option>
+              <option value={15} className="bg-slate-900 text-white">Every 15s</option>
+              <option value={30} className="bg-slate-900 text-white">Every 30s</option>
+            </select>
           </div>
+
+          {/* Refresh button */}
+          <button
+            onClick={() => {
+              fetchLogs()
+              fetchStats()
+              showToast('Refreshed logs and statistics', 'info')
+            }}
+            disabled={loading}
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition disabled:opacity-50"
+            title="Refresh logs immediately"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+
+          {/* Simulate 500 Error button for debugging */}
+          <button
+            onClick={handleTriggerTestError}
+            disabled={testingError}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 hover:bg-rose-500/20 hover:text-rose-200 transition text-xs font-semibold"
+            title="Fire a test 500 error to verify real-time error logging and stack trace capture"
+          >
+            <Flame className="w-3.5 h-3.5" />
+            {testingError ? 'Simulating...' : 'Test 500 Crash'}
+          </button>
+
+          {/* Export JSON */}
+          <button
+            onClick={handleExportJson}
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white hover:bg-slate-800 transition"
+            title="Export Current Log View as JSON"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+
+          {/* Purge / Clear logs */}
+          <button
+            onClick={() => setShowClearModal(true)}
+            className="p-2 rounded-xl bg-slate-900 border border-slate-800 text-rose-400/80 hover:text-rose-300 hover:bg-rose-950/40 transition"
+            title="Purge / Clean Logs from Database"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
         </div>
       </header>
 
-      <main className="max-w-[1600px] mx-auto px-6 py-6 space-y-6">
-        {/* KPI Metrics Row */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          {/* Total Requests */}
+      {/* Main Content Area */}
+      <main className="flex-1 max-w-7xl w-full mx-auto p-6 space-y-6">
+        {/* KPI Stats Summary Cards */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
               <span>Total Requests</span>
               <Activity className="w-4 h-4 text-indigo-400" />
             </div>
             <div className="text-2xl font-bold text-white font-mono mt-2">
-              {statsLoading ? '...' : stats?.summary.totalRequests.toLocaleString() || '0'}
+              {statsLoading ? '...' : (stats?.summary.totalRequests || 0).toLocaleString()}
             </div>
-            <div className="text-[11px] text-slate-400 mt-1">In last {datePreset} window</div>
+            <div className="text-[11px] text-slate-400 mt-1">Recorded in period</div>
           </div>
 
-          {/* 500 Server Crashes */}
-          <div className="bg-rose-950/30 border border-rose-800/40 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
-            <div className="flex items-center justify-between text-rose-300 text-xs font-semibold">
-              <span>500 Server Crashes</span>
-              <Flame className="w-4 h-4 text-rose-400 animate-pulse" />
+          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
+              <span>500 Crashes</span>
+              <Flame className="w-4 h-4 text-rose-500" />
             </div>
             <div className="text-2xl font-bold text-rose-400 font-mono mt-2">
               {statsLoading ? '...' : stats?.summary.total500Errors || 0}
             </div>
-            <div className="text-[11px] text-rose-400/80 mt-1 font-medium">14-Day Retention Active</div>
+            <div className="text-[11px] text-rose-400/70 mt-1">Unhandled exceptions</div>
           </div>
 
-          {/* 4xx Client Errors */}
-          <div className="bg-amber-950/20 border border-amber-800/40 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
-            <div className="flex items-center justify-between text-amber-300 text-xs font-semibold">
+          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
               <span>4xx Client Errors</span>
               <AlertTriangle className="w-4 h-4 text-amber-400" />
             </div>
-            <div className="text-2xl font-bold text-amber-400 font-mono mt-2">
-              {statsLoading
-                ? '...'
-                : (stats?.summary.totalErrors || 0) - (stats?.summary.total500Errors || 0)}
+            <div className="text-2xl font-bold text-amber-300 font-mono mt-2">
+              {statsLoading ? '...' : (stats?.summary.totalErrors || 0) - (stats?.summary.total500Errors || 0)}
             </div>
-            <div className="text-[11px] text-amber-400/80 mt-1">Bad requests & auth errors</div>
+            <div className="text-[11px] text-amber-400/70 mt-1">Auth, Not Found, Bad Req</div>
           </div>
 
-          {/* Success Rate */}
-          <div className="bg-emerald-950/20 border border-emerald-800/40 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
-            <div className="flex items-center justify-between text-emerald-300 text-xs font-semibold">
-              <span>Success Rate</span>
+          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
+              <span>2xx Success</span>
               <CheckCircle2 className="w-4 h-4 text-emerald-400" />
             </div>
             <div className="text-2xl font-bold text-emerald-400 font-mono mt-2">
-              {statsLoading
-                ? '...'
-                : `${(100 - (stats?.summary.errorRatePercentage || 0)).toFixed(1)}%`}
+              {statsLoading ? '...' : (stats?.summary.totalSuccess || 0).toLocaleString()}
             </div>
-            <div className="text-[11px] text-emerald-400/80 mt-1">
-              {stats?.summary.totalSuccess || 0} successful hits
-            </div>
+            <div className="text-[11px] text-emerald-400/70 mt-1">Healthy responses</div>
           </div>
 
-          {/* Avg Latency */}
+          <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
+            <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
+              <span>Error Rate</span>
+              <ShieldAlert className="w-4 h-4 text-rose-400" />
+            </div>
+            <div className="text-2xl font-bold text-white font-mono mt-2">
+              {statsLoading ? '...' : `${stats?.summary.errorRatePercentage || 0}%`}
+            </div>
+            <div className="text-[11px] text-slate-400 mt-1">Errors / Total requests</div>
+          </div>
+
           <div className="bg-slate-900/70 border border-slate-800/80 rounded-2xl p-4 relative overflow-hidden backdrop-blur-md">
             <div className="flex items-center justify-between text-slate-400 text-xs font-medium">
               <span>Avg Latency</span>
@@ -611,7 +659,7 @@ export default function DevLogsPage() {
 
         {/* Visual Charts & Leaderboard Row */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 14-Day Timeline Chart */}
+          {/* Timeline Chart */}
           <div className="lg:col-span-2 bg-slate-900/60 border border-slate-800 rounded-2xl p-5 backdrop-blur-md">
             <div className="flex items-center justify-between mb-4">
               <div>
@@ -665,7 +713,7 @@ export default function DevLogsPage() {
                       dataKey="date"
                       stroke="#64748B"
                       fontSize={11}
-                      tickFormatter={(val) => val.slice(5)}
+                      tickFormatter={(val) => (typeof val === 'string' && val.length >= 5 ? val.slice(5) : val)}
                     />
                     <YAxis stroke="#64748B" fontSize={11} />
                     <Tooltip
@@ -903,7 +951,10 @@ export default function DevLogsPage() {
                     return (
                       <tr
                         key={log.id || log._id}
-                        onClick={() => setSelectedLog(log)}
+                        onClick={() => {
+                          setSelectedLog(log)
+                          setActiveModalTab(log.errorMessage || log.errorStack ? 'stack' : 'all')
+                        }}
                         className={`cursor-pointer transition hover:bg-slate-800/60 ${
                           is500
                             ? 'bg-rose-950/15 hover:bg-rose-950/30'
@@ -959,9 +1010,10 @@ export default function DevLogsPage() {
                             onClick={(e) => {
                               e.stopPropagation()
                               setSelectedLog(log)
+                              setActiveModalTab(log.errorMessage || log.errorStack ? 'stack' : 'all')
                             }}
                             className="p-1.5 rounded-lg bg-slate-800 text-slate-400 hover:text-white hover:bg-indigo-600 transition"
-                            title="Inspect Diagnostics"
+                            title="Inspect Request, Response & Stack Trace"
                           >
                             <Terminal className="w-3.5 h-3.5" />
                           </button>
@@ -1002,22 +1054,32 @@ export default function DevLogsPage() {
         </div>
       </main>
 
-      {/* Deep Diagnostic Slide-Over Drawer / Modal */}
+      {/* Deep Diagnostic Modal / Drawer with Request & Response Inspector */}
       {selectedLog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#0D1321] border border-slate-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden font-mono">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
+          <div className="bg-[#0B0F19] border border-slate-800 rounded-2xl w-full max-w-5xl max-h-[92vh] flex flex-col shadow-2xl overflow-hidden font-mono text-xs">
             {/* Modal Header */}
-            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/60">
-              <div className="flex items-center gap-3">
+            <div className="px-6 py-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/80">
+              <div className="flex items-center gap-3 min-w-0">
                 {getStatusBadge(selectedLog.statusCode)}
                 {getMethodBadge(selectedLog.method)}
-                <span className="text-sm font-bold text-white truncate max-w-lg">{selectedLog.path}</span>
+                <span className="text-sm font-bold text-white truncate max-w-md" title={selectedLog.path}>
+                  {selectedLog.path}
+                </span>
               </div>
               <div className="flex items-center gap-2">
                 <button
+                  onClick={() => copyAsCurl(selectedLog)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
+                  title="Copy as cURL Command"
+                >
+                  {copiedKey === 'curl-copy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Send className="w-3.5 h-3.5" />}
+                  Copy cURL
+                </button>
+                <button
                   onClick={() => copyToClipboard(JSON.stringify(selectedLog, null, 2), 'modal-full-json')}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 text-xs text-slate-300 hover:text-white hover:bg-slate-700 transition"
-                  title="Copy Full Log Object as JSON"
+                  title="Copy Full Diagnostic JSON"
                 >
                   {copiedKey === 'modal-full-json' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
                   Copy JSON
@@ -1031,8 +1093,58 @@ export default function DevLogsPage() {
               </div>
             </div>
 
+            {/* Inspector Navigation Tabs */}
+            <div className="px-6 py-2.5 border-b border-slate-800/80 bg-slate-950/40 flex items-center gap-2">
+              <button
+                onClick={() => setActiveModalTab('all')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeModalTab === 'all'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                All Overview
+              </button>
+              <button
+                onClick={() => setActiveModalTab('request')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeModalTab === 'request'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <CornerDownRight className="w-3.5 h-3.5 text-sky-400" />
+                Request Details
+              </button>
+              <button
+                onClick={() => setActiveModalTab('response')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                  activeModalTab === 'response'
+                    ? 'bg-indigo-600 text-white shadow-sm'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <FileText className="w-3.5 h-3.5 text-emerald-400" />
+                Response Payload
+              </button>
+              {(selectedLog.errorMessage || selectedLog.errorStack) && (
+                <button
+                  onClick={() => setActiveModalTab('stack')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition ${
+                    activeModalTab === 'stack'
+                      ? 'bg-rose-600 text-white shadow-sm'
+                      : 'text-rose-400 hover:text-rose-300 hover:bg-rose-950/30'
+                  }`}
+                >
+                  <Flame className="w-3.5 h-3.5" />
+                  Stack Trace
+                </button>
+              )}
+            </div>
+
             {/* Modal Body */}
-            <div className="p-6 overflow-y-auto space-y-6 flex-1 text-xs">
+            <div className="p-6 overflow-y-auto space-y-6 flex-1">
               {/* Meta info grid */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
@@ -1040,7 +1152,7 @@ export default function DevLogsPage() {
                   <div className="text-white font-medium mt-1">{formatFullDate(selectedLog.createdAt)}</div>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
-                  <div className="text-slate-500 text-[10px] uppercase">Duration</div>
+                  <div className="text-slate-500 text-[10px] uppercase">Latency</div>
                   <div className="text-white font-medium mt-1">{selectedLog.responseTimeMs} ms</div>
                 </div>
                 <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
@@ -1055,71 +1167,131 @@ export default function DevLogsPage() {
                 </div>
               </div>
 
-              {/* Error Stack Diagnostic Block (CRITICAL FOR 500s) */}
-              {(selectedLog.errorMessage || selectedLog.errorStack) && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-sm">
-                      <Flame className="w-4 h-4" />
-                      Exception Stack Trace
-                    </span>
-                    {selectedLog.errorStack && (
+              {/* Stack Trace Tab / Section */}
+              {(activeModalTab === 'all' || activeModalTab === 'stack') &&
+                (selectedLog.errorMessage || selectedLog.errorStack) && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-rose-400 flex items-center gap-1.5 text-sm">
+                        <Flame className="w-4 h-4" />
+                        Exception Stack Trace (500 Error Root Cause)
+                      </span>
+                      {selectedLog.errorStack && (
+                        <button
+                          onClick={() => copyToClipboard(selectedLog.errorStack!, 'stack-copy')}
+                          className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition text-xs font-semibold"
+                        >
+                          {copiedKey === 'stack-copy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                          Copy Stack Trace
+                        </button>
+                      )}
+                    </div>
+                    <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed shadow-inner">
+                      <strong className="text-rose-400 text-xs block mb-2">{selectedLog.errorMessage}</strong>
+                      {selectedLog.errorStack || 'No stack trace captured.'}
+                    </div>
+                  </div>
+                )}
+
+              {/* Request Details Tab / Section */}
+              {(activeModalTab === 'all' || activeModalTab === 'request') && (
+                <div className="space-y-4">
+                  <div className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <CornerDownRight className="w-4 h-4" />
+                    Incoming Request Data
+                  </div>
+
+                  {/* Request URL & Query */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-300">Request URL & Query</span>
                       <button
-                        onClick={() => copyToClipboard(selectedLog.errorStack!, 'stack-copy')}
-                        className="flex items-center gap-1.5 px-3 py-1 rounded-lg bg-rose-500/20 text-rose-300 hover:bg-rose-500/30 transition text-xs font-semibold"
+                        onClick={() => copyToClipboard(selectedLog.url, 'url-copy')}
+                        className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
                       >
-                        {copiedKey === 'stack-copy' ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
-                        Copy Stack Trace
+                        {copiedKey === 'url-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        Copy URL
                       </button>
-                    )}
+                    </div>
+                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-sky-300 overflow-x-auto whitespace-pre-wrap break-all font-mono text-[11px]">
+                      {selectedLog.url}
+                    </pre>
                   </div>
-                  <div className="p-4 rounded-xl bg-rose-950/30 border border-rose-900/50 text-rose-200 overflow-x-auto whitespace-pre font-mono text-[11px] leading-relaxed shadow-inner">
-                    <strong className="text-rose-400 text-xs block mb-2">{selectedLog.errorMessage}</strong>
-                    {selectedLog.errorStack || 'No stack trace captured.'}
+
+                  {/* Request Body */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-300">Request Body (Payload)</span>
+                      {selectedLog.requestBody && (
+                        <button
+                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.requestBody), 'req-body-copy')}
+                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                        >
+                          {copiedKey === 'req-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          Copy Body
+                        </button>
+                      )}
+                    </div>
+                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-indigo-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-60">
+                      {selectedLog.requestBody ? safeFormatJson(selectedLog.requestBody) : '// No request body'}
+                    </pre>
                   </div>
+
+                  {/* Request Headers */}
+                  {selectedLog.requestHeaders && (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-300">Request Headers (Sanitized)</span>
+                        <button
+                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.requestHeaders), 'req-hdr-copy')}
+                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                        >
+                          {copiedKey === 'req-hdr-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          Copy Headers
+                        </button>
+                      </div>
+                      <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-slate-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-48">
+                        {safeFormatJson(selectedLog.requestHeaders)}
+                      </pre>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Request Payload */}
-              {selectedLog.requestBody && Object.keys(selectedLog.requestBody).length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <span className="font-semibold text-slate-300">Request Body (Sanitized)</span>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(
-                          typeof selectedLog.requestBody === 'string'
-                            ? selectedLog.requestBody
-                            : JSON.stringify(selectedLog.requestBody, null, 2),
-                          'body-copy',
-                        )
-                      }
-                      className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
-                    >
-                      {copiedKey === 'body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-                      Copy
-                    </button>
+              {/* Response Details Tab / Section */}
+              {(activeModalTab === 'all' || activeModalTab === 'response') && (
+                <div className="space-y-4 pt-2">
+                  <div className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <FileText className="w-4 h-4" />
+                    Response Returned to Client
                   </div>
-                  <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-indigo-300 overflow-x-auto whitespace-pre font-mono text-[11px]">
-                    {typeof selectedLog.requestBody === 'string'
-                      ? selectedLog.requestBody
-                      : JSON.stringify(selectedLog.requestBody, null, 2)}
-                  </pre>
-                </div>
-              )}
 
-              {/* Request Query Parameters */}
-              {selectedLog.requestQuery && Object.keys(selectedLog.requestQuery).length > 0 && (
-                <div className="space-y-2">
-                  <span className="font-semibold text-slate-300">Query Parameters</span>
-                  <pre className="p-4 rounded-xl bg-slate-950 border border-slate-800 text-sky-300 overflow-x-auto whitespace-pre font-mono text-[11px]">
-                    {JSON.stringify(selectedLog.requestQuery, null, 2)}
-                  </pre>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-slate-300">Response Payload</span>
+                        {getStatusBadge(selectedLog.statusCode)}
+                        <span className="text-slate-400">({selectedLog.responseTimeMs}ms)</span>
+                      </div>
+                      {selectedLog.responseBody && (
+                        <button
+                          onClick={() => copyToClipboard(safeFormatJson(selectedLog.responseBody), 'res-body-copy')}
+                          className="text-slate-400 hover:text-white flex items-center gap-1 text-[11px]"
+                        >
+                          {copiedKey === 'res-body-copy' ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                          Copy Response
+                        </button>
+                      )}
+                    </div>
+                    <pre className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 text-emerald-300 overflow-x-auto whitespace-pre font-mono text-[11px] max-h-80 shadow-inner">
+                      {selectedLog.responseBody ? safeFormatJson(selectedLog.responseBody) : '// No response payload recorded'}
+                    </pre>
+                  </div>
                 </div>
               )}
 
               {/* Client & User Details */}
-              <div className="space-y-2">
+              <div className="space-y-2 pt-2">
                 <span className="font-semibold text-slate-300">Client Context</span>
                 <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2 text-slate-300 font-mono text-[11px]">
                   <div className="flex gap-2">
@@ -1134,16 +1306,12 @@ export default function DevLogsPage() {
                     <span className="text-slate-500 w-24">User Agent:</span>
                     <span className="text-slate-400 break-all">{selectedLog.userAgent || 'Unknown'}</span>
                   </div>
-                  <div className="flex gap-2">
-                    <span className="text-slate-500 w-24">Full URL:</span>
-                    <span className="text-indigo-400 break-all">{selectedLog.url}</span>
-                  </div>
                 </div>
               </div>
             </div>
 
             {/* Modal Footer */}
-            <div className="px-6 py-3 border-t border-slate-800 flex items-center justify-between bg-slate-950/60">
+            <div className="px-6 py-3 border-t border-slate-800 flex items-center justify-between bg-slate-950/80">
               <div className="text-[11px] text-slate-500">
                 Log ID: <span className="text-slate-400 font-mono">{selectedLog.id || selectedLog._id}</span>
               </div>
@@ -1173,7 +1341,7 @@ export default function DevLogsPage() {
             </div>
 
             <p className="text-xs text-slate-300 leading-relaxed">
-              Logs are automatically cleaned up by MongoDB (14 days for errors, 7 days for successes). You can manually purge records now if needed.
+              Logs are automatically cleaned up by MongoDB (7 days for errors, 3 days for successes). You can manually purge records now if needed.
             </p>
 
             <div className="space-y-2">

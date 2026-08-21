@@ -39,7 +39,16 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const { isListening, transcript, isSupported: voiceSupported, startListening, stopListening } = useSpeechRecognition()
+  const {
+    isListening,
+    transcript,
+    isSupported: voiceSupported,
+    error: voiceError,
+    startListening,
+    stopListening,
+    resetTranscript,
+  } = useSpeechRecognition()
+  const initialInputRef = useRef('')
 
   const currentSkill = selectedSkill || 'general'
   const categoryColor = getCategoryColor(currentSkill)
@@ -59,9 +68,26 @@ export default function ChatPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [activeThread?.messages?.length, streamingContent])
 
+  // Display speech recognition errors gracefully
   useEffect(() => {
-    if (transcript) setInput(transcript)
-  }, [transcript])
+    if (voiceError) {
+      toast.error(voiceError)
+    }
+  }, [voiceError])
+
+  // Synchronize voice transcript without wiping pre-existing input
+  useEffect(() => {
+    if (!isListening && !transcript) return
+    if (transcript) {
+      const base = initialInputRef.current
+      if (!base) {
+        setInput(transcript)
+      } else {
+        const needsSpace = !base.endsWith(' ') && !base.endsWith('\n')
+        setInput(`${base}${needsSpace ? ' ' : ''}${transcript}`)
+      }
+    }
+  }, [transcript, isListening])
 
   useEffect(() => {
     return () => { abortControllerRef.current?.abort() }
@@ -80,6 +106,12 @@ export default function ChatPage() {
 
   const handleSend = async () => {
     if ((!input.trim() && !selectedFile) || !activeThreadId) return
+
+    if (isListening) {
+      stopListening()
+    }
+    resetTranscript()
+    initialInputRef.current = ''
 
     const messageContent = input
     const fileToSend = selectedFile
@@ -208,7 +240,16 @@ export default function ChatPage() {
     }
   }
 
-  const handleVoiceToggle = () => { isListening ? stopListening() : startListening() }
+  const handleVoiceToggle = () => {
+    if (isListening) {
+      stopListening()
+      initialInputRef.current = input
+    } else {
+      initialInputRef.current = input
+      resetTranscript()
+      startListening()
+    }
+  }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -523,7 +564,37 @@ export default function ChatPage() {
         <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
           <div className="max-w-4xl mx-auto">
             {/* Unified Floating Card Input */}
-            <div className="bg-gray-50/80 dark:bg-gray-800/60 border border-gray-200 dark:border-gray-700/80 rounded-2xl p-3 shadow-md shadow-gray-200/40 dark:shadow-none focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20 transition-all space-y-2">
+            <div className={cn(
+              'border rounded-2xl p-3 shadow-md transition-all space-y-2',
+              isListening
+                ? 'bg-red-50/30 dark:bg-red-950/20 border-red-400/80 dark:border-red-500/60 ring-2 ring-red-500/20'
+                : 'bg-gray-50/80 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700/80 shadow-gray-200/40 dark:shadow-none focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20'
+            )}>
+              {/* Active voice banner */}
+              {isListening && (
+                <div className="flex items-center justify-between px-3 py-1.5 bg-red-100/70 dark:bg-red-900/40 border border-red-200 dark:border-red-800/60 rounded-xl text-xs text-red-800 dark:text-red-200 animate-in fade-in slide-in-from-bottom-1 duration-150">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="relative flex h-2 w-2 shrink-0">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
+                    </span>
+                    <span className="font-medium text-[11px] sm:text-xs truncate">
+                      Listening... speak naturally (pausing will not erase words)
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      stopListening()
+                      initialInputRef.current = input
+                    }}
+                    className="px-2 py-0.5 text-[10px] sm:text-xs font-semibold bg-red-600 hover:bg-red-700 text-white rounded-md transition shadow-xs shrink-0 cursor-pointer ml-2"
+                  >
+                    Done
+                  </button>
+                </div>
+              )}
+
               {/* Selected file preview */}
               {selectedFile && (
                 <div className="flex items-center gap-2 px-3 py-1.5 bg-indigo-100/70 dark:bg-indigo-500/20 rounded-xl border border-indigo-200 dark:border-indigo-500/30">
@@ -537,7 +608,13 @@ export default function ChatPage() {
               {/* Textarea */}
               <textarea
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  setInput(e.target.value)
+                  if (isListening) {
+                    initialInputRef.current = e.target.value
+                    resetTranscript()
+                  }
+                }}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault()
@@ -556,16 +633,22 @@ export default function ChatPage() {
                   <input ref={fileInputRef} type="file" accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.gif" onChange={handleFileSelect} className="hidden" />
                   <button
                     onClick={() => fileInputRef.current?.click()}
-                    className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs"
+                    className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs cursor-pointer"
                     title="Attach file (.pdf, .txt, .md, images)"
                   >
                     <Paperclip className="w-4 h-4" />
                   </button>
                   {voiceSupported && (
                     <button
+                      type="button"
                       onClick={handleVoiceToggle}
-                      className={cn('p-1.5 rounded-lg transition flex items-center text-xs', isListening ? 'text-red-500 bg-red-50 dark:bg-red-500/10 animate-pulse' : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50')}
-                      title="Voice dictation"
+                      className={cn(
+                        'p-1.5 rounded-lg transition flex items-center text-xs cursor-pointer',
+                        isListening
+                          ? 'text-white bg-red-500 hover:bg-red-600 animate-pulse shadow-sm shadow-red-500/30 ring-2 ring-red-400/50'
+                          : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
+                      )}
+                      title={isListening ? 'Stop listening' : 'Continuous voice dictation'}
                     >
                       {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                     </button>
@@ -574,11 +657,11 @@ export default function ChatPage() {
 
                 <div>
                   {sending ? (
-                    <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20">
+                    <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20 cursor-pointer">
                       <Square className="w-3.5 h-3.5" />
                     </Button>
                   ) : (
-                    <Button onClick={handleSend} disabled={!input.trim() && !selectedFile} size="icon" className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-indigo-500/25 transition-all">
+                    <Button onClick={handleSend} disabled={!input.trim() && !selectedFile} size="icon" className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-indigo-500/25 transition-all cursor-pointer">
                       <Send className="w-4 h-4" />
                     </Button>
                   )}

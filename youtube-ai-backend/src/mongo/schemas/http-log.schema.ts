@@ -38,10 +38,16 @@ export class HttpLog {
   errorName?: string | null;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  requestHeaders?: Record<string, unknown> | null;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
   requestQuery?: Record<string, unknown> | null;
 
   @Prop({ type: MongooseSchema.Types.Mixed, default: null })
   requestBody?: Record<string, unknown> | string | null;
+
+  @Prop({ type: MongooseSchema.Types.Mixed, default: null })
+  responseBody?: Record<string, unknown> | string | null;
 
   @Prop({ type: String, default: null })
   ip?: string | null;
@@ -57,7 +63,7 @@ export class HttpLog {
 
   /**
    * MongoDB TTL Index: Document expires and is automatically deleted
-   * at `expiresAt`. Errors: 14 days; Successes: 7 days.
+   * at `expiresAt`. Errors: 7 days; Successes: 3 days.
    */
   @Prop({ type: Date, required: true, index: { expires: 0 } })
   expiresAt: Date;
