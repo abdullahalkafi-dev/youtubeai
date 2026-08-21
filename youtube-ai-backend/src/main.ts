@@ -8,6 +8,7 @@ import { TransformInterceptor } from './common/interceptors/transform.intercepto
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { LoggingInterceptor } from './common/interceptors/logging.interceptor';
 import { BigIntInterceptor } from './common/interceptors/bigint.interceptor';
+import { DevLogsService } from './dev-logs/dev-logs.service';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -50,12 +51,14 @@ async function bootstrap() {
     }),
   );
   const reflector = app.get(Reflector);
+  const devLogsService = app.get(DevLogsService);
+
   app.useGlobalInterceptors(
-    new LoggingInterceptor(),
+    new LoggingInterceptor(devLogsService),
     new BigIntInterceptor(),
     new TransformInterceptor(reflector),
   );
-  app.useGlobalFilters(new AllExceptionsFilter());
+  app.useGlobalFilters(new AllExceptionsFilter(devLogsService));
 
   const port = configService.get<number>('PORT', 3001);
   const server = await app.listen(port);

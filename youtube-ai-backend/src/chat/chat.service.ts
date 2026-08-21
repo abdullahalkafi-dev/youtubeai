@@ -41,7 +41,7 @@ export class ChatService {
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
   ) {
-    this.modelName = this.configService.get<string>('OPENAI_MODEL', 'gpt-5.4-mini');
+    this.modelName = this.configService.get<string>('OPENAI_MODEL', 'gpt-5.6-terra');
   }
 
   async createThread(channelId: string, dto: CreateThreadDto) {

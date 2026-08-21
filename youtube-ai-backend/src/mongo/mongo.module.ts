@@ -17,6 +17,7 @@ import { ApiQuotaLog, ApiQuotaLogSchema } from './schemas/api-quota-log.schema';
 import { SearchListQuota, SearchListQuotaSchema } from './schemas/search-list-quota.schema';
 import { TokenUsageDaily, TokenUsageDailySchema } from './schemas/token-usage-daily.schema';
 import { SyncLog, SyncLogSchema } from './schemas/sync-log.schema';
+import { HttpLog, HttpLogSchema } from './schemas/http-log.schema';
 
 function addVirtualId(schema: Schema) {
   schema.set('toJSON', {
@@ -46,7 +47,7 @@ const schemas = [
   SeoSuggestionSchema, SeoVersionSchema, QueueItemSchema,
   TrendingTopicSchema, TrendingIdeaSchema, AIOutputLogSchema,
   ApiQuotaLogSchema, SearchListQuotaSchema, TokenUsageDailySchema,
-  SyncLogSchema,
+  SyncLogSchema, HttpLogSchema,
 ];
 schemas.forEach(addVirtualId);
 
@@ -65,6 +66,7 @@ const modelImports = MongooseModule.forFeature([
   { name: SearchListQuota.name, schema: SearchListQuotaSchema },
   { name: TokenUsageDaily.name, schema: TokenUsageDailySchema },
   { name: SyncLog.name, schema: SyncLogSchema },
+  { name: HttpLog.name, schema: HttpLogSchema },
 ]);
 
 @Global()

@@ -73,11 +73,11 @@ export function buildTrendsSearchPrompt(params: {
   userParts.push(`Today's date is ${params.today}.`);
   userParts.push('');
   userParts.push(
-    `What are up to 10 trending topics in criminal psychology, federal cases, prison stories, and sentencing news from the last 21 days (since ${params.twentyOneDaysAgoStr})? Search the web for current news.`,
+    `What are up to 10 trending topics in criminal psychology, federal cases, prison stories, and sentencing news from the last 21 days (since ${params.twentyOneDaysAgoStr})? Search the web for current, real-time news.`,
   );
   userParts.push('');
   userParts.push(
-    `IMPORTANT: Prioritize stories from the LAST 7 DAYS. These should appear FIRST in your results. Include older stories (1-3 weeks) only if they are major cases with ongoing developments, recent sentencing, or significant new evidence. Order results by recency — most recent first.`,
+    `IMPORTANT: You MUST use web search to find real-time, breaking updates. Prioritize stories from the LAST 48 HOURS to 7 DAYS — these must appear FIRST. Strictly ignore stale or outdated historical events unless there is breaking news, a fresh indictment, recent sentencing, or significant new developments within the search window. Ensure accurate publishedAt ISO dates and order results by recency — newest first.`,
   );
 
   return { system: TRENDS_SEARCH_SYSTEM_PROMPT, user: userParts.join('\n') };

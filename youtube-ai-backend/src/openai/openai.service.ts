@@ -56,6 +56,7 @@ export class OpenAIService {
   private readonly client: OpenAI;
   private readonly model: string;
   private readonly fastModel: string;
+  private readonly trendsModel: string;
   private readonly logger = new Logger(OpenAIService.name);
   private readonly cacheAlertThreshold = 70; // Alert if cache hit rate < 70%
 
@@ -71,8 +72,9 @@ export class OpenAIService {
         'https://api.openai.com/v1',
       ),
     });
-    this.model = configService.get<string>('OPENAI_MODEL', 'gpt-4o-mini');
-    this.fastModel = configService.get<string>('OPENAI_FAST_MODEL', 'gpt-4o-mini');
+    this.model = configService.get<string>('OPENAI_MODEL', 'gpt-5.6-terra');
+    this.fastModel = configService.get<string>('OPENAI_FAST_MODEL', 'gpt-5.6-luna');
+    this.trendsModel = configService.get<string>('OPENAI_TRENDS_MODEL', 'gpt-5.6-terra');
   }
 
   /**
@@ -305,7 +307,7 @@ export class OpenAIService {
     const response = await retryWithBackoff(
       () =>
         this.client.responses.create({
-          model: this.model,
+          model: this.trendsModel || this.model,
           tools: [{ type: 'web_search' }],
           input: inputItems,
         }),
@@ -373,7 +375,7 @@ export class OpenAIService {
     const stream = await retryWithBackoff(
       () =>
         this.client.responses.create({
-          model: this.model,
+          model: this.trendsModel || this.model,
           tools: [{ type: 'web_search' }],
           input: inputItems,
           stream: true,

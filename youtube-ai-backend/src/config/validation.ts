@@ -67,6 +67,10 @@ class EnvironmentVariables {
   @IsString()
   OPENAI_FAST_MODEL?: string;
 
+  @IsOptional()
+  @IsString()
+  OPENAI_TRENDS_MODEL?: string;
+
   @IsString()
   FRONTEND_URL: string;
 

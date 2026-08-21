@@ -6,6 +6,7 @@ import type { QueueItem, QueueStats } from '@/types/queue'
 import type { CommentsResponse, Comment } from '@/types/comment'
 import type { TrendingTopic } from '@/types/trend'
 import type { QuotaUsage, QuotaLog } from '@/types/quota'
+import type { HttpLogItem, LogStatsResponse, PaginatedLogsResponse, LogQueryParams } from '@/types/dev-log'
 
 export function getApiBaseUrl(): string {
   let url = process.env.NEXT_PUBLIC_API_URL
@@ -603,6 +604,41 @@ class ApiClient {
       competitorViews: number
       searchDemand: number
     }>>(`/api/channels/${channelId}/competitors/gaps`)
+  }
+
+  // Developer Logs & Diagnostics
+  async getDevLogs(params?: LogQueryParams): Promise<PaginatedLogsResponse> {
+    const searchParams = new URLSearchParams()
+    if (params?.page) searchParams.set('page', String(params.page))
+    if (params?.limit) searchParams.set('limit', String(params.limit))
+    if (params?.level && params.level !== 'all') searchParams.set('level', params.level)
+    if (params?.statusCode && params.statusCode !== 'all') searchParams.set('statusCode', params.statusCode)
+    if (params?.method && params.method !== 'all') searchParams.set('method', params.method)
+    if (params?.search) searchParams.set('search', params.search)
+    if (params?.startDate) searchParams.set('startDate', params.startDate)
+    if (params?.endDate) searchParams.set('endDate', params.endDate)
+    if (params?.minDuration) searchParams.set('minDuration', String(params.minDuration))
+    if (params?.sort) searchParams.set('sort', params.sort)
+
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.get<PaginatedLogsResponse>(`/api/dev/logs${query}`)
+  }
+
+  async getDevLogStats(days = 14): Promise<LogStatsResponse> {
+    return this.get<LogStatsResponse>(`/api/dev/logs/stats?days=${days}`)
+  }
+
+  async triggerTestError(type?: string): Promise<any> {
+    const query = type ? `?type=${type}` : ''
+    return this.post<any>(`/api/dev/logs/test-error${query}`, {})
+  }
+
+  async clearDevLogs(options?: { olderThanDays?: number; onlyErrors?: boolean }): Promise<{ deletedCount: number }> {
+    const searchParams = new URLSearchParams()
+    if (options?.olderThanDays) searchParams.set('olderThanDays', String(options.olderThanDays))
+    if (options?.onlyErrors) searchParams.set('onlyErrors', 'true')
+    const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.delete<{ deletedCount: number }>(`/api/dev/logs${query}`)
   }
 }
 
