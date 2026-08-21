@@ -530,7 +530,7 @@ export default function ChatPage() {
               <EmptyState category={currentSkill} onSuggestionClick={handleSuggestionClick} />
             )}
 
-            {hasMessages && (
+            {hasMessages && activeThread && (
               <div className="max-w-3xl mx-auto space-y-4">
                 {activeThread.messages.map((msg) => (
                   <div key={msg.id} className={cn('flex items-start gap-2.5 group', msg.role === 'user' ? 'justify-end' : '')}>
