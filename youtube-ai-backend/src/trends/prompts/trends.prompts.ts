@@ -46,7 +46,7 @@ Return a JSON array with EXACTLY this structure — nothing else:
 ]
 
 IMPORTANT RULES:
-- SOURCE DIVERSITY: Do NOT return more than 2 articles from justice.gov or any single domain. Actively include diverse mainstream news outlets (e.g., CBS News, NBC News, AP News, Law & Crime, Billboard, Rolling Stone, HipHopDX, etc.).
+- SOURCE DIVERSITY: Do NOT return more than 2 articles from justice.gov or any single domain. Actively include diverse mainstream & true-crime legal news outlets (e.g., Court TV, Law & Crime Network, CBS News, NBC News, AP News, Billboard, Rolling Stone, HipHopDX, etc.).
 - Do NOT write scripts, outlines, time stamps, or show segments.
 - Do NOT score the ideas or suggest show types.
 - Do NOT add thumbnail ideas, title suggestions, or video angles.

@@ -1091,11 +1091,12 @@ User Request: ${params.userPrompt || ''}`,
       // MinIO internal/public URLs or proxy URLs — use minioService directly (no network fetch)
       if (url.includes('/thumbnails/') || url.includes('/api/assets/minio/')) {
         try {
-          const key = url.includes('/thumbnails/')
+          const rawKey = url.includes('/thumbnails/')
             ? url.split('/thumbnails/')[1]
             : url.split('/api/assets/minio/')[1];
-          if (key) {
-            return await this.minioService.getFileBuffer(decodeURIComponent(key));
+          const cleanKey = rawKey ? rawKey.split('?')[0].split('#')[0] : null;
+          if (cleanKey) {
+            return await this.minioService.getFileBuffer(decodeURIComponent(cleanKey));
           }
         } catch { /* fall through to fetch */ }
       }

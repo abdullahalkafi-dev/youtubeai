@@ -5,6 +5,7 @@ export interface RssNewsTopic {
   summary: string;
   source: string;
   sourceUrl?: string;
+  thumbnailUrl?: string;
   publishedAt?: string;
   sourceType: 'rss_news';
 }
@@ -17,9 +18,11 @@ const logger = new Logger('RssFetcher');
 export async function fetchGoogleNewsRss(nicheKeywords: string[]): Promise<RssNewsTopic[]> {
   const topics: RssNewsTopic[] = [];
   const searchQueries = [
-    ...nicheKeywords.slice(0, 3),
-    'rapper trial sentencing',
-    'federal indictment court news',
+    'Court TV trial verdict sentencing',
+    'Law Crime Network trial indictment',
+    'federal indictment court sentencing news',
+    'rapper trial sentencing prison',
+    ...nicheKeywords.slice(0, 5),
   ];
 
   for (const keyword of searchQueries) {
@@ -39,7 +42,7 @@ export async function fetchGoogleNewsRss(nicheKeywords: string[]): Promise<RssNe
       const xml = await response.text();
       const items = parseRssXmlItems(xml);
 
-      for (const item of items.slice(0, 3)) { // Top 3 news items per keyword
+      for (const item of items.slice(0, 4)) { // Top 4 news items per keyword
         if (!item.title) continue;
 
         // Strip source suffix from Google News title e.g. "Diddy Trial Update - NBC News" or "Diddy Trial Update — NBC News"
@@ -51,6 +54,7 @@ export async function fetchGoogleNewsRss(nicheKeywords: string[]): Promise<RssNe
           summary: `Breaking news report via ${sourceName}`,
           source: sourceName,
           sourceUrl: item.link || undefined,
+          thumbnailUrl: item.thumbnailUrl || undefined,
           publishedAt: item.pubDate ? new Date(item.pubDate).toISOString() : undefined,
           sourceType: 'rss_news',
         });
@@ -60,7 +64,7 @@ export async function fetchGoogleNewsRss(nicheKeywords: string[]): Promise<RssNe
     }
   }
 
-  logger.log(`Google News RSS fetched ${topics.length} breaking topics across ${searchQueries.length} niche keywords (0 quota cost).`);
+  logger.log(`Google News RSS fetched ${topics.length} breaking topics across ${searchQueries.length} niche queries (0 quota cost).`);
   return topics;
 }
 
@@ -69,6 +73,7 @@ interface ParsedXmlItem {
   pubDate?: string;
   source?: string;
   link?: string;
+  thumbnailUrl?: string;
 }
 
 function parseRssXmlItems(xml: string): ParsedXmlItem[] {
@@ -82,14 +87,16 @@ function parseRssXmlItems(xml: string): ParsedXmlItem[] {
     const pubDateMatch = /<pubDate>([\s\S]*?)<\/pubDate>/i.exec(itemContent);
     const sourceMatch = /<source[^>]*>([\s\S]*?)<\/source>/i.exec(itemContent);
     const linkMatch = /<link>([\s\S]*?)<\/link>/i.exec(itemContent);
+    const mediaMatch = /(?:<media:content[^>]+url=["']([^"']+)["']|<media:thumbnail[^>]+url=["']([^"']+)["']|<enclosure[^>]+url=["']([^"']+)["'])/i.exec(itemContent);
 
     const title = titleMatch ? cleanCdata(titleMatch[1]) : undefined;
     const pubDate = pubDateMatch ? cleanCdata(pubDateMatch[1]) : undefined;
     const source = sourceMatch ? cleanCdata(sourceMatch[1]) : undefined;
     const link = linkMatch ? cleanCdata(linkMatch[1]) : undefined;
+    const thumbnailUrl = mediaMatch ? (mediaMatch[1] || mediaMatch[2] || mediaMatch[3]) : undefined;
 
     if (title) {
-      items.push({ title, pubDate, source, link });
+      items.push({ title, pubDate, source, link, thumbnailUrl });
     }
   }
 

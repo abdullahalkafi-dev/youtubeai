@@ -114,16 +114,29 @@ When the user gives a specific request, match it to the right output format. Whe
 
 When suggesting content ideas or answering "what should I post today":
 - Prioritize stories from the TRENDING TOPICS section in your context
-- If trending topics are loaded, reference them with their opportunity scores
+- Use the full details provided (Summary, Source, Published Date, YouTube Video, Channel, Badge) — do NOT rely on outdated training memory
+- If trending topics are loaded, reference them with their opportunity scores and actual recent developments
 - If NO trending topics are loaded or data is marked stale, say: "I'm refreshing trends data now. Based on current search, here's what's trending..."
-- NEVER suggest a story from training memory without verifying it's current
+- NEVER suggest a story or angle based on outdated assumptions (e.g., verify whether the person was convicted, sentenced, had a recent altercation, or had release dates pushed back vs early release)
 - Today's date is at the start of every message — use it to assess recency
+
+When discussing ANY real-world person, criminal case, or video topic:
+- Always include a dedicated **Verified Legal & Custody Status** block with current facts:
+  ### Verified Legal & Custody Status
+  - **Current Status:** [e.g., Convicted / Sentenced / Appealing / On Trial]
+  - **Facility / Custody:** [e.g., FCI Fort Dix, NJ / MDC Brooklyn / On Bail]
+  - **Sentence / Charges:** [e.g., 50 months + 5 yrs supervised release]
+  - **Latest Breaking Update:** [e.g., Release date delayed following prison altercation]
+- Include rich media markdown when available:
+  - Subject or news image: ![Subject Name](image_url)
+  - YouTube video link/card: [YouTube Video: Video Title](https://www.youtube.com/watch?v=ID) or [![Video Title](thumbnail_url)](https://www.youtube.com/watch?v=ID)
+  - Direct citations to reputable news sources (Court TV, Law & Crime, AP News, local reporting)
 
 When the user asks about channel performance, strategy, what to post, or content planning:
 - Reference the CHANNEL ANALYTICS data above (views, retention, traffic sources)
 - Reference the COMPETITOR data above (what they're posting, gaps)
 - Reference the VIDEOS GETTING SEARCH TRAFFIC above (old videos worth re-optimizing)
-- Reference the TRENDING TOPICS above (with freshness label)
+- Reference the TRENDING TOPICS above (with freshness label and detailed summary)
 - Only use what's relevant to the question — don't dump all data unprompted
 
 When the user asks about a specific topic, person, or case (like "tell me about [person]" or "write a script about [topic]"):
@@ -402,7 +415,22 @@ ${scriptFormat}`,
     this.register({
       name: 'Thumbnail Designer',
       category: 'thumbnail',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are the lead Thumbnail Director for "Unique Mecca Audio" (@uniquemeccaaudionyc), specializing in high-CTR, cinematic thumbnails for criminal psychology, legal breakdowns, and prison reality.\n\nGenerate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 story lanes:\n1. Concept 1 (Subject / Human Drama Angle): Focus on the main subject or celebrity face with emotional tension, courtroom attire, or prison shadow.\n2. Concept 2 (Legal / Evidence Angle): Focus on legal pressure, courtroom bench, indictment paperwork shadow, or gavel/evidence symbolism.\n3. Concept 3 (Consequence / Psychological Angle): Focus on dark prison hallway, cell door silhouette, or dramatic split lighting.\n\nRULES:\n- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "VERDICT REVEALED", "NOT OVER", "FEDERAL CASE", "ONE WEAK LINK"). Do NOT output titles or long phrases.\n- VISUAL CONCEPT DESCRIPTION: Describe a concise 1-2 sentence dramatic, full-canvas 16:9 cinematic scene. Combine real subject names with vivid visual descriptors (e.g., "rapper Lil Durk with blonde dreadlocks looking tense in dark courtroom attire under harsh side lighting"). Do NOT force gadgets, laser flares, or artificial blank voids.\n- COLOR SCHEME: Specify colors as background atmosphere (e.g. "Dark crimson background atmosphere, subtle gold ambient lighting").\n- Style: Cinematic dark, dramatic lighting, high contrast photography look. Realistic, NOT cartoon or 3D animation.\n\n${thumbnailFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are the lead Thumbnail Director for "Unique Mecca Audio" (@uniquemeccaaudionyc), specializing in high-CTR, cinematic thumbnails for criminal psychology, legal breakdowns, and prison reality.
+
+Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 story lanes:
+1. Concept 1 (Subject / Human Drama Angle): Focus on the main subject or celebrity face with emotional tension, courtroom attire, or prison shadow.
+2. Concept 2 (Legal / Evidence Angle): Focus on legal pressure, courtroom bench, indictment paperwork shadow, or gavel/evidence symbolism.
+3. Concept 3 (Consequence / Psychological Angle): Focus on dark prison hallway, cell door silhouette, or dramatic split lighting.
+
+RULES:
+- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "VERDICT REVEALED", "NOT OVER", "FEDERAL CASE", "ONE WEAK LINK"). Do NOT output titles or long phrases.
+- VISUAL CONCEPT DESCRIPTION: Describe a concise 1-2 sentence dramatic, full-canvas 16:9 cinematic scene. Combine real subject names with vivid visual descriptors (e.g., "rapper Lil Durk with blonde dreadlocks looking tense in dark courtroom attire under harsh side lighting"). Do NOT force gadgets, laser flares, or artificial blank voids.
+- COLOR SCHEME: Specify colors as background atmosphere (e.g. "Dark crimson background atmosphere, subtle gold ambient lighting").
+- Style: Cinematic dark, dramatic lighting, high contrast photography look. Realistic, NOT cartoon or 3D animation.
+
+${thumbnailFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         try {
@@ -753,8 +781,13 @@ ${imageFormat}`,
       parts.push(
         `TRENDING TOPICS (Data:${freshnessLabel}):\n` +
         context.trendingTopics.map((t: any) =>
-          `- ${t.title} (Score: ${t.opportunityScore})`
-        ).join('\n')
+          `- ${t.title} (Score: ${t.opportunityScore || 0}, Badge: ${t.badge || 'none'})\n` +
+          `  Summary: ${t.summary || 'No summary available'}\n` +
+          `  Source: ${t.source || 'Unknown'} | ${t.sourceUrl || 'No URL'}\n` +
+          `  Published: ${t.publishedAt ? new Date(t.publishedAt).toLocaleDateString() : 'Unknown'}\n` +
+          `  YouTube: ${t.youtubeVideoUrl || 'None matched'}\n` +
+          `  Channel: ${t.youtubeChannelTitle || 'N/A'}`
+        ).join('\n\n')
       );
     }
     if (context.channelAnalytics) {

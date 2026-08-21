@@ -275,16 +275,16 @@ export class TrendsService implements OnModuleInit {
     const quotaStats = await this.quota.getStats();
     this.logger.log(`[refreshTrends] Quota stats: used=${quotaStats.used} limit=${quotaStats.limit}`);
 
-    // Priority Gating: Limit live YouTube search to top 4 priority topics per refresh (capped at 400 quota units)
-    this.logger.log(`[refreshTrends] Phase 5: Entity extraction + YouTube search for top ${Math.min(deduplicatedTopics.length, 4)} priority topics`);
+    // Priority Gating: Limit live YouTube search to top 8 priority topics per refresh
+    this.logger.log(`[refreshTrends] Phase 5: Entity extraction + YouTube search for top ${Math.min(deduplicatedTopics.length, 8)} priority topics`);
     const priorityEnriched = await Promise.all(
-      deduplicatedTopics.slice(0, 4).map(topic =>
+      deduplicatedTopics.slice(0, 8).map(topic =>
         this.matchYouTubeVideo(topic, twentyOneDaysAgo, channelId)
       )
     );
 
-    // Remaining topics (#5 to #20) are preserved as Open Gap news topics (0 extra YouTube quota cost)
-    const remainingEnriched = deduplicatedTopics.slice(4).map(topic => ({
+    // Remaining topics (#9 to #20) are preserved as Open Gap news topics (0 extra YouTube quota cost)
+    const remainingEnriched = deduplicatedTopics.slice(8).map(topic => ({
       ...topic,
       extractedEntity: topic.title ? topic.title.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 5).join(' ') : null,
       youtubeVideoId: null,
@@ -467,16 +467,58 @@ export class TrendsService implements OnModuleInit {
     try {
       const channel = await this.channelModel.findById(channelId).select('userId').lean();
       if (!channel?.userId) return base;
-      const results = await this.youtubeService.searchVideos({ userId: channel.userId.toString(), query: extractedEntity, publishedAfter: twentyOneDaysAgo, regionCode: 'US', maxResults: 3 });
+      const results = await this.youtubeService.searchVideos({
+        userId: channel.userId.toString(),
+        query: extractedEntity,
+        publishedAfter: twentyOneDaysAgo,
+        regionCode: 'US',
+        maxResults: 5,
+      });
       await this.quota.use();
       await this.quotaService.logCall({
         channelId, endpoint: 'refreshTrends (search.list)', quotaCost: 100, success: true,
       });
-      if (results.length > 0) {
-        base.youtubeVideoId = results[0].videoId;
-        base.youtubeThumbnailUrl = results[0].thumbnailUrl;
-        base.youtubeChannelTitle = results[0].channelTitle;
-        base.youtubeVideoUrl = `https://www.youtube.com/watch?v=${results[0].videoId}`;
+
+      // Filter out reaction/commentary channels to prioritize primary coverage
+      const reactionPatterns = ['reacts', 'reaction', 'reacting', 'review', 'commentary'];
+      const nonReactionResults = results.filter(r => {
+        const titleLower = (r.title || '').toLowerCase();
+        const chLower = (r.channelTitle || '').toLowerCase();
+        return !reactionPatterns.some(p => titleLower.includes(p) || chLower.includes(p));
+      });
+
+      let chosen = nonReactionResults.length > 0 ? nonReactionResults[0] : results[0];
+
+      // Conditional niche creator search: only for breaking/viral topics if no primary match found
+      const isBreakingOrViral = (topic.publishedAt && (Date.now() - new Date(topic.publishedAt).getTime() < 24 * 60 * 60 * 1000)) || topic.sourceType === 'rss_news';
+      if (!chosen && isBreakingOrViral) {
+        const nicheQuota = await this.quota.canUse();
+        if (nicheQuota.allowed) {
+          try {
+            const nicheQuery = `${extractedEntity} Court TV Law Crime`;
+            const nicheResults = await this.youtubeService.searchVideos({
+              userId: channel.userId.toString(),
+              query: nicheQuery,
+              publishedAfter: twentyOneDaysAgo,
+              regionCode: 'US',
+              maxResults: 3,
+            });
+            await this.quota.use();
+            await this.quotaService.logCall({
+              channelId, endpoint: 'refreshTrends (niche search.list)', quotaCost: 100, success: true,
+            });
+            if (nicheResults.length > 0) {
+              chosen = nicheResults[0];
+            }
+          } catch { /* niche search optional */ }
+        }
+      }
+
+      if (chosen) {
+        base.youtubeVideoId = chosen.videoId;
+        base.youtubeThumbnailUrl = chosen.thumbnailUrl;
+        base.youtubeChannelTitle = chosen.channelTitle;
+        base.youtubeVideoUrl = `https://www.youtube.com/watch?v=${chosen.videoId}`;
       }
     } catch (error) { this.logger.warn(`YouTube search failed: ${error.message}`); }
     return base;

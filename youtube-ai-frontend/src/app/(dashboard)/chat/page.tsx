@@ -140,7 +140,7 @@ export default function ChatPage() {
   const hasMessages = Boolean(activeThread && activeThread.messages && activeThread.messages.length > 0)
 
   const handleSend = async () => {
-    if ((!input.trim() && !selectedFile) || (!activeThreadId && !isDraftThread)) return
+    if (!input.trim() && !selectedFile) return
 
     if (isListening) {
       stopListening()
@@ -158,10 +158,13 @@ export default function ChatPage() {
     abortControllerRef.current?.abort()
     abortControllerRef.current = new AbortController()
 
-    // If draft thread, create real thread first
+    // If no active thread, create real thread first
     let threadId = activeThreadId
-    if (isDraftThread) {
-      if (!channelId) return
+    if (!threadId) {
+      if (!channelId) {
+        toast.error('Please select a channel first')
+        return
+      }
       try {
         const newThread = await dispatch(createThread({ channelId, type: 'standalone' })).unwrap()
         threadId = newThread.id
