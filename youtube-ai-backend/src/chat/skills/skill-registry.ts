@@ -283,7 +283,13 @@ CRITICAL SCRIPT HOOK RULE (0:00 - 0:15):
 ## FINAL JEWEL + 10 VIRAL Q&As [26:00+]
 [Script lines + 10 questions with brief answers]
 
-## SOURCES & REPORTED FACTS
+## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
+Always provide 2 to 4 real YouTube video links from Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV with recommended timestamps:
+1. [Channel Name: Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
+   - Scene / Timestamp: [e.g. 0:45–1:15]
+   - How to Use: [e.g. Overlay B-roll at Section 2]
+
+## 18. 📰 OFFICIAL CASE & NEWS SOURCES
 1. [Publication Name](URL)
 2. [Publication Name](URL)
 
@@ -326,6 +332,7 @@ C. [Third option]
       buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
 
 IMPORTANT RULES:
+- PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, 1090 Jake, VladTV) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID)
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
 - Label the legal status of any case (Arrested, Charged, Indictmented, Convicted, Sentenced, etc.)
 - Use "allegedly" and "reportedly" for unconfirmed claims
