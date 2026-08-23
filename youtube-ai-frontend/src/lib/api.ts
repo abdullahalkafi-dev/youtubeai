@@ -339,7 +339,7 @@ class ApiClient {
     content: string,
     skill: string | undefined,
     onChunk: (chunk: string) => void,
-    onDone: (messageId: string, usage?: any) => void,
+    onDone: (messageId: string, usage?: any, title?: string) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -388,7 +388,7 @@ class ApiClient {
               if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {
-                onDone(data.messageId, data.usage)
+                onDone(data.messageId, data.usage, data.title)
                 streamDone = true
                 break
               } else if (data.type === 'error') {

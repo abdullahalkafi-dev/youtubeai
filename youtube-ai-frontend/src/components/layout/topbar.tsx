@@ -21,6 +21,9 @@ export function Topbar() {
   const dispatch = useAppDispatch()
   const { theme, setTheme, resolvedTheme } = useTheme()
 
+  // On /chat, the chat page provides its own streamlined single header
+  if (pathname === '/chat') return null
+
   const title = pageTitles[pathname] || 'Dashboard'
   const segments = pathname.split('/').filter(Boolean)
 

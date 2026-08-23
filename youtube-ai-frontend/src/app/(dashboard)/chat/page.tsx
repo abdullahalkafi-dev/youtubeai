@@ -9,10 +9,12 @@ import {
   appendStreamChunk, clearStreaming, finalizeStreamedMessage, removeLastUserMessage, renameThread,
   setSelectedSkill, enterDraftMode, deleteThread,
 } from '@/store/slices/chat-slice'
+import { toggleMobileSidebar } from '@/store/slices/ui-slice'
 import { useIsMobile } from '@/lib/hooks/use-media-query'
 import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
+import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2 } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -29,6 +31,7 @@ export default function ChatPage() {
   const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, isDraftThread, loading: threadsLoading } = useAppSelector(s => s.chat)
   const channelId = useAppSelector(s => s.auth.activeChannelId)
   const isMobile = useIsMobile()
+  const { theme, setTheme, resolvedTheme } = useTheme()
   const searchParams = useSearchParams()
   const urlVideoId = searchParams.get('videoId')
   const urlVideoTitle = searchParams.get('videoTitle')
@@ -40,12 +43,41 @@ export default function ChatPage() {
   const [renameValue, setRenameValue] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [isFocusMode, setIsFocusMode] = useState(false)
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
   const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene'; cleanUrl?: string; selectedHostImage?: string } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const initialInputRef = useRef('')
+
+  const cycleTheme = () => {
+    const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system']
+    const idx = themes.indexOf(theme)
+    setTheme(themes[(idx + 1) % themes.length])
+  }
+  const ThemeIcon = resolvedTheme === 'dark' ? Moon : Sun
+
+  // Keyboard shortcut: Esc exits Focus Mode
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isFocusMode) {
+        setIsFocusMode(false)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFocusMode])
+
+  // Dynamic textarea height adjustment
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto'
+      const newHeight = Math.min(Math.max(textareaRef.current.scrollHeight, 38), 140)
+      textareaRef.current.style.height = `${newHeight}px`
+    }
+  }, [input])
 
   const handleTranscript = useCallback((spokenText: string) => {
     const base = initialInputRef.current
@@ -198,6 +230,7 @@ export default function ChatPage() {
         })
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
+        if (channelId) dispatch(fetchThreads(channelId))
         toast.success('Image edited!', { id: toastId })
       } catch (err: any) {
         toast.error(err.message || 'Image edit failed', { id: toastId })
@@ -218,6 +251,7 @@ export default function ChatPage() {
         })
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
+        if (channelId) dispatch(fetchThreads(channelId))
         toast.success('Image generated!', { id: toastId })
       } catch (err: any) {
         toast.error(err.message || 'Image generation failed', { id: toastId })
@@ -233,6 +267,7 @@ export default function ChatPage() {
       try {
         await api.uploadFile(threadId, fileToSend, messageContent)
         dispatch(selectThread(threadId))
+        if (channelId) dispatch(fetchThreads(channelId))
         dispatch(clearStreaming())
       } catch (err: any) {
         toast.error(err.message || 'Upload failed')
@@ -255,9 +290,12 @@ export default function ChatPage() {
         messageContent,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
-        (messageId) => {
+        (messageId, usage, updatedTitle) => {
           streamCompleted = true
-          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: currentSkill }))
+          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: currentSkill, title: updatedTitle }))
+          if (channelId) {
+            dispatch(fetchThreads(channelId))
+          }
         },
         (error) => {
           // Only clean up if we're still on the same thread (user may have switched)
@@ -464,7 +502,12 @@ export default function ChatPage() {
 
   return (
     <>
-    <div className="flex h-[calc(100vh-3.5rem)] max-w-[1600px] mx-auto overflow-hidden">
+    <div className={cn(
+      "flex overflow-hidden transition-all duration-150",
+      isFocusMode
+        ? "fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 h-screen w-screen"
+        : "h-screen max-w-[1600px] mx-auto"
+    )}>
       {!isMobile && (
         <div className={cn(
           "bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200",
@@ -488,44 +531,87 @@ export default function ChatPage() {
       )}
 
       <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
-        {/* Header */}
-        <div className="px-4 py-2.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {isMobile && (
-                <button onClick={() => setDrawerOpen(true)} className="text-gray-400 hover:text-gray-600 p-1">
-                  <Menu className="w-4 h-4" />
-                </button>
-              )}
-              <div>
-                {isRenaming && activeThreadId ? (
-                  <div className="flex items-center gap-1">
-                    <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false) }} className="h-7 text-sm font-semibold" autoFocus />
-                    <button onClick={handleRename} className="text-green-500 p-1"><Check className="w-3.5 h-3.5" /></button>
-                    <button onClick={() => setIsRenaming(false)} className="text-gray-400 p-1"><X className="w-3.5 h-3.5" /></button>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-1.5">
-                    <h3 className="text-sm font-semibold text-gray-900 dark:text-white font-heading">{activeThread?.title || 'Select a thread'}</h3>
-                    {activeThread && (
-                      <button onClick={() => { setRenameValue(activeThread.title); setIsRenaming(true) }} className="text-gray-400 hover:text-gray-600 p-0.5">
-                        <Pencil className="w-3 h-3" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                <div className="flex items-center gap-2 mt-0.5">
-                  <p className="text-xs text-gray-400">
-                    {activeThread?.type === 'video' ? 'Video Thread' : 'Thread'} · {activeThread?.messages?.length || 0} messages
-                  </p>
-                </div>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5">
-              <Button variant="ghost" size="icon" onClick={() => setGalleryOpen(!galleryOpen)} className={cn('w-8 h-8', galleryOpen ? 'text-indigo-500' : 'text-gray-400 hover:text-indigo-500')}>
-                <Grid3X3 className="w-4 h-4" />
+        {/* Unified Streamlined Header */}
+        <div className="px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px]">
+          <div className="flex items-center gap-2.5 min-w-0">
+            {isMobile && (
+              <button onClick={() => dispatch(toggleMobileSidebar())} className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
+                <Menu className="w-4 h-4" />
+              </button>
+            )}
+            {isMobile && (
+              <Button variant="outline" size="sm" onClick={() => setDrawerOpen(true)} className="h-7 px-2 text-xs gap-1">
+                <Lightbulb className="w-3 h-3 text-amber-500" />
+                <span className="truncate max-w-[110px]">{activeThread?.title || 'Threads'}</span>
               </Button>
+            )}
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 shrink-0">
+                <span>UMA</span>
+                <span>/</span>
+                <span className="font-medium text-gray-600 dark:text-gray-400">AI Chat</span>
+                <span>/</span>
+              </div>
+              {isRenaming && activeThreadId ? (
+                <div className="flex items-center gap-1">
+                  <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false) }} className="h-6 text-xs font-semibold px-2 py-0" autoFocus />
+                  <button onClick={handleRename} className="text-green-500 p-0.5"><Check className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setIsRenaming(false)} className="text-gray-400 p-0.5"><X className="w-3.5 h-3.5" /></button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <h3 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white font-heading truncate max-w-[200px] sm:max-w-[320px] md:max-w-[450px]">
+                    {activeThread?.title || 'Select a thread'}
+                  </h3>
+                  {activeThread && (
+                    <button onClick={() => { setRenameValue(activeThread.title); setIsRenaming(true) }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-0.5" title="Rename thread">
+                      <Pencil className="w-3 h-3" />
+                    </button>
+                  )}
+                  <span className="hidden md:inline-flex items-center text-[10px] text-gray-400 bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5 rounded-full shrink-0">
+                    {activeThread?.messages?.length || 0} msgs
+                  </span>
+                </div>
+              )}
             </div>
+          </div>
+
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Focus / Fullscreen Mode toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setIsFocusMode(!isFocusMode)}
+              className={cn(
+                'w-7 h-7 transition',
+                isFocusMode ? 'text-indigo-600 bg-indigo-50 dark:bg-indigo-500/20' : 'text-gray-400 hover:text-indigo-500'
+              )}
+              title={isFocusMode ? 'Exit Fullscreen Focus Mode (Esc)' : 'Enter Fullscreen Focus Mode'}
+            >
+              {isFocusMode ? <Minimize2 className="w-3.5 h-3.5" /> : <Maximize2 className="w-3.5 h-3.5" />}
+            </Button>
+
+            {/* Gallery Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={() => setGalleryOpen(!galleryOpen)}
+              className={cn('w-7 h-7', galleryOpen ? 'text-indigo-500 bg-indigo-50 dark:bg-indigo-500/10' : 'text-gray-400 hover:text-indigo-500')}
+              title="Toggle Generated Images Gallery"
+            >
+              <Grid3X3 className="w-3.5 h-3.5" />
+            </Button>
+
+            {/* Theme Toggle */}
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={cycleTheme}
+              className="w-7 h-7 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+              title="Toggle Theme"
+            >
+              <ThemeIcon className="w-3.5 h-3.5" />
+            </Button>
           </div>
         </div>
 
@@ -740,11 +826,11 @@ export default function ChatPage() {
         </div>
 
         {/* Input */}
-        <div className="px-4 py-3 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
+        <div className="px-4 py-2 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
           <div className="max-w-4xl mx-auto">
             {/* Unified Floating Card Input */}
             <div className={cn(
-              'border rounded-2xl p-3 shadow-md transition-all space-y-2',
+              'border rounded-2xl p-2.5 shadow-md transition-all space-y-1.5',
               isListening
                 ? 'bg-red-50/30 dark:bg-red-950/20 border-red-400/80 dark:border-red-500/60 ring-2 ring-red-500/20'
                 : 'bg-gray-50/80 dark:bg-gray-800/60 border-gray-200 dark:border-gray-700/80 shadow-gray-200/40 dark:shadow-none focus-within:border-indigo-500/80 focus-within:ring-2 focus-within:ring-indigo-500/20'
@@ -807,6 +893,7 @@ export default function ChatPage() {
 
               {/* Textarea */}
               <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={(e) => {
                   setInput(e.target.value)
@@ -822,8 +909,8 @@ export default function ChatPage() {
                   }
                 }}
                 placeholder="Ask about script, SEO, thumbnail, trends... (Shift + Enter for new line)"
-                rows={2}
-                className="w-full bg-transparent border-0 px-1 py-1 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed"
+                rows={1}
+                className="w-full bg-transparent border-0 px-1 py-0.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed min-h-[38px] max-h-[140px]"
               />
 
               {/* Bottom Control Bar */}

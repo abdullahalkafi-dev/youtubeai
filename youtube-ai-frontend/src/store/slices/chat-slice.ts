@@ -138,7 +138,7 @@ const chatSlice = createSlice({
         }
       }
     },
-    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string }>) {
+    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string; title?: string }>) {
       if (state.activeThread) {
         state.activeThread.messages.push({
           id: action.payload.messageId || `streamed_${Date.now()}`,
@@ -148,9 +148,24 @@ const chatSlice = createSlice({
           createdAt: new Date().toISOString(),
           metadata: action.payload.category ? { category: action.payload.category } : undefined,
         })
+        if (action.payload.title && action.payload.title !== 'New Thread') {
+          state.activeThread.title = action.payload.title
+          const idx = state.threads.findIndex(t => t.id === state.activeThreadId)
+          if (idx !== -1) state.threads[idx].title = action.payload.title
+        }
       }
       state.streamingContent = ''
       state.sending = false
+    },
+    updateThreadTitle(state, action: PayloadAction<{ threadId: string; title: string }>) {
+      const { threadId, title } = action.payload
+      if (state.activeThread?.id === threadId) {
+        state.activeThread.title = title
+      }
+      const idx = state.threads.findIndex(t => t.id === threadId)
+      if (idx !== -1) {
+        state.threads[idx].title = title
+      }
     },
   },
   extraReducers: (builder) => {
@@ -241,6 +256,7 @@ export const {
   clearStreaming,
   removeLastUserMessage,
   finalizeStreamedMessage,
+  updateThreadTitle,
 } = chatSlice.actions
 
 export default chatSlice.reducer

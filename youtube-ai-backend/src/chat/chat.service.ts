@@ -115,24 +115,47 @@ export class ChatService {
   /**
    * Auto-name a thread from the first user message.
    * Only runs if title is still the default "New Thread" pattern.
-   * Uses fast model for quick, cheap generation.
+   * Uses fast model with generous token limit, with an intelligent heuristic fallback.
    */
-  async autoNameThread(threadId: string, firstUserMessage: string): Promise<void> {
+  async autoNameThread(threadId: string, firstUserMessage: string): Promise<string | void> {
     try {
       const thread = await this.threadModel.findById(threadId);
-      if (!thread || thread.title !== 'New Thread') return;
+      if (!thread || (thread.title && thread.title !== 'New Thread')) return;
 
-      const generatedTitle = await this.openaiService.chatFast({
-        systemPrompt: 'Generate a short thread title (max 5 words) for this message. Return ONLY the title, nothing else. No quotes, no punctuation at the end.',
-        userMessage: firstUserMessage,
-        temperature: 0.3,
-        maxCompletionTokens: 20,
-      });
+      let cleanTitle = '';
+      try {
+        const generatedTitle = await this.openaiService.chatFast({
+          systemPrompt: 'Generate a concise, descriptive thread title (3 to 6 words maximum) for this user request. Return ONLY the plain text title, nothing else. No quotes, no markdown, no punctuation at the end.',
+          userMessage: firstUserMessage,
+          temperature: 0.3,
+          maxCompletionTokens: 150,
+        });
 
-      const cleanTitle = generatedTitle.replace(/^["']|["']$/g, '').trim().slice(0, 50);
-      if (cleanTitle && cleanTitle.length > 2) {
+        cleanTitle = (generatedTitle || '')
+          .replace(/^["'#*`]+|["'#*`]+$/g, '')
+          .replace(/[\r\n]+/g, ' ')
+          .trim()
+          .slice(0, 50);
+      } catch (err: any) {
+        this.logger.warn(`OpenAI auto-name failed for thread ${threadId}: ${err.message}`);
+      }
+
+      // Intelligent fallback if OpenAI call returns empty or fails
+      if (!cleanTitle || cleanTitle.length < 2) {
+        const words = (firstUserMessage || '')
+          .replace(/[\r\n]+/g, ' ')
+          .replace(/[#*`_~[\]()]/g, '')
+          .trim()
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 6);
+        cleanTitle = words.join(' ').slice(0, 45);
+      }
+
+      if (cleanTitle && cleanTitle.length > 0) {
         await this.threadModel.findByIdAndUpdate(threadId, { $set: { title: cleanTitle } });
         this.logger.log(`Auto-named thread ${threadId}: "${cleanTitle}"`);
+        return cleanTitle;
       }
     } catch (error) {
       this.logger.warn(`Auto-name failed for thread ${threadId}: ${error.message}`);
@@ -282,7 +305,7 @@ export class ChatService {
   /**
    * Stream a message — returns an async generator that yields chunks.
    */
-  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage }> {
+  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage; title?: string }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
@@ -292,8 +315,8 @@ export class ChatService {
       return;
     }
 
-    // Auto-name from first user message (background, non-blocking)
-    this.handleFirstMessage(threadId, thread, dto.content);
+    // Auto-name from first user message (tracked promise)
+    const autoNamePromise = this.handleFirstMessage(threadId, thread, dto.content);
 
     // Save user message atomically — persists even if stream drops
     const userMsg = { role: 'user' as const, content: dto.content, createdAt: new Date() };
@@ -436,6 +459,11 @@ export class ChatService {
             };
           }
 
+          // Ensure auto-naming has finished so savedThread reflects updated title
+          try {
+            await autoNamePromise;
+          } catch { /* auto-naming optional */ }
+
           savedThread = await this.threadModel.findByIdAndUpdate(threadId, updateOps, { new: true });
 
           // Store in ChromaDB
@@ -458,7 +486,7 @@ export class ChatService {
 
     if (savedThread) {
       const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
-      yield { type: 'done', messageId: lastMsgId, usage: finalUsage };
+      yield { type: 'done', messageId: lastMsgId, usage: finalUsage, title: savedThread.title };
     }
   }
 
@@ -710,13 +738,14 @@ export class ChatService {
   }
 
   /**
-   * Handle first-message auto-naming (fire-and-forget).
+   * Handle first-message auto-naming (returns promise).
    */
-  private handleFirstMessage(threadId: string, thread: ThreadDocument, content: string): void {
+  private handleFirstMessage(threadId: string, thread: ThreadDocument, content: string): Promise<string | void> {
     const userMessageCount = thread.messages.filter(m => m.role === 'user').length;
-    if (userMessageCount === 0) {
-      this.autoNameThread(threadId, content);
+    if (userMessageCount === 0 && (!thread.title || thread.title === 'New Thread')) {
+      return this.autoNameThread(threadId, content);
     }
+    return Promise.resolve();
   }
 
   /**
@@ -1032,6 +1061,9 @@ export class ChatService {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
+    // Auto-name thread if first message
+    this.handleFirstMessage(threadId, thread, dto.prompt);
+
     let videoDoc: any = null;
     let videoContextTitle = thread.title;
     if (thread.videoId) {
@@ -1105,6 +1137,9 @@ export class ChatService {
   ) {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // Auto-name thread if first message
+    this.handleFirstMessage(threadId, thread, dto.prompt);
 
     let videoDoc: any = null;
     let videoContextTitle = dto.videoTitle || thread.title;
