@@ -12,6 +12,7 @@ import {
 import { toggleMobileSidebar } from '@/store/slices/ui-slice'
 import { useIsMobile } from '@/lib/hooks/use-media-query'
 import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
+import { useAudioVisualizer } from '@/lib/hooks/use-audio-visualizer'
 import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
 import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon } from 'lucide-react'
@@ -24,6 +25,7 @@ import { MessageRenderer } from '@/components/chat/message-renderer'
 import { MessageActions } from '@/components/chat/message-actions'
 import { EmptyState } from '@/components/chat/empty-state'
 import { CategorySelector } from '@/components/chat/category-selector'
+import { VoiceWaveform } from '@/components/chat/voice-waveform'
 import type { ThreadCategory, ChatImage } from '@/types/chat'
 
 export default function ChatPage() {
@@ -103,6 +105,8 @@ export default function ChatPage() {
     onTranscript: handleTranscript,
     onError: handleVoiceError,
   })
+
+  const { frequencies } = useAudioVisualizer({ isActive: isListening, barCount: 8 })
 
   const currentSkill = selectedSkill || 'general'
   const categoryColor = getCategoryColor(currentSkill)
@@ -394,6 +398,25 @@ export default function ChatPage() {
       resetTranscript()
       startListening()
     }
+  }
+
+  const handleCancelVoice = () => {
+    stopListening()
+    resetTranscript()
+    setInput(initialInputRef.current)
+  }
+
+  const handleDoneVoice = () => {
+    stopListening()
+    resetTranscript()
+    initialInputRef.current = input
+  }
+
+  const handleDoneAndSendVoice = () => {
+    stopListening()
+    resetTranscript()
+    initialInputRef.current = ''
+    handleSend()
   }
 
   const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -891,69 +914,148 @@ export default function ChatPage() {
                 </div>
               )}
 
-              {/* Textarea */}
-              <textarea
-                ref={textareaRef}
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value)
-                  if (isListening) {
-                    initialInputRef.current = e.target.value
-                    resetTranscript()
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault()
-                    handleSend()
-                  }
-                }}
-                placeholder="Ask about script, SEO, thumbnail, trends... (Shift + Enter for new line)"
-                rows={1}
-                className="w-full bg-transparent border-0 px-1 py-0.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed min-h-[38px] max-h-[140px]"
-              />
+              {/* Input or Voice Dictation Studio Bar */}
+              {isListening ? (
+                <div className="p-3 bg-gradient-to-r from-indigo-50/80 via-purple-50/50 to-indigo-50/80 dark:from-indigo-950/40 dark:via-purple-950/30 dark:to-indigo-950/40 rounded-xl border border-indigo-200/80 dark:border-indigo-800/80 space-y-2.5 animate-in fade-in zoom-in-95 duration-200 shadow-sm">
+                  {/* Top Header Status */}
+                  <div className="flex items-center justify-between pb-1 border-b border-indigo-200/50 dark:border-indigo-800/50">
+                    <div className="flex items-center gap-2">
+                      <span className="relative flex h-2.5 w-2.5">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-red-500"></span>
+                      </span>
+                      <span className="text-xs font-semibold text-indigo-900 dark:text-indigo-200">
+                        Voice Dictation Active
+                      </span>
+                    </div>
+                    <span className="text-[11px] text-gray-400">
+                      Listening in real-time...
+                    </span>
+                  </div>
 
-              {/* Bottom Control Bar */}
-              <div className="flex items-center justify-between pt-1 border-t border-gray-200/60 dark:border-gray-700/50">
-                <div className="flex items-center gap-2">
-                  <CategorySelector value={currentSkill} onChange={(skill) => dispatch(setSelectedSkill(skill))} />
-                  <input ref={fileInputRef} type="file" accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.gif" onChange={handleFileSelect} className="hidden" />
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs cursor-pointer"
-                    title="Attach file (.pdf, .txt, .md, images)"
-                  >
-                    <Paperclip className="w-4 h-4" />
-                  </button>
-                  {voiceSupported && (
+                  {/* Live Spoken Transcript */}
+                  <div className="min-h-[44px] max-h-[120px] overflow-y-auto px-2.5 py-1.5 text-xs text-gray-800 dark:text-gray-200 leading-relaxed font-normal bg-white/70 dark:bg-gray-900/70 rounded-lg border border-indigo-100 dark:border-indigo-900/40">
+                    {input ? (
+                      <span>
+                        {input}
+                        <span className="inline-block w-1.5 h-3.5 bg-indigo-600 dark:bg-indigo-400 ml-1 translate-y-0.5 animate-pulse" />
+                      </span>
+                    ) : (
+                      <span className="text-gray-400 italic">
+                        Speak now... your speech is transcribed here in real-time
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Frequency Waveform & Action Controls */}
+                  <div className="flex items-center justify-between pt-0.5">
                     <button
                       type="button"
-                      onClick={handleVoiceToggle}
-                      className={cn(
-                        'p-1.5 rounded-lg transition flex items-center text-xs cursor-pointer',
-                        isListening
-                          ? 'text-white bg-red-500 hover:bg-red-600 animate-pulse shadow-sm shadow-red-500/30 ring-2 ring-red-400/50'
-                          : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
-                      )}
-                      title={isListening ? 'Stop listening' : 'Continuous voice dictation'}
+                      onClick={handleCancelVoice}
+                      className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition flex items-center gap-1 cursor-pointer"
+                      title="Cancel and discard voice input"
                     >
-                      {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                      <X className="w-3.5 h-3.5" />
+                      Cancel
                     </button>
-                  )}
-                </div>
 
-                <div>
-                  {sending ? (
-                    <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20 cursor-pointer">
-                      <Square className="w-3.5 h-3.5" />
-                    </Button>
-                  ) : (
-                    <Button onClick={handleSend} disabled={!input.trim() && !selectedFile} size="icon" className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-indigo-500/25 transition-all cursor-pointer">
-                      <Send className="w-4 h-4" />
-                    </Button>
-                  )}
+                    {/* 8 Dynamic Animated Frequency Wave Bars */}
+                    <div className="flex items-center bg-indigo-500/10 dark:bg-indigo-500/20 px-3 py-0.5 rounded-full border border-indigo-500/20 shadow-xs">
+                      <VoiceWaveform frequencies={frequencies} isActive={isListening} />
+                    </div>
+
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleDoneVoice}
+                        className="px-2.5 py-1.5 rounded-lg border border-indigo-200 dark:border-indigo-800 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition flex items-center gap-1 cursor-pointer"
+                        title="Keep transcribed text in textarea"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        Done
+                      </button>
+
+                      <Button
+                        type="button"
+                        onClick={handleDoneAndSendVoice}
+                        disabled={!input.trim()}
+                        size="sm"
+                        className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 text-white text-xs font-semibold flex items-center gap-1 shadow-sm shadow-indigo-600/25 transition cursor-pointer disabled:opacity-50"
+                        title="Send transcribed message"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        Send
+                      </Button>
+                    </div>
+                  </div>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* Textarea */}
+                  <textarea
+                    ref={textareaRef}
+                    value={input}
+                    onChange={(e) => {
+                      setInput(e.target.value)
+                      if (isListening) {
+                        initialInputRef.current = e.target.value
+                        resetTranscript()
+                      }
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        handleSend()
+                      }
+                    }}
+                    placeholder="Ask about script, SEO, thumbnail, trends... (Shift + Enter for new line)"
+                    rows={1}
+                    className="w-full bg-transparent border-0 px-1 py-0.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed min-h-[38px] max-h-[140px]"
+                  />
+
+                  {/* Bottom Control Bar */}
+                  <div className="flex items-center justify-between pt-1 border-t border-gray-200/60 dark:border-gray-700/50">
+                    <div className="flex items-center gap-2">
+                      <CategorySelector value={currentSkill} onChange={(skill) => dispatch(setSelectedSkill(skill))} />
+                      <input ref={fileInputRef} type="file" accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.gif" onChange={handleFileSelect} className="hidden" />
+                      <button
+                        onClick={() => fileInputRef.current?.click()}
+                        className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs cursor-pointer"
+                        title="Attach file (.pdf, .txt, .md, images)"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+                      {voiceSupported && (
+                        <button
+                          type="button"
+                          onClick={handleVoiceToggle}
+                          className={cn(
+                            'p-1.5 rounded-lg transition flex items-center text-xs cursor-pointer',
+                            isListening
+                              ? 'text-white bg-red-500 hover:bg-red-600 animate-pulse shadow-sm shadow-red-500/30 ring-2 ring-red-400/50'
+                              : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
+                          )}
+                          title={isListening ? 'Stop listening' : 'Continuous voice dictation'}
+                        >
+                          {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </button>
+                      )}
+                    </div>
+
+                    <div>
+                      {sending ? (
+                        <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20 cursor-pointer">
+                          <Square className="w-3.5 h-3.5" />
+                        </Button>
+                      ) : (
+                        <Button onClick={handleSend} disabled={!input.trim() && !selectedFile} size="icon" className="w-8 h-8 rounded-xl bg-gradient-to-r from-indigo-500 to-indigo-600 hover:from-indigo-600 hover:to-indigo-700 text-white shrink-0 shadow-md shadow-indigo-500/25 transition-all cursor-pointer">
+                          <Send className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           </div>
         </div>
