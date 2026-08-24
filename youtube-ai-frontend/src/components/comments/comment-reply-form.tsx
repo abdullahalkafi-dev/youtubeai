@@ -21,6 +21,11 @@ const TONE_STYLES: Record<string, { bg: string; text: string; border: string }> 
   Thankful: { bg: 'bg-rose-50 dark:bg-rose-950/40', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-200 dark:border-rose-800/60' },
   Witty: { bg: 'bg-purple-50 dark:bg-purple-950/40', text: 'text-purple-700 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-800/60' },
   Informal: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-700 dark:text-emerald-300', border: 'border-emerald-200 dark:border-emerald-800/60' },
+  'Thoughtful and Balanced': { bg: 'bg-sky-50 dark:bg-sky-950/40', text: 'text-sky-700 dark:text-sky-300', border: 'border-sky-200 dark:border-sky-800/60' },
+  'Sharp and Lighthearted': { bg: 'bg-amber-50 dark:bg-amber-950/40', text: 'text-amber-700 dark:text-amber-300', border: 'border-amber-200 dark:border-amber-800/60' },
+  'Appreciative and Reflective': { bg: 'bg-rose-50 dark:bg-rose-950/40', text: 'text-rose-700 dark:text-rose-300', border: 'border-rose-200 dark:border-rose-800/60' },
+  'Street-Wise and Provocative': { bg: 'bg-purple-50 dark:bg-purple-950/40', text: 'text-purple-700 dark:text-purple-300', border: 'border-purple-200 dark:border-purple-800/60' },
+  'Curious and Challenging': { bg: 'bg-indigo-50 dark:bg-indigo-950/40', text: 'text-indigo-700 dark:text-indigo-300', border: 'border-indigo-200 dark:border-indigo-800/60' },
   Engaging: { bg: 'bg-indigo-50 dark:bg-indigo-950/40', text: 'text-indigo-700 dark:text-indigo-300', border: 'border-indigo-200 dark:border-indigo-800/60' },
 }
 
@@ -49,7 +54,7 @@ export function CommentReplyForm({
   const isGenerating = replyLoading === commentId
   const aiOptions: AiReplyOption[] = generatedReplies[commentId] || []
 
-  // Trigger 5-tone generation if empty
+  // Trigger 10-tone generation if empty
   useEffect(() => {
     if (autoGenerate && aiOptions.length === 0 && !isGenerating) {
       dispatch(generateReplies({ videoId, commentId, commentText }))
@@ -95,7 +100,7 @@ export function CommentReplyForm({
 
   return (
     <div className="mt-3 p-3.5 bg-gray-50 dark:bg-gray-800/80 rounded-xl border border-gray-200 dark:border-gray-700/80 space-y-3 font-sans shadow-sm">
-      {/* 5-Tone AI Suggestions Panel (Matching Reference UI) */}
+      {/* 10-Tone AI Suggestions Panel (Matching Reference UI) */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm">
         <div className="px-3.5 py-2.5 bg-gray-50/80 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
@@ -103,7 +108,7 @@ export function CommentReplyForm({
               <Sparkles className="w-3.5 h-3.5" />
             </div>
             <span className="text-xs font-semibold text-gray-900 dark:text-white">
-              AI Smart Reply Options (5 Tones with Counter-Questions)
+              AI Smart Reply Options (10 Tones with Counter-Questions)
             </span>
           </div>
 
@@ -112,7 +117,7 @@ export function CommentReplyForm({
               onClick={handleGenerate}
               disabled={isGenerating}
               className="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 transition disabled:opacity-50"
-              title="Regenerate 5 tone variations"
+              title="Regenerate 10 tone variations"
             >
               <RefreshCw className={cn('w-3 h-3', isGenerating && 'animate-spin')} />
               {isGenerating ? 'Generating...' : 'Regenerate'}
@@ -127,11 +132,11 @@ export function CommentReplyForm({
         </div>
 
         {showAiOptions && (
-          <div className="p-2 space-y-1.5">
+          <div className="p-2 space-y-1.5 max-h-[500px] overflow-y-auto pr-1">
             {isGenerating && aiOptions.length === 0 ? (
               <div className="py-6 text-center space-y-2">
                 <div className="w-5 h-5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
-                <p className="text-xs text-gray-400">Crafting 5 customized replies with counter-questions...</p>
+                <p className="text-xs text-gray-400">Crafting 10 customized replies with counter-questions...</p>
               </div>
             ) : aiOptions.length > 0 ? (
               aiOptions.map((opt, idx) => {
@@ -157,7 +162,7 @@ export function CommentReplyForm({
                     <div className="flex flex-col items-end gap-1.5 shrink-0">
                       <span
                         className={cn(
-                          'px-2 py-0.5 text-[10px] font-semibold rounded-md border',
+                          'px-2 py-0.5 text-[10px] font-semibold rounded-md border whitespace-nowrap',
                           style.bg,
                           style.text,
                           style.border,
@@ -189,7 +194,7 @@ export function CommentReplyForm({
                   className="px-3 py-1.5 bg-indigo-50 dark:bg-indigo-950/50 text-indigo-600 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800 text-xs font-semibold rounded-lg hover:bg-indigo-100 transition flex items-center gap-1.5 mx-auto"
                 >
                   <Sparkles className="w-3.5 h-3.5" />
-                  Generate 5 AI Tone Replies
+                  Generate 10 AI Tone Replies
                 </button>
               </div>
             )}

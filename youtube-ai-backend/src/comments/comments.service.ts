@@ -8,8 +8,20 @@ const QUOTA_COST_COMMENT_THREADS = 2;
 const QUOTA_COST_COMMENT_REPLIES = 2;
 const QUOTA_COST_COMMENT_INSERT = 50;
 
+export type ReplyTone =
+  | 'General'
+  | 'Humorous'
+  | 'Thankful'
+  | 'Witty'
+  | 'Informal'
+  | 'Thoughtful and Balanced'
+  | 'Sharp and Lighthearted'
+  | 'Appreciative and Reflective'
+  | 'Street-Wise and Provocative'
+  | 'Curious and Challenging';
+
 export interface AiReplyOption {
-  tone: 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Informal';
+  tone: ReplyTone | string;
   text: string;
   label: string;
 }
@@ -143,8 +155,9 @@ export class CommentsService {
   }
 
   /**
-   * Generates 5 distinct, highly-contextual reply variations matching standard tone types:
-   * General, Humorous, Thankful, Witty, Informal
+   * Generates 10 distinct, highly-contextual reply variations matching standard tone types:
+   * General, Humorous, Thankful, Witty, Informal, Thoughtful and Balanced, Sharp and Lighthearted,
+   * Appreciative and Reflective, Street-Wise and Provocative, Curious and Challenging
    */
   async generateReplies(
     commentText: string,
@@ -158,7 +171,7 @@ export class CommentsService {
       : `Video Title: "${videoTitle}"\nViewer Comment: "${commentText}"`;
 
     const systemPrompt = `You are an expert YouTube community manager and content creator for "${channelName}".
-Your mission is to craft 5 authentic, contextual replies to the viewer's specific comment.
+Your mission is to craft 10 authentic, contextual replies to the viewer's specific comment.
 
 CRITICAL GUIDELINES:
 1. SPECIFICITY: Directly analyze and address the specific point, argument, or question in the viewer's comment. If they discuss legal rights, trials, prison systems, specific people, or quotes, engage directly on that topic.
@@ -166,17 +179,22 @@ CRITICAL GUIDELINES:
 3. COUNTER-QUESTION: Every single reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
 4. Channel Voice: Direct, thoughtful, authentic, intelligent, street-wise professorial tone (Unique Mecca Audio style).
 
-Generate exactly 5 distinct tone variations with these exact 5 types:
+Generate exactly 10 distinct tone variations with these exact 10 types:
 1. "General": Thoughtful, direct, balanced perspective on their comment + relevant discussion question.
 2. "Humorous": Clever, witty, lighthearted with relevant emojis (e.g. 😜, 🔥, 👑, 🎬) while staying focused on the topic + a funny/sharp question.
 3. "Thankful": Genuine appreciation for their specific perspective or deep point (🙏, ❤️) + an insightful follow-up question.
 4. "Witty": Sharp, street-wise, confident analysis of their statement + a provocative counter-question.
 5. "Informal": Casual, friendly, warm, conversational everyday chat tone (e.g. "Aww thanks!", "Appreciate you!", "Super cool you noticed that!") + an engaging conversational question.
+6. "Thoughtful and Balanced": Deeply analytical, empathetic to nuances, balancing multiple sides (e.g. justice vs. rehabilitation, legal realities vs. human impact) + a balanced reflective counter-question.
+7. "Sharp and Lighthearted": Crisp, witty, playful metaphor/reality check (e.g. "no magic courtroom trapdoor labeled 'undo'") with emojis + a thought-provoking boundary question.
+8. "Appreciative and Reflective": Empathetic recognition of key distinctions made by the commenter (🙏) + a deep condition/perspective question.
+9. "Street-Wise and Provocative": Hard-hitting, raw, street-smart reality check cutting straight through legal and societal tensions + a provocative systemic question.
+10. "Curious and Challenging": Intellectually probing, teasing apart two questions people often collapse together + a challenging prioritization/weight counter-question.
 
 OUTPUT FORMAT:
-Respond with ONLY a valid JSON array of 5 objects with keys:
-- "tone": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal")
-- "label": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal")
+Respond with ONLY a valid JSON array of 10 objects with keys:
+- "tone": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal" | "Thoughtful and Balanced" | "Sharp and Lighthearted" | "Appreciative and Reflective" | "Street-Wise and Provocative" | "Curious and Challenging")
+- "label": ("General" | "Humorous" | "Thankful" | "Witty" | "Informal" | "Thoughtful and Balanced" | "Sharp and Lighthearted" | "Appreciative and Reflective" | "Street-Wise and Provocative" | "Curious and Challenging")
 - "text": (1 to 3 concise sentences)
 
 Do not include markdown codeblocks or extra text.`;
@@ -185,11 +203,11 @@ Do not include markdown codeblocks or extra text.`;
       const raw = await this.openaiService.chatFast({
         systemPrompt,
         userMessage: contextPrompt,
-        maxCompletionTokens: 1200,
+        maxCompletionTokens: 2500,
       });
 
       const parsed = this.parseJsonReplies(raw);
-      if (parsed && parsed.length >= 3) {
+      if (parsed && parsed.length >= 5) {
         return parsed;
       }
     } catch (error: any) {
@@ -222,7 +240,32 @@ Do not include markdown codeblocks or extra text.`;
       {
         tone: 'Informal',
         label: 'Informal',
-        text: `Aww, thanks! So glad you're enjoying this part of "${snippet}". What stood out to you the most?`,
+        text: `Aww, thanks! So glad you noticed that about "${snippet}". What stood out to you the most?`,
+      },
+      {
+        tone: 'Thoughtful and Balanced',
+        label: 'Thoughtful and Balanced',
+        text: `That captures the psychological weight of this situation regarding "${snippet}". What kind of outcome would you consider accountable while still fair?`,
+      },
+      {
+        tone: 'Sharp and Lighthearted',
+        label: 'Sharp and Lighthearted',
+        text: `There's no magic button labeled "undo" here 😜. If things change moving forward, where would you draw the line between justice and retribution?`,
+      },
+      {
+        tone: 'Appreciative and Reflective',
+        label: 'Appreciative and Reflective',
+        text: `You made an important distinction regarding "${snippet}" 🙏. What conditions do you believe would best reflect true accountability?`,
+      },
+      {
+        tone: 'Street-Wise and Provocative',
+        label: 'Street-Wise and Provocative',
+        text: `Real consequences don't disappear just because circumstances shift. Is this the exact balance the system keeps failing to find?`,
+      },
+      {
+        tone: 'Curious and Challenging',
+        label: 'Curious and Challenging',
+        text: `Your position separates two questions people often collapse together. When looking at all the details, which factor should carry the most weight?`,
       },
     ];
   }
@@ -241,12 +284,22 @@ Do not include markdown codeblocks or extra text.`;
     return replies[0]?.text || 'Thank you for watching!';
   }
 
-  private normalizeTone(rawTone?: string): 'General' | 'Humorous' | 'Thankful' | 'Witty' | 'Informal' {
+  private normalizeTone(rawTone?: string): ReplyTone {
     const t = String(rawTone || '').trim().toLowerCase();
-    if (t.includes('humor') || t.includes('funny') || t.includes('joke') || t.includes('light')) return 'Humorous';
-    if (t.includes('thank') || t.includes('appreciat') || t.includes('grat')) return 'Thankful';
-    if (t.includes('wit') || t.includes('sharp') || t.includes('street') || t.includes('provoc')) return 'Witty';
-    if (t.includes('informal') || t.includes('casual') || t.includes('curious') || t.includes('engag') || t.includes('friendly')) return 'Informal';
+
+    // Check composite tones first
+    if (t.includes('thoughtful') || (t.includes('balanced') && !t.includes('general'))) return 'Thoughtful and Balanced';
+    if (t.includes('sharp') || (t.includes('light') && t.includes('heart'))) return 'Sharp and Lighthearted';
+    if (t.includes('appreciat') || (t.includes('reflect') && !t.includes('thankful'))) return 'Appreciative and Reflective';
+    if (t.includes('street') || t.includes('provoc')) return 'Street-Wise and Provocative';
+    if (t.includes('curious') || t.includes('challeng')) return 'Curious and Challenging';
+
+    // Standard 5 tones
+    if (t.includes('humor') || t.includes('funny') || t.includes('joke')) return 'Humorous';
+    if (t.includes('thank') || t.includes('grat')) return 'Thankful';
+    if (t.includes('wit')) return 'Witty';
+    if (t.includes('informal') || t.includes('casual') || t.includes('friend')) return 'Informal';
+
     return 'General';
   }
 

@@ -146,7 +146,7 @@ export function CommentsSection({ videoId, youtubeId }: CommentsSectionProps) {
               )}
             </div>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Engage viewers with 5-tone AI replies & track responded comments
+              Engage viewers with 10-tone AI replies & track responded comments
             </p>
           </div>
         </div>
