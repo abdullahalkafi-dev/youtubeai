@@ -208,7 +208,7 @@ export class OpenAIService {
       ],
       response_format: { type: 'json_object' as const },
       temperature: 0.7,
-      max_completion_tokens: 2048,
+      max_completion_tokens: 4096,
     });
 
     const response = await retryWithBackoff(
@@ -222,21 +222,26 @@ export class OpenAIService {
 
     try {
       const parsed = JSON.parse(content) as {
-        title: string;
-        description: string;
-        tags: string[];
-        hashtags: string[];
+        title?: string;
+        description?: string;
+        tags?: string[];
+        hashtags?: string[];
       };
-      return { ...parsed, usage };
-    } catch {
-      this.logger.error('Failed to parse SEO response as JSON');
+
+      if (!parsed.title || !parsed.description) {
+        throw new Error(`OpenAI returned incomplete JSON (missing title or description). finish_reason: ${response.choices[0]?.finish_reason}`);
+      }
+
       return {
-        title: params.videoTitle,
-        description: '',
-        tags: [],
-        hashtags: [],
+        title: parsed.title,
+        description: parsed.description,
+        tags: parsed.tags || [],
+        hashtags: parsed.hashtags || [],
         usage,
       };
+    } catch (parseError: any) {
+      this.logger.error(`Failed to parse SEO response as valid JSON: ${parseError.message}. Raw snippet: ${content.slice(0, 300)}`);
+      throw new Error(`AI Generation returned invalid or incomplete output: ${parseError.message}`);
     }
   }
 

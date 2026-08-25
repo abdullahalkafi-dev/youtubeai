@@ -912,6 +912,9 @@ export class AutomationService implements OnApplicationBootstrap {
       failedItems: batch.failedItems,
     });
 
+    const updatedStats = await this.getStats(batch.channelId.toString());
+    this.gateway.emitStatsUpdated(batch.channelId.toString(), updatedStats);
+
     return { message: 'Batch cancelled successfully.', batchId };
   }
 }

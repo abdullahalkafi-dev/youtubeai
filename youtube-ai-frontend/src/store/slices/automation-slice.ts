@@ -147,7 +147,9 @@ export const automationSlice = createSlice({
       if (state.stats) {
         state.stats.isBatchRunning = false;
       }
-      if (state.activeBatch && (state.activeBatch.id === action.payload.batchId || state.activeBatch._id === action.payload.batchId)) {
+      if (action.payload.status === 'cancelled') {
+        state.activeBatch = null;
+      } else if (state.activeBatch && (state.activeBatch.id === action.payload.batchId || state.activeBatch._id === action.payload.batchId)) {
         state.activeBatch.status = action.payload.status || 'completed';
         state.activeBatch.completedAt = action.payload.completedAt || new Date().toISOString();
         if (action.payload.successful !== undefined) state.activeBatch.successfulItems = action.payload.successful;
@@ -157,11 +159,7 @@ export const automationSlice = createSlice({
     },
     onStatsUpdated: (state, action: PayloadAction<AutomationStats>) => {
       state.stats = action.payload;
-      if (action.payload.activeBatch) {
-        state.activeBatch = action.payload.activeBatch;
-      } else if (!action.payload.isBatchRunning && state.activeBatch?.status === 'completed') {
-        // activeBatch completed
-      }
+      state.activeBatch = action.payload.activeBatch || null;
     },
     clearActiveBatch: (state) => {
       state.activeBatch = null;
@@ -175,9 +173,7 @@ export const automationSlice = createSlice({
       .addCase(fetchAutomationStats.fulfilled, (state, action) => {
         state.loading = false;
         state.stats = action.payload;
-        if (action.payload.activeBatch) {
-          state.activeBatch = action.payload.activeBatch;
-        }
+        state.activeBatch = action.payload.activeBatch || null;
       })
       .addCase(fetchAutomationStats.rejected, (state, action) => {
         state.loading = false;
@@ -202,6 +198,10 @@ export const automationSlice = createSlice({
       .addCase(runBatchAsync.rejected, (state, action) => {
         state.triggering = false;
         state.error = action.error.message || 'Failed to trigger batch';
+      })
+      .addCase(cancelBatchAsync.fulfilled, (state) => {
+        state.activeBatch = null;
+        if (state.stats) state.stats.isBatchRunning = false;
       });
   },
 });
