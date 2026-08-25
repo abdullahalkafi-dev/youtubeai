@@ -70,6 +70,19 @@ export class Channel {
 
   @Prop()
   youtubeApiKey?: string;
+
+  // Batch Automation Concurrency & Heartbeat Lock
+  @Prop({ default: false })
+  isBatchRunning: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
+  activeBatchId?: Types.ObjectId;
+
+  @Prop()
+  batchStartedAt?: Date;
+
+  @Prop()
+  lastBatchHeartbeatAt?: Date;
 }
 
 export const ChannelSchema = SchemaFactory.createForClass(Channel);

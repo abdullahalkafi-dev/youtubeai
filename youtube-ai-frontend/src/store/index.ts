@@ -10,12 +10,14 @@ import commentsReducer from './slices/comments-slice'
 import trendsReducer from './slices/trends-slice'
 import quotaReducer from './slices/quota-slice'
 import analyticsReducer from './slices/analytics-slice'
+import automationReducer from './slices/automation-slice'
 
 const rootReducer = combineReducers({
   auth: authReducer,
   videos: videosReducer,
   chat: chatReducer,
   queue: queueReducer,
+  automation: automationReducer,
   seo: seoReducer,
   ui: uiReducer,
   comments: commentsReducer,

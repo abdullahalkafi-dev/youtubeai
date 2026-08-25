@@ -31,6 +31,15 @@ export class SeoSuggestion {
 
   @Prop({ default: 'pending', enum: ['pending', 'approving', 'approved', 'rejected', 'superseded'] })
   status: string;
+
+  @Prop({
+    default: 'dashboard_single_video',
+    enum: ['auto_cron_batch', 'manual_ui_batch', 'dashboard_single_video'],
+  })
+  source: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
+  batchId?: Types.ObjectId;
 }
 
 export const SeoSuggestionSchema = SchemaFactory.createForClass(SeoSuggestion);

@@ -196,10 +196,15 @@ export class SeoService {
         hashtags: result.hashtags,
         showType: video.showType || undefined,
         tone: 'dark_direct',
+        source: 'dashboard_single_video',
       });
 
       await this.videoModel.findByIdAndUpdate(dto.videoId, {
-        $set: { seoStatus: 'pending', suggestedSeo: seoData },
+        $set: {
+          seoStatus: 'pending',
+          suggestedSeo: seoData,
+          lastManualModifiedAt: new Date(),
+        },
       });
 
       // Store in ChromaDB for RAG
@@ -316,14 +321,21 @@ export class SeoService {
       // Save version before approval
       if (video.currentSeo) {
         await this.seoVersionModel.create({
-          videoId: suggestion.videoId, type: 'ai_optimized', approved: true,
-          seo: video.currentSeo, note: 'Previous version before AI optimization',
+          videoId: suggestion.videoId,
+          type: 'ai_optimized',
+          approved: true,
+          source: 'dashboard_single_video',
+          seo: video.currentSeo,
+          note: 'Previous version before AI optimization',
         });
       } else {
         const existingOriginal = await this.seoVersionModel.findOne({ videoId: suggestion.videoId, type: 'original' }).lean();
         if (!existingOriginal) {
           await this.seoVersionModel.create({
-            videoId: suggestion.videoId, type: 'original', approved: false,
+            videoId: suggestion.videoId,
+            type: 'original',
+            approved: false,
+            source: 'dashboard_single_video',
             seo: {
               title: video.title,
               description: video.description || '',
@@ -339,6 +351,8 @@ export class SeoService {
       await this.videoModel.findByIdAndUpdate(suggestion.videoId, {
         $set: {
           seoStatus: 'approved',
+          optimizationSource: 'dashboard_single_video',
+          lastManualModifiedAt: new Date(),
           currentSeo: approvedSeo,
           suggestedSeo: null,
           title: suggestion.title,
@@ -349,7 +363,9 @@ export class SeoService {
           youtubeTags: suggestion.tags,
         },
       });
-      await this.seoSuggestionModel.findByIdAndUpdate(id, { $set: { status: 'approved' } });
+      await this.seoSuggestionModel.findByIdAndUpdate(id, {
+        $set: { status: 'approved', source: 'dashboard_single_video' },
+      });
 
       // Re-embed in ChromaDB
       try {
@@ -428,8 +444,12 @@ export class SeoService {
     // Save current state as a version before rolling back
     if (video.currentSeo) {
       await this.seoVersionModel.create({
-        videoId: video._id, type: 'rolled_back', approved: false,
-        seo: video.currentSeo, note: `Rolled back to version from ${targetVersion.createdAt}`,
+        videoId: video._id,
+        type: 'rolled_back',
+        approved: false,
+        source: 'dashboard_single_video',
+        seo: video.currentSeo,
+        note: `Rolled back to version from ${targetVersion.createdAt}`,
       });
     }
 
@@ -437,6 +457,8 @@ export class SeoService {
     await this.videoModel.findByIdAndUpdate(video._id, {
       $set: {
         seoStatus: 'optimized',
+        optimizationSource: 'dashboard_single_video',
+        lastManualModifiedAt: new Date(),
         currentSeo: targetVersion.seo,
         suggestedSeo: null,
         title: targetVersion.seo.title,

@@ -159,6 +159,19 @@ export class Video {
 
   @Prop()
   deletedAt?: Date;
+
+  // Manual modification & provenance tracking
+  @Prop()
+  lastManualModifiedAt?: Date;
+
+  @Prop({
+    default: 'dashboard_single_video',
+    enum: ['auto_cron_batch', 'manual_ui_batch', 'dashboard_single_video'],
+  })
+  optimizationSource: string;
+
+  @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
+  lastBatchId?: Types.ObjectId;
 }
 
 export const VideoSchema = SchemaFactory.createForClass(Video);

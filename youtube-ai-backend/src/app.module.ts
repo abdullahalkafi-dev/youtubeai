@@ -28,6 +28,7 @@ import { KeywordsModule } from './keywords/keywords.module';
 import { CompetitorsModule } from './competitors/competitors.module';
 import { AssetsModule } from './assets/assets.module';
 import { DevLogsModule } from './dev-logs/dev-logs.module';
+import { AutomationModule } from './automation/automation.module';
 import { Video, VideoSchema } from './mongo/schemas/video.schema';
 
 /**
@@ -78,6 +79,7 @@ import { Video, VideoSchema } from './mongo/schemas/video.schema';
     SeoModule,
     ChatModule,
     QueueModule,
+    AutomationModule,
     CommentsModule,
     TrendsModule,
     QuotaModule,

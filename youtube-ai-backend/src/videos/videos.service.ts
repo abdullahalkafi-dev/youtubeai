@@ -80,7 +80,12 @@ export class VideosService {
 
   async update(id: string, dto: UpdateVideoDto) {
     await this.findById(id);
-    const updated = await this.videoModel.findByIdAndUpdate(new Types.ObjectId(id), { $set: dto }, { new: true }).lean();
+    const updatePayload = {
+      ...dto,
+      lastManualModifiedAt: new Date(),
+      optimizationSource: 'dashboard_single_video',
+    };
+    const updated = await this.videoModel.findByIdAndUpdate(new Types.ObjectId(id), { $set: updatePayload }, { new: true }).lean();
     // Re-embed in ChromaDB if title, description, or tags changed
     if (updated && (dto.title || dto.description || dto.tags)) {
       try {
@@ -204,6 +209,7 @@ export class VideosService {
       videoId: video._id,
       type: video.seoStatus === 'approved' ? 'ai_optimized' : 'original',
       approved: video.seoStatus === 'approved',
+      source: 'dashboard_single_video',
       seo: currentSeo,
       note: 'Before pulling from YouTube — DB had different title',
     });
@@ -217,6 +223,8 @@ export class VideosService {
         currentSeo: null,
         suggestedSeo: null,
         seoStatus: 'not_started',
+        lastManualModifiedAt: new Date(),
+        optimizationSource: 'dashboard_single_video',
       },
     });
 
@@ -251,6 +259,7 @@ export class VideosService {
       videoId: video._id,
       type: video.seoStatus === 'approved' ? 'ai_optimized' : 'original',
       approved: video.seoStatus === 'approved',
+      source: 'dashboard_single_video',
       seo: currentSeo,
       note: 'Before pushing DB state to YouTube',
     });
@@ -277,6 +286,8 @@ export class VideosService {
           youtubeTitle: video.title,
           youtubeDescription: video.description,
           youtubeTags: video.tags,
+          lastManualModifiedAt: new Date(),
+          optimizationSource: 'dashboard_single_video',
         },
       });
       // Re-embed in ChromaDB

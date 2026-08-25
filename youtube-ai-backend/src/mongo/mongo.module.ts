@@ -19,6 +19,8 @@ import { TokenUsageDaily, TokenUsageDailySchema } from './schemas/token-usage-da
 import { SyncLog, SyncLogSchema } from './schemas/sync-log.schema';
 import { HttpLog, HttpLogSchema } from './schemas/http-log.schema';
 
+import { AutomationBatch, AutomationBatchSchema } from './schemas/automation-batch.schema';
+
 function addVirtualId(schema: Schema) {
   schema.set('toJSON', {
     virtuals: true,
@@ -47,7 +49,7 @@ const schemas = [
   SeoSuggestionSchema, SeoVersionSchema, QueueItemSchema,
   TrendingTopicSchema, TrendingIdeaSchema, AIOutputLogSchema,
   ApiQuotaLogSchema, SearchListQuotaSchema, TokenUsageDailySchema,
-  SyncLogSchema, HttpLogSchema,
+  SyncLogSchema, HttpLogSchema, AutomationBatchSchema,
 ];
 schemas.forEach(addVirtualId);
 
@@ -67,6 +69,7 @@ const modelImports = MongooseModule.forFeature([
   { name: TokenUsageDaily.name, schema: TokenUsageDailySchema },
   { name: SyncLog.name, schema: SyncLogSchema },
   { name: HttpLog.name, schema: HttpLogSchema },
+  { name: AutomationBatch.name, schema: AutomationBatchSchema },
 ]);
 
 @Global()

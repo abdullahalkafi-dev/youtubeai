@@ -43,7 +43,7 @@ export const NAV_ITEMS = [
 ] as const
 
 export const NAV_ITEMS_BOTTOM = [
-  { label: 'Update Queue', href: ROUTES.queue, icon: 'List' },
+  { label: 'Automation', href: ROUTES.queue, icon: 'Sparkles' },
   { label: 'Settings', href: ROUTES.settings, icon: 'Settings' },
 ] as const
 

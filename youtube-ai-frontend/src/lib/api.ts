@@ -7,6 +7,7 @@ import type { CommentsResponse, Comment, AiReplyOption } from '@/types/comment'
 import type { TrendingTopic } from '@/types/trend'
 import type { QuotaUsage, QuotaLog } from '@/types/quota'
 import type { HttpLogItem, LogStatsResponse, PaginatedLogsResponse, LogQueryParams } from '@/types/dev-log'
+import type { AutomationStats, AutomationBatch, PaginatedBatches } from '@/types/automation'
 
 export function getApiBaseUrl(): string {
   let url = process.env.NEXT_PUBLIC_API_URL
@@ -702,6 +703,33 @@ class ApiClient {
     if (options?.onlyErrors) searchParams.set('onlyErrors', 'true')
     const query = searchParams.toString() ? `?${searchParams.toString()}` : ''
     return this.delete<{ deletedCount: number }>(`/api/dev/logs${query}`)
+  }
+
+  // ==========================================
+  // Automation Endpoints
+  // ==========================================
+  async getAutomationStats(channelId: string): Promise<AutomationStats> {
+    return this.get<AutomationStats>(`/api/channels/${channelId}/automation/stats`)
+  }
+
+  async getAutomationBatches(channelId: string, page = 1, limit = 10): Promise<PaginatedBatches> {
+    return this.get<PaginatedBatches>(`/api/channels/${channelId}/automation/batches?page=${page}&limit=${limit}`)
+  }
+
+  async getActiveAutomationBatch(channelId: string): Promise<AutomationBatch | null> {
+    return this.get<AutomationBatch | null>(`/api/channels/${channelId}/automation/active`)
+  }
+
+  async runAutomationBatch(channelId: string, batchSize = 30, source = 'manual_ui_batch'): Promise<{ message: string; batchId?: string; totalItems: number; queued: boolean }> {
+    return this.post<{ message: string; batchId?: string; totalItems: number; queued: boolean }>(`/api/channels/${channelId}/automation/run`, { batchSize, source })
+  }
+
+  async retryAutomationBatch(batchId: string): Promise<{ message: string; batchId: string; parentBatchId: string }> {
+    return this.post<{ message: string; batchId: string; parentBatchId: string }>(`/api/automation/batches/${batchId}/retry`, {})
+  }
+
+  async cancelAutomationBatch(batchId: string): Promise<{ message: string; batchId: string }> {
+    return this.post<{ message: string; batchId: string }>(`/api/automation/batches/${batchId}/cancel`, {})
   }
 }
 
