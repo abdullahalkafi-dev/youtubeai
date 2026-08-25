@@ -203,7 +203,6 @@ export class SeoService {
         $set: {
           seoStatus: 'pending',
           suggestedSeo: seoData,
-          lastManualModifiedAt: new Date(),
         },
       });
 

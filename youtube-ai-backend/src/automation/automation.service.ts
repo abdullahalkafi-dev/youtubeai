@@ -473,6 +473,21 @@ export class AutomationService implements OnApplicationBootstrap {
       }
 
       const item = batch.items[i];
+
+      // Fast-track already staged items (e.g. child retry batches)
+      if (item.status === 'staged' && item.generatedTitle) {
+        this.logger.log(`[Batch ${batchId}] Item #${i + 1} (${item.videoId}) is already staged in DB. Fast-tracking to push.`);
+        this.gateway.emitItemProgress(channelId, {
+          batchId,
+          itemIndex: i,
+          videoId: item.videoId.toString(),
+          stage: 'staged',
+          status: 'staged',
+          generatedTitle: item.generatedTitle,
+        });
+        continue;
+      }
+
       item.status = 'generating';
       await batch.save();
 
