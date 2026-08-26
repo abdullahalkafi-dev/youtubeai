@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 
 export class QuotaExceededException extends Error {
@@ -57,9 +57,10 @@ export class QuotaService {
   async getDailyUsage(channelId: string) {
     const ptMidnight = this.getPTMidnight();
     const model = this.channelModel.db.model('ApiQuotaLog') as any;
+    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
 
     const breakdown = await model.aggregate([
-      { $match: { channelId, calledAt: { $gte: ptMidnight } } },
+      { $match: { $or: [{ channelId: cId }, { channelId }], calledAt: { $gte: ptMidnight } } },
       { $group: { _id: '$endpoint', total: { $sum: '$quotaCost' } } },
     ]);
 
@@ -74,7 +75,8 @@ export class QuotaService {
 
   async getRecentLogs(channelId: string, limit = 50) {
     const model = this.channelModel.db.model('ApiQuotaLog') as any;
-    return model.find({ channelId }).sort({ calledAt: -1 }).limit(limit).lean();
+    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+    return model.find({ $or: [{ channelId: cId }, { channelId }] }).sort({ calledAt: -1 }).limit(limit).lean();
   }
 
   private getPTMidnight(): Date {

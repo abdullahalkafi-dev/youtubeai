@@ -5,6 +5,8 @@ import {
   ConflictException,
   BadRequestException,
   OnApplicationBootstrap,
+  Inject,
+  forwardRef,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -55,6 +57,7 @@ export class AutomationService implements OnApplicationBootstrap {
     private readonly seoSuggestionModel: Model<SeoSuggestionDocument>,
     @InjectModel(User.name)
     private readonly userModel: Model<UserDocument>,
+    @Inject(forwardRef(() => SeoService))
     private readonly seoService: SeoService,
     private readonly youtubeService: YouTubeService,
     private readonly quotaService: QuotaService,
