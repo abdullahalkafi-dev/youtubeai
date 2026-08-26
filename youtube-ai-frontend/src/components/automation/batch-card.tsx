@@ -1,9 +1,10 @@
 'use client';
 
 import React, { useState } from 'react';
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { ChevronDown, ChevronUp, RotateCcw, CheckCircle2, AlertCircle, ShieldAlert, Sparkles, Clock } from 'lucide-react';
+import { ChevronDown, ChevronUp, RotateCcw, CheckCircle2, AlertCircle, ShieldAlert, Sparkles, Clock, Eye, ExternalLink } from 'lucide-react';
 import { formatDate } from '@/lib/utils';
 import type { AutomationBatch } from '@/types/automation';
 
@@ -145,77 +146,122 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
           <div className="mt-4 pt-4 border-t border-gray-100 dark:border-gray-800">
             <div className="space-y-3">
               {batch.items && batch.items.length > 0 ? (
-                batch.items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="p-3.5 rounded-xl border border-gray-100 dark:border-gray-800/80 bg-gray-50/50 dark:bg-gray-800/30 text-xs"
-                  >
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono text-gray-400 w-5">#{idx + 1}</span>
-                          <p className="font-semibold text-gray-900 dark:text-white truncate">
-                            {item.originalTitle}
-                          </p>
-                        </div>
+                batch.items.map((item, idx) => {
+                  const rawVid = item.videoId as any;
+                  const videoId = typeof rawVid === 'object' && rawVid !== null
+                    ? rawVid._id || rawVid.id || String(rawVid)
+                    : rawVid ? String(rawVid) : '';
+                  const youtubeUrl = item.youtubeId ? `https://www.youtube.com/watch?v=${item.youtubeId}` : null;
 
-                        {item.generatedTitle && (
-                          <div className="mt-1.5 pl-7">
-                            <span className="text-[11px] text-gray-400 block mb-0.5">AI Optimized Title:</span>
-                            <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
-                              {item.generatedTitle}
-                            </p>
-                          </div>
-                        )}
-
-                        {item.generatedTags && item.generatedTags.length > 0 && (
-                          <div className="mt-2 pl-7 flex flex-wrap gap-1">
-                            {item.generatedTags.slice(0, 5).map((t, ti) => (
-                              <span
-                                key={ti}
-                                className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-300 font-mono"
+                  return (
+                    <div
+                      key={idx}
+                      className="p-3.5 rounded-xl border border-gray-100 dark:border-gray-800/80 bg-gray-50/50 dark:bg-gray-800/30 text-xs hover:border-gray-200 dark:hover:border-gray-700 transition"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-gray-400 w-5">#{idx + 1}</span>
+                            {videoId ? (
+                              <Link
+                                href={`/videos/${videoId}`}
+                                className="font-semibold text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition truncate"
+                                title="Open Video Details"
                               >
-                                {t}
-                              </span>
-                            ))}
-                            {item.generatedTags.length > 5 && (
-                              <span className="text-[10px] text-gray-400 self-center">
-                                +{item.generatedTags.length - 5} more tags
-                              </span>
+                                {item.originalTitle}
+                              </Link>
+                            ) : (
+                              <p className="font-semibold text-gray-900 dark:text-white truncate">
+                                {item.originalTitle}
+                              </p>
                             )}
                           </div>
-                        )}
 
-                        {item.error && (
-                          <p className="mt-1.5 pl-7 text-[11px] text-rose-500">
-                            Error: {item.error}
-                          </p>
-                        )}
-                      </div>
+                          {item.generatedTitle && (
+                            <div className="mt-1.5 pl-7">
+                              <span className="text-[11px] text-gray-400 block mb-0.5">AI Optimized Title:</span>
+                              <p className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                                {item.generatedTitle}
+                              </p>
+                            </div>
+                          )}
 
-                      <div className="shrink-0 sm:self-center pl-7 sm:pl-0">
-                        {item.status === 'completed' && (
-                          <Badge variant="green" className="flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Pushed to YouTube
-                          </Badge>
-                        )}
-                        {item.status === 'skipped_manual_override' && (
-                          <Badge variant="gray" className="flex items-center gap-1 text-amber-500 border-amber-500/30">
-                            <ShieldAlert className="w-3 h-3 text-amber-500" /> Manual Override
-                          </Badge>
-                        )}
-                        {item.status === 'failed' && (
-                          <Badge variant="red" className="flex items-center gap-1">
-                            <AlertCircle className="w-3 h-3 text-rose-500" /> Failed
-                          </Badge>
-                        )}
-                        {item.status === 'staged' && (
-                          <Badge variant="yellow">Staged in DB</Badge>
-                        )}
+                          {item.generatedTags && item.generatedTags.length > 0 && (
+                            <div className="mt-2 pl-7 flex flex-wrap gap-1">
+                              {item.generatedTags.slice(0, 5).map((t, ti) => (
+                                <span
+                                  key={ti}
+                                  className="px-2 py-0.5 rounded-md bg-gray-100 dark:bg-gray-800 text-[10px] text-gray-600 dark:text-gray-300 font-mono"
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              {item.generatedTags.length > 5 && (
+                                <span className="text-[10px] text-gray-400 self-center">
+                                  +{item.generatedTags.length - 5} more tags
+                                </span>
+                              )}
+                            </div>
+                          )}
+
+                          {item.error && (
+                            <p className="mt-1.5 pl-7 text-[11px] text-rose-500">
+                              Error: {item.error}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-2 pl-7 sm:pl-0 sm:self-center">
+                          {/* Quick Action Links: Details Page & YouTube */}
+                          <div className="flex items-center gap-1.5">
+                            {videoId && (
+                              <Link
+                                href={`/videos/${videoId}`}
+                                className="px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-500/30 flex items-center gap-1.5 text-[11px] font-medium transition shadow-xs"
+                                title="Open Video Details"
+                              >
+                                <Eye className="w-3.5 h-3.5 text-indigo-500" />
+                                <span>Details</span>
+                              </Link>
+                            )}
+
+                            {youtubeUrl && (
+                              <a
+                                href={youtubeUrl}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="px-2.5 py-1.5 rounded-lg border border-red-200 dark:border-red-500/20 bg-red-50/70 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 flex items-center gap-1.5 text-[11px] font-medium transition shadow-xs"
+                                title="Watch on YouTube"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-red-500" />
+                                <span>YouTube</span>
+                              </a>
+                            )}
+                          </div>
+
+                          {item.status === 'completed' && (
+                            <Badge variant="green" className="flex items-center gap-1">
+                              <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Pushed to YouTube
+                            </Badge>
+                          )}
+                          {item.status === 'skipped_manual_override' && (
+                            <Badge variant="gray" className="flex items-center gap-1 text-amber-500 border-amber-500/30">
+                              <ShieldAlert className="w-3 h-3 text-amber-500" /> Manual Override
+                            </Badge>
+                          )}
+                          {item.status === 'failed' && (
+                            <Badge variant="red" className="flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3 text-rose-500" /> Failed
+                            </Badge>
+                          )}
+                          {item.status === 'staged' && (
+                            <Badge variant="yellow">Staged in DB</Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               ) : (
                 <p className="text-center text-xs text-gray-400 py-2">No item details available</p>
               )}

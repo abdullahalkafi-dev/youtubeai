@@ -1,9 +1,10 @@
 'use client';
 
 import React from 'react';
+import Link from 'next/link';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Sparkles, ArrowRight, CheckCircle2, AlertCircle, ShieldAlert, XCircle, Loader2 } from 'lucide-react';
+import { Sparkles, ArrowRight, CheckCircle2, AlertCircle, ShieldAlert, XCircle, Loader2, Eye, ExternalLink } from 'lucide-react';
 import type { AutomationBatch } from '@/types/automation';
 
 interface BatchLiveProgressProps {
@@ -172,57 +173,103 @@ export function BatchLiveProgress({ batch, onCancel }: BatchLiveProgressProps) {
 
           <div className="max-h-72 overflow-y-auto divide-y divide-gray-100 dark:divide-gray-800/60">
             {batch.items && batch.items.length > 0 ? (
-              batch.items.map((item, idx) => (
-                <div key={idx} className="p-3 flex items-center justify-between gap-3 text-xs">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono text-gray-400 w-5">#{idx + 1}</span>
-                      <p className="font-medium text-gray-900 dark:text-white truncate">
-                        {item.originalTitle}
-                      </p>
-                    </div>
-                    {item.generatedTitle && item.status !== 'queued' && (
-                      <p className="text-[11px] text-indigo-600 dark:text-indigo-400 truncate pl-7 mt-0.5">
-                        ➜ {item.generatedTitle}
-                      </p>
-                    )}
-                  </div>
+              batch.items.map((item, idx) => {
+                const rawVid = item.videoId as any;
+                const videoId = typeof rawVid === 'object' && rawVid !== null
+                  ? rawVid._id || rawVid.id || String(rawVid)
+                  : rawVid ? String(rawVid) : '';
+                const youtubeUrl = item.youtubeId ? `https://www.youtube.com/watch?v=${item.youtubeId}` : null;
 
-                  <div className="shrink-0 flex items-center gap-2">
-                    {item.status === 'queued' && (
-                      <Badge variant="gray">Queued</Badge>
-                    )}
-                    {item.status === 'generating' && (
-                      <Badge variant="blue" className="flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Generating...
-                      </Badge>
-                    )}
-                    {item.status === 'staged' && (
-                      <Badge variant="yellow">Staged in DB</Badge>
-                    )}
-                    {item.status === 'pushing' && (
-                      <Badge variant="purple" className="flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin" /> Pushing YouTube (5s)...
-                      </Badge>
-                    )}
-                    {item.status === 'completed' && (
-                      <Badge variant="green" className="flex items-center gap-1">
-                        <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Live on YouTube
-                      </Badge>
-                    )}
-                    {item.status === 'skipped_manual_override' && (
-                      <Badge variant="gray" className="flex items-center gap-1 text-amber-500 border-amber-500/30">
-                        <ShieldAlert className="w-3 h-3 text-amber-500" /> Manual Override
-                      </Badge>
-                    )}
-                    {item.status === 'failed' && (
-                      <Badge variant="red" className="flex items-center gap-1">
-                        <AlertCircle className="w-3 h-3 text-rose-500" /> Failed
-                      </Badge>
-                    )}
+                return (
+                  <div key={idx} className="p-3 flex items-center justify-between gap-3 text-xs hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-mono text-gray-400 w-5">#{idx + 1}</span>
+                        {videoId ? (
+                          <Link
+                            href={`/videos/${videoId}`}
+                            className="font-medium text-gray-900 dark:text-white hover:text-indigo-600 dark:hover:text-indigo-400 transition truncate"
+                            title="Open Video Details"
+                          >
+                            {item.originalTitle}
+                          </Link>
+                        ) : (
+                          <p className="font-medium text-gray-900 dark:text-white truncate">
+                            {item.originalTitle}
+                          </p>
+                        )}
+                      </div>
+                      {item.generatedTitle && item.status !== 'queued' && (
+                        <p className="text-[11px] text-indigo-600 dark:text-indigo-400 truncate pl-7 mt-0.5">
+                          ➜ {item.generatedTitle}
+                        </p>
+                      )}
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-2">
+                      {/* Quick Action Links */}
+                      {(videoId || youtubeUrl) && (
+                        <div className="flex items-center gap-1 mr-1">
+                          {videoId && (
+                            <Link
+                              href={`/videos/${videoId}`}
+                              className="px-2 py-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:text-indigo-600 dark:hover:text-indigo-400 flex items-center gap-1 text-[11px] font-medium transition shadow-2xs"
+                              title="Open Video Details"
+                            >
+                              <Eye className="w-3 h-3 text-indigo-500" />
+                              <span>Details</span>
+                            </Link>
+                          )}
+                          {youtubeUrl && (
+                            <a
+                              href={youtubeUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-1 rounded-md border border-red-200 dark:border-red-500/20 bg-red-50/70 dark:bg-red-500/10 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-500/20 flex items-center gap-1 text-[11px] font-medium transition shadow-2xs"
+                              title="Watch on YouTube"
+                            >
+                              <ExternalLink className="w-3 h-3 text-red-500" />
+                              <span>YouTube</span>
+                            </a>
+                          )}
+                        </div>
+                      )}
+
+                      {item.status === 'queued' && (
+                        <Badge variant="gray">Queued</Badge>
+                      )}
+                      {item.status === 'generating' && (
+                        <Badge variant="blue" className="flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Generating...
+                        </Badge>
+                      )}
+                      {item.status === 'staged' && (
+                        <Badge variant="yellow">Staged in DB</Badge>
+                      )}
+                      {item.status === 'pushing' && (
+                        <Badge variant="purple" className="flex items-center gap-1">
+                          <Loader2 className="w-3 h-3 animate-spin" /> Pushing YouTube (5s)...
+                        </Badge>
+                      )}
+                      {item.status === 'completed' && (
+                        <Badge variant="green" className="flex items-center gap-1">
+                          <CheckCircle2 className="w-3 h-3 text-emerald-500" /> Live on YouTube
+                        </Badge>
+                      )}
+                      {item.status === 'skipped_manual_override' && (
+                        <Badge variant="gray" className="flex items-center gap-1 text-amber-500 border-amber-500/30">
+                          <ShieldAlert className="w-3 h-3 text-amber-500" /> Manual Override
+                        </Badge>
+                      )}
+                      {item.status === 'failed' && (
+                        <Badge variant="red" className="flex items-center gap-1">
+                          <AlertCircle className="w-3 h-3 text-rose-500" /> Failed
+                        </Badge>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             ) : (
               <div className="p-6 text-center text-xs text-gray-400">
                 Initializing batch items...
