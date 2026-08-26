@@ -710,6 +710,15 @@ export class AutomationService implements OnApplicationBootstrap {
         item.error = pushSuccess.error;
         batch.failedItems++;
 
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'videos.update',
+          quotaCost: YOUTUBE_QUOTA_COST_PER_VIDEO,
+          relatedId: item.videoId.toString(),
+          success: false,
+          errorMessage: pushSuccess.error,
+        }).catch(() => {});
+
         this.gateway.emitItemProgress(channelId, {
           batchId,
           itemIndex: i,

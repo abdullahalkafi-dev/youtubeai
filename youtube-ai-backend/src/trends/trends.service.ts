@@ -673,30 +673,23 @@ Use these recent videos as a reference for what topics and angles this channel c
 
     // Step 1: Search YouTube for niche-relevant recent videos (100 quota units)
     const currentYear = new Date().getFullYear();
-    const searchQueries = [
-      `federal indictment ${currentYear}`,
-      'rapper sentenced prison',
-      'criminal case update',
-    ];
+    const compoundQuery = `("federal indictment" | "rapper sentenced" | "criminal case update" | "prison sentence") ${currentYear}`;
     let allSearchResults: any[] = [];
     try {
       await this.quotaService.checkQuota(channelId, 'refreshTrendsLite (search)', 100);
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      for (const query of searchQueries) {
-        try {
-          const results = await this.youtubeService.searchVideos({
-            userId: channel.userId.toString(),
-            query,
-            publishedAfter: sevenDaysAgo,
-            maxResults: 5,
-          });
-          allSearchResults.push(...results);
-        } catch { /* individual query failure is ok */ }
-      }
+      const results = await this.youtubeService.searchVideos({
+        userId: channel.userId.toString(),
+        query: compoundQuery,
+        publishedAfter: sevenDaysAgo,
+        maxResults: 15,
+      });
+      allSearchResults.push(...results);
+
       await this.quotaService.logCall({
         channelId, endpoint: 'refreshTrendsLite (search)', quotaCost: 100, success: true,
       });
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Lite refresh: search failed: ${error.message}`);
       await this.quotaService.logCall({
         channelId, endpoint: 'refreshTrendsLite (search)', quotaCost: 100,

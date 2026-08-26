@@ -140,6 +140,14 @@ export class CompetitorsService {
     this.logger.log(
       `Discovered ${newCompetitors.length} new competitors for channel ${channelId}`,
     );
+
+    await this.quotaService.logCall({
+      channelId,
+      endpoint: 'search.list (discoverCompetitors)',
+      quotaCost: 400,
+      success: true,
+    });
+
     return newCompetitors;
   }
 
@@ -223,31 +231,40 @@ export class CompetitorsService {
     const allVideos: CompetitorVideo[] = [];
 
     for (const competitor of competitors) {
+      if (!competitor.youtubeChannelId) continue;
+      const uploadsPlaylistId = competitor.youtubeChannelId.startsWith('UC')
+        ? competitor.youtubeChannelId.replace(/^UC/, 'UU')
+        : competitor.youtubeChannelId;
+
       try {
-        // Search for recent videos from this channel
-        const searchResults = await this.youtubeService.searchVideos({
-          userId: channel.userId.toString(),
-          query: competitor.title,
-          publishedAfter: cutoffDate,
-          maxResults: 5,
+        const videos = await this.youtubeService.getPlaylistVideos(
+          accessToken,
+          uploadsPlaylistId,
+          10,
+        );
+
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'playlistItems.list (competitorUploads)',
+          quotaCost: 1,
+          relatedId: competitor.youtubeChannelId,
+          success: true,
         });
 
-        for (const result of searchResults) {
-          if (
-            result.channelTitle.toLowerCase() ===
-            competitor.title.toLowerCase()
-          ) {
-            allVideos.push({
-              videoId: result.videoId,
-              title: result.title,
-              thumbnailUrl: result.thumbnailUrl,
-              viewCount: 0,
-              publishedAt: '',
-              channelTitle: result.channelTitle,
-            });
+        for (const v of videos) {
+          if (v.publishedAt && new Date(v.publishedAt).getTime() < cutoffDate.getTime()) {
+            continue; // In-memory cutoff date filter
           }
+          allVideos.push({
+            videoId: v.videoId,
+            title: v.title,
+            thumbnailUrl: v.thumbnailUrl,
+            viewCount: 0,
+            publishedAt: v.publishedAt,
+            channelTitle: v.channelTitle || competitor.title,
+          });
         }
-      } catch (error) {
+      } catch (error: any) {
         this.logger.warn(
           `Failed to fetch uploads for ${competitor.title}: ${error.message}`,
         );

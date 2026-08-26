@@ -7,6 +7,7 @@ import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { MinioService } from '../minio/minio.service';
+import { QuotaService } from '../quota/quota.service';
 import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 
@@ -21,6 +22,7 @@ export class VideosService {
     private readonly youtubeService: YouTubeService,
     private readonly chromaService: ChromaService,
     private readonly minioService: MinioService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   async findAll(channelId: string, query: VideoQueryDto) {
@@ -268,15 +270,37 @@ export class VideosService {
     const accessToken = await this.youtubeService.getValidAccessToken(userId);
     try {
       await this.youtubeService.updateVideo(accessToken, video.youtubeId, video.title, video.description || '', video.tags || []);
+      await this.quotaService.logCall({
+        channelId: video.channelId.toString(),
+        endpoint: 'videos.update',
+        quotaCost: 51,
+        relatedId: video.youtubeId,
+        success: true,
+      });
 
       // Also upload custom thumbnail if set and not already a standard YouTube CDN URL
       if (video.thumbnailUrl && !video.thumbnailUrl.includes('ytimg.com')) {
         try {
           const imageBuffer = await this.getImageBuffer(video.thumbnailUrl);
           await this.youtubeService.setThumbnail(accessToken, video.youtubeId, imageBuffer);
+          await this.quotaService.logCall({
+            channelId: video.channelId.toString(),
+            endpoint: 'thumbnails.set',
+            quotaCost: 50,
+            relatedId: video.youtubeId,
+            success: true,
+          });
           this.logger.log(`Uploaded custom thumbnail to YouTube for ${video.youtubeId}`);
         } catch (e: any) {
           this.logger.warn(`Could not push thumbnail to YouTube for ${video.youtubeId}: ${e.message}`);
+          await this.quotaService.logCall({
+            channelId: video.channelId.toString(),
+            endpoint: 'thumbnails.set',
+            quotaCost: 50,
+            relatedId: video.youtubeId,
+            success: false,
+            errorMessage: e.message,
+          }).catch(() => {});
         }
       }
 
@@ -296,8 +320,16 @@ export class VideosService {
           `Title: ${video.title}\nDescription: ${(video.description || '').slice(0, 500)}\nTags: ${(video.tags || []).join(', ')}`,
           { channelId: video.channelId.toString(), viewCount: video.viewCount, title: video.title });
       } catch { /* RAG optional */ }
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Push to YouTube failed for ${video.youtubeId}: ${error.message}`);
+      await this.quotaService.logCall({
+        channelId: video.channelId.toString(),
+        endpoint: 'videos.update',
+        quotaCost: 51,
+        relatedId: video.youtubeId,
+        success: false,
+        errorMessage: error.message,
+      }).catch(() => {});
       throw error;
     }
 
@@ -319,11 +351,26 @@ export class VideosService {
       try {
         const accessToken = await this.youtubeService.getValidAccessToken(userId);
         const result = await this.youtubeService.setThumbnail(accessToken, video.youtubeId, imageBuffer);
+        await this.quotaService.logCall({
+          channelId: video.channelId.toString(),
+          endpoint: 'thumbnails.set',
+          quotaCost: 50,
+          relatedId: video.youtubeId,
+          success: true,
+        });
         youtubeUploaded = true;
         youtubeThumbnailUrl = result.url;
         this.logger.log(`✅ Successfully uploaded thumbnail to YouTube video ${video.youtubeId}`);
       } catch (error: any) {
         this.logger.error(`❌ Failed to upload thumbnail to YouTube for video ${video.youtubeId}: ${error.message}`);
+        await this.quotaService.logCall({
+          channelId: video.channelId.toString(),
+          endpoint: 'thumbnails.set',
+          quotaCost: 50,
+          relatedId: video.youtubeId,
+          success: false,
+          errorMessage: error.message,
+        }).catch(() => {});
         throw new Error(`Failed to upload thumbnail to YouTube: ${error.message}`);
       }
     }

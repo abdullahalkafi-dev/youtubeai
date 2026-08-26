@@ -102,6 +102,13 @@ export class SeoService {
             const accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
             if (accessToken) {
               const rawVtt = await this.youtubeService.getOfficialVideoCaptions(accessToken, video.youtubeId);
+              await this.quotaService.logCall({
+                channelId: video.channelId.toString(),
+                endpoint: 'captions.list+download',
+                quotaCost: 250,
+                relatedId: video.youtubeId,
+                success: Boolean(rawVtt),
+              });
               if (rawVtt) {
                 const parsed = this.transcriptService.parseVttOrSrtToSegments(rawVtt);
                 if (parsed && parsed.segments.length > 0) {
@@ -111,6 +118,14 @@ export class SeoService {
             }
           } catch (error: any) {
             this.logger.warn(`Tier 2 official captions fallback failed for video ${video.youtubeId}: ${error.message}`);
+            await this.quotaService.logCall({
+              channelId: video.channelId.toString(),
+              endpoint: 'captions.list+download',
+              quotaCost: 250,
+              relatedId: video.youtubeId,
+              success: false,
+              errorMessage: error.message,
+            }).catch(() => {});
           }
         }
       }
@@ -434,8 +449,23 @@ export class SeoService {
       try {
         const accessToken = await this.youtubeService.getValidAccessToken(user._id.toString());
         await this.youtubeService.updateVideo(accessToken, video.youtubeId, targetVersion.seo.title, targetVersion.seo.description, targetVersion.seo.tags);
-      } catch (error) {
+        await this.quotaService.logCall({
+          channelId: video.channelId.toString(),
+          endpoint: 'videos.update (rollback)',
+          quotaCost: 51,
+          relatedId: video.youtubeId,
+          success: true,
+        });
+      } catch (error: any) {
         this.logger.error(`Rollback YouTube push failed for video ${video._id}: ${error.message}`);
+        await this.quotaService.logCall({
+          channelId: video.channelId.toString(),
+          endpoint: 'videos.update (rollback)',
+          quotaCost: 51,
+          relatedId: video.youtubeId,
+          success: false,
+          errorMessage: error.message,
+        }).catch(() => {});
         throw new BadRequestException(`YouTube push failed: ${error.message}`);
       }
     }

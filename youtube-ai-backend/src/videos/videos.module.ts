@@ -8,6 +8,7 @@ import { YoutubeAnalyticsModule } from '../youtube/youtube-analytics.module';
 import { YouTubeModule } from '../youtube/youtube.module';
 import { ChromaModule } from '../chroma/chroma.module';
 import { CommonModule } from '../common/common.module';
+import { QuotaModule } from '../quota/quota.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CommonModule } from '../common/common.module';
     YouTubeModule,
     ChromaModule,
     CommonModule,
+    QuotaModule,
   ],
   controllers: [VideosController],
   providers: [VideosService],

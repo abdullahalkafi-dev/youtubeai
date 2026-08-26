@@ -135,6 +135,68 @@ export class YouTubeService {
     return { videoIds: (response.data.items || []).map(i => i.contentDetails?.videoId).filter((id): id is string => !!id), nextPageToken: response.data.nextPageToken || undefined, totalResults: response.data.pageInfo?.totalResults || 0 };
   }
 
+  async getPlaylistVideos(
+    accessToken: string,
+    playlistId: string,
+    maxResults = 10,
+  ): Promise<
+    Array<{
+      videoId: string;
+      title: string;
+      thumbnailUrl: string;
+      channelTitle: string;
+      publishedAt: string;
+    }>
+  > {
+    const youtube = this.getClient(accessToken);
+    try {
+      const response = await retryWithBackoff(
+        () =>
+          youtube.playlistItems.list({
+            part: ['snippet', 'contentDetails'],
+            playlistId,
+            maxResults,
+          }),
+        { operationName: 'YouTube Playlist Videos (Competitors)' },
+      );
+
+      return (response.data.items || [])
+        .map((item) => {
+          const videoId =
+            item.contentDetails?.videoId ||
+            item.snippet?.resourceId?.videoId ||
+            '';
+          const title = item.snippet?.title || '';
+          const isDeletedOrPrivate =
+            title === 'Private video' ||
+            title === 'Deleted video' ||
+            !videoId;
+
+          if (isDeletedOrPrivate) return null;
+
+          const thumbs = item.snippet?.thumbnails;
+          const thumbnailUrl =
+            thumbs?.maxres?.url ||
+            thumbs?.high?.url ||
+            thumbs?.medium?.url ||
+            thumbs?.default?.url ||
+            '';
+
+          return {
+            videoId,
+            title,
+            thumbnailUrl,
+            channelTitle: item.snippet?.channelTitle || '',
+            publishedAt: item.snippet?.publishedAt || (item.contentDetails as any)?.videoPublishedAt || '',
+          };
+        })
+        .filter((v): v is { videoId: string; title: string; thumbnailUrl: string; channelTitle: string; publishedAt: string } => v !== null);
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch playlist videos for ${playlistId}: ${error.message}`);
+      return [];
+    }
+  }
+
   async getVideoDetails(accessToken: string, videoIds: string[]) {
     const youtube = this.getClient(accessToken);
     const results: any[] = [];
