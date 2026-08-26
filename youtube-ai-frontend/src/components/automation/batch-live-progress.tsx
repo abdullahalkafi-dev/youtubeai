@@ -175,9 +175,11 @@ export function BatchLiveProgress({ batch, onCancel }: BatchLiveProgressProps) {
             {batch.items && batch.items.length > 0 ? (
               batch.items.map((item, idx) => {
                 const rawVid = item.videoId as any;
-                const videoId = typeof rawVid === 'object' && rawVid !== null
-                  ? rawVid._id || rawVid.id || String(rawVid)
-                  : rawVid ? String(rawVid) : '';
+                const videoId = typeof rawVid === 'string'
+                  ? rawVid
+                  : typeof rawVid === 'object' && rawVid !== null
+                  ? (rawVid._id?.toString() || rawVid.id?.toString() || rawVid.$oid?.toString() || (typeof rawVid.toString === 'function' && rawVid.toString() !== '[object Object]' ? rawVid.toString() : ''))
+                  : (rawVid ? String(rawVid) : ((item as any)._id ? String((item as any)._id) : ''));
                 const youtubeUrl = item.youtubeId ? `https://www.youtube.com/watch?v=${item.youtubeId}` : null;
 
                 return (

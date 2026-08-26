@@ -172,6 +172,25 @@ export class Video {
 
   @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
   lastBatchId?: Types.ObjectId;
+
+  // Spoken Transcript & Timestamps Cache
+  @Prop()
+  transcriptText?: string;
+
+  @Prop({ type: [Object], default: [] })
+  transcriptSegments?: Array<{
+    text: string;
+    startSeconds: number;
+    timestamp: string;
+  }>;
+
+  @Prop({
+    enum: ['innertube_android', 'innertube_ios', 'innertube_web', 'official_oauth', 'none'],
+  })
+  transcriptSource?: string;
+
+  @Prop()
+  transcriptFetchedAt?: Date;
 }
 
 export const VideoSchema = SchemaFactory.createForClass(Video);

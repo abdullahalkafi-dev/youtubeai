@@ -27,7 +27,7 @@ import {
 import { User, UserDocument } from '../mongo/schemas/user.schema';
 import { SeoService } from '../seo/seo.service';
 import { YouTubeService } from '../youtube/youtube.service';
-import { QuotaService } from '../quota/quota.service';
+import { QuotaService, QuotaExceededException } from '../quota/quota.service';
 import { AutomationGateway } from './automation.gateway';
 import { BatchQueryDto } from './dto/automation.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -532,6 +532,28 @@ export class AutomationService implements OnApplicationBootstrap {
           generatedTitle: item.generatedTitle,
         });
       } catch (genError: any) {
+        const isQuotaExceeded =
+          genError instanceof QuotaExceededException ||
+          genError?.name === 'QuotaExceededException' ||
+          genError?.reason === 'quotaExceeded' ||
+          genError?.response?.data?.error?.errors?.[0]?.reason === 'quotaExceeded';
+
+        if (isQuotaExceeded) {
+          this.logger.error(`[Batch ${batchId}] YouTube quota exhausted during generation. Halting batch immediately: ${genError.message}`);
+          batch.status = 'failed';
+          item.status = 'failed';
+          item.error = `Quota exhausted: ${genError.message}`;
+          batch.failedItems++;
+          await batch.save();
+          await this.channelModel.findByIdAndUpdate(channelId, { $set: { isBatchRunning: false, activeBatchId: null } });
+          this.gateway.emitBatchCompleted(channelId, {
+            batchId,
+            status: 'failed',
+            error: 'Daily YouTube quota exhausted',
+          });
+          throw genError;
+        }
+
         this.logger.error(`[Batch ${batchId}] AI Generation failed for video ${item.videoId}: ${genError.message}`);
         item.status = 'failed';
         item.error = `AI Generation error: ${genError.message}`;
@@ -550,6 +572,9 @@ export class AutomationService implements OnApplicationBootstrap {
 
       await batch.save();
       await updateHeartbeat();
+
+      // Pacing delay (400ms) to throttle requests on Hostinger VPS IP
+      await new Promise((resolve) => setTimeout(resolve, 400));
     }
 
     // =========================================================================

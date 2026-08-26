@@ -4,6 +4,8 @@ import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 
 export class QuotaExceededException extends Error {
+  public readonly reason = 'quotaExceeded';
+
   constructor(used: number, limit: number, endpoint: string, cost: number) {
     super(`YouTube API quota exceeded: ${used}/${limit} used. Cannot call ${endpoint} (cost: ${cost}).`);
     this.name = 'QuotaExceededException';

@@ -9,6 +9,12 @@ import { retryWithBackoff } from '../common/utils/retry';
 
 const TOKEN_REFRESH_BUFFER_MS = 5 * 60 * 1000;
 
+export type Tier4CaptionResult =
+  | { status: 'success'; rawVtt: string }
+  | { status: 'confirmed_none' }
+  | { status: 'infra_failure'; reason: 'auth' | 'network' | 'forbidden'; error: string }
+  | { status: 'quota_exceeded'; error: string };
+
 @Injectable()
 export class YouTubeService {
   private readonly logger = new Logger(YouTubeService.name);
@@ -427,13 +433,13 @@ export class YouTubeService {
   }
 
   /**
-   * Fetch official captions track for owned videos using YouTube Data API (OAuth fallback).
-   * 100% immune to CAPTCHA/IP rate-limiting. Works for unlisted and private videos.
+   * Fetch official captions track for owned videos using YouTube Data API (Tier 4 OAuth fallback).
+   * Returns a discriminated union to prevent cache poisoning on infra errors or quota exhaustion.
    */
-  async getOfficialVideoCaptions(accessToken: string, videoId: string): Promise<string | null> {
+  async getOfficialVideoCaptions(accessToken: string, videoId: string): Promise<Tier4CaptionResult> {
     const youtube = this.getClient(accessToken);
     try {
-      this.logger.log(`[Tier 2 Fallback] Fetching official captions API for video: ${videoId}`);
+      this.logger.log(`[Tier 4 Fallback] Fetching official captions API for video: ${videoId}`);
       const listRes = await youtube.captions.list({
         part: ['snippet'],
         videoId,
@@ -441,15 +447,17 @@ export class YouTubeService {
 
       const items = listRes.data.items || [];
       if (items.length === 0) {
-        this.logger.log(`No official caption tracks found for video ${videoId}`);
-        return null;
+        this.logger.log(`No official caption tracks found for video ${videoId} (confirmed none)`);
+        return { status: 'confirmed_none' };
       }
 
       // Prioritize English or auto-generated ('asr') tracks
       const englishTrack = items.find(i => i.snippet?.language?.startsWith('en'));
       const chosenTrack = englishTrack || items[0];
 
-      if (!chosenTrack?.id) return null;
+      if (!chosenTrack?.id) {
+        return { status: 'confirmed_none' };
+      }
 
       const downloadRes = await youtube.captions.download(
         {
@@ -459,14 +467,35 @@ export class YouTubeService {
         { responseType: 'text' },
       );
 
-      if (downloadRes.data && typeof downloadRes.data === 'string') {
-        this.logger.log(`[Tier 2 Success] Downloaded official VTT caption track for video ${videoId}`);
-        return downloadRes.data;
+      if (downloadRes.data && typeof downloadRes.data === 'string' && downloadRes.data.trim().length > 0) {
+        this.logger.log(`[Tier 4 Success] Downloaded official VTT caption track for video ${videoId}`);
+        return { status: 'success', rawVtt: downloadRes.data };
       }
-      return null;
+
+      return { status: 'infra_failure', reason: 'network', error: 'Empty VTT response from YouTube Captions API' };
     } catch (error: any) {
-      this.logger.warn(`Failed to fetch official YouTube captions for video ${videoId}: ${error.message}`);
-      return null;
+      const errorReason = error?.response?.data?.error?.errors?.[0]?.reason || '';
+      const isQuota = errorReason === 'quotaExceeded' || error?.message?.toLowerCase().includes('quota') || error?.message?.toLowerCase().includes('exceeded');
+      
+      if (isQuota) {
+        this.logger.error(`YouTube API quota exceeded during captions download for video ${videoId}: ${error.message}`);
+        return { status: 'quota_exceeded', error: error.message };
+      }
+
+      const isForbidden = errorReason === 'forbidden' || error?.response?.status === 403;
+      if (isForbidden) {
+        this.logger.warn(`Captions access forbidden for video ${videoId} (single-video restriction): ${error.message}`);
+        return { status: 'infra_failure', reason: 'forbidden', error: error.message };
+      }
+
+      const isAuth = error?.response?.status === 401 || error?.message?.toLowerCase().includes('auth') || error?.message?.toLowerCase().includes('token');
+      if (isAuth) {
+        this.logger.warn(`Auth token error during captions download for video ${videoId}: ${error.message}`);
+        return { status: 'infra_failure', reason: 'auth', error: error.message };
+      }
+
+      this.logger.warn(`Network/API error during captions download for video ${videoId}: ${error.message}`);
+      return { status: 'infra_failure', reason: 'network', error: error.message };
     }
   }
 }

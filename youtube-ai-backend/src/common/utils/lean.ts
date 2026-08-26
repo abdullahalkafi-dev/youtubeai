@@ -26,6 +26,24 @@ export function leanDoc(doc: any): any {
       };
     });
   }
+
+  // Convert nested items array (e.g. AutomationBatch.items) to have string videoId and _id
+  if (Array.isArray(result.items)) {
+    result.items = result.items.map((it: any) => {
+      let vId = '';
+      if (it.videoId) {
+        if (typeof it.videoId === 'string') vId = it.videoId;
+        else if (it.videoId._id) vId = it.videoId._id.toString();
+        else if (it.videoId.id) vId = String(it.videoId.id);
+        else if (typeof it.videoId.toString === 'function' && it.videoId.toString() !== '[object Object]') vId = it.videoId.toString();
+      }
+      return {
+        ...it,
+        videoId: vId || (it._id ? it._id.toString() : ''),
+        _id: it._id ? it._id.toString() : undefined,
+      };
+    });
+  }
   return result;
 }
 

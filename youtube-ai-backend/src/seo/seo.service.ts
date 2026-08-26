@@ -20,7 +20,7 @@ import { OpenAIService } from '../openai/openai.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { YouTubeSuggestionsService } from '../youtube/youtube-suggestions.service';
 import { YouTubeTranscriptService } from '../youtube/youtube-transcript.service';
-import { QuotaService } from '../quota/quota.service';
+import { QuotaService, QuotaExceededException } from '../quota/quota.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { AutomationService } from '../automation/automation.service';
 import { buildChannelContext } from '../openai/prompts/context';
@@ -50,6 +50,10 @@ export class SeoService {
     private readonly automationService?: AutomationService,
   ) {}
 
+  /**
+   * Main SEO generation method: integrates Channel, RAG memory, 
+   * live YouTube suggestions, spoken transcripts, and Series linking context.
+   */
   async generateSeo(dto: GenerateSeoDto) {
     const video = await this.videoModel.findById(dto.videoId);
     if (!video) throw new NotFoundException(`Video ${dto.videoId} not found`);
@@ -92,47 +96,113 @@ export class SeoService {
         liveSearchSuggestions = await this.suggestionsService.getSuggestions(video.youtubeTitle || video.title);
       } catch { /* optional */ }
 
-      // 2. Fetch spoken video transcript & timestamps (Tier 1: 0-quota scraper -> Tier 2: Official OAuth Captions API fallback)
+      // 2. Spoken Video Transcript & Timestamps (MongoDB Cache -> Tier 1-3 InnerTube 0-Quota -> Tier 4 OAuth Captions API)
       let transcriptAnchors: string | undefined;
-      if (video.youtubeId) {
-        try {
-          // Tier 1: Try 0-quota scraper
-          const res = await this.transcriptService.getTranscript(video.youtubeId);
-          if (res && res.segments.length > 0) {
-            transcriptAnchors = this.transcriptService.formatTranscriptAnchors(res.segments);
-          }
-        } catch { /* proceed to Tier 2 */ }
+      const SEVEN_DAYS_MS = 7 * 24 * 60 * 60 * 1000;
+      const isConfirmedNone =
+        video.transcriptSource === 'none' &&
+        video.transcriptFetchedAt &&
+        Date.now() - new Date(video.transcriptFetchedAt).getTime() < SEVEN_DAYS_MS;
 
-        // Tier 2: Fallback to Official YouTube Captions API if Tier 1 returned no transcript
+      // Step 0: Use cached transcript from MongoDB if available
+      if (video.transcriptSegments && video.transcriptSegments.length > 0) {
+        transcriptAnchors = this.transcriptService.formatTranscriptAnchors(video.transcriptSegments);
+        this.logger.log(`[Transcript Cache Hit] Loaded ${video.transcriptSegments.length} segments from DB for video ${video.youtubeId} (0 quota, 0 network)`);
+      } else if (!isConfirmedNone && video.youtubeId) {
+        // Step 1-3: Multi-Tier InnerTube Scraper (Android -> iOS -> Web) (0 quota)
+        try {
+          const freeRes = await this.transcriptService.getTranscript(video.youtubeId);
+          if (freeRes && freeRes.segments.length > 0 && freeRes.fullText.trim().length > 0) {
+            transcriptAnchors = this.transcriptService.formatTranscriptAnchors(freeRes.segments);
+            // Save permanently in MongoDB
+            await this.videoModel.findByIdAndUpdate(video._id, {
+              $set: {
+                transcriptText: freeRes.fullText,
+                transcriptSegments: freeRes.segments,
+                transcriptSource: freeRes.source,
+                transcriptFetchedAt: new Date(),
+              },
+            });
+            this.logger.log(`[Transcript Saved] Saved 0-quota ${freeRes.source} transcript (${freeRes.segments.length} segs) to DB for ${video.youtubeId}`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`InnerTube transcript fetch fell through for ${video.youtubeId}: ${e.message}`);
+        }
+
+        // Step 4: Fallback to Official YouTube Captions API (Channel-Owned OAuth) if 0-quota tiers found no tracks
         if (!transcriptAnchors && channel?.userId) {
           try {
             const accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
             if (accessToken) {
-              const rawVtt = await this.youtubeService.getOfficialVideoCaptions(accessToken, video.youtubeId);
-              await this.quotaService.logCall({
-                channelId: video.channelId.toString(),
-                endpoint: 'captions.list+download',
-                quotaCost: 250,
-                relatedId: video.youtubeId,
-                success: Boolean(rawVtt),
-              });
-              if (rawVtt) {
-                const parsed = this.transcriptService.parseVttOrSrtToSegments(rawVtt);
+              const tier4Res = await this.youtubeService.getOfficialVideoCaptions(accessToken, video.youtubeId);
+
+              if (tier4Res.status === 'success') {
+                await this.quotaService.logCall({
+                  channelId: video.channelId.toString(),
+                  endpoint: 'captions.list+download',
+                  quotaCost: 250,
+                  relatedId: video.youtubeId,
+                  success: true,
+                });
+
+                const parsed = this.transcriptService.parseVttOrSrtToSegments(tier4Res.rawVtt);
                 if (parsed && parsed.segments.length > 0) {
                   transcriptAnchors = this.transcriptService.formatTranscriptAnchors(parsed.segments);
+                  await this.videoModel.findByIdAndUpdate(video._id, {
+                    $set: {
+                      transcriptText: parsed.fullText,
+                      transcriptSegments: parsed.segments,
+                      transcriptSource: 'official_oauth',
+                      transcriptFetchedAt: new Date(),
+                    },
+                  });
+                  this.logger.log(`[Tier 4 Saved] Saved official OAuth transcript to DB for ${video.youtubeId}`);
                 }
+              } else if (tier4Res.status === 'confirmed_none') {
+                await this.quotaService.logCall({
+                  channelId: video.channelId.toString(),
+                  endpoint: 'captions.list',
+                  quotaCost: 50,
+                  relatedId: video.youtubeId,
+                  success: true,
+                });
+                // Cache confirmed none with 7-day cooldown
+                await this.videoModel.findByIdAndUpdate(video._id, {
+                  $set: {
+                    transcriptSource: 'none',
+                    transcriptFetchedAt: new Date(),
+                  },
+                });
+                this.logger.log(`[Tier 4 Confirmed None] Cached transcriptSource: none for ${video.youtubeId}`);
+              } else if (tier4Res.status === 'quota_exceeded') {
+                await this.quotaService.logCall({
+                  channelId: video.channelId.toString(),
+                  endpoint: 'captions.list+download',
+                  quotaCost: 250,
+                  relatedId: video.youtubeId,
+                  success: false,
+                  errorMessage: tier4Res.error,
+                }).catch(() => {});
+                // Throw QuotaExceededException so batch halts immediately
+                throw new QuotaExceededException(10000, 10000, 'captions.list+download', 250);
+              } else if (tier4Res.status === 'infra_failure') {
+                // Do NOT write 'none' to cache (leaves cache clean for next run retry)
+                await this.quotaService.logCall({
+                  channelId: video.channelId.toString(),
+                  endpoint: 'captions.list+download',
+                  quotaCost: 250,
+                  relatedId: video.youtubeId,
+                  success: false,
+                  errorMessage: `${tier4Res.reason}: ${tier4Res.error}`,
+                }).catch(() => {});
+                this.logger.warn(`Tier 4 infra failure (${tier4Res.reason}) for ${video.youtubeId}: ${tier4Res.error}. Leaving cache unpoisoned.`);
               }
             }
           } catch (error: any) {
-            this.logger.warn(`Tier 2 official captions fallback failed for video ${video.youtubeId}: ${error.message}`);
-            await this.quotaService.logCall({
-              channelId: video.channelId.toString(),
-              endpoint: 'captions.list+download',
-              quotaCost: 250,
-              relatedId: video.youtubeId,
-              success: false,
-              errorMessage: error.message,
-            }).catch(() => {});
+            if (error instanceof QuotaExceededException || error?.reason === 'quotaExceeded') {
+              throw error; // Re-throw to halt batch loop
+            }
+            this.logger.warn(`Tier 4 official captions exception for video ${video.youtubeId}: ${error.message}`);
           }
         }
       }
