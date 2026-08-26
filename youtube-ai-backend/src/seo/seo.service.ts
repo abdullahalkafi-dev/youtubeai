@@ -4,6 +4,9 @@ import {
   ForbiddenException,
   BadRequestException,
   Logger,
+  Inject,
+  forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -19,6 +22,7 @@ import { YouTubeSuggestionsService } from '../youtube/youtube-suggestions.servic
 import { YouTubeTranscriptService } from '../youtube/youtube-transcript.service';
 import { QuotaService } from '../quota/quota.service';
 import { ChromaService } from '../chroma/chroma.service';
+import { AutomationService } from '../automation/automation.service';
 import { buildChannelContext } from '../openai/prompts/context';
 import { GenerateSeoDto } from './dto/seo.dto';
 
@@ -41,6 +45,9 @@ export class SeoService {
     private readonly transcriptService: YouTubeTranscriptService,
     private readonly quotaService: QuotaService,
     private readonly chromaService: ChromaService,
+    @Inject(forwardRef(() => AutomationService))
+    @Optional()
+    private readonly automationService?: AutomationService,
   ) {}
 
   async generateSeo(dto: GenerateSeoDto) {
@@ -394,6 +401,15 @@ export class SeoService {
           `Title: ${suggestion.title}\nDescription: ${suggestion.description}\nTags: ${suggestion.tags.join(', ')}`,
           { videoId: suggestion.videoId.toString(), channelId: suggestion.channelId.toString(), status: 'approved', title: suggestion.title });
       } catch { /* RAG optional */ }
+
+      // Reconcile any historical batch failures for this video
+      try {
+        if (this.automationService) {
+          await this.automationService.reconcileManualOverride(suggestion.videoId);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to reconcile automation batch for video ${suggestion.videoId}: ${err.message}`);
+      }
 
       return { success: true, videoId: suggestion.videoId, youtubePushed, dailyCount: dailyApproveCount + 1, dailyCap: DAILY_APPROVE_CAP };
     } catch (error) {

@@ -19,6 +19,8 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
   const batchId = batch.id || batch._id || 'unknown';
   const hasFailedItems = (batch.failedItems || 0) > 0;
   const isChildRetry = Boolean(batch.parentBatchId);
+  const isRetried = Boolean(batch.isRetried || batch.retriedByBatchId);
+  const canRetry = !isRetried && hasFailedItems && Boolean(onRetry) && batch.status !== 'generating' && batch.status !== 'pushing';
 
   return (
     <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 shadow-sm transition hover:border-gray-300 dark:hover:border-gray-700">
@@ -28,7 +30,7 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
           <div className="flex items-start sm:items-center gap-3">
             <div
               className={`p-2.5 rounded-xl shrink-0 ${
-                batch.status === 'completed'
+                batch.status === 'completed' || (batch.status === 'partial' && !hasFailedItems)
                   ? 'bg-emerald-50 dark:bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
                   : batch.status === 'partial'
                   ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400'
@@ -60,17 +62,25 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
                     : 'Manual Batch'}
                 </Badge>
 
+                {isRetried && batch.retriedByBatchId && (
+                  <Badge variant="blue">
+                    Retried in #{batch.retriedByBatchId.slice(-6).toUpperCase()}
+                  </Badge>
+                )}
+
                 <Badge
                   variant={
-                    batch.status === 'completed'
+                    batch.status === 'completed' || (batch.status === 'partial' && !hasFailedItems)
                       ? 'green'
                       : batch.status === 'partial'
                       ? 'yellow'
                       : 'red'
                   }
                 >
-                  {batch.status === 'completed'
+                  {batch.status === 'completed' || (batch.status === 'partial' && !hasFailedItems)
                     ? 'Completed (All Live)'
+                    : isRetried
+                    ? 'Failed (Retried)'
                     : batch.status === 'partial'
                     ? 'Partial Success'
                     : batch.status}
@@ -96,7 +106,7 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
                     </span>
                   </>
                 )}
-                {(batch.failedItems || 0) > 0 && (
+                {hasFailedItems && (
                   <>
                     <span>•</span>
                     <span className="text-rose-500 font-medium">
@@ -109,7 +119,7 @@ export function BatchCard({ batch, onRetry, retrying }: BatchCardProps) {
           </div>
 
           <div className="flex items-center gap-2 self-end sm:self-auto">
-            {hasFailedItems && onRetry && (
+            {canRetry && onRetry && (
               <button
                 onClick={() => onRetry(batchId)}
                 disabled={retrying}

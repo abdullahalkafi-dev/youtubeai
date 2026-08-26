@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SeoService } from './seo.service';
 import { SeoController } from './seo.controller';
@@ -13,6 +13,7 @@ import { YouTubeModule } from '../youtube/youtube.module';
 import { QuotaModule } from '../quota/quota.module';
 import { ChromaModule } from '../chroma/chroma.module';
 import { CommonModule } from '../common/common.module';
+import { AutomationModule } from '../automation/automation.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { CommonModule } from '../common/common.module';
     QuotaModule,
     ChromaModule,
     CommonModule,
+    forwardRef(() => AutomationModule),
   ],
   controllers: [SeoController],
   providers: [SeoService],

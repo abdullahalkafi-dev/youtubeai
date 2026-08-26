@@ -7,7 +7,7 @@ export class RunBatchDto {
   @IsNumber()
   @Min(1)
   @Max(50)
-  batchSize?: number = 30;
+  batchSize?: number = 20;
 
   @IsOptional()
   @IsEnum(['auto_cron_batch', 'manual_ui_batch'])

@@ -29,6 +29,8 @@ export interface AutomationBatch {
   type: 'video_seo' | 'comment_reply';
   source: 'auto_cron_batch' | 'manual_ui_batch';
   parentBatchId?: string;
+  isRetried?: boolean;
+  retriedByBatchId?: string;
   status:
     | 'pending'
     | 'checking_quota'

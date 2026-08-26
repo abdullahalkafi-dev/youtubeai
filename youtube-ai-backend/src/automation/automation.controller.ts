@@ -46,7 +46,7 @@ export class AutomationController {
   ) {
     return this.automationService.runBatch(
       channelId,
-      dto.batchSize || 30,
+      dto.batchSize || 20,
       dto.source || 'manual_ui_batch',
     );
   }

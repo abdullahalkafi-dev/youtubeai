@@ -63,7 +63,7 @@ export const runBatchAsync = createAsyncThunk(
   'automation/runBatch',
   async ({
     channelId,
-    batchSize = 30,
+    batchSize = 20,
     source = 'manual_ui_batch',
   }: {
     channelId: string;

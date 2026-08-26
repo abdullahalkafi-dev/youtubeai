@@ -720,7 +720,7 @@ class ApiClient {
     return this.get<AutomationBatch | null>(`/api/channels/${channelId}/automation/active`)
   }
 
-  async runAutomationBatch(channelId: string, batchSize = 30, source = 'manual_ui_batch'): Promise<{ message: string; batchId?: string; totalItems: number; queued: boolean }> {
+  async runAutomationBatch(channelId: string, batchSize = 20, source = 'manual_ui_batch'): Promise<{ message: string; batchId?: string; totalItems: number; queued: boolean }> {
     return this.post<{ message: string; batchId?: string; totalItems: number; queued: boolean }>(`/api/channels/${channelId}/automation/run`, { batchSize, source })
   }
 

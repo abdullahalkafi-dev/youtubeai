@@ -218,7 +218,7 @@ export class AutomationService implements OnApplicationBootstrap {
       ]);
 
     const remainingUnoptimized = notStartedVideos;
-    const dailyBatchSize = 30;
+    const dailyBatchSize = 20;
     const estimatedDaysRemaining = remainingUnoptimized > 0 ? Math.ceil(remainingUnoptimized / dailyBatchSize) : 0;
 
     // Calculate next run time (7:30 AM America/New_York)
@@ -327,7 +327,7 @@ export class AutomationService implements OnApplicationBootstrap {
    */
   async runBatch(
     channelId: string,
-    batchSize: number = 30,
+    batchSize: number = 20,
     source: string = 'manual_ui_batch',
     customInstructions?: string,
   ) {
@@ -823,26 +823,111 @@ export class AutomationService implements OnApplicationBootstrap {
   }
 
   /**
+   * Reconciles manual overrides from Video Details / SEO Suggestion approvals
+   */
+  async reconcileManualOverride(videoId: string | Types.ObjectId) {
+    const vId = typeof videoId === 'string' && Types.ObjectId.isValid(videoId) ? new Types.ObjectId(videoId) : videoId;
+    const batches = await this.batchModel.find({
+      $or: [
+        { 'items.videoId': vId },
+        { 'items.videoId': videoId.toString() },
+      ],
+      'items.status': 'failed',
+    });
+
+    for (const batch of batches) {
+      let updated = false;
+      for (const item of batch.items) {
+        const itemVid = item.videoId?.toString?.() || String(item.videoId);
+        if (itemVid === videoId.toString() && item.status === 'failed') {
+          item.status = 'skipped_manual_override';
+          item.processedAt = new Date();
+          item.error = 'Resolved via manual approval on video details page.';
+          updated = true;
+        }
+      }
+
+      if (updated) {
+        const successful = batch.items.filter((i) => i.status === 'completed').length;
+        const skipped = batch.items.filter((i) => i.status === 'skipped_manual_override').length;
+        const failed = batch.items.filter((i) => i.status === 'failed').length;
+
+        batch.successfulItems = successful;
+        batch.skippedItems = skipped;
+        batch.failedItems = failed;
+
+        if (failed === 0 && (successful > 0 || skipped > 0)) {
+          batch.status = 'completed';
+        }
+
+        await batch.save();
+
+        const channelId = batch.channelId.toString();
+        this.gateway.emitBatchCompleted(channelId, {
+          batchId: batch._id.toString(),
+          status: batch.status,
+          totalItems: batch.totalItems,
+          successfulItems: batch.successfulItems,
+          failedItems: batch.failedItems,
+          skippedItems: batch.skippedItems,
+        });
+
+        const updatedStats = await this.getStats(channelId);
+        this.gateway.emitStatsUpdated(channelId, updatedStats);
+      }
+    }
+  }
+
+  /**
    * Immutable Child Batch Retry Pattern
    */
   async retryFailedItems(batchId: string) {
     const parentBatch = await this.batchModel.findById(batchId);
     if (!parentBatch) throw new NotFoundException(`Batch ${batchId} not found`);
 
-    const failedItems = parentBatch.items.filter((i) => i.status === 'failed' || i.status === 'staged');
-    if (failedItems.length === 0) {
-      throw new BadRequestException('No failed items found in this batch to retry.');
+    if (parentBatch.isRetried) {
+      throw new BadRequestException(
+        `Batch has already been retried in child batch #${parentBatch.retriedByBatchId ? parentBatch.retriedByBatchId.toString().slice(-6).toUpperCase() : ''}`,
+      );
+    }
+
+    // Reconcile any items that might have already been approved manually in DB
+    const failedCandidates = parentBatch.items.filter((i) => i.status === 'failed' || i.status === 'staged');
+    const actionableItems = [];
+
+    for (const item of failedCandidates) {
+      const vid = await this.videoModel.findById(item.videoId).lean();
+      if (vid && (vid.seoStatus === 'approved' || vid.seoStatus === 'optimized')) {
+        item.status = 'skipped_manual_override';
+        item.processedAt = new Date();
+        item.error = 'Resolved via manual approval on video details page.';
+      } else {
+        actionableItems.push(item);
+      }
+    }
+
+    // Update parent batch item counts in case some were resolved manually
+    parentBatch.successfulItems = parentBatch.items.filter((i) => i.status === 'completed').length;
+    parentBatch.skippedItems = parentBatch.items.filter((i) => i.status === 'skipped_manual_override').length;
+    parentBatch.failedItems = parentBatch.items.filter((i) => i.status === 'failed').length;
+
+    if (actionableItems.length === 0) {
+      if (parentBatch.failedItems === 0) {
+        parentBatch.status = 'completed';
+      }
+      await parentBatch.save();
+      throw new BadRequestException('All failed items in this batch have already been resolved.');
     }
 
     const channelId = parentBatch.channelId.toString();
 
     // Quota pre-check for child retry batch
-    const estimatedQuota = failedItems.length * YOUTUBE_QUOTA_COST_PER_VIDEO;
+    const estimatedQuota = actionableItems.length * YOUTUBE_QUOTA_COST_PER_VIDEO;
     try {
       const { used } = await this.quotaService.getDailyUsage(channelId);
       if (used + estimatedQuota > YOUTUBE_HARD_CAP_CEILING) {
         throw new BadRequestException(
-          `Daily YouTube API quota limit reached (${used}/${YOUTUBE_HARD_CAP_CEILING} units used). Retrying ${failedItems.length} videos would cost ~${estimatedQuota} units.`,
+          `Daily YouTube API quota limit reached (${used}/${YOUTUBE_HARD_CAP_CEILING} units used). Retrying ${actionableItems.length} videos would cost ~${estimatedQuota} units.`,
         );
       }
     } catch (err: any) {
@@ -867,14 +952,14 @@ export class AutomationService implements OnApplicationBootstrap {
       source: 'manual_ui_batch',
       parentBatchId: parentBatch._id,
       status: 'generating',
-      totalItems: failedItems.length,
+      totalItems: actionableItems.length,
       successfulItems: 0,
       failedItems: 0,
       skippedItems: 0,
       quotaUnitsUsed: 0,
       startedAt: new Date(),
       lastHeartbeatAt: new Date(),
-      items: failedItems.map((f) => ({
+      items: actionableItems.map((f) => ({
         videoId: f.videoId,
         youtubeId: f.youtubeId,
         originalTitle: f.originalTitle,
@@ -888,6 +973,11 @@ export class AutomationService implements OnApplicationBootstrap {
       })),
     });
 
+    // Mark parent batch as retried so UI disables retry and links to child
+    parentBatch.isRetried = true;
+    parentBatch.retriedByBatchId = childBatch._id;
+    await parentBatch.save();
+
     await this.channelModel.findByIdAndUpdate(parentBatch.channelId, {
       $set: { activeBatchId: childBatch._id },
     });
@@ -897,7 +987,7 @@ export class AutomationService implements OnApplicationBootstrap {
     this.gateway.emitBatchStarted(channelId, {
       batchId: childBatch._id.toString(),
       parentBatchId: parentBatch._id.toString(),
-      totalItems: failedItems.length,
+      totalItems: actionableItems.length,
       startedAt: childBatch.startedAt,
     });
 
@@ -906,7 +996,7 @@ export class AutomationService implements OnApplicationBootstrap {
     });
 
     return {
-      message: `Retry batch created with ${failedItems.length} items.`,
+      message: `Retry batch created with ${actionableItems.length} items.`,
       batchId: childBatch._id.toString(),
       parentBatchId: parentBatch._id.toString(),
     };

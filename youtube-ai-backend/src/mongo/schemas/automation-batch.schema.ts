@@ -83,6 +83,12 @@ export class AutomationBatch {
   @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
   parentBatchId?: Types.ObjectId;
 
+  @Prop({ default: false })
+  isRetried?: boolean;
+
+  @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
+  retriedByBatchId?: Types.ObjectId;
+
   @Prop({
     default: 'pending',
     enum: [

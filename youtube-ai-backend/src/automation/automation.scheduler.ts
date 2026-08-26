@@ -37,8 +37,8 @@ export class AutomationScheduler {
     for (const channel of channels) {
       const channelId = channel._id.toString();
       const batchSize = channel.seoSettings?.dailyUpdateCap
-        ? Math.min(channel.seoSettings.dailyUpdateCap, 30)
-        : 30;
+        ? Math.min(channel.seoSettings.dailyUpdateCap, 20)
+        : 20;
 
       this.dispatchWithAutoPostpone(channelId, channel.name, batchSize);
     }
