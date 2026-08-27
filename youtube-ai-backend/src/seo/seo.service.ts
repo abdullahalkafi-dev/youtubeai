@@ -183,8 +183,7 @@ export class SeoService {
                   success: false,
                   errorMessage: tier4Res.error,
                 }).catch(() => {});
-                // Throw QuotaExceededException so batch halts immediately
-                throw new QuotaExceededException(10000, 10000, 'captions.list+download', 250);
+                this.logger.warn(`YouTube API quota exceeded for captions on ${video.youtubeId}; proceeding with metadata SEO generation`);
               } else if (tier4Res.status === 'infra_failure') {
                 // Do NOT write 'none' to cache (leaves cache clean for next run retry)
                 await this.quotaService.logCall({
@@ -193,15 +192,12 @@ export class SeoService {
                   quotaCost: 250,
                   relatedId: video.youtubeId,
                   success: false,
-                  errorMessage: `${tier4Res.reason}: ${tier4Res.error}`,
+                  errorMessage: tier4Res.error,
                 }).catch(() => {});
-                this.logger.warn(`Tier 4 infra failure (${tier4Res.reason}) for ${video.youtubeId}: ${tier4Res.error}. Leaving cache unpoisoned.`);
+                this.logger.warn(`Tier 4 infra failure for video ${video.youtubeId}: ${tier4Res.error}`);
               }
             }
           } catch (error: any) {
-            if (error instanceof QuotaExceededException || error?.reason === 'quotaExceeded') {
-              throw error; // Re-throw to halt batch loop
-            }
             this.logger.warn(`Tier 4 official captions exception for video ${video.youtubeId}: ${error.message}`);
           }
         }

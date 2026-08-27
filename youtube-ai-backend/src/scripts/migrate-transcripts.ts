@@ -108,7 +108,6 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
       } else if (res.status === 404) {
         return { status: 'none', error: '404 - No transcript available' };
       } else {
-        // 408 / 5xx error
         if (attempt === 3) {
           return { status: 'error', error: `HTTP ${res.status}` };
         }
@@ -156,21 +155,23 @@ async function runMigration() {
   console.log(`✅ Connected to MongoDB successfully.\n`);
 
   // Query: Find all videos that do NOT have transcriptSegments yet and are not marked as deleted
-  const query: any = {
-    deletedFromYoutube: { $ne: true },
-    $or: [
-      { transcriptSegments: { $exists: false } },
-      { transcriptSegments: { $size: 0 } },
-      { transcriptSegments: null },
-    ],
-    transcriptSource: { $ne: 'none' },
+  const buildQuery = () => {
+    const q: any = {
+      deletedFromYoutube: { $ne: true },
+      $or: [
+        { transcriptSegments: { $exists: false } },
+        { transcriptSegments: { $size: 0 } },
+        { transcriptSegments: null },
+      ],
+      transcriptSource: { $ne: 'none' },
+    };
+    if (channelFilter) {
+      q.channelId = new mongoose.Types.ObjectId(channelFilter);
+    }
+    return q;
   };
 
-  if (channelFilter) {
-    query.channelId = new mongoose.Types.ObjectId(channelFilter);
-  }
-
-  const totalCandidates = await VideoModel.countDocuments(query);
+  const totalCandidates = await VideoModel.countDocuments(buildQuery());
   console.log(`📊 Found ${totalCandidates} candidate videos needing transcript ingestion.`);
 
   if (totalCandidates === 0) {
@@ -179,58 +180,70 @@ async function runMigration() {
     return;
   }
 
-  let dbQuery = VideoModel.find(query).select('_id youtubeId title channelId').sort({ publishedAt: -1 });
-  if (limit && limit > 0) {
-    dbQuery = dbQuery.limit(limit);
-  }
-
-  const cursor = dbQuery.cursor({ batchSize: 20 });
-
+  const targetTotal = limit && limit > 0 ? Math.min(limit, totalCandidates) : totalCandidates;
   let processedCount = 0;
   let successCount = 0;
   let noneCount = 0;
   let errorCount = 0;
   const startTime = Date.now();
+  const CHUNK_SIZE = 50;
 
-  for await (const doc of cursor) {
-    processedCount++;
-    const vid = doc as any;
-    const progressPrefix = `[${processedCount}/${limit || totalCandidates}]`;
+  // Process in chunks of 50 documents — 100% immune to MongoDB cursor timeouts during long runs
+  while (processedCount < targetTotal) {
+    const remainingToFetch = Math.min(CHUNK_SIZE, targetTotal - processedCount);
+    const batch = await VideoModel.find(buildQuery())
+      .select('_id youtubeId title channelId')
+      .sort({ publishedAt: -1 })
+      .limit(remainingToFetch)
+      .lean();
 
-    if (!vid.youtubeId) {
-      console.log(`${progressPrefix} ⚠️ Skipping doc ${vid._id} (no youtubeId)`);
-      continue;
+    if (!batch || batch.length === 0) {
+      break;
     }
 
-    const result = await fetchFromTranscriptApi(vid.youtubeId, apiKey);
+    for (const vid of batch as any[]) {
+      processedCount++;
+      const progressPrefix = `[${processedCount}/${targetTotal}]`;
 
-    if (result.status === 'success' && result.segments && result.fullText) {
-      await VideoModel.findByIdAndUpdate(vid._id, {
-        $set: {
-          transcriptText: result.fullText,
-          transcriptSegments: result.segments,
-          transcriptSource: 'transcriptapi',
-          transcriptFetchedAt: new Date(),
-        },
-      });
-      successCount++;
-      console.log(`${progressPrefix} ✅ Saved ${result.segments.length} segments for ${vid.youtubeId} ("${(vid.title || '').slice(0, 40)}")`);
-    } else if (result.status === 'none') {
-      await VideoModel.findByIdAndUpdate(vid._id, {
-        $set: {
-          transcriptSource: 'none',
-          transcriptFetchedAt: new Date(),
-        },
-      });
-      noneCount++;
-      console.log(`${progressPrefix} ℹ️ No transcript on YouTube for ${vid.youtubeId} (marked as none)`);
-    } else {
-      errorCount++;
-      console.log(`${progressPrefix} ❌ Error for ${vid.youtubeId}: ${result.error || 'unknown'}`);
+      if (!vid.youtubeId) {
+        console.log(`${progressPrefix} ⚠️ Skipping doc ${vid._id} (no youtubeId)`);
+        continue;
+      }
+
+      const result = await fetchFromTranscriptApi(vid.youtubeId, apiKey);
+
+      if (result.status === 'success' && result.segments && result.fullText) {
+        await VideoModel.findByIdAndUpdate(vid._id, {
+          $set: {
+            transcriptText: result.fullText,
+            transcriptSegments: result.segments,
+            transcriptSource: 'transcriptapi',
+            transcriptFetchedAt: new Date(),
+          },
+        });
+        successCount++;
+        console.log(`${progressPrefix} ✅ Saved ${result.segments.length} segments for ${vid.youtubeId} ("${(vid.title || '').slice(0, 40)}")`);
+      } else if (result.status === 'none') {
+        await VideoModel.findByIdAndUpdate(vid._id, {
+          $set: {
+            transcriptSource: 'none',
+            transcriptFetchedAt: new Date(),
+          },
+        });
+        noneCount++;
+        console.log(`${progressPrefix} ℹ️ No transcript on YouTube for ${vid.youtubeId} (marked as none)`);
+      } else {
+        errorCount++;
+        console.log(`${progressPrefix} ❌ Error for ${vid.youtubeId}: ${result.error || 'unknown'}`);
+      }
+
+      if (processedCount >= targetTotal) {
+        break;
+      }
+
+      // Pacing: Wait 2,000ms before next request (30 req/min)
+      await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_REQUESTS_MS));
     }
-
-    // Pacing: Wait 2,000ms before next request (30 req/min)
-    await new Promise((resolve) => setTimeout(resolve, DELAY_BETWEEN_REQUESTS_MS));
   }
 
   const elapsedSec = Math.round((Date.now() - startTime) / 1000);

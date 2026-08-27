@@ -25,6 +25,7 @@ services:
       - ./youtube-ai-backend/.env.prod
     environment:
       - MINIO_PUBLIC_URL=https://meccaaudio.com
+      - NODE_OPTIONS=--max-old-space-size=2048
     depends_on:
       mongodb:
         condition: service_healthy
@@ -40,6 +41,7 @@ services:
 
   mongodb:
     image: mongo:7
+    command: mongod --wiredTigerCacheSizeGB 1.5
     ports:
       - '27017:27017'
     volumes:
