@@ -1,7 +1,11 @@
 import mongoose, { Schema } from 'mongoose';
 
-// Ensure dotenv is loaded if run standalone
-require('dotenv').config();
+// Safely load dotenv if available in local development
+try {
+  require('dotenv').config();
+} catch {
+  // In Docker production, env vars are injected by Docker Compose
+}
 
 const DEFAULT_MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/youtube_ai';
 const DEFAULT_TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || 'sk_PRPhLwEm-wfc9mN92KUP_1tcTcZeGZmI3gzPDxU-LKI';
