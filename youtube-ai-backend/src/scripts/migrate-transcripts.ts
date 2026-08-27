@@ -59,8 +59,9 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
   error?: string;
 }> {
   const url = `${TRANSCRIPT_API_BASE_URL}?video_url=${youtubeId}&format=json&include_timestamp=true`;
+  const MAX_ATTEMPTS = 4;
 
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
       const res = await fetch(url, {
         method: 'GET',
@@ -68,7 +69,7 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/json',
         },
-        signal: AbortSignal.timeout(15000),
+        signal: AbortSignal.timeout(20000),
       });
 
       if (res.status === 200) {
@@ -112,18 +113,18 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
       } else if (res.status === 404) {
         return { status: 'none', error: '404 - No transcript available' };
       } else {
-        if (attempt === 3) {
+        if (attempt === MAX_ATTEMPTS) {
           return { status: 'error', error: `HTTP ${res.status}` };
         }
       }
     } catch (e: any) {
-      if (attempt === 3) {
+      if (attempt === MAX_ATTEMPTS) {
         return { status: 'error', error: e.message };
       }
     }
 
-    if (attempt < 3) {
-      await new Promise((r) => setTimeout(r, 1500));
+    if (attempt < MAX_ATTEMPTS) {
+      await new Promise((r) => setTimeout(r, attempt * 2000));
     }
   }
 
