@@ -185,7 +185,7 @@ export class Video {
   }>;
 
   @Prop({
-    enum: ['innertube_android', 'innertube_ios', 'innertube_web', 'official_oauth', 'none'],
+    enum: ['transcriptapi', 'innertube_android', 'innertube_ios', 'innertube_web', 'official_oauth', 'none'],
   })
   transcriptSource?: string;
 
