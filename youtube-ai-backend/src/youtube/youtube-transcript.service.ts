@@ -8,7 +8,7 @@ export interface TranscriptSegment {
 
 export type TranscriptSource = 'transcriptapi' | 'innertube_android' | 'innertube_ios' | 'innertube_web' | 'official_oauth' | 'none';
 
-const TRANSCRIPT_API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
+const TRANSCRIPT_API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube';
 const DEFAULT_TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || 'sk_PRPhLwEm-wfc9mN92KUP_1tcTcZeGZmI3gzPDxU-LKI';
 
 @Injectable()
@@ -24,11 +24,30 @@ export class YouTubeTranscriptService {
     source: TranscriptSource;
   } | null> {
     const apiKey = process.env.TRANSCRIPT_API_KEY || DEFAULT_TRANSCRIPT_API_KEY;
-    const url = `${TRANSCRIPT_API_BASE_URL}?video_url=${youtubeVideoId}&format=json&include_timestamp=true`;
 
     this.logger.log(`Fetching transcript for video ${youtubeVideoId} via TranscriptAPI.com`);
 
-    // Retry loop: 3 attempts with exponential backoff for network / 408 / 5xx responses
+    // 1. Free Pre-flight check via /youtube/info (detects if video has subtitles with 0 credit cost)
+    try {
+      const infoUrl = `${TRANSCRIPT_API_BASE_URL}/info?video_url=${youtubeVideoId}`;
+      const infoRes = await fetch(infoUrl, {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${apiKey}` },
+        signal: AbortSignal.timeout(8000),
+      });
+
+      if (infoRes.status === 404) {
+        this.logger.warn(`[TranscriptAPI Info] Video ${youtubeVideoId} has no transcript tracks on YouTube`);
+        return null;
+      }
+    } catch {
+      // Proceed if pre-flight times out
+    }
+
+    // 2. Fetch transcript with timestamps
+    const url = `${TRANSCRIPT_API_BASE_URL}/transcript?video_url=${youtubeVideoId}&format=json&include_timestamp=true`;
+
+    // Retry loop: 3 attempts with backoff for network / 408 / 5xx responses
     for (let attempt = 1; attempt <= 3; attempt++) {
       try {
         const res = await fetch(url, {
@@ -37,7 +56,7 @@ export class YouTubeTranscriptService {
             Authorization: `Bearer ${apiKey}`,
             'Content-Type': 'application/json',
           },
-          signal: AbortSignal.timeout(15000),
+          signal: AbortSignal.timeout(20000),
         });
 
         if (res.status === 200) {

@@ -9,7 +9,7 @@ try {
 
 const DEFAULT_MONGO_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/youtube_ai';
 const DEFAULT_TRANSCRIPT_API_KEY = process.env.TRANSCRIPT_API_KEY || 'sk_PRPhLwEm-wfc9mN92KUP_1tcTcZeGZmI3gzPDxU-LKI';
-const TRANSCRIPT_API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube/transcript';
+const TRANSCRIPT_API_BASE_URL = 'https://transcriptapi.com/api/v2/youtube';
 const DELAY_BETWEEN_REQUESTS_MS = 2000; // 30 requests per minute (polite pacing)
 
 // Define minimal Video schema for the migration script
@@ -58,8 +58,25 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
   segments?: Array<{ text: string; startSeconds: number; timestamp: string }>;
   error?: string;
 }> {
-  const url = `${TRANSCRIPT_API_BASE_URL}?video_url=${youtubeId}&format=json&include_timestamp=true`;
-  const MAX_ATTEMPTS = 4;
+  // 1. Free Pre-flight check via /youtube/info to detect videos without transcripts instantly (0 credit cost)
+  try {
+    const infoUrl = `${TRANSCRIPT_API_BASE_URL}/info?video_url=${youtubeId}`;
+    const infoRes = await fetch(infoUrl, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${apiKey}` },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    if (infoRes.status === 404) {
+      return { status: 'none', error: '404 - No transcript available on YouTube' };
+    }
+  } catch {
+    // If info pre-flight network glitches, proceed to transcript endpoint
+  }
+
+  // 2. Fetch transcript with timestamps
+  const url = `${TRANSCRIPT_API_BASE_URL}/transcript?video_url=${youtubeId}&format=json&include_timestamp=true`;
+  const MAX_ATTEMPTS = 3;
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
@@ -124,7 +141,7 @@ async function fetchFromTranscriptApi(youtubeId: string, apiKey: string): Promis
     }
 
     if (attempt < MAX_ATTEMPTS) {
-      await new Promise((r) => setTimeout(r, attempt * 2000));
+      await new Promise((r) => setTimeout(r, attempt * 1500));
     }
   }
 
