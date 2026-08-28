@@ -338,11 +338,24 @@ export class YouTubeService {
 
   async updateVideo(accessToken: string, videoId: string, title: string, description: string, tags: string[]) {
     const youtube = this.getClient(accessToken);
+    const sanitizedTitle = this.sanitizeTitle(title);
+    const sanitizedDescription = this.sanitizeDescription(description);
     const sanitizedTags = this.sanitizeTags(tags);
     const current = await retryWithBackoff(() => youtube.videos.list({ part: ['snippet'], id: [videoId] }), { operationName: 'YouTube Fetch Current Snippet' });
     const currentSnippet = current.data.items?.[0]?.snippet;
     if (!currentSnippet) throw new Error('Video not found on YouTube');
-    await retryWithBackoff(() => youtube.videos.update({ part: ['snippet'], requestBody: { id: videoId, snippet: { ...currentSnippet, title, description, tags: sanitizedTags } } }), { operationName: 'YouTube Update Video' });
+    await retryWithBackoff(() => youtube.videos.update({
+      part: ['snippet'],
+      requestBody: {
+        id: videoId,
+        snippet: {
+          ...currentSnippet,
+          title: sanitizedTitle,
+          description: sanitizedDescription,
+          tags: sanitizedTags,
+        },
+      },
+    }), { operationName: 'YouTube Update Video' });
     return { success: true };
   }
 
@@ -419,6 +432,39 @@ export class YouTubeService {
       this.logger.error(`Failed to fetch most popular videos: ${error.message}`);
       return [];
     }
+  }
+
+  public sanitizeTitle(title: string): string {
+    if (!title || typeof title !== 'string') return '';
+    let cleaned = title.replace(/[<>]/g, '').trim();
+    if (cleaned.length > 95) {
+      cleaned = cleaned.substring(0, 95).replace(/\s+\S*$/, '').trim();
+    }
+    return cleaned;
+  }
+
+  public sanitizeDescription(description: string): string {
+    if (!description || typeof description !== 'string') return '';
+    let cleaned = description.replace(/</g, '(').replace(/>/g, ')');
+    cleaned = cleaned.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+
+    if (cleaned.length <= 4800) {
+      return cleaned.trim();
+    }
+
+    this.logger.warn(`Description exceeded 4,800 characters (${cleaned.length} chars). Truncating safely for YouTube...`);
+
+    const linksIndex = cleaned.search(/(?:📲 Facebook:|💬 |Disclaimer:|#)/);
+    if (linksIndex > 1000 && linksIndex < cleaned.length) {
+      const mainBody = cleaned.substring(0, linksIndex).trim();
+      const closingBlock = cleaned.substring(linksIndex).trim();
+
+      const maxBodyLength = Math.max(500, 4800 - closingBlock.length - 20);
+      const truncatedBody = mainBody.substring(0, maxBodyLength).replace(/\n[^\n]*$/, '').trim();
+      return `${truncatedBody}\n\n${closingBlock}`.trim();
+    }
+
+    return cleaned.substring(0, 4800).replace(/\n[^\n]*$/, '').trim();
   }
 
   private sanitizeTags(tags: string[]): string[] {

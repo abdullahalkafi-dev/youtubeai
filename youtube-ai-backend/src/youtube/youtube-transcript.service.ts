@@ -118,41 +118,66 @@ export class YouTubeTranscriptService {
   }
 
   /**
-   * Sample rich transcript context (~1,500–2,000 tokens) for OpenAI prompt.
+   * Sample rich transcript context for OpenAI prompt with dynamic duration-aware chapter anchors.
    * Includes:
-   * 1. Detailed Opening Hook (First 2-3 minutes) for intro hook & premise detection.
-   * 2. 35-45 evenly spaced milestone anchors across runtime for accurate chapter timestamps.
+   * 1. Opening Hook & Narrative Premise (First 2 minutes of spoken context).
+   * 2. 5-15 evenly spaced milestone anchors (spaced 1-3+ minutes apart) based on video runtime.
    */
   formatTranscriptAnchors(segments: TranscriptSegment[]): string {
     if (!segments || segments.length === 0) return '';
 
-    // 1. Opening Hook Focus (first ~150 seconds / 2.5 minutes)
-    const openingSegments = segments.filter((s) => s.startSeconds <= 150).slice(0, 8);
-    const hookLines = openingSegments.map((s) => `[${s.timestamp}] "${s.text}"`);
+    // 1. Opening Narrative Hook Context (First ~120 seconds / 2 minutes)
+    const openingSegments = segments.filter((s) => s.startSeconds <= 120);
+    const openingText = openingSegments.map((s) => s.text.trim()).filter(Boolean).join(' ');
 
-    // 2. Milestone Timeline across the rest of the video (~35-40 points)
-    const remainingSegments = segments.filter((s) => s.startSeconds > 150);
+    // Total runtime duration calculation
+    const totalSeconds = segments[segments.length - 1]?.startSeconds || 600;
+    const durationMinutes = Math.max(1, totalSeconds / 60);
+
+    // Dynamic milestone target based on video runtime:
+    // < 10 mins: 5-8 chapters (min interval 60s)
+    // 10-25 mins: 8-12 chapters (min interval 90s)
+    // > 25 mins: 12-15 chapters (min interval 120s)
+    let targetMilestones = 10;
+    let minIntervalSeconds = 90;
+
+    if (durationMinutes < 10) {
+      targetMilestones = Math.min(8, Math.max(5, Math.floor(durationMinutes * 0.8)));
+      minIntervalSeconds = 60;
+    } else if (durationMinutes <= 25) {
+      targetMilestones = Math.min(12, Math.max(8, Math.floor(durationMinutes / 2)));
+      minIntervalSeconds = 90;
+    } else {
+      targetMilestones = Math.min(15, Math.max(12, Math.floor(durationMinutes / 2.5)));
+      minIntervalSeconds = 120;
+    }
+
+    // 2. Sample milestones evenly starting after intro (~60s onwards)
     const milestoneLines: string[] = [];
+    const stepSeconds = (totalSeconds - 60) / Math.max(1, targetMilestones);
 
-    if (remainingSegments.length > 0) {
-      const targetMilestones = 38;
-      const step = Math.max(1, Math.floor(remainingSegments.length / targetMilestones));
+    let lastSelectedSeconds = -999;
+    for (let m = 1; m <= targetMilestones; m++) {
+      const targetTime = 60 + (m - 0.5) * stepSeconds;
+      // Find closest segment to targetTime
+      const candidate = segments.find(
+        (s) => s.startSeconds >= targetTime && s.startSeconds - lastSelectedSeconds >= minIntervalSeconds
+      ) || segments.find((s) => Math.abs(s.startSeconds - targetTime) <= 45 && s.startSeconds - lastSelectedSeconds >= minIntervalSeconds);
 
-      for (let i = 0; i < remainingSegments.length; i += step) {
-        const s = remainingSegments[i];
-        if (s) {
-          milestoneLines.push(`[${s.timestamp}] "${s.text}"`);
-        }
-        if (milestoneLines.length >= targetMilestones) break;
+      if (candidate && candidate.startSeconds - lastSelectedSeconds >= minIntervalSeconds) {
+        milestoneLines.push(`[${candidate.timestamp}] "${candidate.text.trim()}"`);
+        lastSelectedSeconds = candidate.startSeconds;
       }
     }
 
     const sections: string[] = [];
-    if (hookLines.length > 0) {
-      sections.push(`=== OPENING HOOK (FIRST 2-3 MINUTES) ===\n${hookLines.join('\n')}`);
+    if (openingText) {
+      sections.push(`=== INTRO HOOK & PREMISE (FIRST 2 MINUTES) ===\n"${openingText.substring(0, 1000)}"`);
     }
     if (milestoneLines.length > 0) {
-      sections.push(`=== TIMELINE MILESTONES (FOR ACCURATE CHAPTER TIMESTAMPS) ===\n${milestoneLines.join('\n')}`);
+      sections.push(
+        `=== TIMELINE MILESTONES (SELECT 5 TO 15 HIGH-RETENTION CHAPTERS SPACED 1-3 MIN APART) ===\nVideo Duration: ~${Math.round(durationMinutes)} minutes\n${milestoneLines.join('\n')}`
+      );
     }
 
     return sections.join('\n\n');

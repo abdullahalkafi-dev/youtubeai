@@ -7,7 +7,7 @@
  *   and related series videos.
  */
 
-export const SEO_PROMPT_VERSION = 'v3.5';
+export const SEO_PROMPT_VERSION = 'v3.6';
 
 /**
  * Static system prompt — stable prefix for OpenAI caching.
@@ -35,6 +35,7 @@ STRICT TITLE RULES (SPECIFIC STORY HOOK & HIGH CTR):
   4. Hidden Aspect: "The Hidden Money Trail Behind the [Subject] Trial"
   5. Real Reason: "The Real Reason [Subject] Faced Capital Charges"
   6. Cold Investigation: "Inside Federal Prison Reality: The [Subject] Case"
+- FORBIDDEN CHARACTERS: NEVER include '<' or '>' angle brackets in title or description.
 
 STRICT TAG RULES (350-450 CHARS TOTAL / HIGH-INTENT PHRASES):
 - Produce between 350 to 450 total combined characters across 15 to 20 targeted tags (Do NOT exceed 480 characters).
@@ -45,12 +46,14 @@ STRICT TAG RULES (350-450 CHARS TOTAL / HIGH-INTENT PHRASES):
   4. Brand & Host Authority (3-4 tags): "unique mecca audio", "unique mecca audio nyc", "wainsworth hall".
 - BAN GENERIC PADDING: Do NOT output standalone generic words like "video", "news", or "story" unless combined with a specific subject.
 
-STRICT DESCRIPTION FORMAT (10-PART COMPREHENSIVE MASTER BLUEPRINT):
-The description string MUST include ALL of the following sections in exact order:
+STRICT DESCRIPTION FORMAT (10-PART MASTER BLUEPRINT / 2,500-4,200 CHARS TOTAL):
+The description string MUST stay within 2,500 to 4,200 total characters (Strict YouTube hard limit is 5,000). NEVER exceed 4,500 characters.
+
+The description MUST include ALL of the following sections in exact order:
 
 1. First 2 lines (Search Snippet - max 150 chars): Must be a complete, engaging, natural search preview sentence featuring the specific topic hook (e.g., "What really happened to the money behind the [Subject] death penalty trial? In this breakdown..."). NEVER output a flat keyword string.
 
-2. Main Narrative Body (3-5 comprehensive paragraphs): In-depth criminal psychology breakdown, legal strategy, courtroom insights, and youth warning. NATURALLY WEAVE standing channel keyword phrases into the narrative body text for keyword density: "unique mecca audio", "unique mecca audio nyc", "federal prison", "crime and consequences", "life consequences".
+2. Main Narrative Body (3-4 concise paragraphs): In-depth criminal psychology breakdown, legal strategy, courtroom insights, and youth warning. NATURALLY WEAVE standing channel keyword phrases into the narrative body text for keyword density: "unique mecca audio", "unique mecca audio nyc", "federal prison", "crime and consequences", "life consequences".
 
 3. Key Takeaways & Topic Pillars (Bulleted with Emojis):
    • 🔥 Street Reality & Survival Lessons: [1-sentence key lesson from video]
@@ -61,11 +64,15 @@ The description string MUST include ALL of the following sections in exact order
 4. Host Bio & Credibility Block:
    Hosted by Wainsworth “Unique” Hall — former federal inmate of 26 years — bringing unfiltered prison survival insights, street code, crime & justice commentary, and a mission to uplift youth by turning lived hardship into positive awareness.
 
-5. Real Timestamps & Chapters (ONLY IF SPOKEN TRANSCRIPT ANCHORS ARE PROVIDED in the user prompt):
-   Include a formatted chapter block using the exact timestamps from the spoken anchors:
+5. Real Timestamps & Chapters (ONLY IF SPOKEN TRANSCRIPT ANCHORS ARE PROVIDED):
+   Generate a clean, high-retention chapter list with EXACTLY 5 to 15 entries depending on video length (5-8 for <10 min, 8-12 for 10-25 min, 12-15 for 25+ min):
    ⏱️ CHAPTERS:
-   0:00 - Introduction
-   [MM:SS] - [Descriptive topic discussed at that timestamp]
+   0:00 - Introduction & Cold Open
+   [MM:SS] - [Curiosity-Driven Milestone Title]
+   RULES FOR CHAPTERS:
+   - Always start with "0:00 - Introduction" (or cold open).
+   - Chapters MUST be spaced at least 1 to 3+ minutes apart (NEVER place timestamps seconds apart).
+   - Do NOT output more than 15 total chapter lines under any circumstances.
    (CRITICAL: If NO spoken transcript anchors are provided in the user prompt, DO NOT include any timestamps or chapters section at all!).
 
 6. Series Block (ONLY IF related series videos are explicitly provided in the user prompt):
@@ -137,9 +144,9 @@ export function buildSeoPrompt(params: {
   // Real Spoken Transcript Timestamps
   if (params.transcriptAnchors) {
     userParts.push('');
-    userParts.push(`REAL SPOKEN VIDEO TRANSCRIPT ANCHORS (With exact timestamps from audio):`);
+    userParts.push(`REAL SPOKEN VIDEO TRANSCRIPT ANCHORS (Timeline milestones from audio):`);
     userParts.push(params.transcriptAnchors);
-    userParts.push(`INSTRUCTION: Use these exact timestamps to create a "⏱️ CHAPTERS:" section in the description.`);
+    userParts.push(`INSTRUCTION: Select 5 to 15 key story milestones from the timeline above to create a high-retention "⏱️ CHAPTERS:" section. Start at 0:00 and space chapters 1-3+ minutes apart. Ensure total description length is under 4,200 characters.`);
   } else {
     userParts.push('');
     userParts.push(`NO TRANSCRIPT ANCHORS AVAILABLE. DO NOT GENERATE ANY FAKE TIMESTAMPS OR CHAPTERS.`);
