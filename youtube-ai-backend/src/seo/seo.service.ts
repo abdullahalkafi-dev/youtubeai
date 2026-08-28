@@ -25,8 +25,7 @@ import { ChromaService } from '../chroma/chroma.service';
 import { AutomationService } from '../automation/automation.service';
 import { buildChannelContext } from '../openai/prompts/context';
 import { GenerateSeoDto } from './dto/seo.dto';
-
-const DAILY_APPROVE_CAP = 120;
+import { DEFAULT_DAILY_BATCH_SIZE } from '../automation/automation.constants';
 
 @Injectable()
 export class SeoService {
@@ -347,7 +346,7 @@ export class SeoService {
       // Check if already approved (idempotent return)
       const existing = await this.seoSuggestionModel.findById(id).lean();
       if (existing?.status === 'approved') {
-        return { success: true, videoId: existing.videoId, youtubePushed: false, dailyCount: 0, dailyCap: DAILY_APPROVE_CAP, alreadyApproved: true };
+        return { success: true, videoId: existing.videoId, youtubePushed: false, dailyCount: 0, dailyCap: DEFAULT_DAILY_BATCH_SIZE, alreadyApproved: true };
       }
       // Recover from stuck 'approving' status (crash recovery)
       if (existing?.status === 'approving') {
@@ -369,9 +368,12 @@ export class SeoService {
         channelId: suggestion.channelId, status: 'approved', createdAt: { $gte: todayStart },
       });
 
-      if (dailyApproveCount >= DAILY_APPROVE_CAP) {
+      const channel = await this.channelModel.findById(suggestion.channelId).lean();
+      const dailyCap = channel?.seoSettings?.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
+
+      if (dailyApproveCount >= dailyCap) {
         await resetPending();
-        return { success: false, error: `Daily limit reached (${DAILY_APPROVE_CAP}/day).`, dailyCount: dailyApproveCount, dailyCap: DAILY_APPROVE_CAP };
+        return { success: false, error: `Daily limit reached (${dailyCap}/day).`, dailyCount: dailyApproveCount, dailyCap };
       }
 
       const video = await this.videoModel.findById(suggestion.videoId);
@@ -383,10 +385,9 @@ export class SeoService {
       // Check for soft-deleted video
       if (video.deletedFromYoutube) {
         await resetPending();
-        return { success: false, error: 'Cannot approve SEO for a video deleted from YouTube', dailyCount: dailyApproveCount, dailyCap: DAILY_APPROVE_CAP };
+        return { success: false, error: 'Cannot approve SEO for a video deleted from YouTube', dailyCount: dailyApproveCount, dailyCap };
       }
 
-      const channel = await this.channelModel.findById(suggestion.channelId).lean();
       const user = channel ? await this.userModel.findOne({ _id: channel.userId }).lean() : null;
       let youtubePushed = false;
       if (user?._id && video?.youtubeId) {
@@ -397,12 +398,12 @@ export class SeoService {
           await this.quotaService.logCall({ channelId: suggestion.channelId.toString(), endpoint: 'videos.update', quotaCost: 51, relatedId: suggestion.videoId.toString() });
         } catch (error) {
           await resetPending();
-          return { success: false, youtubePushed: false, error: `YouTube push failed: ${error.message}`, dailyCount: dailyApproveCount, dailyCap: DAILY_APPROVE_CAP };
+          return { success: false, youtubePushed: false, error: `YouTube push failed: ${error.message}`, dailyCount: dailyApproveCount, dailyCap };
         }
       } else {
         // YouTube push skipped — cannot set youtubeTitle since YouTube wasn't updated
         await resetPending();
-        return { success: false, youtubePushed: false, error: 'YouTube push skipped: channel or user not found', dailyCount: dailyApproveCount, dailyCap: DAILY_APPROVE_CAP };
+        return { success: false, youtubePushed: false, error: 'YouTube push skipped: channel or user not found', dailyCount: dailyApproveCount, dailyCap };
       }
 
       // Save version before approval
@@ -477,7 +478,7 @@ export class SeoService {
         this.logger.warn(`Failed to reconcile automation batch for video ${suggestion.videoId}: ${err.message}`);
       }
 
-      return { success: true, videoId: suggestion.videoId, youtubePushed, dailyCount: dailyApproveCount + 1, dailyCap: DAILY_APPROVE_CAP };
+      return { success: true, videoId: suggestion.videoId, youtubePushed, dailyCount: dailyApproveCount + 1, dailyCap };
     } catch (error) {
       await resetPending();
       throw error;

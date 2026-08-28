@@ -1,11 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 import { QueueItem, QueueItemDocument } from '../mongo/schemas/queue-item.schema';
 import { SeoService } from '../seo/seo.service';
 import { QuotaService } from '../quota/quota.service';
+import { DEFAULT_DAILY_BATCH_SIZE } from '../automation/automation.constants';
 
 @Injectable()
 export class QueueService {
@@ -21,7 +21,7 @@ export class QueueService {
   async addToQueue(channelId: string, videoId: string, videoTitle: string) {
     const channel = await this.channelModel.findById(channelId).lean();
     const settings: any = channel?.seoSettings || {};
-    const dailyCap = settings.dailyUpdateCap || 120;
+    const dailyCap = settings.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -73,59 +73,15 @@ export class QueueService {
     const channel = await this.channelModel.findById(channelId).lean();
     const settings: any = channel?.seoSettings || {};
 
-    return { dailyUsed, dailyCap: settings.dailyUpdateCap || 120, queued, processing, failed, cronInterval: settings.cronInterval || 5, isActive: settings.autoPauseAtLimit !== false };
-  }
-
-  @Cron(CronExpression.EVERY_5_MINUTES)
-  async processPendingQueue() {
-    const pendingItems = await this.queueItemModel.find({ status: 'queued' }).limit(5).lean();
-    if (pendingItems.length === 0) return;
-
-    for (const item of pendingItems) {
-      const channel = await this.channelModel.findById(item.channelId).lean();
-      const settings: any = channel?.seoSettings || {};
-      if (settings.autoPauseAtLimit === false) {
-        continue; // Channel queue processing is manually paused
-      }
-
-      // Check 90% YouTube daily quota safeguard (9000 units)
-      try {
-        const { used, limit } = await this.quotaService.getDailyUsage(item.channelId.toString());
-        if (used >= limit * 0.9) {
-          this.logger.warn(`Skipping background queue processing for channel ${item.channelId}: YouTube daily quota at ${used}/${limit} (>=90%)`);
-          break;
-        }
-      } catch (err: any) {
-        // Quota check non-blocking
-      }
-
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const todayCount = await this.queueItemModel.countDocuments({
-        channelId: item.channelId,
-        status: 'done',
-        processedAt: { $gte: today },
-      });
-
-      if (todayCount >= (settings.dailyUpdateCap || 120)) {
-        this.logger.warn(`Skipping item ${item._id} — channel daily limit reached`);
-        continue;
-      }
-
-      await this.queueItemModel.findByIdAndUpdate(item._id, { $set: { status: 'processing' } });
-      try {
-        await this.seoService.generateSeo({ videoId: item.videoId.toString() });
-        await this.queueItemModel.findByIdAndUpdate(item._id, {
-          $set: { status: 'done', processedAt: new Date() },
-        });
-        this.logger.log(`Queue item ${item._id} processed successfully`);
-      } catch (error: any) {
-        this.logger.error(`Queue item ${item._id} failed: ${error.message}`);
-        await this.queueItemModel.findByIdAndUpdate(item._id, {
-          $set: { status: 'failed', error: error.message },
-        });
-      }
-    }
+    return {
+      dailyUsed,
+      dailyCap: settings.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE,
+      queued,
+      processing,
+      failed,
+      cronInterval: settings.cronInterval || 5,
+      isActive: settings.autoPauseAtLimit !== false,
+    };
   }
 }
 

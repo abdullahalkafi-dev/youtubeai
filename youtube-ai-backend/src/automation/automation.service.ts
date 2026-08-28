@@ -32,12 +32,15 @@ import { AutomationGateway } from './automation.gateway';
 import { BatchQueryDto } from './dto/automation.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 
-const YOUTUBE_QUOTA_COST_PER_VIDEO = 51; // 1 unit videos.list + 50 units videos.update
-const YOUTUBE_HARD_CAP_CEILING = 9000; // 90% of 10,000 daily quota
-const PUSH_SAFETY_GAP_MS = 5000; // 5-second burst smoothing gap
-const MAX_PUSH_ATTEMPTS = 4; // 1 initial attempt + 3 retries
-const STALE_LOCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours fallback
-const HEARTBEAT_STALE_MS = 15 * 60 * 1000; // 15 minutes without heartbeat
+import {
+  DEFAULT_DAILY_BATCH_SIZE,
+  YOUTUBE_QUOTA_COST_PER_VIDEO,
+  YOUTUBE_HARD_CAP_CEILING,
+  PUSH_SAFETY_GAP_MS,
+  MAX_PUSH_ATTEMPTS,
+  STALE_LOCK_THRESHOLD_MS,
+  HEARTBEAT_STALE_MS,
+} from './automation.constants';
 
 @Injectable()
 export class AutomationService implements OnApplicationBootstrap {
@@ -221,7 +224,7 @@ export class AutomationService implements OnApplicationBootstrap {
       ]);
 
     const remainingUnoptimized = notStartedVideos;
-    const dailyBatchSize = 20;
+    const dailyBatchSize = channel?.seoSettings?.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
     const estimatedDaysRemaining = remainingUnoptimized > 0 ? Math.ceil(remainingUnoptimized / dailyBatchSize) : 0;
 
     // Calculate next run time (7:30 AM America/New_York)
@@ -330,7 +333,7 @@ export class AutomationService implements OnApplicationBootstrap {
    */
   async runBatch(
     channelId: string,
-    batchSize: number = 20,
+    batchSize: number = DEFAULT_DAILY_BATCH_SIZE,
     source: string = 'manual_ui_batch',
     customInstructions?: string,
   ) {

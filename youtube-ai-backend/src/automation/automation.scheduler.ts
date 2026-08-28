@@ -4,6 +4,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 import { AutomationService } from './automation.service';
+import { DEFAULT_DAILY_BATCH_SIZE } from './automation.constants';
 
 const POSTPONE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_POSTPONE_DURATION_MS = 30 * 60 * 1000; // Up to 30 minutes (7:30 AM -> 8:00 AM NY time)
@@ -36,9 +37,7 @@ export class AutomationScheduler {
 
     for (const channel of channels) {
       const channelId = channel._id.toString();
-      const batchSize = channel.seoSettings?.dailyUpdateCap
-        ? Math.min(channel.seoSettings.dailyUpdateCap, 20)
-        : 20;
+      const batchSize = channel.seoSettings?.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
 
       this.dispatchWithAutoPostpone(channelId, channel.name, batchSize);
     }

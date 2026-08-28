@@ -38,8 +38,8 @@
       "processedAt": "2026-06-26T08:02:00Z"
     }
   ],
-  "dailyUsed": 47,
-  "dailyCap": 120,
+  "dailyUsed": 12,
+  "dailyCap": 20,
   "cronInterval": 5,
   "isActive": true,
   "nextCronAt": "2026-06-26T09:50:00Z"

@@ -100,31 +100,31 @@ export default function SettingsPage() {
 
         <Card>
           <CardContent className="p-5 lg:p-6">
-            <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white mb-4 font-heading">Quota Manager</h3>
+            <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white mb-4 font-heading">Daily Automation & Quota Manager</h3>
             <div className="space-y-4">
               <div>
-                <label className="text-xs text-gray-500 font-medium block mb-1.5">Daily Update Cap</label>
-                <Input type="number" defaultValue={120} className="bg-gray-50 dark:bg-gray-800 text-sm" />
+                <label className="text-xs text-gray-500 font-medium block mb-1.5">Daily Scheduled Batch Size</label>
+                <Input type="number" defaultValue={20} className="bg-gray-50 dark:bg-gray-800 text-sm" />
+                <p className="text-xs text-gray-400 mt-1">Number of videos optimized per daily morning batch</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium block mb-1.5">Cron Interval</label>
-                <select className="w-full bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg py-2 px-3 text-sm text-gray-500">
-                  <option>Every 5 min</option>
-                  <option>Every 10 min</option>
-                  <option>Every 15 min</option>
-                </select>
+                <label className="text-xs text-gray-500 font-medium block mb-1.5">Morning Schedule</label>
+                <div className="flex items-center justify-between p-2.5 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg text-sm text-gray-700 dark:text-gray-300">
+                  <span className="font-medium">Daily at 7:30 AM EST</span>
+                  <Badge variant="blue" className="text-xs">Active Cron</Badge>
+                </div>
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm text-gray-700 dark:text-gray-300 font-medium">Auto-pause at limit</Label>
-                  <p className="text-xs text-gray-400">Stop when daily cap reached</p>
+                  <p className="text-xs text-gray-400">Stop when daily quota limit reached</p>
                 </div>
                 <Switch defaultChecked />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm text-gray-700 dark:text-gray-300 font-medium">Auto-resume midnight</Label>
-                  <p className="text-xs text-gray-400">Reset quota at 12:00 AM EST</p>
+                  <p className="text-xs text-gray-400">Reset quota window at 12:00 AM PST</p>
                 </div>
                 <Switch defaultChecked />
               </div>
