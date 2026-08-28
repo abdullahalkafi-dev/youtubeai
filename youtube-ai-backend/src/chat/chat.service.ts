@@ -782,28 +782,40 @@ export class ChatService {
 
   /**
    * Detect if the user message needs web search / research.
-   * Triggers for: outline/script skills, news keywords, and research-oriented questions.
+   * Triggers for: outline/script/trends/thumbnail/ideas skills, legal/crime keywords, and research-oriented questions.
    */
   private detectNeedsResearch(message: string, category?: string): boolean {
-    // Trends, outline, and script skills always benefit from current web research
-    if (category === 'outline' || category === 'script' || category === 'trends') return true;
+    // Trends, outline, script, thumbnail, ideas, and competitor skills always benefit from current web research
+    if (
+      category === 'outline' ||
+      category === 'script' ||
+      category === 'trends' ||
+      category === 'thumbnail' ||
+      category === 'ideas' ||
+      category === 'competitor'
+    ) {
+      return true;
+    }
 
     const lower = message.trim().toLowerCase();
 
     // Short option selection (e.g. "b", "option b", "1", "choice a") — inherit research context
     if (/^(option\s*)?[a-d1-4]$/i.test(lower)) return true;
 
-    // News/current events keywords — terms that indicate live news or research
+    // News/current events & criminal case keywords — terms that indicate live news, person lookup, or case status
     const newsKeywords = [
       'latest news', 'recent news', 'current events', 'what happened',
       'breaking news', 'update on', 'just happened', 'this week',
       'today in', 'happening now', 'allegedly', 'trending', 'top stories',
       'trending stories', 'what\'s trending',
+      'arrested', 'jail', 'prison', 'trial', 'sentenced', 'verdict',
+      'indicted', 'plea deal', 'released', 'charges', 'raided', 'fbi',
+      'doj', 'court', 'guilty', 'custody', 'bail', 'investigation',
     ];
     if (newsKeywords.some(kw => lower.includes(kw))) return true;
 
-    // Specific topic/person queries — "tell me about [X]", "what happened to [X]"
-    if (/\b(tell me about|what happened to|what's going on with|give me info on|research|look up)\b/i.test(lower)) return true;
+    // Specific topic/person queries — "tell me about [X]", "what happened to [X]", "thumbnail for [X]"
+    if (/\b(tell me about|what happened to|what's going on with|give me info on|research|look up|thumbnail|thumbnails)\b/i.test(lower)) return true;
 
     return false;
   }

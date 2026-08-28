@@ -135,7 +135,13 @@ Scripts must be written to be spoken, not read like an article. Follow these rul
 - NOT cluttered, NOT AI-generated cartoon style
 - Should open a wound the title has to explain
 - DO NOT mention logos or brand badges in visual concept descriptions (Sharp adds the official MAE logo automatically).
-- PROMPT FOR VISUAL EFFECTS AND TEXTURES (e.g., "a sharp split-screen down the center separated by a dramatic broken glass fracture effect with jagged shattered seam and subtle light leaking through", "high-contrast lightning split"), NEVER prompt for literal physical gadgets or devices (do NOT ask for a mobile phone, phone screen, or physical device).
+- VISUAL COMPOSITION & CREATIVE FREEDOM: Craft a vivid, cinematic 16:9 scene tailored directly to the story's core emotional stakes. Dynamically choose the best composition archetype for the narrative:
+  * Emotional Character Drama: Intense facial expression, rim lighting, shallow depth of field, dramatic atmospheric background.
+  * Environmental Storytelling: Wide tension (e.g., solitary figure at defense table under cold light, holding cell corridor, spotlight on evidence, courthouse steps).
+  * Narrative Juxtaposition / Contrast: When the story genuinely contrasts two realities (e.g., freedom vs incarceration, co-defendants, past vs present), use organic depth-of-field, lighting contrast, or narrative textures naturally suited to the theme.
+  * Noir Symbolism: Heavy shadows, silhouette tension, high-contrast spotlighting.
+- Tailor the composition uniquely to each video — do NOT default to the same layout or divider gimmick for every thumbnail.
+- NEVER prompt for literal physical gadgets or devices (do NOT ask for a mobile phone, phone screen, or physical device).
 
 ## THUMBNAIL ACCURACY
 

@@ -426,14 +426,14 @@ ${scriptFormat}`,
         this.buildBasePrompt(channel, ctx) +
         `\n\nYou are the lead Thumbnail Director for "Unique Mecca Audio" (@uniquemeccaaudionyc), specializing in high-CTR, cinematic thumbnails for criminal psychology, legal breakdowns, and prison reality.
 
-Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 story lanes:
-1. Concept 1 (Subject / Human Drama Angle): Focus on the main subject or celebrity face with emotional tension, courtroom attire, or prison shadow.
-2. Concept 2 (Legal / Evidence Angle): Focus on legal pressure, courtroom bench, indictment paperwork shadow, or gavel/evidence symbolism.
-3. Concept 3 (Consequence / Psychological Angle): Focus on dark prison hallway, cell door silhouette, or dramatic split lighting.
+Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 diverse narrative angles & visual framings:
+1. Concept 1 (Subject / Human Drama Angle): Focus on the main subject or celebrity face with raw emotional tension, courtroom attire, or intense rim lighting with atmospheric shallow depth of field.
+2. Concept 2 (Legal / Narrative Scene Angle): Focus on high-stakes courtroom tension, solitary figure at defense table, indictment dossier under spotlight, or judicial atmosphere.
+3. Concept 3 (Consequence / Psychological Atmosphere Angle): Focus on solitary silhouette in prison transport, shadow across holding cell bars, ominous rain-slicked courthouse exterior, or symbolic noir lighting.
 
 RULES:
 - Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "VERDICT REVEALED", "NOT OVER", "FEDERAL CASE", "ONE WEAK LINK"). Do NOT output titles or long phrases.
-- VISUAL CONCEPT DESCRIPTION: Describe a concise 1-2 sentence dramatic, full-canvas 16:9 cinematic scene. Combine real subject names with vivid visual descriptors (e.g., "rapper Lil Durk with blonde dreadlocks looking tense in dark courtroom attire under harsh side lighting"). Do NOT force gadgets, laser flares, or artificial blank voids.
+- VISUAL CONCEPT DESCRIPTION: Describe a concise 1-2 sentence dramatic, full-canvas 16:9 cinematic scene. Combine real subject names with vivid visual descriptors (e.g., "rapper Lil Durk with blonde dreadlocks looking tense in dark courtroom attire under harsh directional lighting"). Match the visual composition to the emotional heart of the story. Do NOT force repetitive divider gimmicks, laser flares, or artificial blank voids.
 - COLOR SCHEME: Specify colors as background atmosphere (e.g. "Dark crimson background atmosphere, subtle gold ambient lighting").
 - Style: Cinematic dark, dramatic lighting, high contrast photography look. Realistic, NOT cartoon or 3D animation.
 

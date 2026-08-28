@@ -856,7 +856,9 @@ export class OpenAIService {
   }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
     // 1. Strip logo/brand references so OpenAI doesn't paint duplicate logos
+    // Also clean legacy copy-paste boilerplate from older conversation threads
     cleanDescription = cleanDescription
+      .replace(/a sharp split-screen down the center separated by a dramatic broken glass fracture effect with jagged shattered seam and subtle light leaking through/gi, '')
       .replace(/add the \*\*?mae[^*]*\*\*? logo[^\.]*/gi, '')
       .replace(/add the logo[^\.]*/gi, '')
       .replace(/\blogo\b/gi, '')
@@ -871,9 +873,9 @@ STYLE: Cinematic dark, high-contrast photography, criminal psychology & courtroo
 SCENE & SUBJECT: ${cleanDescription || 'Cinematic courtroom, prison reality, or high-stakes legal breakdown scene.'}
 ${params.storyContext ? `STORY & CHARACTER CONTEXT: ${params.storyContext}` : ''}
 
-SUBJECT PLACEMENT:
-- Position the main subject, celebrity face, or key character in the LEFT or CENTER area of the 16:9 canvas.
-- Keep the bottom-right corner clear of important subjects (host portrait sticker sits in bottom-right).
+SUBJECT PLACEMENT & FRAMING:
+- Position the main subject, celebrity face, or key character with natural cinematic framing (rule of thirds, center dramatic portrait, or dynamic diagonal tension).
+- Keep the bottom-right corner relatively clear of critical faces (host portrait sticker sits in bottom-right).
 
 TYPOGRAPHY & SAFE TITLE ZONE:
 - Render bold, high-contrast headline text reading "${params.concept.text}".
@@ -883,8 +885,8 @@ TYPOGRAPHY & SAFE TITLE ZONE:
 - Position in the upper-half / upper-center area comfortably below the top border.
 - Clean, crisp 2D graphic font.
 
-COMPOSITION: Dramatic ambient lighting across full 16:9 frame. ${params.concept.colors ? `Color theme: ${params.concept.colors} background atmosphere, subtle warm ambient lighting.` : ''}
-FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across subjects' faces or bodies, NO watermarks, NO borders, NO frames, NO channel logos.`;
+COMPOSITION: Dramatic ambient lighting across full 16:9 frame with rich atmospheric depth. ${params.concept.colors ? `Color theme: ${params.concept.colors} background atmosphere, subtle warm ambient lighting.` : ''}
+FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across subjects' faces or bodies, NO watermarks, NO outer borders, NO artificial frames, NO channel logos.`;
 
     if (params.showType) {
       prompt += ` Show Type: ${params.showType}.`;

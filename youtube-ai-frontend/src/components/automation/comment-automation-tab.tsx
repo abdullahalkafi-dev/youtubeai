@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useAppSelector } from '@/store/hooks';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -60,6 +60,7 @@ export function CommentAutomationTab() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null);
+  const hasInitializedExpandedRef = useRef(false);
   const [togglingVideoId, setTogglingVideoId] = useState<string | null>(null);
 
   const loadData = useCallback(async (isSilent = false) => {
@@ -76,8 +77,9 @@ export function CommentAutomationTab() {
       setStats(statsRes as CommentStats);
       setBatches(batchesRes || []);
 
-      // Auto-expand first batch if none expanded
-      if (!expandedBatchId && batchesRes && batchesRes.length > 0) {
+      // Auto-expand first batch on initial mount only
+      if (!hasInitializedExpandedRef.current && batchesRes && batchesRes.length > 0) {
+        hasInitializedExpandedRef.current = true;
         setExpandedBatchId(batchesRes[0]._id || batchesRes[0].id);
       }
     } catch (err: any) {
@@ -86,7 +88,7 @@ export function CommentAutomationTab() {
       setLoading(false);
       setRefreshing(false);
     }
-  }, [channelId, expandedBatchId]);
+  }, [channelId]);
 
   useEffect(() => {
     loadData();
