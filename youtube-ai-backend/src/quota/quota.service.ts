@@ -83,35 +83,16 @@ export class QuotaService {
 
   private getPTMidnight(): Date {
     const now = new Date();
-    // Get current date in PT
-    const ptFormatter = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Los_Angeles',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour12: false,
-    });
-    const parts = ptFormatter.formatToParts(now);
-    const get = (type: string) => parts.find(p => p.type === type)?.value || '0';
-    const ptYear = parseInt(get('year'));
-    const ptMonth = parseInt(get('month')) - 1;
-    const ptDay = parseInt(get('day'));
+    // Get current calendar date in America/Los_Angeles (format YYYY-MM-DD)
+    const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(now);
+    const [year, month, day] = dateStr.split('-').map(Number);
 
-    // Compute PT offset by comparing local times at two UTC instants
-    // This handles DST correctly
-    const utcNow = Date.UTC(ptYear, ptMonth, ptDay, now.getUTCHours(), now.getUTCMinutes());
-    const ptLocal = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
-    const ptLocalAsUTC = Date.UTC(ptLocal.getFullYear(), ptLocal.getMonth(), ptLocal.getDate(), ptLocal.getHours(), ptLocal.getMinutes());
-    const offsetMs = ptLocalAsUTC - utcNow; // positive = PT is ahead of UTC (impossible), negative = PT behind
+    // Calculate minute difference between UTC and PT at current instant
+    const ptDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/Los_Angeles' }));
+    const utcDate = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }));
+    const diffMinutes = Math.round((utcDate.getTime() - ptDate.getTime()) / 60000);
 
-    // Midnight PT in UTC
-    let ptMidnightUTC = new Date(Date.UTC(ptYear, ptMonth, ptDay, 0, 0, 0, 0));
-    ptMidnightUTC = new Date(ptMidnightUTC.getTime() - offsetMs);
-
-    // ptMidnightUTC should be in the past (midnight today PT is always <= now)
-    // If it's in the future, use yesterday's midnight
-    if (ptMidnightUTC > now) {
-      ptMidnightUTC = new Date(ptMidnightUTC.getTime() - 24 * 60 * 60 * 1000);
-    }
-
-    return ptMidnightUTC;
+    // Midnight PT in UTC is [YYYY-MM-DD 00:00:00 UTC] + diffMinutes
+    return new Date(Date.UTC(year, month - 1, day, 0, 0, 0, 0) + diffMinutes * 60000);
   }
 }
