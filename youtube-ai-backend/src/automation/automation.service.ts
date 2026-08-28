@@ -252,7 +252,9 @@ export class AutomationService implements OnApplicationBootstrap {
 
   async getCommentStats(channelId: string) {
     const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
-    const [channel, activeVideos, totalLifetimeRepliesResult, todayCount, totalBatches] = await Promise.all([
+    const ptMidnight = this.quotaService.getPTMidnight();
+
+    const [channel, activeVideos, totalLifetimeRepliesResult, todayBatchesAggregation, totalBatches] = await Promise.all([
       this.channelModel.findById(cId).lean(),
       this.videoModel
         .find({
@@ -267,11 +269,26 @@ export class AutomationService implements OnApplicationBootstrap {
         { $match: { channelId: cId } },
         { $group: { _id: null, total: { $sum: '$autoReplyTotalCount' } } },
       ]),
-      this.quotaService.getTodayEndpointCount(channelId, 'comments.insert').catch(() => 0),
+      this.batchModel.aggregate([
+        {
+          $match: {
+            channelId: cId,
+            type: 'comment_reply',
+            createdAt: { $gte: ptMidnight },
+          },
+        },
+        {
+          $group: {
+            _id: null,
+            totalReplies: { $sum: '$successfulItems' },
+          },
+        },
+      ]),
       this.batchModel.countDocuments({ channelId: cId, type: 'comment_reply' }),
     ]);
 
     const totalLifetimeReplies = totalLifetimeRepliesResult[0]?.total || 0;
+    const todayCount = todayBatchesAggregation[0]?.totalReplies || 0;
 
     return {
       dailyCommentCap: DEFAULT_COMMENT_DAILY_CAP,

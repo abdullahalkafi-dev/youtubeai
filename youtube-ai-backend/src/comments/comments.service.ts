@@ -365,6 +365,38 @@ Do not include markdown codeblocks or extra text.`;
         relatedId: videoId,
       });
     }
+
+    // Reconcile any comment batch item for parentId: if it was skipped, mark it as handled_manually
+    try {
+      const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+      await this.batchModel.updateMany(
+        {
+          channelId: cId,
+          type: 'comment_reply',
+          'items.commentId': parentId,
+        },
+        {
+          $set: {
+            'items.$[elem].status': 'handled_manually',
+            'items.$[elem].manualReplyText': text,
+            'items.$[elem].processedAt': new Date(),
+          },
+        },
+        {
+          arrayFilters: [{ 'elem.commentId': parentId }],
+        },
+      );
+
+      await this.videoModel.findOneAndUpdate(
+        { youtubeId: videoId },
+        {
+          $addToSet: { repliedCommentIds: parentId },
+        },
+      );
+    } catch (reconcileErr: any) {
+      this.logger.warn(`Failed to reconcile batch status on manual reply: ${reconcileErr.message}`);
+    }
+
     return result;
   }
 
@@ -395,9 +427,10 @@ CORE PERSONA & VOICE:
 - Every reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
 - Tone Variety: Adaptively select one of: "Street-Wise and Provocative", "Thoughtful and Balanced", "Witty", "Appreciative and Reflective", "General", "Thankful".
 
-SPAM & BOT FILTERING:
-- If a comment is spam, crypto scam, promotional link, whatsapp number, or bot copypasta, set "action": "skip" and "skipReason": "spam".
-- If it is a real viewer question, reaction, or statement, set "action": "reply".
+SPAM & BOT FILTERING RULES:
+- REAL VIEWERS (ALWAYS REPLY): Comments containing only emojis (e.g. "💜💜💜", "🔥🔥🔥", "💯", "👑", "🙏🙏", "❤️"), short slang, compliments, or single-word reactions ("Salute", "Facts", "Real talk", "Fire") are 100% REAL VIEWERS showing love and support. You MUST set "action": "reply" (select "Thankful", "Appreciative and Reflective", or "Street-Wise" tone) and craft a warm, appreciative reply with an engaging counter-question!
+- TRUE SPAM (ONLY SKIP THESE): Skip ONLY obvious scams and spam: promotional URLs/links (e.g. "http://", ".com", ".io"), WhatsApp/Telegram contact spam (e.g. "contact Mr. XYZ on WhatsApp"), crypto investment scams, or generic repetitive link drops. Set "action": "skip" and "skipReason": "Promotional spam / scam".
+- Never skip real viewers expressing love, appreciation, or support with emojis!
 
 OUTPUT FORMAT:
 Respond with ONLY a valid JSON array of objects matching each input comment:

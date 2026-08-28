@@ -54,6 +54,9 @@ export class AutomationBatchItem {
   @Prop()
   skipReason?: string;
 
+  @Prop()
+  manualReplyText?: string;
+
   @Prop({
     default: 'queued',
     enum: [
@@ -64,6 +67,7 @@ export class AutomationBatchItem {
       'completed',
       'skipped_manual_override',
       'skipped_spam',
+      'handled_manually',
       'failed',
     ],
   })

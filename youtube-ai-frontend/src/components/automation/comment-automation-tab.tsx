@@ -92,6 +92,20 @@ export function CommentAutomationTab() {
     loadData();
   }, [loadData]);
 
+  // Auto-poll every 4s if any batch is currently in progress
+  useEffect(() => {
+    const hasActiveBatch = batches.some(
+      (b) => b.status === 'generating' || b.status === 'pushing' || b.status === 'checking_quota',
+    );
+    if (!hasActiveBatch) return;
+
+    const interval = setInterval(() => {
+      loadData(true);
+    }, 4000);
+
+    return () => clearInterval(interval);
+  }, [batches, loadData]);
+
   const handleToggleVideo = async (videoId: string, currentState: boolean) => {
     try {
       setTogglingVideoId(videoId);
@@ -385,20 +399,30 @@ export function CommentAutomationTab() {
                             <span>{dateFormatted}</span>
                             <span>•</span>
                             <span className="text-emerald-600 dark:text-emerald-400 font-medium">
-                              {batch.successfulItems || 0} replies posted
+                              {batch.items?.filter((i: any) => i.status === 'completed').length || batch.successfulItems || 0} replies posted
                             </span>
-                            {(batch.skippedItems || 0) > 0 && (
+                            {(batch.items?.filter((i: any) => i.status === 'handled_manually').length || 0) > 0 && (
                               <>
                                 <span>•</span>
-                                <span className="text-amber-500 font-medium">
-                                  {batch.skippedItems} spam skipped
+                                <span className="text-indigo-600 dark:text-indigo-400 font-medium">
+                                  {batch.items.filter((i: any) => i.status === 'handled_manually').length} handled manually
                                 </span>
                               </>
                             )}
-                            {(batch.failedItems || 0) > 0 && (
+                            {(batch.items?.filter((i: any) => i.status === 'skipped_spam').length || 0) > 0 && (
                               <>
                                 <span>•</span>
-                                <span className="text-red-500 font-medium">{batch.failedItems} failed</span>
+                                <span className="text-amber-500 font-medium">
+                                  {batch.items.filter((i: any) => i.status === 'skipped_spam').length} spam skipped
+                                </span>
+                              </>
+                            )}
+                            {(batch.items?.filter((i: any) => i.status === 'failed').length || 0) > 0 && (
+                              <>
+                                <span>•</span>
+                                <span className="text-red-500 font-medium">
+                                  {batch.items.filter((i: any) => i.status === 'failed').length} failed
+                                </span>
                               </>
                             )}
                           </div>
@@ -439,9 +463,22 @@ export function CommentAutomationTab() {
                                     <Badge variant="green" className="text-[10px]">
                                       Posted to YouTube
                                     </Badge>
+                                  ) : item.status === 'handled_manually' ? (
+                                    <Badge variant="purple" className="text-[10px] bg-indigo-50 text-indigo-700 dark:bg-indigo-950/80 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                                      Handled Manually
+                                    </Badge>
                                   ) : item.status === 'skipped_spam' ? (
                                     <Badge variant="yellow" className="text-[10px]">
-                                      Skipped (Spam / Bot)
+                                      Skipped (Spam / Scam)
+                                    </Badge>
+                                  ) : item.status === 'queued' ? (
+                                    <Badge variant="blue" className="text-[10px]">
+                                      Queued
+                                    </Badge>
+                                  ) : item.status === 'generating' || item.status === 'pushing' ? (
+                                    <Badge variant="purple" className="text-[10px] flex items-center gap-1">
+                                      <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                                      Posting...
                                     </Badge>
                                   ) : (
                                     <Badge variant="red" className="text-[10px]">
@@ -474,7 +511,20 @@ export function CommentAutomationTab() {
                                 </div>
                               )}
 
-                              {item.skipReason && (
+                              {/* Creator Manual Reply Callout */}
+                              {item.manualReplyText && (
+                                <div className="ml-8 mt-2 p-3 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
+                                  <div className="flex items-center gap-1.5 mb-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
+                                    <User className="w-3.5 h-3.5" />
+                                    <span>Creator Manual Response</span>
+                                  </div>
+                                  <p className="text-xs text-gray-800 dark:text-gray-200 leading-relaxed">
+                                    {item.manualReplyText}
+                                  </p>
+                                </div>
+                              )}
+
+                              {item.skipReason && item.status !== 'handled_manually' && (
                                 <div className="ml-8 text-[11px] text-amber-600 dark:text-amber-400">
                                   Reason: {item.skipReason}
                                 </div>

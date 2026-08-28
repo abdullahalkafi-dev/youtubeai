@@ -141,10 +141,10 @@ export class AutomationScheduler {
         }
 
         // 2. Check today's comments quota count (PT midnight reset)
-        const todayCommentCount = await this.quotaService.getTodayEndpointCount(channelId, 'comments.insert');
-        if (todayCommentCount >= DEFAULT_COMMENT_DAILY_CAP) {
+        const commentStats = await this.automationService.getCommentStats(channelId);
+        if (commentStats.todayAutoRepliesCount >= DEFAULT_COMMENT_DAILY_CAP) {
           this.logger.log(
-            `Channel ${channel.name} reached daily comment cap (${todayCommentCount}/${DEFAULT_COMMENT_DAILY_CAP}). Pausing until midnight PT.`,
+            `Channel ${channel.name} reached daily comment cap (${commentStats.todayAutoRepliesCount}/${DEFAULT_COMMENT_DAILY_CAP}). Pausing until midnight PT.`,
           );
           continue;
         }
@@ -172,7 +172,9 @@ export class AutomationScheduler {
           }
         }
 
-        const remainingDailyCap = Math.max(0, DEFAULT_COMMENT_DAILY_CAP - todayCommentCount);
+        const remainingDailyCap = commentStats.remainingToday;
+        if (remainingDailyCap <= 0) continue;
+
         this.logger.log(
           `[Comment Auto-Reply] Checking video "${candidateVideo.title}" (${candidateVideo.youtubeId}) for channel ${channel.name}. Remaining daily cap: ${remainingDailyCap}`,
         );

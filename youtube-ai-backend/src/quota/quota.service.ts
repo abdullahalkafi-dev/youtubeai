@@ -93,7 +93,7 @@ export class QuotaService {
     return model.find({ $or: [{ channelId: cId }, { channelId }] }).sort({ calledAt: -1 }).limit(limit).lean();
   }
 
-  private getPTMidnight(): Date {
+  getPTMidnight(): Date {
     const now = new Date();
     // Get current calendar date in America/Los_Angeles (format YYYY-MM-DD)
     const dateStr = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(now);
