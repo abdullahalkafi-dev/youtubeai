@@ -16,6 +16,23 @@ export class AssetsController {
     return this.assetsService.getUniqueImages();
   }
 
+  @Get('favicon.ico')
+  getFavicon(@Res() res: Response) {
+    const faviconPath = require('path').join(__dirname, 'logo', 'favicon.ico');
+    if (fs.existsSync(faviconPath)) {
+      res.setHeader('Content-Type', 'image/x-icon');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return fs.createReadStream(faviconPath).pipe(res);
+    }
+    const logoPath = require('path').join(__dirname, 'logo', 'mae-logo.png');
+    if (fs.existsSync(logoPath)) {
+      res.setHeader('Content-Type', 'image/png');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      return fs.createReadStream(logoPath).pipe(res);
+    }
+    throw new NotFoundException('Favicon not found');
+  }
+
   @Get('logos')
   getLogos() {
     return this.assetsService.getLogos();
