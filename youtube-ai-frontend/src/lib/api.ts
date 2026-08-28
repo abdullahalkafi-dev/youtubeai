@@ -724,6 +724,68 @@ class ApiClient {
     return this.post<{ message: string; batchId?: string; totalItems: number; queued: boolean }>(`/api/channels/${channelId}/automation/run`, { batchSize, source })
   }
 
+  async toggleVideoAutoReply(videoId: string, autoReplyEnabled: boolean): Promise<Video> {
+    return this.patch<Video>(`/api/videos/${videoId}/auto-reply`, { autoReplyEnabled })
+  }
+
+  async getCommentAutomationStats(channelId: string): Promise<{
+    dailyCommentCap: number
+    todayAutoRepliesCount: number
+    remainingToday: number
+    maxActiveVideos: number
+    activeVideosCount: number
+    activeVideos: Array<{
+      _id: string
+      id: string
+      title: string
+      youtubeId: string
+      thumbnailUrl?: string
+      publishedAt?: string
+      autoReplyLastRanAt?: string
+      autoReplyTotalCount?: number
+      viewCount?: number
+      commentCount?: number
+    }>
+    totalLifetimeReplies: number
+    totalBatches: number
+    scheduleInterval: string
+    channelName: string
+  }> {
+    return this.get(`/api/channels/${channelId}/automation/comments/stats`)
+  }
+
+  async getCommentAutomationBatches(channelId: string, limit = 20): Promise<Array<{
+    _id: string
+    id: string
+    type: string
+    source: string
+    status: string
+    totalItems: number
+    successfulItems: number
+    failedItems: number
+    skippedItems: number
+    quotaUnitsUsed: number
+    startedAt: string
+    completedAt?: string
+    items: Array<{
+      videoId: string
+      youtubeId: string
+      originalTitle: string
+      commentId?: string
+      authorName?: string
+      commentText?: string
+      generatedReply?: string
+      tone?: string
+      status: string
+      skipReason?: string
+      error?: string
+      processedAt?: string
+    }>
+    createdAt: string
+  }>> {
+    return this.get(`/api/channels/${channelId}/automation/comments/batches?limit=${limit}`)
+  }
+
   async retryAutomationBatch(batchId: string): Promise<{ message: string; batchId: string; parentBatchId: string }> {
     return this.post<{ message: string; batchId: string; parentBatchId: string }>(`/api/automation/batches/${batchId}/retry`, {})
   }

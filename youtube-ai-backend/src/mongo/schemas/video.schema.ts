@@ -191,6 +191,19 @@ export class Video {
 
   @Prop()
   transcriptFetchedAt?: Date;
+
+  // Comment Auto-Reply Fields
+  @Prop({ default: false, index: true })
+  autoReplyEnabled: boolean;
+
+  @Prop()
+  autoReplyLastRanAt?: Date;
+
+  @Prop({ default: 0 })
+  autoReplyTotalCount: number;
+
+  @Prop({ type: [String], default: [] })
+  repliedCommentIds: string[];
 }
 
 export const VideoSchema = SchemaFactory.createForClass(Video);
@@ -198,4 +211,5 @@ VideoSchema.index({ channelId: 1, youtubeId: 1 }, { unique: true });
 VideoSchema.index({ channelId: 1, publishedAt: -1 });
 VideoSchema.index({ channelId: 1, seoStatus: 1 });
 VideoSchema.index({ channelId: 1, viewCount: -1 });
+VideoSchema.index({ channelId: 1, autoReplyEnabled: 1, autoReplyLastRanAt: 1 });
 

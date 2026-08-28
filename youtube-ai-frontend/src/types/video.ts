@@ -72,6 +72,11 @@ export interface Video {
   lastSyncedAt: string | null
   deletedFromYoutube: boolean
   deletedAt: string | null
+  // Comment auto-reply
+  autoReplyEnabled?: boolean
+  autoReplyLastRanAt?: string | null
+  autoReplyTotalCount?: number
+  repliedCommentIds?: string[]
 }
 
 export interface PaginatedVideos {

@@ -13,3 +13,14 @@ export const PUSH_SAFETY_GAP_MS = 5000; // 5-second burst smoothing gap
 export const MAX_PUSH_ATTEMPTS = 4; // 1 initial attempt + 3 retries
 export const STALE_LOCK_THRESHOLD_MS = 2 * 60 * 60 * 1000; // 2 hours fallback
 export const HEARTBEAT_STALE_MS = 15 * 60 * 1000; // 15 minutes without heartbeat
+
+// Comment Auto-Reply Constants
+export const DEFAULT_COMMENT_DAILY_CAP = parseInt(
+  process.env.COMMENT_DAILY_CAP || '70',
+  10,
+);
+export const MAX_ACTIVE_COMMENT_VIDEOS = 5;
+export const COMMENT_CHUNK_SIZE = 10;
+export const COMMENT_PUSH_SAFETY_GAP_MS = 3000; // 3-second pacing between comment replies
+export const QUOTA_COST_COMMENT_INSERT = 50;
+

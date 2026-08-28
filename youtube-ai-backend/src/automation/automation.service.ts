@@ -34,6 +34,8 @@ import { leanDoc, leanDocs } from '../common/utils/lean';
 
 import {
   DEFAULT_DAILY_BATCH_SIZE,
+  DEFAULT_COMMENT_DAILY_CAP,
+  MAX_ACTIVE_COMMENT_VIDEOS,
   YOUTUBE_QUOTA_COST_PER_VIDEO,
   YOUTUBE_HARD_CAP_CEILING,
   PUSH_SAFETY_GAP_MS,
@@ -246,6 +248,53 @@ export class AutomationService implements OnApplicationBootstrap {
       activeBatch,
       settings: channel?.seoSettings || {},
     };
+  }
+
+  async getCommentStats(channelId: string) {
+    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+    const [channel, activeVideos, totalLifetimeRepliesResult, todayCount, totalBatches] = await Promise.all([
+      this.channelModel.findById(cId).lean(),
+      this.videoModel
+        .find({
+          channelId: cId,
+          autoReplyEnabled: true,
+          deletedFromYoutube: { $ne: true },
+        })
+        .select('_id title youtubeId thumbnailUrl publishedAt autoReplyLastRanAt autoReplyTotalCount viewCount commentCount')
+        .sort({ autoReplyLastRanAt: 1, publishedAt: -1 })
+        .lean(),
+      this.videoModel.aggregate([
+        { $match: { channelId: cId } },
+        { $group: { _id: null, total: { $sum: '$autoReplyTotalCount' } } },
+      ]),
+      this.quotaService.getTodayEndpointCount(channelId, 'comments.insert').catch(() => 0),
+      this.batchModel.countDocuments({ channelId: cId, type: 'comment_reply' }),
+    ]);
+
+    const totalLifetimeReplies = totalLifetimeRepliesResult[0]?.total || 0;
+
+    return {
+      dailyCommentCap: DEFAULT_COMMENT_DAILY_CAP,
+      todayAutoRepliesCount: todayCount,
+      remainingToday: Math.max(0, DEFAULT_COMMENT_DAILY_CAP - todayCount),
+      maxActiveVideos: MAX_ACTIVE_COMMENT_VIDEOS,
+      activeVideosCount: activeVideos.length,
+      activeVideos: activeVideos.map(leanDoc),
+      totalLifetimeReplies,
+      totalBatches,
+      scheduleInterval: '5 minutes (Round-Robin)',
+      channelName: channel?.name || 'Channel',
+    };
+  }
+
+  async getCommentBatches(channelId: string, limit = 20) {
+    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+    const batches = await this.batchModel
+      .find({ channelId: cId, type: 'comment_reply' })
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+    return batches.map(leanDoc);
   }
 
   /**

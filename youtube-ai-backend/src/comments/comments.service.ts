@@ -1,12 +1,22 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { Video, VideoDocument } from '../mongo/schemas/video.schema';
+import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
+import { AutomationBatch, AutomationBatchDocument } from '../mongo/schemas/automation-batch.schema';
 import { YouTubeService } from '../youtube/youtube.service';
 import { QuotaService } from '../quota/quota.service';
 import { OpenAIService } from '../openai/openai.service';
 import { CommentCacheService } from './comment-cache.service';
+import {
+  COMMENT_CHUNK_SIZE,
+  COMMENT_PUSH_SAFETY_GAP_MS,
+  DEFAULT_COMMENT_DAILY_CAP,
+  QUOTA_COST_COMMENT_INSERT,
+} from '../automation/automation.constants';
 
 const QUOTA_COST_COMMENT_THREADS = 2;
 const QUOTA_COST_COMMENT_REPLIES = 2;
-const QUOTA_COST_COMMENT_INSERT = 50;
 
 export type ReplyTone =
   | 'General'
@@ -31,6 +41,9 @@ export class CommentsService {
   private readonly logger = new Logger(CommentsService.name);
 
   constructor(
+    @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
+    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(AutomationBatch.name) private readonly batchModel: Model<AutomationBatchDocument>,
     private readonly youtubeService: YouTubeService,
     private readonly quotaService: QuotaService,
     private readonly openaiService: OpenAIService,
@@ -353,5 +366,272 @@ Do not include markdown codeblocks or extra text.`;
       });
     }
     return result;
+  }
+
+  /**
+   * Generates batch replies for up to 10 comments in 1 OpenAI call with spam defense.
+   */
+  async generateBatchReplies(
+    comments: Array<{ commentId: string; authorName: string; text: string }>,
+    videoTitle: string,
+    channelName: string,
+    videoDescription?: string,
+  ): Promise<Array<{
+    commentId: string;
+    action: 'reply' | 'skip';
+    skipReason?: string;
+    tone?: string;
+    replyText?: string;
+  }>> {
+    if (!comments || comments.length === 0) return [];
+
+    const systemPrompt = `You are the official YouTube community engagement agent for "${channelName}" (Unique Mecca Audio).
+Your mission is to craft authentic, contextual replies for each viewer comment or determine if a comment is spam/promotional bot and should be skipped.
+
+CORE PERSONA & VOICE:
+- Direct, thoughtful, street-wise professorial perspective (Unique Mecca Audio style).
+- Authentic, intelligent, grounded in real-life consequences, street reality, legal accountability, and personal growth.
+- Host: Wainsworth "Unique" Hall.
+- Every reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
+- Tone Variety: Adaptively select one of: "Street-Wise and Provocative", "Thoughtful and Balanced", "Witty", "Appreciative and Reflective", "General", "Thankful".
+
+SPAM & BOT FILTERING:
+- If a comment is spam, crypto scam, promotional link, whatsapp number, or bot copypasta, set "action": "skip" and "skipReason": "spam".
+- If it is a real viewer question, reaction, or statement, set "action": "reply".
+
+OUTPUT FORMAT:
+Respond with ONLY a valid JSON array of objects matching each input comment:
+[
+  {
+    "commentId": "string",
+    "action": "reply" or "skip",
+    "skipReason": "string (optional)",
+    "tone": "string (optional)",
+    "replyText": "1-3 sentences in Unique Mecca Audio voice ending with an engagement counter-question"
+  }
+]`;
+
+    const userMessage = `Video Title: "${videoTitle}"
+Video Summary: "${(videoDescription || '').slice(0, 400)}"
+
+Viewer Comments to Process:
+${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.authorName, text: c.text })), null, 2)}`;
+
+    try {
+      const raw = await this.openaiService.chatFast({
+        systemPrompt,
+        userMessage,
+        maxCompletionTokens: 3000,
+      });
+
+      const cleaned = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim();
+      const parsed = JSON.parse(cleaned);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.map((item: any) => ({
+          commentId: String(item.commentId || ''),
+          action: item.action === 'skip' ? 'skip' : 'reply',
+          skipReason: item.skipReason,
+          tone: this.normalizeTone(item.tone),
+          replyText: String(item.replyText || '').trim(),
+        }));
+      }
+    } catch (err: any) {
+      this.logger.warn(`Batch reply AI generation parsing failed: ${err.message}. Falling back to single-comment generator.`);
+    }
+
+    // Fallback if batch parsing fails
+    const fallbackResults = [];
+    for (const c of comments) {
+      try {
+        const replies = await this.generateReplies(c.text, videoTitle, channelName, '', videoDescription);
+        fallbackResults.push({
+          commentId: c.commentId,
+          action: 'reply' as const,
+          tone: replies[0]?.tone || 'General',
+          replyText: replies[0]?.text || `Appreciate your perspective on "${videoTitle}". How do you see this playing out?`,
+        });
+      } catch {
+        fallbackResults.push({
+          commentId: c.commentId,
+          action: 'skip' as const,
+          skipReason: 'AI generation error',
+        });
+      }
+    }
+    return fallbackResults;
+  }
+
+  /**
+   * Processes all unreplied comments for a single video in 10-comment chunks until complete.
+   */
+  async processSingleVideoAutoReplies(
+    videoId: string | Types.ObjectId,
+    channelId: string,
+    remainingDailyCap: number = DEFAULT_COMMENT_DAILY_CAP,
+  ): Promise<{
+    processedCount: number;
+    skippedCount: number;
+    failedCount: number;
+    batchId?: string;
+  }> {
+    const video = await this.videoModel.findById(videoId);
+    if (!video || !video.youtubeId) {
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    const channel = await this.channelModel.findById(channelId).lean();
+    if (!channel?.userId) {
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    let accessToken: string | null = null;
+    try {
+      accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
+    } catch (err: any) {
+      this.logger.error(`Failed to get YouTube access token for channel ${channelId}: ${err.message}`);
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    // Fetch top-level comments with order: 'time' (newest first)
+    const threadsRes = await this.getComments(
+      video.youtubeId,
+      channelId,
+      accessToken,
+      undefined,
+      'time',
+      channel.youtubeChannelId,
+      channel.name,
+    );
+
+    if (threadsRes.commentsDisabled || !threadsRes.comments || threadsRes.comments.length === 0) {
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    const repliedSet = new Set(video.repliedCommentIds || []);
+    const unresponded = threadsRes.comments.filter(
+      (t) => !t.hasCreatorReplied && !repliedSet.has(t.id),
+    );
+
+    if (unresponded.length === 0) {
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    // Cap total comments by remaining daily quota
+    const targetComments = unresponded.slice(0, remainingDailyCap);
+
+    // Create 1 unified AutomationBatch document for this video run
+    const batchDoc = await this.batchModel.create({
+      channelId: new Types.ObjectId(channelId),
+      type: 'comment_reply',
+      source: 'auto_cron_batch',
+      status: 'generating',
+      totalItems: targetComments.length,
+      successfulItems: 0,
+      failedItems: 0,
+      skippedItems: 0,
+      quotaUnitsUsed: 0,
+      startedAt: new Date(),
+      lastHeartbeatAt: new Date(),
+      items: targetComments.map((t) => ({
+        videoId: video._id,
+        youtubeId: video.youtubeId,
+        originalTitle: video.title,
+        commentId: t.id,
+        authorName: t.authorName || 'Viewer',
+        commentText: t.text || '',
+        status: 'queued',
+        batchLockTimestamp: new Date(),
+      })),
+    });
+
+    let successfulCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
+    const newlyRepliedIds: string[] = [];
+
+    // Process in chunks of up to 10 comments
+    for (let offset = 0; offset < targetComments.length; offset += COMMENT_CHUNK_SIZE) {
+      const chunk = targetComments.slice(offset, offset + COMMENT_CHUNK_SIZE);
+      const commentsForAi = chunk.map((c) => ({
+        commentId: c.id,
+        authorName: c.authorName || 'Viewer',
+        text: c.text || '',
+      }));
+
+      const aiReplies = await this.generateBatchReplies(
+        commentsForAi,
+        video.title,
+        channel.name,
+        video.description,
+      );
+
+      for (let i = 0; i < chunk.length; i++) {
+        const comment = chunk[i];
+        const batchItemIndex = offset + i;
+        const aiRes = aiReplies.find((r) => r.commentId === comment.id);
+
+        if (!aiRes || aiRes.action === 'skip') {
+          batchDoc.items[batchItemIndex].status = 'skipped_spam';
+          batchDoc.items[batchItemIndex].skipReason = aiRes?.skipReason || 'Spam/bot comment';
+          batchDoc.items[batchItemIndex].processedAt = new Date();
+          skippedCount++;
+          continue;
+        }
+
+        // Push reply to YouTube
+        try {
+          await this.postReply(video.youtubeId, comment.id, aiRes.replyText!, channelId, accessToken);
+          batchDoc.items[batchItemIndex].status = 'completed';
+          batchDoc.items[batchItemIndex].generatedReply = aiRes.replyText;
+          batchDoc.items[batchItemIndex].tone = aiRes.tone;
+          batchDoc.items[batchItemIndex].processedAt = new Date();
+          newlyRepliedIds.push(comment.id);
+          successfulCount++;
+          batchDoc.quotaUnitsUsed += QUOTA_COST_COMMENT_INSERT;
+
+          // 3-second safety gap
+          await new Promise((resolve) => setTimeout(resolve, COMMENT_PUSH_SAFETY_GAP_MS));
+        } catch (pushErr: any) {
+          this.logger.error(`Failed to post auto-reply to comment ${comment.id} on video ${video.youtubeId}: ${pushErr.message}`);
+          batchDoc.items[batchItemIndex].status = 'failed';
+          batchDoc.items[batchItemIndex].error = pushErr.message;
+          batchDoc.items[batchItemIndex].processedAt = new Date();
+          failedCount++;
+        }
+      }
+    }
+
+    // Finalize AutomationBatch
+    batchDoc.successfulItems = successfulCount;
+    batchDoc.skippedItems = skippedCount;
+    batchDoc.failedItems = failedCount;
+    batchDoc.status = failedCount === 0 && successfulCount > 0 ? 'completed' : successfulCount > 0 ? 'partial' : 'failed';
+    batchDoc.completedAt = new Date();
+    await batchDoc.save();
+
+    // Atomically update Video document
+    await this.videoModel.findByIdAndUpdate(video._id, {
+      $addToSet: { repliedCommentIds: { $each: newlyRepliedIds } },
+      $inc: { autoReplyTotalCount: newlyRepliedIds.length },
+      $set: { autoReplyLastRanAt: new Date() },
+    });
+
+    // Invalidate comment cache for video
+    await this.cache.invalidate(video.youtubeId);
+
+    this.logger.log(`[Auto-Comment Batch ${batchDoc._id}] Video ${video.youtubeId}: ${successfulCount} replies posted, ${skippedCount} skipped, ${failedCount} failed.`);
+
+    return {
+      processedCount: successfulCount,
+      skippedCount,
+      failedCount,
+      batchId: batchDoc._id.toString(),
+    };
   }
 }

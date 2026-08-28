@@ -25,15 +25,19 @@ import {
   Filter,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 interface CommentsSectionProps {
   videoId: string
   youtubeId?: string
+  initialAutoReplyEnabled?: boolean
 }
 
-export function CommentsSection({ videoId, youtubeId }: CommentsSectionProps) {
+export function CommentsSection({ videoId, youtubeId, initialAutoReplyEnabled = false }: CommentsSectionProps) {
   const dispatch = useAppDispatch()
+  const [autoReplyEnabled, setAutoReplyEnabled] = useState(initialAutoReplyEnabled)
+  const [togglingAutoReply, setTogglingAutoReply] = useState(false)
   const {
     threads,
     loading,
@@ -63,6 +67,24 @@ export function CommentsSection({ videoId, youtubeId }: CommentsSectionProps) {
       toast.success('Comments synced with YouTube')
     } catch {
       toast.error('Failed to sync comments')
+    }
+  }
+
+  const handleToggleAutoReply = async () => {
+    try {
+      setTogglingAutoReply(true)
+      const nextState = !autoReplyEnabled
+      await api.toggleVideoAutoReply(videoId, nextState)
+      setAutoReplyEnabled(nextState)
+      if (nextState) {
+        toast.success('Auto-Reply enabled for this video! (Active 10-min cycle)')
+      } else {
+        toast.info('Auto-Reply disabled for this video')
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to update auto-reply status')
+    } finally {
+      setTogglingAutoReply(false)
     }
   }
 
@@ -177,6 +199,29 @@ export function CommentsSection({ videoId, youtubeId }: CommentsSectionProps) {
               Newest
             </button>
           </div>
+
+          {/* Auto-Reply Switch Toggle */}
+          <button
+            onClick={handleToggleAutoReply}
+            disabled={togglingAutoReply}
+            className={cn(
+              'flex items-center gap-1.5 px-3 py-1.5 rounded-xl border text-xs font-semibold transition shadow-xs disabled:opacity-50',
+              autoReplyEnabled
+                ? 'bg-purple-500/10 border-purple-500/30 text-purple-600 dark:text-purple-400 hover:bg-purple-500/20 ring-1 ring-purple-500/20'
+                : 'bg-gray-50 dark:bg-gray-800 border-gray-200 dark:border-gray-700 text-gray-500 hover:text-gray-700 dark:hover:text-gray-300',
+            )}
+            title={autoReplyEnabled ? 'Auto-reply active: checks every 10 min' : 'Enable 10-min AI comment auto-reply'}
+          >
+            {togglingAutoReply ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Sparkles className={cn('w-3.5 h-3.5', autoReplyEnabled && 'text-purple-500 fill-purple-500/20')} />
+            )}
+            <span>Auto-Reply:</span>
+            <span className={cn('font-bold', autoReplyEnabled ? 'text-purple-600 dark:text-purple-400' : 'text-gray-400')}>
+              {autoReplyEnabled ? 'ON' : 'OFF'}
+            </span>
+          </button>
 
           {/* Sync Button */}
           <button

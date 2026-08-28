@@ -550,7 +550,11 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
           </Card>
 
           {/* Comments Section */}
-          <CommentsSection videoId={video.id} youtubeId={video.youtubeId} />
+          <CommentsSection
+            videoId={video.id}
+            youtubeId={video.youtubeId}
+            initialAutoReplyEnabled={video.autoReplyEnabled}
+          />
         </div>
 
         {/* Right Column: Video Info & Engagement */}

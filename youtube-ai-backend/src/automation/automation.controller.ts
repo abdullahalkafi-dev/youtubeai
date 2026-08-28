@@ -23,6 +23,21 @@ export class AutomationController {
     return this.automationService.getStats(channelId);
   }
 
+  @Get('channels/:channelId/automation/comments/stats')
+  @UseGuards(ChannelOwnershipGuard)
+  getCommentStats(@Param('channelId') channelId: string) {
+    return this.automationService.getCommentStats(channelId);
+  }
+
+  @Get('channels/:channelId/automation/comments/batches')
+  @UseGuards(ChannelOwnershipGuard)
+  getCommentBatches(
+    @Param('channelId') channelId: string,
+    @Query('limit') limit?: number,
+  ) {
+    return this.automationService.getCommentBatches(channelId, limit ? Number(limit) : 20);
+  }
+
   @Get('channels/:channelId/automation/batches')
   @UseGuards(ChannelOwnershipGuard)
   getBatches(

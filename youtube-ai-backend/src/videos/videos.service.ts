@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
@@ -10,6 +10,7 @@ import { MinioService } from '../minio/minio.service';
 import { QuotaService } from '../quota/quota.service';
 import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
+import { MAX_ACTIVE_COMMENT_VIDEOS } from '../automation/automation.constants';
 
 @Injectable()
 export class VideosService {
@@ -427,5 +428,32 @@ export class VideosService {
     }
     const arrayBuffer = await response.arrayBuffer();
     return Buffer.from(arrayBuffer);
+  }
+
+  async toggleAutoReply(videoId: string, autoReplyEnabled: boolean) {
+    const video = await this.videoModel.findById(new Types.ObjectId(videoId));
+    if (!video) throw new NotFoundException(`Video ${videoId} not found`);
+
+    if (autoReplyEnabled) {
+      const activeCount = await this.videoModel.countDocuments({
+        channelId: video.channelId,
+        autoReplyEnabled: true,
+        _id: { $ne: video._id },
+        deletedFromYoutube: { $ne: true },
+      });
+      if (activeCount >= MAX_ACTIVE_COMMENT_VIDEOS) {
+        throw new BadRequestException(
+          `Maximum ${MAX_ACTIVE_COMMENT_VIDEOS} active auto-reply videos reached. Please disable another video first.`,
+        );
+      }
+    }
+
+    const updated = await this.videoModel.findByIdAndUpdate(
+      video._id,
+      { $set: { autoReplyEnabled } },
+      { new: true },
+    ).lean();
+
+    return leanDoc(updated);
   }
 }

@@ -32,6 +32,28 @@ export class AutomationBatchItem {
   @Prop({ type: [String], default: [] })
   generatedHashtags: string[];
 
+  // Comment Auto-Reply Fields
+  @Prop()
+  commentId?: string;
+
+  @Prop()
+  authorName?: string;
+
+  @Prop()
+  commentText?: string;
+
+  @Prop()
+  generatedReply?: string;
+
+  @Prop()
+  tone?: string;
+
+  @Prop()
+  action?: string; // 'reply' | 'skip'
+
+  @Prop()
+  skipReason?: string;
+
   @Prop({
     default: 'queued',
     enum: [
@@ -41,6 +63,7 @@ export class AutomationBatchItem {
       'pushing',
       'completed',
       'skipped_manual_override',
+      'skipped_spam',
       'failed',
     ],
   })

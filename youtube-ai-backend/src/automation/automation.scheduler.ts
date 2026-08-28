@@ -3,8 +3,15 @@ import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
+import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { AutomationService } from './automation.service';
-import { DEFAULT_DAILY_BATCH_SIZE } from './automation.constants';
+import { CommentsService } from '../comments/comments.service';
+import { QuotaService } from '../quota/quota.service';
+import {
+  DEFAULT_DAILY_BATCH_SIZE,
+  DEFAULT_COMMENT_DAILY_CAP,
+  YOUTUBE_HARD_CAP_CEILING,
+} from './automation.constants';
 
 const POSTPONE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_POSTPONE_DURATION_MS = 30 * 60 * 1000; // Up to 30 minutes (7:30 AM -> 8:00 AM NY time)
@@ -12,11 +19,16 @@ const MAX_POSTPONE_DURATION_MS = 30 * 60 * 1000; // Up to 30 minutes (7:30 AM ->
 @Injectable()
 export class AutomationScheduler {
   private readonly logger = new Logger(AutomationScheduler.name);
+  private isProcessingCommentCron = false;
 
   constructor(
     @InjectModel(Channel.name)
     private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(Video.name)
+    private readonly videoModel: Model<VideoDocument>,
     private readonly automationService: AutomationService,
+    private readonly commentsService: CommentsService,
+    private readonly quotaService: QuotaService,
   ) {}
 
   /**
@@ -99,5 +111,82 @@ export class AutomationScheduler {
 
     // Allow node process to unref if shutting down
     if (timer.unref) timer.unref();
+  }
+
+  /**
+   * Autonomous 5-minute round-robin comment auto-reply cron.
+   * If 1 video active: processes every 10 min (cooldown check).
+   * If 2-5 videos active: rotates 1 video per 5-minute tick.
+   */
+  @Cron('*/5 * * * *')
+  async handleAutoCommentRepliesCron() {
+    if (this.isProcessingCommentCron) {
+      this.logger.debug('Comment auto-reply cron tick skipped — previous execution still in progress.');
+      return;
+    }
+
+    this.isProcessingCommentCron = true;
+    try {
+      const channels = await this.channelModel.find({}).lean();
+      for (const channel of channels) {
+        const channelId = channel._id.toString();
+
+        // 1. Quota Check: Ensure YouTube quota is safe (< 9000)
+        const dailyQuota = await this.quotaService.getDailyUsage(channelId);
+        if (dailyQuota.used >= YOUTUBE_HARD_CAP_CEILING) {
+          this.logger.warn(
+            `Channel ${channel.name} reached quota ceiling (${dailyQuota.used}/${dailyQuota.limit} units). Skipping comment auto-reply.`,
+          );
+          continue;
+        }
+
+        // 2. Check today's comments quota count (PT midnight reset)
+        const todayCommentCount = await this.quotaService.getTodayEndpointCount(channelId, 'comments.insert');
+        if (todayCommentCount >= DEFAULT_COMMENT_DAILY_CAP) {
+          this.logger.log(
+            `Channel ${channel.name} reached daily comment cap (${todayCommentCount}/${DEFAULT_COMMENT_DAILY_CAP}). Pausing until midnight PT.`,
+          );
+          continue;
+        }
+
+        // 3. Find active auto-reply videos
+        const activeVideos = await this.videoModel
+          .find({
+            channelId: channel._id,
+            autoReplyEnabled: true,
+            deletedFromYoutube: { $ne: true },
+          })
+          .sort({ autoReplyLastRanAt: 1, publishedAt: -1 });
+
+        if (!activeVideos || activeVideos.length === 0) {
+          continue;
+        }
+
+        const candidateVideo = activeVideos[0];
+
+        // 4. If only 1 video active, enforce 9-10 min cooldown
+        if (activeVideos.length === 1 && candidateVideo.autoReplyLastRanAt) {
+          const elapsedMs = Date.now() - new Date(candidateVideo.autoReplyLastRanAt).getTime();
+          if (elapsedMs < 9 * 60 * 1000) {
+            continue;
+          }
+        }
+
+        const remainingDailyCap = Math.max(0, DEFAULT_COMMENT_DAILY_CAP - todayCommentCount);
+        this.logger.log(
+          `[Comment Auto-Reply] Checking video "${candidateVideo.title}" (${candidateVideo.youtubeId}) for channel ${channel.name}. Remaining daily cap: ${remainingDailyCap}`,
+        );
+
+        await this.commentsService.processSingleVideoAutoReplies(
+          candidateVideo._id,
+          channelId,
+          remainingDailyCap,
+        );
+      }
+    } catch (err: any) {
+      this.logger.error(`Error in handleAutoCommentRepliesCron: ${err.message}`, err.stack);
+    } finally {
+      this.isProcessingCommentCron = false;
+    }
   }
 }

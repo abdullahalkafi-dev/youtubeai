@@ -75,6 +75,18 @@ export class QuotaService {
     return { used, limit: this.YOUTUBE_DAILY_LIMIT, breakdown: breakdownMap };
   }
 
+  async getTodayEndpointCount(channelId: string, endpoint: string): Promise<number> {
+    const ptMidnight = this.getPTMidnight();
+    const model = this.channelModel.db.model('ApiQuotaLog') as any;
+    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+    return model.countDocuments({
+      $or: [{ channelId: cId }, { channelId }],
+      endpoint,
+      calledAt: { $gte: ptMidnight },
+      success: { $ne: false },
+    });
+  }
+
   async getRecentLogs(channelId: string, limit = 50) {
     const model = this.channelModel.db.model('ApiQuotaLog') as any;
     const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;

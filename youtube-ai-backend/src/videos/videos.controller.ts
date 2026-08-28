@@ -67,6 +67,14 @@ export class VideosController {
     return this.videosService.setThumbnail(id, dto.thumbnailUrl, userId);
   }
 
+  @Patch('videos/:id/auto-reply')
+  toggleAutoReply(
+    @Param('id') id: string,
+    @Body() body: { autoReplyEnabled: boolean },
+  ) {
+    return this.videosService.toggleAutoReply(id, Boolean(body?.autoReplyEnabled));
+  }
+
   @Patch('videos/:id')
   update(@Param('id') id: string, @Body() dto: UpdateVideoDto) {
     return this.videosService.update(id, dto);

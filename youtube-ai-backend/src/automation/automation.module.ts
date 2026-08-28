@@ -22,6 +22,7 @@ import { AutomationController } from './automation.controller';
 import { SeoModule } from '../seo/seo.module';
 import { YouTubeModule } from '../youtube/youtube.module';
 import { QuotaModule } from '../quota/quota.module';
+import { CommentsModule } from '../comments/comments.module';
 
 @Module({
   imports: [
@@ -34,6 +35,7 @@ import { QuotaModule } from '../quota/quota.module';
       { name: User.name, schema: UserSchema },
     ]),
     forwardRef(() => SeoModule),
+    forwardRef(() => CommentsModule),
     YouTubeModule,
     QuotaModule,
   ],
