@@ -337,11 +337,14 @@ export class AutomationService implements OnApplicationBootstrap {
   }
 
   /**
-   * Query historical batches for a channel
+   * Query historical batches for a channel (defaults to video_seo batches)
    */
   async getBatches(channelId: string, query: BatchQueryDto) {
     const { page = 1, limit = 10 } = query;
-    const filter = { channelId: new Types.ObjectId(channelId) };
+    const filter: any = {
+      channelId: new Types.ObjectId(channelId),
+      type: query.type || 'video_seo',
+    };
 
     const [items, total] = await Promise.all([
       this.batchModel
@@ -363,12 +366,13 @@ export class AutomationService implements OnApplicationBootstrap {
   }
 
   /**
-   * Query the currently active batch (if any)
+   * Query the currently active video SEO batch (if any)
    */
   async getActiveBatch(channelId: string) {
     const batch = await this.batchModel
       .findOne({
         channelId: new Types.ObjectId(channelId),
+        type: 'video_seo',
         status: { $in: ['checking_quota', 'generating', 'staging', 'pushing'] },
       })
       .sort({ createdAt: -1 })

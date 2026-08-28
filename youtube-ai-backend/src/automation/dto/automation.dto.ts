@@ -27,4 +27,8 @@ export class BatchQueryDto {
   @Min(1)
   @Max(50)
   limit?: number = 10;
+
+  @IsOptional()
+  @IsEnum(['video_seo', 'comment_reply'])
+  type?: string = 'video_seo';
 }

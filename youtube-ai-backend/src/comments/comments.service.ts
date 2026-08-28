@@ -489,8 +489,14 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
       accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
     } catch (err: any) {
       this.logger.error(`Failed to get YouTube access token for channel ${channelId}: ${err.message}`);
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
       return { processedCount: 0, skippedCount: 0, failedCount: 0 };
     }
+
+    // Invalidate stale cache to guarantee fetching fresh comments directly from YouTube API
+    await this.cache.invalidate(video.youtubeId);
 
     // Fetch top-level comments with order: 'time' (newest first)
     const threadsRes = await this.getComments(

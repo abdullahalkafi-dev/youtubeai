@@ -163,4 +163,5 @@ export class AutomationBatch {
 export const AutomationBatchSchema =
   SchemaFactory.createForClass(AutomationBatch);
 AutomationBatchSchema.index({ channelId: 1, createdAt: -1 });
+AutomationBatchSchema.index({ channelId: 1, type: 1, createdAt: -1 });
 AutomationBatchSchema.index({ channelId: 1, status: 1 });
