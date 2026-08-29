@@ -6,23 +6,64 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Eye } from 'lucide-react'
+import { Eye, Loader2, Save } from 'lucide-react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchQuotaUsage } from '@/store/slices/quota-slice'
+import { fetchChannels } from '@/store/slices/auth-slice'
 import { cn } from '@/lib/utils'
+import { api } from '@/lib/api'
+import { toast } from 'sonner'
 
 export default function SettingsPage() {
   const [showOpenAI, setShowOpenAI] = useState(false)
   const [showYoutube, setShowYoutube] = useState(false)
   const dispatch = useAppDispatch()
   const channelId = useAppSelector((s) => s.auth.activeChannelId)
+  const channels = useAppSelector((s) => s.auth.channels)
   const { usage, loading: quotaLoading } = useAppSelector((s) => s.quota)
 
+  const activeChannel = channels.find(
+    (c) => c.id === channelId || (c as any)._id === channelId,
+  )
+
+  const [dailyUpdateCap, setDailyUpdateCap] = useState<number>(50)
+  const [autoPauseAtLimit, setAutoPauseAtLimit] = useState<boolean>(true)
+  const [autoResumeAtMidnight, setAutoResumeAtMidnight] = useState<boolean>(true)
+  const [savingSettings, setSavingSettings] = useState(false)
+
   useEffect(() => {
+    dispatch(fetchChannels())
     if (channelId) {
       dispatch(fetchQuotaUsage(channelId))
     }
   }, [channelId, dispatch])
+
+  useEffect(() => {
+    if (activeChannel?.seoSettings) {
+      setDailyUpdateCap(activeChannel.seoSettings.dailyUpdateCap || 50)
+      setAutoPauseAtLimit(activeChannel.seoSettings.autoPauseAtLimit ?? true)
+      setAutoResumeAtMidnight(activeChannel.seoSettings.autoResumeAtMidnight ?? true)
+    }
+  }, [activeChannel])
+
+  const handleSaveAutomationSettings = async () => {
+    if (!channelId) return
+    try {
+      setSavingSettings(true)
+      await api.updateChannelSeoSettings(channelId, {
+        dailyUpdateCap: Number(dailyUpdateCap),
+        autoPauseAtLimit,
+      })
+      await dispatch(fetchChannels()).unwrap()
+      toast.success('Automation settings saved successfully!', {
+        description: `Daily batch limit set to ${dailyUpdateCap} videos.`,
+      })
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save automation settings')
+    } finally {
+      setSavingSettings(false)
+    }
+  }
 
   const percentage = usage ? Math.round((usage.used / usage.limit) * 100) : 0
 
@@ -100,12 +141,23 @@ export default function SettingsPage() {
 
         <Card>
           <CardContent className="p-5 lg:p-6">
-            <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white mb-4 font-heading">Daily Automation & Quota Manager</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white font-heading">
+                Daily Automation & Quota Manager
+              </h3>
+            </div>
             <div className="space-y-4">
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-1.5">Daily Scheduled Batch Size</label>
-                <Input type="number" defaultValue={20} className="bg-gray-50 dark:bg-gray-800 text-sm" />
-                <p className="text-xs text-gray-400 mt-1">Number of videos optimized per daily morning batch</p>
+                <Input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={dailyUpdateCap}
+                  onChange={(e) => setDailyUpdateCap(Number(e.target.value))}
+                  className="bg-gray-50 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white"
+                />
+                <p className="text-xs text-gray-400 mt-1">Number of videos optimized per daily morning batch (1–50)</p>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-1.5">Morning Schedule</label>
@@ -119,14 +171,40 @@ export default function SettingsPage() {
                   <Label className="text-sm text-gray-700 dark:text-gray-300 font-medium">Auto-pause at limit</Label>
                   <p className="text-xs text-gray-400">Stop when daily quota limit reached</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={autoPauseAtLimit}
+                  onCheckedChange={setAutoPauseAtLimit}
+                />
               </div>
               <div className="flex items-center justify-between">
                 <div>
                   <Label className="text-sm text-gray-700 dark:text-gray-300 font-medium">Auto-resume midnight</Label>
                   <p className="text-xs text-gray-400">Reset quota window at 12:00 AM PST</p>
                 </div>
-                <Switch defaultChecked />
+                <Switch
+                  checked={autoResumeAtMidnight}
+                  onCheckedChange={setAutoResumeAtMidnight}
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={handleSaveAutomationSettings}
+                  disabled={savingSettings}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-600 hover:to-purple-700 text-white font-semibold text-xs sm:text-sm shadow-md shadow-indigo-500/20 transition disabled:opacity-50"
+                >
+                  {savingSettings ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Saving Settings...
+                    </>
+                  ) : (
+                    <>
+                      <Save className="w-4 h-4" />
+                      Save Automation Settings
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </CardContent>
