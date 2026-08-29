@@ -79,7 +79,7 @@ export function AutomationMetrics({ stats, loading }: AutomationMetricsProps) {
             <span className="text-xs text-gray-400">remaining</span>
           </div>
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 truncate">
-            <span className="font-semibold text-gray-700 dark:text-gray-300">{remaining}</span> unoptimized · {stats?.dailyBatchSize || 20} videos/day
+            <span className="font-semibold text-gray-700 dark:text-gray-300">{remaining}</span> unoptimized · {stats?.dailyBatchSize || 50} videos/day
           </p>
         </CardContent>
       </Card>
@@ -105,7 +105,7 @@ export function AutomationMetrics({ stats, loading }: AutomationMetricsProps) {
           </div>
           <p className="mt-3 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
-            Scheduled {stats?.dailyBatchSize || 20}-Video Batch
+            Scheduled {stats?.dailyBatchSize || 50}-Video Batch
           </p>
         </CardContent>
       </Card>

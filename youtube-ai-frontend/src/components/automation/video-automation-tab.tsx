@@ -87,7 +87,8 @@ export function VideoAutomationTab() {
   const handleRunManualBatch = async () => {
     if (!channelId) return;
     try {
-      const res = await dispatch(runBatchAsync({ channelId, batchSize: 20, source: 'manual_ui_batch' })).unwrap();
+      const batchSize = stats?.dailyBatchSize || 50;
+      const res = await dispatch(runBatchAsync({ channelId, batchSize, source: 'manual_ui_batch' })).unwrap();
       toast.success(res.message || 'Batch dispatched successfully!');
       dispatch(fetchActiveBatch(channelId));
     } catch (err: any) {
@@ -140,7 +141,7 @@ export function VideoAutomationTab() {
             Video SEO Daily Automation Pipeline
           </h2>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Automated daily 20-video batches with DB staging, conflict safety, and paced YouTube publishing
+            Automated daily {stats?.dailyBatchSize || 50}-video batches with DB staging, conflict safety, and paced YouTube publishing
           </p>
         </div>
 
@@ -172,7 +173,7 @@ export function VideoAutomationTab() {
             ) : (
               <>
                 <Play className="w-4 h-4 fill-white" />
-                Run 20 Video Batch Now
+                Run {stats?.dailyBatchSize || 50} Video Batch Now
               </>
             )}
           </button>
