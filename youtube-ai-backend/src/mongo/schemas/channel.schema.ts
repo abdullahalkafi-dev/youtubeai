@@ -46,13 +46,13 @@ export class Channel {
 
   @Prop({
     type: {
-      dailyUpdateCap: { type: Number, default: 20 },
+      dailyUpdateCap: { type: Number, default: 50 },
       cronInterval: { type: Number, default: 5 },
       autoPauseAtLimit: { type: Boolean, default: true },
       autoResumeAtMidnight: { type: Boolean, default: true },
     },
     default: () => ({
-      dailyUpdateCap: 20,
+      dailyUpdateCap: 50,
       cronInterval: 5,
       autoPauseAtLimit: true,
       autoResumeAtMidnight: true,

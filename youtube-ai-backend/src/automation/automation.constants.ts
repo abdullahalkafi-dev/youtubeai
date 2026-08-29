@@ -3,7 +3,7 @@
  */
 
 export const DEFAULT_DAILY_BATCH_SIZE = parseInt(
-  process.env.AUTOMATION_DAILY_BATCH_SIZE || '20',
+  process.env.AUTOMATION_DAILY_BATCH_SIZE || '50',
   10,
 );
 

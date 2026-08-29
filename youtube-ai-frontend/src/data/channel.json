@@ -12,7 +12,7 @@
   "joinedDate": "2015-03-15",
   "country": "US",
   "seoSettings": {
-    "dailyUpdateCap": 20,
+    "dailyUpdateCap": 50,
     "cronInterval": 5,
     "autoPauseAtLimit": true,
     "autoResumeAtMidnight": true

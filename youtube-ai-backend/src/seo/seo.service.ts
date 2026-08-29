@@ -362,19 +362,26 @@ export class SeoService {
     };
 
     try {
+      const channel = await this.channelModel.findById(suggestion.channelId).lean();
+      const dailyCap = channel?.seoSettings?.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
+
+      // Ensure YouTube daily API quota has sufficient units available
+      const quotaUsage = await this.quotaService.getDailyUsage(suggestion.channelId.toString());
+      if (quotaUsage.used + 51 > quotaUsage.limit) {
+        await resetPending();
+        return {
+          success: false,
+          error: `YouTube daily API quota is full (${quotaUsage.used.toLocaleString()} / ${quotaUsage.limit.toLocaleString()} units used). Manual updates will resume at midnight Pacific Time.`,
+          dailyCount: 0,
+          dailyCap,
+        };
+      }
+
       const todayStart = new Date();
       todayStart.setHours(0, 0, 0, 0);
       const dailyApproveCount = await this.seoSuggestionModel.countDocuments({
         channelId: suggestion.channelId, status: 'approved', createdAt: { $gte: todayStart },
       });
-
-      const channel = await this.channelModel.findById(suggestion.channelId).lean();
-      const dailyCap = channel?.seoSettings?.dailyUpdateCap || DEFAULT_DAILY_BATCH_SIZE;
-
-      if (dailyApproveCount >= dailyCap) {
-        await resetPending();
-        return { success: false, error: `Daily limit reached (${dailyCap}/day).`, dailyCount: dailyApproveCount, dailyCap };
-      }
 
       const video = await this.videoModel.findById(suggestion.videoId);
       if (!video) {
