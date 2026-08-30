@@ -30,6 +30,7 @@ export const ROUTES = {
   trends: '/trends',
   seo: '/seo',
   chat: '/chat',
+  scripts: '/scripts',
   queue: '/queue',
   settings: '/settings',
   login: '/login',
@@ -38,6 +39,7 @@ export const ROUTES = {
 export const NAV_ITEMS = [
   { label: 'Dashboard', href: ROUTES.dashboard, icon: 'LayoutDashboard' },
   { label: 'Video Library', href: ROUTES.videos, icon: 'Video' },
+  { label: 'Scripts Studio', href: ROUTES.scripts, icon: 'ScrollText' },
   { label: 'Trending', href: ROUTES.trends, icon: 'TrendingUp' },
   { label: 'AI Content Chat', href: ROUTES.chat, icon: 'MessageSquare' },
 ] as const

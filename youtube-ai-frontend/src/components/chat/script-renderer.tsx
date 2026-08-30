@@ -1,144 +1,108 @@
 'use client'
 
 import { useState } from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import { Copy, Check, FileText, Diamond } from 'lucide-react'
+import {
+  Copy,
+  Check,
+  FileText,
+  Diamond,
+  Play,
+  Edit3,
+  Download,
+  Bookmark,
+  BookmarkCheck,
+  History,
+  FileDown,
+  MoreHorizontal,
+  Loader2,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { useAppSelector } from '@/store/hooks'
+import api from '@/lib/api'
+import {
+  calculateTeleprompterStats,
+  parseScriptSections,
+  extractCleanTeleprompterText,
+} from '@/lib/teleprompter-parser'
+import { downloadTeleprompterPdf } from '@/components/scripts/export/teleprompter-pdf'
+import { FullscreenTeleprompter } from '@/components/scripts/teleprompter/fullscreen-teleprompter'
+import { TeleprompterEditorModal } from '@/components/scripts/editor/teleprompter-editor-modal'
+import { VersionHistoryModal } from '@/components/scripts/version-history-modal'
+import type { ScriptItem } from '@/types/script'
 
 interface ScriptRendererProps {
   content: string
+  threadId?: string
+  messageId?: string
+  initialScriptId?: string
 }
 
-function parseScriptSections(content: string): Array<{ header: string; body: string; isJewel: boolean }> {
-  const sections: Array<{ header: string; body: string; isJewel: boolean }> = []
+export function ScriptRenderer({
+  content,
+  threadId,
+  messageId,
+  initialScriptId,
+}: ScriptRendererProps) {
+  const channelId = useAppSelector((state) => state.auth.activeChannelId) || ''
 
-  // Split by ## or # headers or bold line headers
-  const parts = content.split(/(?=^#{1,3}\s+|^(?:\*\*)?(?:COLD OPEN|WHAT HAPPENED|UNIQUE MECCA BREAKDOWN|THE HUMAN COST|THE YOUTH WARNING|FINAL JEWEL))/gm)
+  const [copied, setCopied] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+  const [showDownloadMenu, setShowDownloadMenu] = useState(false)
+  const [savedScript, setSavedScript] = useState<ScriptItem | null>(null)
+  const [isSaving, setIsSaving] = useState(false)
 
-  for (const part of parts) {
-    const headerMatch = part.match(/^(?:#{1,3}\s+|\*\*)?(.+?)(?:\*\*)?$/m)
-    if (headerMatch) {
-      let rawHeader = headerMatch[1].trim()
-      // Strip markdown bold asterisks, hashtags, and quotes from section title
-      const header = rawHeader
-        .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
-        .replace(/\*\*/g, '')
-        .trim()
+  // Modals state
+  const [showTeleprompter, setShowTeleprompter] = useState(false)
+  const [showEditor, setShowEditor] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
 
-      const body = part.replace(/^(?:#{1,3}\s+|\*\*)?.+?(?:\*\*)?\n/, '').trim()
+  const effectiveContent = savedScript?.content || content
+  const stats = calculateTeleprompterStats(effectiveContent)
+  const sections = parseScriptSections(effectiveContent)
 
-      // Check if this is a sources section or conversational line
-      if (header.toLowerCase().includes('sources')) {
-        continue
-      }
+  // Extract a clean title from the content or first section
+  const firstHeader = sections.find((s) => s.header && !s.header.includes('COLD OPEN'))?.header
+  const scriptTitle = savedScript?.title || firstHeader || sections[0]?.header || 'YouTube Video Script'
+  const isAlreadySaved = Boolean(savedScript || initialScriptId)
+  const currentSavedVersion = savedScript?.currentVersion || 1
 
-      sections.push({
-        header,
-        body,
-        isJewel: false,
+  const handleSaveToLibrary = async () => {
+    if (!channelId) {
+      toast.error('Channel context not found')
+      return
+    }
+
+    if (isAlreadySaved) {
+      toast.info('This script is already saved in your Library.')
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const script = await api.createScript(channelId, {
+        title: scriptTitle,
+        content: effectiveContent,
+        threadId,
+        messageId,
+        wordCount: stats.wordCount,
+        estimatedDurationMinutes: stats.estimatedDurationMinutes,
+        source: 'ai_chat',
+        formatType: 'teleprompter_beat',
       })
-    } else if (part.trim() && sections.length > 0) {
-      // Append to previous section
-      sections[sections.length - 1].body += '\n\n' + part.trim()
+      setSavedScript(script)
+      toast.success('Script saved to your Library!')
+    } catch (err: any) {
+      toast.error(`Failed to save script: ${err.message}`)
+    } finally {
+      setIsSaving(false)
     }
   }
 
-  // If no sections found, treat as single block
-  if (sections.length === 0 && content.trim()) {
-    sections.push({ header: '', body: content, isJewel: false })
-  }
-
-  return sections
-}
-
-function getSectionColor(header: string): string {
-  const lower = header.toLowerCase()
-  if (lower.includes('cold open')) return 'border-l-red-400 bg-red-50/50 dark:bg-red-500/5'
-  if (lower.includes('what happened')) return 'border-l-blue-400 bg-blue-50/50 dark:bg-blue-500/5'
-  if (lower.includes('breakdown')) return 'border-l-amber-400 bg-amber-50/50 dark:bg-amber-500/5'
-  if (lower.includes('human cost')) return 'border-l-purple-400 bg-purple-50/50 dark:bg-purple-500/5'
-  if (lower.includes('youth warning')) return 'border-l-emerald-400 bg-emerald-50/50 dark:bg-emerald-500/5'
-  if (lower.includes('jewel') || lower.includes('final')) return 'border-l-amber-500 bg-amber-50/50 dark:bg-amber-500/5'
-  return 'border-l-gray-300 bg-gray-50/50 dark:bg-gray-500/5'
-}
-
-function renderInlineMarkdown(text: string): React.ReactNode {
-  // Use react-markdown for proper inline markdown rendering (bold, italic, links, etc.)
-  return (
-    <Markdown
-      remarkPlugins={[remarkGfm]}
-      components={{
-        p: ({ children }) => <>{children}</>,
-        strong: ({ children }) => <strong className="font-semibold text-gray-800 dark:text-gray-200">{children}</strong>,
-        em: ({ children }) => <em className="italic text-gray-600 dark:text-gray-400">{children}</em>,
-        a: ({ href, children }) => (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-600 dark:text-indigo-400 hover:underline">
-            {children}
-          </a>
-        ),
-        del: ({ children }) => <del className="line-through text-gray-400">{children}</del>,
-        code: ({ children }) => (
-          <code className="text-[10px] bg-gray-100 dark:bg-gray-800 px-1 py-0.5 rounded font-normal">
-            {children}
-          </code>
-        ),
-      }}
-    >
-      {text}
-    </Markdown>
-  )
-}
-
-function renderLine(line: string): React.ReactNode {
-  // Check for jewel lines
-  if (line.includes('💎 JEWEL:') || line.includes('💎JEWEL:') || line.match(/^\*\*💎\s*JEWEL/i)) {
-    const jewelText = line.replace(/💎\s*JEWEL:\s*/i, '').replace(/\*\*/g, '').trim()
-    return (
-      <div className="flex items-start gap-2 my-2 p-2.5 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-lg">
-        <Diamond className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-        <span className="text-xs font-semibold text-amber-700 dark:text-amber-300">{renderInlineMarkdown(jewelText)}</span>
-      </div>
-    )
-  }
-
-  // Check for timestamp lines
-  const timestampMatch = line.match(/^\[(\d+:\d+(?::\d+)?)\]/)
-  if (timestampMatch) {
-    return (
-      <div className="flex items-start gap-2">
-        <span className="text-[10px] font-mono text-gray-400 bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded shrink-0">
-          {timestampMatch[1]}
-        </span>
-        <span className="text-xs text-gray-700 dark:text-gray-300">{renderInlineMarkdown(line.replace(/^\[\d+:\d+(?::\d+)?\]\s*/, ''))}</span>
-      </div>
-    )
-  }
-
-  // All other lines — render through react-markdown for proper inline formatting
-  return <p className="text-xs text-gray-700 dark:text-gray-300 leading-relaxed">{renderInlineMarkdown(line)}</p>
-}
-
-export function ScriptRenderer({ content }: ScriptRendererProps) {
-  const [copied, setCopied] = useState(false)
-
-  const sections = parseScriptSections(content)
-
   const handleCopyScript = async () => {
     try {
-      // Extract ONLY the pure script body (from first section to end of script/Q&A)
-      // Exclude conversational AI intro e.g. "Absolutely — here's a fresh..." and outro e.g. "If you want I can also turn this..."
-      let pureScript = sections.map(sec => {
-        const cleanHead = sec.header ? `\n\n${sec.header.toUpperCase()}\n` : ''
-        const cleanBody = sec.body
-          .replace(/## /g, '')
-          .replace(/\*\*/g, '')
-          .trim()
-        return `${cleanHead}${cleanBody}`
-      }).join('\n').trim()
-
-      await navigator.clipboard.writeText(pureScript)
+      const text = extractCleanTeleprompterText(effectiveContent) || effectiveContent
+      await navigator.clipboard.writeText(text)
       setCopied(true)
       toast.success('Teleprompter script copied!')
       setTimeout(() => setCopied(false), 2000)
@@ -147,44 +111,288 @@ export function ScriptRenderer({ content }: ScriptRendererProps) {
     }
   }
 
-  return (
-    <div className="space-y-3">
-      {/* Copy Script Button */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-xs text-amber-600 dark:text-amber-400 font-semibold">
-          <FileText className="w-3.5 h-3.5" />
-          Video Script
-        </div>
-        <button
-          onClick={handleCopyScript}
-          className="text-[10px] text-amber-600 dark:text-amber-400 hover:text-amber-700 dark:hover:text-amber-300 font-medium flex items-center gap-1 transition"
-        >
-          {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-          Copy Script
-        </button>
-      </div>
+  const handleDownloadMd = () => {
+    const blob = new Blob([effectiveContent], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${scriptTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.md`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
-      {/* Script Sections */}
-      {sections.map((section, idx) => (
-        <div
-          key={idx}
-          className={cn(
-            'border-l-4 rounded-r-xl p-3.5',
-            getSectionColor(section.header)
-          )}
-        >
-          {section.header && (
-            <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200 mb-2 uppercase tracking-wide">
-              {section.header}
+  const handleDownloadTxt = () => {
+    const text = extractCleanTeleprompterText(effectiveContent) || effectiveContent
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${scriptTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.txt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true)
+    try {
+      await downloadTeleprompterPdf(
+        scriptTitle,
+        effectiveContent,
+        stats.wordCount,
+        stats.estimatedDurationMinutes,
+      )
+    } catch (err: any) {
+      toast.error(`PDF generation failed: ${err.message}`)
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  const activeScript: ScriptItem = savedScript || {
+    id: initialScriptId,
+    _id: initialScriptId,
+    channelId,
+    title: scriptTitle,
+    content: effectiveContent,
+    wordCount: stats.wordCount,
+    estimatedDurationMinutes: stats.estimatedDurationMinutes,
+    source: 'ai_chat',
+    formatType: 'teleprompter_beat',
+    isFavorite: false,
+    vectorSyncStatus: 'synced',
+    currentVersion: currentSavedVersion,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  }
+
+  return (
+    <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm overflow-hidden my-3">
+      {/* Top Action Toolbar */}
+      <div className="px-4 py-3 bg-zinc-50/80 dark:bg-zinc-800/60 border-b border-zinc-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center space-x-2">
+          <div className="p-1.5 rounded-lg bg-amber-500/10 text-amber-500">
+            <FileText className="w-4 h-4" />
+          </div>
+          <div>
+            <h4 className="text-xs font-bold text-zinc-900 dark:text-zinc-100 truncate max-w-xs sm:max-w-md">
+              {scriptTitle}
             </h4>
-          )}
-          <div className="space-y-1">
-            {section.body.split('\n').filter(Boolean).map((line, lineIdx) => (
-              <div key={lineIdx}>{renderLine(line)}</div>
-            ))}
+            <p className="text-[10px] text-zinc-500">
+              {stats.estimatedDurationMinutes} min read · {stats.wordCount} words
+            </p>
           </div>
         </div>
-      ))}
+
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-1.5 flex-wrap">
+          {/* Save to Library / Saved Button */}
+          {isAlreadySaved ? (
+            <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-bold text-xs flex items-center space-x-1">
+              <BookmarkCheck className="w-3.5 h-3.5" />
+              <span>In Library (v{currentSavedVersion})</span>
+            </span>
+          ) : (
+            <button
+              onClick={handleSaveToLibrary}
+              disabled={isSaving}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 font-bold text-xs flex items-center space-x-1 transition active:scale-95 disabled:opacity-50"
+            >
+              {isSaving ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Bookmark className="w-3.5 h-3.5" />
+              )}
+              <span>Save to Library</span>
+            </button>
+          )}
+
+          {/* Fullscreen Teleprompter */}
+          <button
+            onClick={() => setShowTeleprompter(true)}
+            className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs flex items-center space-x-1 transition active:scale-95 shadow-sm"
+          >
+            <Play className="w-3.5 h-3.5 fill-current" />
+            <span>Studio</span>
+          </button>
+
+          {/* Edit Button */}
+          <button
+            onClick={() => setShowEditor(true)}
+            className="px-2.5 py-1 rounded-lg bg-zinc-200 dark:bg-zinc-700 hover:bg-zinc-300 dark:hover:bg-zinc-600 text-zinc-800 dark:text-zinc-200 font-semibold text-xs flex items-center space-x-1 transition"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Edit</span>
+          </button>
+
+          {/* Version History (if saved) */}
+          {isAlreadySaved && (
+            <button
+              onClick={() => setShowHistory(true)}
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
+              title="Version History"
+            >
+              <History className="w-3.5 h-3.5" />
+            </button>
+          )}
+
+          {/* Copy Clean Spoken Script */}
+          <button
+            onClick={handleCopyScript}
+            className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
+            title="Copy Clean Spoken Text"
+          >
+            {copied ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+          </button>
+
+          {/* Download Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setShowDownloadMenu((prev) => !prev)}
+              className="p-1.5 rounded-lg text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 transition"
+              title="Download Options"
+            >
+              <Download className="w-3.5 h-3.5" />
+            </button>
+
+            {showDownloadMenu && (
+              <>
+                <div
+                  className="fixed inset-0 z-30"
+                  onClick={() => setShowDownloadMenu(false)}
+                />
+                <div className="absolute right-0 top-full mt-1 w-44 bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl shadow-xl z-40 p-1 space-y-1 text-xs">
+                  <button
+                    onClick={() => {
+                      setShowDownloadMenu(false)
+                      handleDownloadPdf()
+                    }}
+                    disabled={downloadingPdf}
+                    className="w-full px-2.5 py-1.5 rounded-lg flex items-center space-x-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-left"
+                  >
+                    <FileDown className="w-3.5 h-3.5 text-red-500" />
+                    <span>Download PDF (.pdf)</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDownloadMenu(false)
+                      handleDownloadMd()
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg flex items-center space-x-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-left"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Download Markdown (.md)</span>
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowDownloadMenu(false)
+                      handleDownloadTxt()
+                    }}
+                    className="w-full px-2.5 py-1.5 rounded-lg flex items-center space-x-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-left"
+                  >
+                    <FileText className="w-3.5 h-3.5" />
+                    <span>Download Plain (.txt)</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* Script Sections Card Body */}
+      <div className="p-5 space-y-5 max-h-[600px] overflow-y-auto">
+        {sections.map((section, idx) => (
+          <div key={idx} className="space-y-3">
+            {section.header && (
+              <h4 className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider pb-1 border-b border-zinc-100 dark:border-zinc-800">
+                {section.header}
+              </h4>
+            )}
+
+            {section.isJewel ? (
+              <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-700 dark:text-amber-300 font-medium space-y-1">
+                <div className="flex items-center space-x-1.5 text-amber-500 font-bold uppercase text-[10px]">
+                  <Diamond className="w-3.5 h-3.5" />
+                  <span>💎 JEWEL LESSON</span>
+                </div>
+                <p>{section.body.replace(/^>\s*/gm, '').replace(/\*\*/g, '')}</p>
+              </div>
+            ) : (
+              <div className="space-y-2 text-xs leading-relaxed">
+                {section.body.split('\n').map((line, lIdx) => {
+                  const trimmed = line.trim()
+                  if (!trimmed) return null
+
+                  if (trimmed.startsWith('[BEAT]') || trimmed.startsWith('[PAUSE]')) {
+                    return (
+                      <span
+                        key={lIdx}
+                        className="inline-block my-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 dark:bg-zinc-800 text-amber-500"
+                      >
+                        {trimmed}
+                      </span>
+                    )
+                  }
+
+                  if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
+                    return (
+                      <div key={lIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-1">
+                        {trimmed.replace(/\*\*/g, '')}
+                      </div>
+                    )
+                  }
+
+                  return (
+                    <div key={lIdx} className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300">
+                      {trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* Fullscreen Teleprompter Overlay */}
+      {showTeleprompter && (
+        <FullscreenTeleprompter
+          isOpen={showTeleprompter}
+          onClose={() => setShowTeleprompter(false)}
+          title={scriptTitle}
+          content={content}
+          wordCount={stats.wordCount}
+          estimatedDurationMinutes={stats.estimatedDurationMinutes}
+        />
+      )}
+
+      {/* Visual Editor Modal */}
+      {showEditor && (
+        <TeleprompterEditorModal
+          isOpen={showEditor}
+          onClose={() => setShowEditor(false)}
+          channelId={channelId}
+          script={activeScript}
+          onSaved={(updated) => {
+            setSavedScript(updated)
+            setShowEditor(false)
+          }}
+        />
+      )}
+
+      {/* Version History Modal */}
+      {showHistory && isAlreadySaved && (
+        <VersionHistoryModal
+          isOpen={showHistory}
+          onClose={() => setShowHistory(false)}
+          channelId={channelId}
+          scriptId={savedScript?.id || savedScript?._id || initialScriptId || ''}
+          currentVersion={currentSavedVersion}
+          onRestored={() => {
+            setShowHistory(false)
+          }}
+        />
+      )}
     </div>
   )
 }

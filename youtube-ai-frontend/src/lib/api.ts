@@ -8,6 +8,7 @@ import type { TrendingTopic } from '@/types/trend'
 import type { QuotaUsage, QuotaLog } from '@/types/quota'
 import type { HttpLogItem, LogStatsResponse, PaginatedLogsResponse, LogQueryParams } from '@/types/dev-log'
 import type { AutomationStats, AutomationBatch, PaginatedBatches } from '@/types/automation'
+import type { ScriptItem, ScriptVersionItem, ScriptStats, ScriptListResponse } from '@/types/script'
 
 export function getApiBaseUrl(): string {
   let url = process.env.NEXT_PUBLIC_API_URL
@@ -792,6 +793,68 @@ class ApiClient {
 
   async cancelAutomationBatch(batchId: string): Promise<{ message: string; batchId: string }> {
     return this.post<{ message: string; batchId: string }>(`/api/automation/batches/${batchId}/cancel`, {})
+  }
+
+  // ==================== Scripts ====================
+
+  async createScript(channelId: string, data: Partial<ScriptItem>): Promise<ScriptItem> {
+    return this.post<ScriptItem>(`/api/channels/${channelId}/scripts`, data)
+  }
+
+  async getScripts(channelId: string, params: Record<string, any> = {}): Promise<ScriptListResponse> {
+    const searchParams = new URLSearchParams()
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== '') {
+        searchParams.append(key, String(val))
+      }
+    })
+    const qs = searchParams.toString() ? `?${searchParams.toString()}` : ''
+    return this.get<ScriptListResponse>(`/api/channels/${channelId}/scripts${qs}`)
+  }
+
+  async getScriptStats(channelId: string): Promise<ScriptStats> {
+    return this.get<ScriptStats>(`/api/channels/${channelId}/scripts/stats`)
+  }
+
+  async searchScripts(channelId: string, query: string, limit = 20): Promise<{ items: ScriptItem[]; total: number; query: string }> {
+    return this.get<{ items: ScriptItem[]; total: number; query: string }>(
+      `/api/channels/${channelId}/scripts/search?q=${encodeURIComponent(query)}&limit=${limit}`
+    )
+  }
+
+  async getScript(channelId: string, id: string): Promise<ScriptItem> {
+    return this.get<ScriptItem>(`/api/channels/${channelId}/scripts/${id}`)
+  }
+
+  async saveScript(channelId: string, id: string, data: { expectedVersion: number; title: string; content: string; blocks?: any[]; tags?: string[]; changeDescription?: string }): Promise<ScriptItem> {
+    return this.patch<ScriptItem>(`/api/channels/${channelId}/scripts/${id}`, data)
+  }
+
+  async toggleFavoriteScript(channelId: string, id: string): Promise<ScriptItem> {
+    return this.post<ScriptItem>(`/api/channels/${channelId}/scripts/${id}/favorite`, {})
+  }
+
+  async deleteScript(channelId: string, id: string): Promise<{ success: boolean; scriptId: string }> {
+    return this.delete<{ success: boolean; scriptId: string }>(`/api/channels/${channelId}/scripts/${id}`)
+  }
+
+  async getScriptVersions(channelId: string, id: string): Promise<ScriptVersionItem[]> {
+    return this.get<ScriptVersionItem[]>(`/api/channels/${channelId}/scripts/${id}/versions`)
+  }
+
+  async restoreScriptVersion(channelId: string, id: string, versionNumber: number): Promise<ScriptItem> {
+    return this.post<ScriptItem>(`/api/channels/${channelId}/scripts/${id}/versions/${versionNumber}/restore`, {})
+  }
+
+  async beautifyScript(channelId: string, data: { rawText: string; title?: string }): Promise<{ title: string; content: string; wordCount: number; estimatedDurationMinutes: number }> {
+    return this.post<{ title: string; content: string; wordCount: number; estimatedDurationMinutes: number }>(
+      `/api/channels/${channelId}/scripts/beautify`,
+      data
+    )
+  }
+
+  async retryScriptSync(channelId: string, id: string): Promise<{ success: boolean; scriptId: string; status: string }> {
+    return this.post<{ success: boolean; scriptId: string; status: string }>(`/api/channels/${channelId}/scripts/${id}/retry-sync`, {})
   }
 }
 

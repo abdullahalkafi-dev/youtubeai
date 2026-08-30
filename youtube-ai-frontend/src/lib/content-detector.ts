@@ -268,7 +268,15 @@ export function detectAndParse(content: any, category: string): ParsedContent {
     return { type: 'outline', raw: textContent, sources }
   }
 
-  if (textContent.includes('💎 JEWEL') || textContent.includes('COLD OPEN') || textContent.includes('## COLD OPEN')) {
+  const hasScriptMarkers =
+    textContent.includes('💎 JEWEL') ||
+    /cold\s+open/i.test(textContent) ||
+    textContent.includes('[BEAT]') ||
+    textContent.includes('[PAUSE]') ||
+    textContent.includes('10 VIRAL QUESTIONS') ||
+    (textContent.includes('## ') && textContent.includes('> ') && (textContent.includes('**•') || textContent.includes('**➤') || textContent.includes('min read')))
+
+  if (hasScriptMarkers) {
     return { type: 'script', raw: textContent, sources }
   }
 

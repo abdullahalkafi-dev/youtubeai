@@ -20,6 +20,8 @@ import { SyncLog, SyncLogSchema } from './schemas/sync-log.schema';
 import { HttpLog, HttpLogSchema } from './schemas/http-log.schema';
 
 import { AutomationBatch, AutomationBatchSchema } from './schemas/automation-batch.schema';
+import { Script, ScriptSchema } from './schemas/script.schema';
+import { ScriptVersion, ScriptVersionSchema } from './schemas/script-version.schema';
 
 function addVirtualId(schema: Schema) {
   schema.set('toJSON', {
@@ -50,6 +52,7 @@ const schemas = [
   TrendingTopicSchema, TrendingIdeaSchema, AIOutputLogSchema,
   ApiQuotaLogSchema, SearchListQuotaSchema, TokenUsageDailySchema,
   SyncLogSchema, HttpLogSchema, AutomationBatchSchema,
+  ScriptSchema, ScriptVersionSchema,
 ];
 schemas.forEach(addVirtualId);
 
@@ -70,6 +73,8 @@ const modelImports = MongooseModule.forFeature([
   { name: SyncLog.name, schema: SyncLogSchema },
   { name: HttpLog.name, schema: HttpLogSchema },
   { name: AutomationBatch.name, schema: AutomationBatchSchema },
+  { name: Script.name, schema: ScriptSchema },
+  { name: ScriptVersion.name, schema: ScriptVersionSchema },
 ]);
 
 @Global()

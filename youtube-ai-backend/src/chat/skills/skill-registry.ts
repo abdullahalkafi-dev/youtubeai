@@ -255,33 +255,64 @@ C. [2-4 words]
 [Describe the image, color scheme, layout]
 
 ### 8. FULL TELEPROMPTER SCRIPT
-Follow the 7-step sequence with timestamps and curiosity resets:
+Format Section 8 strictly as a spoken-cadence teleprompter script:
+
+TELEPROMPTER CADENCE & RHYTHM RULES:
+1. HEADLINES:
+   - # MAIN EPISODE TITLE
+   - ## 1. NUMBERED SECTION TITLE (Uppercase thematic headers)
+   - **➤ A. — SUB-SECTION / ANGLE TITLE**
+2. SPOKEN CADENCE:
+   - **• Lead Thought or Topic Sentence** (Bold bullet point for the primary thought)
+   - > Markdown blockquotes for staggered, single-breath spoken delivery (4-10 words per line, separated by blank lines):
+     > Watching the lawyers.
+     >
+     > Watching the witnesses.
+3. STAGE CUES:
+   - [BEAT] — Momentary pause for emphasis
+   - [PAUSE] — Longer silence / dramatic transition
+4. JEWELS:
+   - ### 💎 JEWEL followed by bold moral lesson and spoken takeaways.
+5. DIVIDERS:
+   - --- horizontal rules between major narrative sections.
+6. CLOSING:
+   - # 10 VIRAL QUESTIONS followed by numbered bold questions and blockquote probes.
+   - ### 💎 FINAL JEWEL to conclude.
 
 CRITICAL SCRIPT HOOK RULE (0:00 - 0:15):
 - Open with EMOTION BEFORE EXPLANATION. First sentence MUST place the audience inside the subject's fear, pressure, consequence, or internal conflict.
 - Within first 15s: A. State central conflict, B. Show immediate consequence, C. Create one unanswered question, D. Make Unique Mecca Audio lived-experience angle clear.
 - NO background info, long intros, disclaimers, or title repetition.
 
-## COLD OPEN [0:00 - 0:45]
-[Script lines — Emotional hook + immediate stakes + unanswered question]
+# [EPISODE TITLE]
 
-## WHAT HAPPENED [0:45 - 3:00]
-[Script lines — Clean facts with parenthetical citations e.g. (AP, 2025)]
-[Include CURIOSITY RESET around 1:30 introducing a deeper fear or contradiction]
+## 1. COLD OPEN [0:00 - 0:45]
+[Teleprompter lines with **• Lead**, > Spoken breaths, [BEAT]]
 
-## UNIQUE MECCA BREAKDOWN [3:00 - 15:00]
-[Script lines — Prison psychology & street code translation]
-[Include CURIOSITY RESET around 4:00 introducing a hidden consequence]
-[Include CURIOSITY RESET around 7:00 introducing a new stage of psychological/courtroom reality]
+## 2. WHAT HAPPENED [0:45 - 3:00]
+[Teleprompter lines with verified facts + parenthetical citations e.g. (AP, 2025)]
 
-## THE HUMAN COST [15:00 - 21:00]
-[Script lines — Mother, family, victims, lost years]
+## 3. UNIQUE MECCA BREAKDOWN [3:00 - 15:00]
+[Teleprompter lines with street code translation & prison psychology]
 
-## THE YOUTH WARNING [21:00 - 26:00]
-[Script lines — Direct warning to young viewers]
+## 4. THE HUMAN COST [15:00 - 21:00]
+[Teleprompter lines — Mother, family, lost years]
 
-## FINAL JEWEL + 10 VIRAL Q&As [26:00+]
-[Script lines + 10 questions with brief answers]
+## 5. THE YOUTH WARNING [21:00 - 26:00]
+[Teleprompter lines — Direct warning to young viewers]
+
+### 💎 JEWEL
+**[Moral lesson]**
+> [Spoken takeaway]
+
+---
+
+# 10 VIRAL QUESTIONS
+**1. [QUESTION]?**
+> [Spoken probe]
+
+### 💎 FINAL JEWEL
+**[Concluding wisdom]**
 
 ## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
 Always provide 2 to 4 real YouTube video links from Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV with recommended timestamps:

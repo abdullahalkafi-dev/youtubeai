@@ -37,6 +37,10 @@ export default function ChatPage() {
   const searchParams = useSearchParams()
   const urlVideoId = searchParams.get('videoId')
   const urlVideoTitle = searchParams.get('videoTitle')
+  const urlThreadId = searchParams.get('threadId')
+  const urlNewScriptId = searchParams.get('newScriptId')
+  const urlScriptId = searchParams.get('scriptId')
+  const [activeScriptContext, setActiveScriptContext] = useState<{ id: string; title: string; wordCount: number; content: string } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [input, setInput] = useState('')
   const [galleryOpen, setGalleryOpen] = useState(false)
@@ -164,6 +168,40 @@ export default function ChatPage() {
     })
   }, [urlVideoId, channelId])
 
+  // Auto-select thread from URL params (e.g. from /scripts "Open in Old Chat")
+  useEffect(() => {
+    if (!urlThreadId || !channelId) return
+    handleSelectThread(urlThreadId)
+  }, [urlThreadId, channelId])
+
+  // Auto-open script context from URL params
+  useEffect(() => {
+    const targetScriptId = urlNewScriptId || urlScriptId
+    if (!targetScriptId || !channelId) return
+
+    api.getScript(channelId, targetScriptId).then((script) => {
+      if (script?.id || script?._id) {
+        setActiveScriptContext({
+          id: script.id || script._id || '',
+          title: script.title,
+          wordCount: script.wordCount || 0,
+          content: script.content,
+        })
+        if (urlNewScriptId) {
+          dispatch(createThread({
+            channelId,
+            type: 'general',
+            title: `Script: ${script.title.slice(0, 30)}...`,
+          })).unwrap().then((newThread) => {
+            if (newThread?.id) {
+              handleSelectThread(newThread.id)
+            }
+          })
+        }
+      }
+    }).catch(() => {})
+  }, [urlNewScriptId, urlScriptId, channelId, dispatch])
+
   const allImages = useMemo(() => {
     if (!activeThread) return []
     const images: ChatImage[] = []
@@ -284,6 +322,12 @@ export default function ChatPage() {
     // === NORMAL CHAT STREAM ===
     dispatch(optimisticAddUserMessage({ threadId, content: messageContent }))
 
+    // Inject active script context if chatting in a new/empty thread
+    let streamPrompt = messageContent
+    if (activeScriptContext && (!activeThread || !activeThread.messages || activeThread.messages.length === 0)) {
+      streamPrompt = `[ACTIVE SCRIPT CONTEXT: "${activeScriptContext.title}"]\n${activeScriptContext.content}\n\n[USER REQUEST]\n${messageContent}`
+    }
+
     // Capture threadId to guard against thread switches during stream
     const streamThreadId = threadId
     let fullContent = ''
@@ -291,7 +335,7 @@ export default function ChatPage() {
     try {
       await api.sendMessageStream(
         threadId,
-        messageContent,
+        streamPrompt,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
         (messageId, usage, updatedTitle) => {
@@ -641,13 +685,31 @@ export default function ChatPage() {
         <div className="flex-1 flex min-h-0">
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 lg:p-5">
+            {/* Script Context Banner */}
+            {activeScriptContext && (
+              <div className="max-w-4xl mx-auto mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 shadow-sm animate-in fade-in slide-in-from-top-1">
+                <div className="flex items-center space-x-2 truncate">
+                  <span className="p-1 rounded-md bg-amber-500 text-black font-bold text-[10px]">SCRIPT CONTEXT</span>
+                  <span className="font-bold truncate">{activeScriptContext.title}</span>
+                  <span className="text-zinc-500">({activeScriptContext.wordCount} words)</span>
+                </div>
+                <button
+                  onClick={() => setActiveScriptContext(null)}
+                  className="p-1 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 rounded"
+                  title="Dismiss Script Context"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             {/* Empty State */}
             {!hasMessages && !sending && activeThread && (
               <EmptyState category={currentSkill} onSuggestionClick={handleSuggestionClick} />
             )}
 
             {hasMessages && activeThread && (
-              <div className="max-w-3xl mx-auto space-y-4">
+              <div className="max-w-4xl 2xl:max-w-5xl mx-auto space-y-4">
                 {activeThread.messages.map((msg) => (
                   <div key={msg.id} className={cn('flex items-start gap-2.5 group', msg.role === 'user' ? 'justify-end' : '')}>
                     {msg.role === 'assistant' && (
@@ -656,10 +718,10 @@ export default function ChatPage() {
                       </div>
                     )}
                     <div className={cn(
-                      'rounded-2xl px-4 py-3 max-w-2xl shadow-sm',
+                      'rounded-2xl px-4 py-3 shadow-sm',
                       msg.role === 'user'
-                        ? 'bg-indigo-500 text-white rounded-tr-md'
-                        : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-tl-md'
+                        ? 'bg-indigo-500 text-white rounded-tr-md max-w-2xl'
+                        : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-tl-md w-full max-w-4xl 2xl:max-w-5xl'
                     )}>
                       {msg.role === 'user' ? (
                         <p className="text-sm text-white whitespace-pre-wrap">{typeof msg.content === 'string' ? msg.content : ''}</p>
@@ -669,6 +731,8 @@ export default function ChatPage() {
                             content={msg.content}
                             category={msg.metadata?.category || 'general'}
                             messageId={msg.id || msg._id}
+                            threadId={activeThread?.id}
+                            initialScriptId={msg.metadata?.scriptId}
                             messageImages={msg.metadata?.images}
                             onStartGenerate={(title) => {
                               setGalleryOpen(true)
@@ -850,7 +914,33 @@ export default function ChatPage() {
 
         {/* Input */}
         <div className="px-4 py-2 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
-          <div className="max-w-4xl mx-auto">
+          <div className="max-w-4xl mx-auto space-y-2">
+            {/* Quick Action Prompt Chips for Active Script */}
+            {activeScriptContext && (
+              <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
+                {[
+                  { label: '⚡ Improve Hook', prompt: `Improve the cold open hook (0:00 - 0:45) for the script "${activeScriptContext.title}" to maximize psychological curiosity and retention.` },
+                  { label: '✂️ Shorten to 8 Min', prompt: `Shorten the script "${activeScriptContext.title}" down to an 8-minute read while keeping the most impactful beats, facts, and jewels.` },
+                  { label: '🔄 Rewrite with More Tension', prompt: `Rewrite section 3 of "${activeScriptContext.title}" with more street code tension and prison psychology insights.` },
+                  { label: '⚖️ Legal Fact-Check', prompt: `Perform a legal reality and fact-checking audit on the script "${activeScriptContext.title}".` },
+                  { label: '🔍 10-Part SEO Package', prompt: `Generate a 10-part SEO package (Viral Titles, Thumbnail Concepts, High-CPM Keywords, YouTube Description) for "${activeScriptContext.title}".` },
+                  { label: '🎨 3 Thumbnail Concepts', prompt: `Generate 3 high-CTR 16:9 thumbnail concepts with bold visual hooks for "${activeScriptContext.title}".` },
+                  { label: '📱 3 Viral Shorts', prompt: `Extract 3 viral 45-60s Shorts concepts from "${activeScriptContext.title}" with visual hooks and captions.` },
+                ].map((chip, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => {
+                      setInput(chip.prompt)
+                    }}
+                    className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 whitespace-nowrap text-[11px] font-semibold transition active:scale-95 shrink-0 shadow-xs"
+                  >
+                    {chip.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
             {/* Unified Floating Card Input */}
             <div className={cn(
               'border rounded-2xl p-2.5 shadow-md transition-all space-y-1.5',

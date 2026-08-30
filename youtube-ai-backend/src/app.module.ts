@@ -29,6 +29,7 @@ import { CompetitorsModule } from './competitors/competitors.module';
 import { AssetsModule } from './assets/assets.module';
 import { DevLogsModule } from './dev-logs/dev-logs.module';
 import { AutomationModule } from './automation/automation.module';
+import { ScriptsModule } from './scripts/scripts.module';
 import { Video, VideoSchema } from './mongo/schemas/video.schema';
 
 /**
@@ -89,6 +90,7 @@ import { Video, VideoSchema } from './mongo/schemas/video.schema';
     CompetitorsModule,
     AssetsModule,
     DevLogsModule,
+    ScriptsModule,
   ],
   providers: [VideoBackfillService],
 })

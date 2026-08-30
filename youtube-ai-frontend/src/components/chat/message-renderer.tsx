@@ -18,6 +18,8 @@ interface MessageRendererProps {
   category: string
   isStreaming?: boolean
   messageId?: string
+  threadId?: string
+  initialScriptId?: string
   messageImages?: any[]
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
@@ -26,7 +28,20 @@ interface MessageRendererProps {
   threadTitle?: string
 }
 
-export function MessageRenderer({ content, category, isStreaming, messageId, messageImages, onStartGenerate, onFinishGenerate, onEditImage, videoTitle, threadTitle }: MessageRendererProps) {
+export function MessageRenderer({
+  content,
+  category,
+  isStreaming,
+  messageId,
+  threadId,
+  initialScriptId,
+  messageImages,
+  onStartGenerate,
+  onFinishGenerate,
+  onEditImage,
+  videoTitle,
+  threadTitle,
+}: MessageRendererProps) {
   // During active streaming, render Markdown directly to avoid UI parsing flickers
   if (isStreaming) {
     // Strip trailing incomplete HTML tags like "<span" or "<div" during active stream
@@ -71,7 +86,12 @@ export function MessageRenderer({ content, category, isStreaming, messageId, mes
           <MarkdownRenderer content={parsed.raw} />
         </div>
       ) : parsed.type === 'script' ? (
-        <ScriptRenderer content={parsed.raw} />
+        <ScriptRenderer
+          content={parsed.raw}
+          threadId={threadId}
+          messageId={messageId}
+          initialScriptId={initialScriptId}
+        />
       ) : parsed.type === 'trends' && parsed.trends ? (
         <TrendsCard trends={parsed.trends} />
       ) : parsed.type === 'outline' ? (

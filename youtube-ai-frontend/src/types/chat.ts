@@ -44,6 +44,7 @@ export interface Message {
       tags: string[]
     }
     generatedScript?: string
+    scriptId?: string
     thumbnailConcept?: string
     images?: ChatImage[]
     sources?: ChatSource[]

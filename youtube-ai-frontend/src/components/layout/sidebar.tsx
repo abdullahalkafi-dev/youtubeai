@@ -2,14 +2,14 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, TrendingUp, BarChart3, Search, Target, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, NAV_ITEMS_BOTTOM } from '@/lib/constants'
 import { useAppDispatch } from '@/store/hooks'
 import { logout } from '@/store/slices/auth-slice'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
-const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw }
+const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText }
 
 export function Sidebar() {
   const pathname = usePathname()
