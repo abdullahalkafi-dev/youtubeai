@@ -34,7 +34,7 @@ export default function LoginPage() {
     try {
       const result = await dispatch(loginWithEmail({ email, password }))
       if (loginWithEmail.fulfilled.match(result)) {
-        router.push('/dashboard')
+        window.location.href = '/dashboard'
       } else {
         setError('Invalid email or password')
       }

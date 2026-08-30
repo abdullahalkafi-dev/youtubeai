@@ -44,6 +44,7 @@ export function FullscreenTeleprompter({
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const animFrameRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number | null>(null)
+  const accumulatedScrollRef = useRef<number>(0)
   const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null)
 
   const sections = parseScriptSections(content)
@@ -64,7 +65,14 @@ export function FullscreenTeleprompter({
     return (wordsPerSecond / wordsPerLine) * lineHeight
   }, [wpm, fontSize, columnWidth])
 
-  // Animation Frame Loop for 60fps auto-scroll
+  // Sync accumulated scroll position when playing toggles
+  useEffect(() => {
+    if (scrollContainerRef.current) {
+      accumulatedScrollRef.current = scrollContainerRef.current.scrollTop
+    }
+  }, [isPlaying])
+
+  // Animation Frame Loop for 60fps auto-scroll with sub-pixel accumulator
   useEffect(() => {
     if (!isPlaying) {
       if (animFrameRef.current) cancelAnimationFrame(animFrameRef.current)
@@ -80,7 +88,8 @@ export function FullscreenTeleprompter({
       if (scrollContainerRef.current) {
         const container = scrollContainerRef.current
         const speed = getScrollSpeedPxPerSec()
-        container.scrollTop += speed * deltaTime
+        accumulatedScrollRef.current += speed * deltaTime
+        container.scrollTop = accumulatedScrollRef.current
 
         // Update progress
         const maxScroll = container.scrollHeight - container.clientHeight
@@ -125,11 +134,16 @@ export function FullscreenTeleprompter({
         onClose()
       } else if (e.code === 'Home') {
         e.preventDefault()
-        if (scrollContainerRef.current) scrollContainerRef.current.scrollTop = 0
+        if (scrollContainerRef.current) {
+          scrollContainerRef.current.scrollTop = 0
+          accumulatedScrollRef.current = 0
+          setProgress(0)
+        }
       } else if (e.code === 'End') {
         e.preventDefault()
         if (scrollContainerRef.current) {
           scrollContainerRef.current.scrollTop = scrollContainerRef.current.scrollHeight
+          accumulatedScrollRef.current = scrollContainerRef.current.scrollHeight
         }
       }
     }
@@ -137,6 +151,17 @@ export function FullscreenTeleprompter({
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [isOpen, onClose])
+
+  // Sync scroll state on user manual scroll
+  const handleContainerScroll = () => {
+    if (scrollContainerRef.current && !isPlaying) {
+      accumulatedScrollRef.current = scrollContainerRef.current.scrollTop
+      const maxScroll = scrollContainerRef.current.scrollHeight - scrollContainerRef.current.clientHeight
+      if (maxScroll > 0) {
+        setProgress(Math.min(100, Math.round((scrollContainerRef.current.scrollTop / maxScroll) * 100)))
+      }
+    }
+  }
 
   // Mouse activity controls visibility
   const handleMouseMove = () => {
@@ -152,6 +177,7 @@ export function FullscreenTeleprompter({
   const resetToTop = () => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0
+      accumulatedScrollRef.current = 0
       setProgress(0)
     }
   }
@@ -250,7 +276,8 @@ export function FullscreenTeleprompter({
       {/* Main Reading Viewport with Vignette Overlay */}
       <div
         ref={scrollContainerRef}
-        className="flex-1 overflow-y-auto px-6 py-32 flex justify-center scroll-smooth no-scrollbar"
+        onScroll={handleContainerScroll}
+        className="flex-1 overflow-y-auto px-6 py-32 flex justify-center no-scrollbar"
         style={{ scrollBehavior: isPlaying ? 'auto' : 'smooth' }}
       >
         <div className={`w-full ${widthClasses} transition-all duration-300 space-y-12`}>
