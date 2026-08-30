@@ -240,7 +240,8 @@ export default function ChatPage() {
         return
       }
       try {
-        const newThread = await dispatch(createThread({ channelId, type: 'standalone' })).unwrap()
+        const threadTitle = activeScriptContext?.title ? `Script: ${activeScriptContext.title.slice(0, 45)}` : undefined
+        const newThread = await dispatch(createThread({ channelId, title: threadTitle, type: 'standalone' })).unwrap()
         threadId = newThread.id
       } catch (err: any) {
         toast.error(err.message || 'Failed to create thread')
@@ -919,19 +920,22 @@ export default function ChatPage() {
             {activeScriptContext && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">
                 {[
-                  { label: '⚡ Improve Hook', prompt: `Improve the cold open hook (0:00 - 0:45) for the script "${activeScriptContext.title}" to maximize psychological curiosity and retention.` },
-                  { label: '✂️ Shorten to 8 Min', prompt: `Shorten the script "${activeScriptContext.title}" down to an 8-minute read while keeping the most impactful beats, facts, and jewels.` },
-                  { label: '🔄 Rewrite with More Tension', prompt: `Rewrite section 3 of "${activeScriptContext.title}" with more street code tension and prison psychology insights.` },
-                  { label: '⚖️ Legal Fact-Check', prompt: `Perform a legal reality and fact-checking audit on the script "${activeScriptContext.title}".` },
-                  { label: '🔍 10-Part SEO Package', prompt: `Generate a 10-part SEO package (Viral Titles, Thumbnail Concepts, High-CPM Keywords, YouTube Description) for "${activeScriptContext.title}".` },
-                  { label: '🎨 3 Thumbnail Concepts', prompt: `Generate 3 high-CTR 16:9 thumbnail concepts with bold visual hooks for "${activeScriptContext.title}".` },
-                  { label: '📱 3 Viral Shorts', prompt: `Extract 3 viral 45-60s Shorts concepts from "${activeScriptContext.title}" with visual hooks and captions.` },
+                  { label: '⚡ Improve Hook', prompt: `Improve the cold open hook (0:00 - 0:45) for the script "${activeScriptContext.title}" to maximize psychological curiosity and retention.`, skill: 'script' as const },
+                  { label: '✂️ Shorten to 8 Min', prompt: `Shorten the script "${activeScriptContext.title}" down to an 8-minute read while keeping the most impactful beats, facts, and jewels.`, skill: 'script' as const },
+                  { label: '🔄 Rewrite with More Tension', prompt: `Rewrite section 3 of "${activeScriptContext.title}" with more street code tension and prison psychology insights.`, skill: 'script' as const },
+                  { label: '⚖️ Legal Fact-Check', prompt: `Perform a legal reality and fact-checking audit on the script "${activeScriptContext.title}".`, skill: 'general' as const },
+                  { label: '🔍 10-Part SEO Package', prompt: `Generate a 10-part SEO package (Viral Titles, Thumbnail Concepts, High-CPM Keywords, YouTube Description) for "${activeScriptContext.title}".`, skill: 'seo' as const },
+                  { label: '🎨 3 Thumbnail Concepts', prompt: `Generate 3 high-CTR 16:9 thumbnail concepts with bold visual hooks for "${activeScriptContext.title}".`, skill: 'thumbnail' as const },
+                  { label: '📱 3 Viral Shorts', prompt: `Extract 3 viral 45-60s Shorts concepts from "${activeScriptContext.title}" with visual hooks and captions.`, skill: 'script' as const },
                 ].map((chip, idx) => (
                   <button
                     key={idx}
                     type="button"
                     onClick={() => {
                       setInput(chip.prompt)
+                      if (chip.skill) {
+                        dispatch(setSelectedSkill(chip.skill))
+                      }
                     }}
                     className="px-2.5 py-1 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/30 whitespace-nowrap text-[11px] font-semibold transition active:scale-95 shrink-0 shadow-xs"
                   >

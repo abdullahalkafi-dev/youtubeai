@@ -10,7 +10,7 @@ import type { VideoStats } from '@/types/video'
 
 export function StatCards() {
   const channelId = useAppSelector(s => s.auth.activeChannelId)
-  const channel = useAppSelector(s => s.auth.channels[0])
+  const channel = useAppSelector(s => s.auth.channels?.[0])
   const [stats, setStats] = useState<VideoStats | null>(null)
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export function StatCards() {
     { label: 'Videos', value: channel?.totalVideos || stats?.totalVideos || 0, badge: 'Synced', badgeVariant: 'blue' as const },
     { label: 'Total Views', value: channel?.totalViews || stats?.totalViews || 0, badge: 'All Time', badgeVariant: 'green' as const },
     { label: 'Total Likes', value: formatNumber(stats?.totalLikes || 0), badge: 'Engagement', badgeVariant: 'yellow' as const },
-    { label: 'Avg Retention', value: stats?.avgRetention ? `${stats.avgRetention.toFixed(0)}%` : '0%', badge: 'Engagement', badgeVariant: 'purple' as const },
+    { label: 'Avg Retention', value: typeof stats?.avgRetention === 'number' && !isNaN(stats.avgRetention) ? `${stats.avgRetention.toFixed(0)}%` : '0%', badge: 'Engagement', badgeVariant: 'purple' as const },
   ]
 
   return (

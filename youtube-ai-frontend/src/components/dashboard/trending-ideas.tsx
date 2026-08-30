@@ -35,7 +35,7 @@ export function TrendingIdeas() {
     router.push('/chat')
   }
 
-  const displayTopics = topics.slice(0, 3)
+  const displayTopics = (topics || []).slice(0, 3)
 
   if (displayTopics.length === 0) {
     return (

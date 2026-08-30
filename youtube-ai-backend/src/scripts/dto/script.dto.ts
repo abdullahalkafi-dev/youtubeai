@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional, IsArray, IsEnum, IsNumber, IsBoolean } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsArray, IsIn, IsNumber, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 export class CreateScriptDto {
@@ -38,11 +38,11 @@ export class CreateScriptDto {
   @IsOptional()
   tags?: string[];
 
-  @IsEnum(['ai_chat', 'manual_import', 'ai_beautified'])
+  @IsIn(['ai_chat', 'manual_import', 'ai_beautified'])
   @IsOptional()
   source?: string;
 
-  @IsEnum(['teleprompter_beat', 'standard_markdown', 'raw_text'])
+  @IsIn(['teleprompter_beat', 'standard_markdown', 'raw_text'])
   @IsOptional()
   formatType?: string;
 }

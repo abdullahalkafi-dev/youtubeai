@@ -116,16 +116,40 @@ function parseSeoContent(content: string): SeoContent | null {
 function parseThumbnailContent(content: string): ThumbnailConcept[] | null {
   const concepts: ThumbnailConcept[] = []
 
-  // Match ### Concept 1/2/3 sections
-  const conceptRegex = /### Concept \d+\s*\n([\s\S]*?)(?=### Concept|$)/gi
+  // Pattern A: Standard ### Concept \d+ or ### 1. or numbered concepts like 1. "TITLE"
+  const conceptRegex = /(?:###|##|\b)\s*(?:Concept\s*\d+|\d+\.\s*["“]?([^"\n\r”]+)["”]?)\s*\n([\s\S]*?)(?=(?:###|##|\b)\s*(?:Concept\s*\d+|\d+\.\s*["“]?)|---|\n\nBest Pick:|$)/gi
   let match
   while ((match = conceptRegex.exec(content)) !== null) {
-    const section = match[1]
-    const text = section.match(/\*\*Text overlay:\*\*\s*(.+)/i)?.[1]?.trim() || ''
-    const visual = section.match(/\*\*Visual concept:\*\*\s*(.+)/i)?.[1]?.trim() || ''
-    const colors = section.match(/\*\*Color scheme:\*\*\s*(.+)/i)?.[1]?.trim() || ''
+    const section = match[2] || match[0]
+
+    // Extract text overlay
+    const textMatch = section.match(/(?:\*\*Text overlay:\*\*|Thumbnail Text:|Text overlay:|Text:)\s*(.+)/i)
+    const text = textMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+
+    // Extract visual concept
+    const visualMatch = section.match(/(?:\*\*Visual concept:\*\*|Visual Hook:|Visual:|Visual concept:)\s*([\s\S]*?)(?=\n\s*(?:Composition:|Color Strategy:|Color scheme:|Why It Clicks:|AI \/ Designer Prompt:|\*\*Color scheme:\*\*|$))/i)
+      || section.match(/(?:AI \/ Designer Prompt:|AI Prompt:)\s*(.+)/i)
+    const visual = visualMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+
+    // Extract color scheme
+    const colorMatch = section.match(/(?:\*\*Color scheme:\*\*|Color Strategy:|Colors:|Color scheme:)\s*([\s\S]*?)(?=\n\s*(?:Why It Clicks:|AI \/ Designer Prompt:|$))/i)
+    const colors = colorMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+
     if (text || visual) {
       concepts.push({ text, visual, colors })
+    }
+  }
+
+  // Fallback: If not partitioned into sections but contains explicit thumbnail keys
+  if (concepts.length === 0) {
+    const textMatches = Array.from(content.matchAll(/(?:Thumbnail Text:|Text overlay:)\s*(.+)/gi))
+    const visualMatches = Array.from(content.matchAll(/(?:Visual Hook:|Visual concept:|AI \/ Designer Prompt:)\s*(.+)/gi))
+    for (let i = 0; i < Math.max(textMatches.length, visualMatches.length); i++) {
+      const text = textMatches[i]?.[1]?.replace(/\*\*/g, '').trim() || ''
+      const visual = visualMatches[i]?.[1]?.replace(/\*\*/g, '').trim() || ''
+      if (text || visual) {
+        concepts.push({ text, visual, colors: '' })
+      }
     }
   }
 
@@ -244,14 +268,14 @@ export function detectAndParse(content: any, category: string): ParsedContent {
   }
 
   // Content-based detection (fallback)
+  const detectedThumbnails = parseThumbnailContent(textContent)
+  if (detectedThumbnails && (category === 'thumbnail' || textContent.includes('Thumbnail Text:') || textContent.includes('**Text overlay:**') || textContent.includes('Visual Hook:'))) {
+    return { type: 'thumbnail', raw: textContent, thumbnails: detectedThumbnails, sources }
+  }
+
   if (textContent.includes('## Title') && textContent.includes('## Description') && textContent.includes('## Tags')) {
     const seo = parseSeoContent(textContent)
     if (seo) return { type: 'seo', raw: textContent, seo, sources }
-  }
-
-  if (textContent.includes('### Concept') && textContent.includes('**Text overlay:**')) {
-    const thumbnails = parseThumbnailContent(textContent)
-    if (thumbnails) return { type: 'thumbnail', raw: textContent, thumbnails, sources }
   }
 
   if (textContent.includes('### Scene Concept') && textContent.includes('**Scene:**')) {
@@ -268,13 +292,16 @@ export function detectAndParse(content: any, category: string): ParsedContent {
     return { type: 'outline', raw: textContent, sources }
   }
 
+  const isThumbnailText = Boolean(detectedThumbnails || textContent.includes('Thumbnail Text:') || textContent.includes('Visual Hook:'))
+
   const hasScriptMarkers =
-    textContent.includes('💎 JEWEL') ||
+    !isThumbnailText &&
+    (textContent.includes('💎 JEWEL') ||
     /cold\s+open/i.test(textContent) ||
     textContent.includes('[BEAT]') ||
     textContent.includes('[PAUSE]') ||
     textContent.includes('10 VIRAL QUESTIONS') ||
-    (textContent.includes('## ') && textContent.includes('> ') && (textContent.includes('**•') || textContent.includes('**➤') || textContent.includes('min read')))
+    (textContent.includes('## ') && textContent.includes('> ') && (textContent.includes('**•') || textContent.includes('**➤')) && !textContent.includes('Thumbnail Text:')))
 
   if (hasScriptMarkers) {
     return { type: 'script', raw: textContent, sources }

@@ -16,7 +16,7 @@ export function RecentUpdates() {
   useEffect(() => {
     if (channelId) {
       api.getVideos(channelId, { limit: 5, sort: 'newest' })
-        .then(result => setRecentVideos(result.items))
+        .then(result => setRecentVideos(result?.items || (result as any)?.data || []))
         .catch(() => setRecentVideos([]))
     }
   }, [channelId])
@@ -39,7 +39,7 @@ export function RecentUpdates() {
           <Link href="/videos" className="text-xs text-indigo-500 hover:text-indigo-600 font-medium">View All</Link>
         </div>
         <div className="space-y-2.5">
-          {recentVideos.length === 0 ? (
+          {(!recentVideos || recentVideos.length === 0) ? (
             <p className="text-xs text-gray-400 text-center py-4">No videos yet. Sync your channel.</p>
           ) : (
             recentVideos.map((video) => {

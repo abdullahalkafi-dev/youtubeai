@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEnum, MaxLength, MinLength } from 'class-validator';
+import { IsString, IsOptional, IsIn, MaxLength, MinLength } from 'class-validator';
 
 export class CreateThreadDto {
   @IsOptional()
@@ -6,7 +6,7 @@ export class CreateThreadDto {
   @MaxLength(200)
   title?: string;
 
-  @IsEnum(['video', 'standalone'] as const)
+  @IsIn(['video', 'standalone'])
   type: 'video' | 'standalone';
 
   @IsOptional()

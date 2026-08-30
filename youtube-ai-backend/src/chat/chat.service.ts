@@ -122,6 +122,15 @@ export class ChatService {
       const thread = await this.threadModel.findById(threadId);
       if (!thread || (thread.title && thread.title !== 'New Thread')) return;
 
+      // Direct extraction if message contains active script context
+      const scriptMatch = firstUserMessage.match(/\[ACTIVE SCRIPT CONTEXT:\s*"([^"]+)"\]/i);
+      if (scriptMatch && scriptMatch[1]) {
+        const cleanTitle = `Script: ${scriptMatch[1].trim().slice(0, 45)}`;
+        await this.threadModel.findByIdAndUpdate(threadId, { $set: { title: cleanTitle } });
+        this.logger.log(`Auto-named script thread ${threadId}: "${cleanTitle}"`);
+        return cleanTitle;
+      }
+
       let cleanTitle = '';
       try {
         const generatedTitle = await this.openaiService.chatFast({
