@@ -14,6 +14,7 @@ import {
   Settings,
   ChevronUp,
   ChevronDown,
+  Navigation,
 } from 'lucide-react'
 import { parseScriptSections } from '@/lib/teleprompter-parser'
 
@@ -40,8 +41,11 @@ export function FullscreenTeleprompter({
   const [columnWidth, setColumnWidth] = useState<'narrow' | 'medium' | 'wide'>('medium')
   const [progress, setProgress] = useState(0)
   const [showControls, setShowControls] = useState(true)
+  const [showMinimap, setShowMinimap] = useState(true)
+  const [activeSectionIdx, setActiveSectionIdx] = useState(0)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const sectionRefs = useRef<(HTMLDivElement | null)[]>([])
   const animFrameRef = useRef<number | null>(null)
   const lastTimeRef = useRef<number | null>(null)
   const accumulatedScrollRef = useRef<number>(0)
@@ -91,6 +95,19 @@ export function FullscreenTeleprompter({
         accumulatedScrollRef.current += speed * deltaTime
         container.scrollTop = accumulatedScrollRef.current
 
+        // Track active section for minimap
+        if (sectionRefs.current.length > 0) {
+          const scrollPos = container.scrollTop + container.clientHeight / 3
+          let activeIdx = 0
+          for (let i = 0; i < sectionRefs.current.length; i++) {
+            const el = sectionRefs.current[i]
+            if (el && el.offsetTop <= scrollPos) {
+              activeIdx = i
+            }
+          }
+          setActiveSectionIdx(activeIdx)
+        }
+
         // Update progress
         const maxScroll = container.scrollHeight - container.clientHeight
         if (maxScroll > 0) {
@@ -132,6 +149,9 @@ export function FullscreenTeleprompter({
       } else if (e.code === 'Escape') {
         e.preventDefault()
         onClose()
+      } else if (e.code === 'KeyM') {
+        e.preventDefault()
+        setShowMinimap((prev) => !prev)
       } else if (e.code === 'Home') {
         e.preventDefault()
         if (scrollContainerRef.current) {
@@ -174,10 +194,27 @@ export function FullscreenTeleprompter({
     }
   }
 
+  // Jump to specific section from minimap
+  const jumpToSection = (idx: number) => {
+    const targetEl = sectionRefs.current[idx]
+    if (targetEl && scrollContainerRef.current) {
+      const targetTop = Math.max(0, targetEl.offsetTop - 80)
+      scrollContainerRef.current.scrollTop = targetTop
+      accumulatedScrollRef.current = targetTop
+      setActiveSectionIdx(idx)
+
+      const maxScroll = scrollContainerRef.current.scrollHeight - scrollContainerRef.current.clientHeight
+      if (maxScroll > 0) {
+        setProgress(Math.min(100, Math.round((targetTop / maxScroll) * 100)))
+      }
+    }
+  }
+
   const resetToTop = () => {
     if (scrollContainerRef.current) {
       scrollContainerRef.current.scrollTop = 0
       accumulatedScrollRef.current = 0
+      setActiveSectionIdx(0)
       setProgress(0)
     }
   }
@@ -262,6 +299,20 @@ export function FullscreenTeleprompter({
             ))}
           </div>
 
+          {/* Minimap / Jump Outline Toggle */}
+          <button
+            onClick={() => setShowMinimap((prev) => !prev)}
+            className={`px-3 py-1.5 rounded-xl border transition flex items-center space-x-1.5 text-xs font-semibold ${
+              showMinimap
+                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                : 'bg-zinc-900/80 border-zinc-800 text-zinc-400 hover:text-white'
+            }`}
+            title="Toggle Minimap / Section Jump View (M)"
+          >
+            <Navigation className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Outline (M)</span>
+          </button>
+
           {/* Reset to Top */}
           <button
             onClick={resetToTop}
@@ -303,7 +354,13 @@ export function FullscreenTeleprompter({
 
           {/* Structured Teleprompter Sections */}
           {sections.map((section, idx) => (
-            <div key={idx} className="space-y-6 pt-4">
+            <div
+              key={idx}
+              ref={(el) => {
+                sectionRefs.current[idx] = el
+              }}
+              className="space-y-6 pt-4"
+            >
               {section.header && (
                 <div className="py-2 border-b border-zinc-800/80">
                   <h2
@@ -376,6 +433,93 @@ export function FullscreenTeleprompter({
           </div>
         </div>
       </div>
+
+      {/* VS Code-style Full-Height Minimap / Section Jump Panel */}
+      {showMinimap && sections.length > 0 && (
+        <aside
+          className={`fixed right-4 top-20 bottom-24 w-52 2xl:w-60 z-30 flex flex-col bg-zinc-950/85 backdrop-blur-xl border border-zinc-800/80 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ${
+            showControls ? 'opacity-100 translate-x-0' : 'opacity-30 hover:opacity-100'
+          }`}
+        >
+          {/* Header */}
+          <div className="p-3 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-zinc-900/60">
+            <div className="flex items-center space-x-2 min-w-0">
+              <Navigation className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-300 truncate">
+                Jump Outline
+              </span>
+            </div>
+            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 shrink-0">
+              {sections.length} Beats
+            </span>
+          </div>
+
+          {/* Scrollable Section Tree / Minimap */}
+          <div className="flex-1 overflow-y-auto p-2 space-y-1.5 no-scrollbar">
+            {sections.map((sec, idx) => {
+              const isActive = activeSectionIdx === idx
+              const isJewel = sec.isJewel || sec.header.toLowerCase().includes('jewel')
+              const isColdOpen = sec.header.toLowerCase().includes('cold open') || sec.header.toLowerCase().includes('hook')
+              const isQuestions = sec.isViralQuestions || sec.header.toLowerCase().includes('viral')
+              const words = sec.body.split(/\s+/).filter(Boolean).length
+
+              return (
+                <button
+                  key={idx}
+                  onClick={() => jumpToSection(idx)}
+                  className={`w-full text-left p-2 rounded-xl transition-all flex flex-col space-y-1 group relative ${
+                    isActive
+                      ? 'bg-amber-500/20 border border-amber-500/60 shadow-lg shadow-amber-500/10'
+                      : 'hover:bg-zinc-800/60 border border-transparent text-zinc-400 hover:text-zinc-200'
+                  }`}
+                >
+                  {/* Left Active Glow Bar */}
+                  {isActive && (
+                    <div className="absolute left-0 top-1 bottom-1 w-1 bg-amber-400 rounded-r-full" />
+                  )}
+
+                  <div className="flex items-center justify-between w-full pl-1">
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider truncate flex-1 ${
+                        isActive
+                          ? 'text-amber-300 font-extrabold'
+                          : isJewel
+                          ? 'text-amber-400/90'
+                          : isColdOpen
+                          ? 'text-indigo-300'
+                          : isQuestions
+                          ? 'text-cyan-300'
+                          : 'text-zinc-300'
+                      }`}
+                    >
+                      {sec.header || `Section ${idx + 1}`}
+                    </span>
+                    <span className="text-[9px] font-mono text-zinc-500 shrink-0 ml-1">
+                      {words}w
+                    </span>
+                  </div>
+
+                  {/* Micro Visual Code-like Lines Preview */}
+                  <div className="w-full pl-1 flex flex-col space-y-0.5 pointer-events-none opacity-40 group-hover:opacity-80 transition">
+                    <div
+                      className={`h-0.5 rounded-full ${
+                        isActive ? 'bg-amber-400' : isJewel ? 'bg-amber-500' : 'bg-zinc-600'
+                      } w-4/5`}
+                    />
+                    <div className="h-0.5 rounded-full bg-zinc-700 w-3/5" />
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {/* Minimap Footer - Progress */}
+          <div className="p-2 border-t border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between text-[10px] text-zinc-400 shrink-0">
+            <span className="font-mono">Progress</span>
+            <span className="font-bold text-amber-400 font-mono">{progress}%</span>
+          </div>
+        </aside>
+      )}
 
       {/* Bottom Floating Playbar */}
       <div
