@@ -1,6 +1,6 @@
 FROM node:20-alpine AS base
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.4
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ RUN pnpm run build
 # Production layer
 FROM node:20-alpine AS production
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.4
 
 WORKDIR /app
 

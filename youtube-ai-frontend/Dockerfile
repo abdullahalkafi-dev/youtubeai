@@ -1,6 +1,6 @@
 FROM node:20-alpine AS base
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.4
 
 WORKDIR /app
 
@@ -30,7 +30,7 @@ WORKDIR /app
 ENV NODE_ENV production
 ENV NEXT_TELEMETRY_DISABLED 1
 
-RUN npm install -g pnpm
+RUN npm install -g pnpm@9.15.4
 
 COPY --from=builder /app/package.json /app/pnpm-lock.yaml ./
 COPY --from=builder /app/.next ./.next
