@@ -20,6 +20,7 @@ import { BatchCard } from './batch-card';
 import { Card, CardContent } from '@/components/ui/card';
 import { Play, Sparkles, RefreshCw, AlertCircle, History } from 'lucide-react';
 import { toast } from 'sonner';
+import { showApiErrorToast } from '@/lib/error-handler';
 import { getAutomationSocket, joinChannelAutomation, leaveChannelAutomation } from '@/lib/socket';
 
 export function VideoAutomationTab() {
@@ -92,7 +93,7 @@ export function VideoAutomationTab() {
       toast.success(res.message || 'Batch dispatched successfully!');
       dispatch(fetchActiveBatch(channelId));
     } catch (err: any) {
-      toast.error(err.message || 'Failed to start batch.');
+      showApiErrorToast(err, 'Failed to start batch');
     }
   };
 
@@ -107,7 +108,7 @@ export function VideoAutomationTab() {
         dispatch(fetchAutomationBatches({ channelId, page: 1, limit: 10 }));
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to retry batch.');
+      showApiErrorToast(err, 'Failed to retry batch');
     } finally {
       setRetryingId(null);
     }
@@ -123,7 +124,7 @@ export function VideoAutomationTab() {
         dispatch(fetchAutomationBatches({ channelId, page: 1, limit: 10 }));
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to cancel batch.');
+      showApiErrorToast(err, 'Failed to cancel batch');
     }
   };
 

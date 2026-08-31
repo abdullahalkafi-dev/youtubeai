@@ -6,18 +6,20 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
-import { Eye, Loader2, Save } from 'lucide-react'
+import { Eye, Loader2, Save, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchQuotaUsage } from '@/store/slices/quota-slice'
 import { fetchChannels } from '@/store/slices/auth-slice'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 
 export default function SettingsPage() {
   const [showOpenAI, setShowOpenAI] = useState(false)
   const [showYoutube, setShowYoutube] = useState(false)
   const dispatch = useAppDispatch()
+  const user = useAppSelector((s) => s.auth.user)
   const channelId = useAppSelector((s) => s.auth.activeChannelId)
   const channels = useAppSelector((s) => s.auth.channels)
   const { usage, loading: quotaLoading } = useAppSelector((s) => s.quota)
@@ -59,12 +61,17 @@ export default function SettingsPage() {
         description: `Daily batch limit set to ${dailyUpdateCap} videos.`,
       })
     } catch (err: any) {
-      toast.error(err.message || 'Failed to save automation settings')
+      showApiErrorToast(err, 'Failed to save automation settings')
     } finally {
       setSavingSettings(false)
     }
   }
 
+  const handleReconnectGoogle = () => {
+    window.location.href = api.getGoogleAuthUrl()
+  }
+
+  const isGoogleExpired = user ? (!user.hasGoogleToken || user.isGoogleTokenExpired) : false
   const percentage = usage ? Math.round((usage.used / usage.limit) * 100) : 0
 
   return (
@@ -77,24 +84,58 @@ export default function SettingsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 lg:gap-6">
         <Card>
           <CardContent className="p-5 lg:p-6">
-            <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white mb-4 font-heading">Account</h3>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white font-heading">Account & Channel</h3>
+              {isGoogleExpired ? (
+                <Badge variant="yellow" className="flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3 text-amber-500" />
+                  Action Required
+                </Badge>
+              ) : (
+                <Badge variant="green" className="flex items-center gap-1">
+                  <CheckCircle2 className="w-3 h-3 text-emerald-500" />
+                  Connected
+                </Badge>
+              )}
+            </div>
+
             <div className="space-y-3">
               <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-xl p-3.5 border border-gray-200 dark:border-gray-700">
-                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">U</div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">Unique Mecca Audio</p>
-                  <p className="text-xs text-gray-400">@uniquemeccaaudionyc · 156K</p>
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center text-white font-bold text-sm shrink-0 shadow-sm">
+                  {activeChannel?.name ? activeChannel.name.charAt(0).toUpperCase() : 'U'}
                 </div>
-                <Badge variant="green">Connected</Badge>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                    {activeChannel?.name || 'Active YouTube Channel'}
+                  </p>
+                  <p className="text-xs text-gray-400 truncate">
+                    {activeChannel?.subscriberCount ? `${activeChannel.subscriberCount.toLocaleString()} Subscribers` : 'Channel Sync Ready'}
+                  </p>
+                </div>
               </div>
+
               <div className="flex items-center gap-3 bg-gray-50 dark:bg-gray-800 rounded-xl p-3.5 border border-gray-200 dark:border-gray-700">
                 <div className="w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-500/10 flex items-center justify-center shrink-0">
                   <svg className="w-5 h-5 text-blue-500" viewBox="0 0 24 24" fill="currentColor"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z"/></svg>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-white">uniquemeccaaudio@gmail.com</p>
-                  <p className="text-xs text-gray-400">OAuth 2.0 · Valid</p>
+                  <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">
+                    {user?.email || 'Connected Google Account'}
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {isGoogleExpired ? 'OAuth Session Expired' : 'OAuth 2.0 · Active & Valid'}
+                  </p>
                 </div>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  onClick={handleReconnectGoogle}
+                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 shadow-sm transition"
+                >
+                  <RefreshCw className="w-3.5 h-3.5" />
+                  {isGoogleExpired ? 'Reconnect Google / YouTube Account' : 'Refresh Google Authorization'}
+                </button>
               </div>
             </div>
           </CardContent>

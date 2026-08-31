@@ -7,6 +7,9 @@ interface User {
   name?: string
   email: string
   avatar?: string
+  role?: string
+  hasGoogleToken?: boolean
+  isGoogleTokenExpired?: boolean
 }
 
 interface AuthState {

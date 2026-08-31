@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, X, TrendingUp, BarChart3, Search, Target, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, X, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, NAV_ITEMS_BOTTOM } from '@/lib/constants'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -10,7 +10,7 @@ import { closeMobileSidebar } from '@/store/slices/ui-slice'
 import { logout } from '@/store/slices/auth-slice'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
-const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw }
+const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText }
 
 export function MobileSidebar() {
   const pathname = usePathname()
@@ -40,7 +40,7 @@ export function MobileSidebar() {
 
         <nav className="flex-1 py-3 px-2.5 space-y-0.5 overflow-y-auto">
           {NAV_ITEMS.map((item) => {
-            const Icon = iconMap[item.icon as keyof typeof iconMap]
+            const Icon = (item.icon && iconMap[item.icon as keyof typeof iconMap]) || LayoutDashboard
             const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
             return (
               <Link
@@ -54,7 +54,7 @@ export function MobileSidebar() {
                     : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
                 )}
               >
-                <Icon className="w-4.5 h-4.5 shrink-0" />
+                {Icon && <Icon className="w-4.5 h-4.5 shrink-0" />}
                 {item.label}
               </Link>
             )
@@ -65,7 +65,7 @@ export function MobileSidebar() {
           </div>
 
           {NAV_ITEMS_BOTTOM.map((item) => {
-            const Icon = iconMap[item.icon as keyof typeof iconMap]
+            const Icon = (item.icon && iconMap[item.icon as keyof typeof iconMap]) || Settings
             const isActive = pathname === item.href
             return (
               <Link

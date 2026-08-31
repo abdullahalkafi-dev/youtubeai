@@ -226,11 +226,18 @@ export class AuthService {
   async validateUser(userId: string) {
     const user = await this.userModel.findById(userId).lean();
     if (!user) throw new UnauthorizedException('User not found');
+    const hasGoogleToken = Boolean(user.accessToken && user.refreshToken);
+    const isGoogleTokenExpired = Boolean(
+      user.tokenExpiresAt && new Date(user.tokenExpiresAt).getTime() < Date.now(),
+    );
     return {
       id: user._id.toString(),
       email: user.email,
       name: user.name,
       avatar: user.avatar,
+      role: user.role,
+      hasGoogleToken,
+      isGoogleTokenExpired,
     };
   }
 }

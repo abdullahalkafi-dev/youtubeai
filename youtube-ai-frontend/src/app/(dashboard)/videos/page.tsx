@@ -6,6 +6,7 @@ import { fetchVideos, setFilters } from '@/store/slices/videos-slice'
 import { VideoTable } from '@/components/videos/video-table'
 import { VideoFilters } from '@/components/videos/video-filters'
 import { api } from '@/lib/api'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 
@@ -46,8 +47,8 @@ export default function VideosPage() {
         toast.success(`Synced! ${parts.join(', ')}`)
       }
       dispatch(fetchVideos({ channelId, page: 1, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
-    } catch {
-      toast.error("Sync failed")
+    } catch (err: unknown) {
+      showApiErrorToast(err, "Sync Channel Failed")
     } finally {
       setSyncing(false)
     }

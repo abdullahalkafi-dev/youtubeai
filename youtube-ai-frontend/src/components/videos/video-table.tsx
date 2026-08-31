@@ -12,6 +12,7 @@ import { formatNumber, formatDate } from '@/lib/utils'
 import { SEO_STATUS } from '@/lib/constants'
 import { Play, Sparkles, MessageSquare, ExternalLink, ArrowDown, ArrowUp, Loader2, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react'
 import { toast } from 'sonner'
+import { showApiErrorToast } from '@/lib/error-handler'
 import api, { formatAssetUrl } from '@/lib/api'
 
 export function VideoTable() {
@@ -39,7 +40,7 @@ export function VideoTable() {
       await dispatch(generateSeo({ videoId })).unwrap()
       toast.success("SEO content generation started...", { description: `Optimizing: ${title}` })
     } catch (err: any) {
-      toast.error(err.message || "Failed to start SEO generation")
+      showApiErrorToast(err, "Failed to start SEO generation")
       setOptimizingIds(prev => ({ ...prev, [videoId]: false }))
     }
   }
@@ -75,7 +76,7 @@ export function VideoTable() {
         dispatch(fetchVideos({ channelId, page: pagination.page, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
       }
     } catch (error: any) {
-      toast.error("Pull failed", { description: error.message })
+      showApiErrorToast(error, "Pull from YouTube Failed")
     } finally {
       setLoadingAction(null)
     }
@@ -90,7 +91,7 @@ export function VideoTable() {
         dispatch(fetchVideos({ channelId, page: pagination.page, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
       }
     } catch (error: any) {
-      toast.error("Push failed", { description: error.message })
+      showApiErrorToast(error, "Push to YouTube Failed")
     } finally {
       setLoadingAction(null)
     }

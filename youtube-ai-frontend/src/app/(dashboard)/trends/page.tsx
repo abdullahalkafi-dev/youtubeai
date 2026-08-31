@@ -8,6 +8,7 @@ import { setActiveThread, selectThread } from '@/store/slices/chat-slice'
 import { Card, CardContent } from '@/components/ui/card'
 import { RefreshCw, TrendingUp, ExternalLink, Loader2, Play, AlertCircle, Calendar, Newspaper, Sparkles, Flame, Zap, Target } from 'lucide-react'
 import { formatDate } from '@/lib/utils'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 
 const HISTORY_OPTIONS = [
@@ -36,7 +37,7 @@ export default function TrendsPage() {
       await dispatch(refreshTrends({ channelId, days: historyDays || undefined })).unwrap()
       toast.success('Trends refreshed')
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to refresh trends')
+      showApiErrorToast(err, 'Failed to refresh trends')
     }
   }
 
@@ -48,8 +49,8 @@ export default function TrendsPage() {
       dispatch(selectThread(thread.id))
       router.push('/chat')
       toast.success('Thread created with topic context')
-    } catch {
-      toast.error('Failed to create thread')
+    } catch (err: any) {
+      showApiErrorToast(err, 'Failed to create thread')
     }
   }
 

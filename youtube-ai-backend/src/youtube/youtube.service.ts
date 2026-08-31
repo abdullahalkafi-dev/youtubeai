@@ -107,7 +107,9 @@ export class YouTubeService {
       }
     }
 
-    throw new Error('OAUTH_REFRESH_FAILED');
+    const finalError = new Error('OAUTH_REFRESH_FAILED: YouTube token expired. Please re-login with Google.');
+    (finalError as any).code = 'OAUTH_REFRESH_FAILED';
+    throw finalError;
   }
 
   private getClient(accessToken: string): youtube_v3.Youtube {

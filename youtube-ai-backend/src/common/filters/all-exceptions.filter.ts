@@ -33,9 +33,48 @@ export class AllExceptionsFilter implements ExceptionFilter {
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Internal server error';
     let errorName = 'InternalServerError';
+    let errorCode: string | undefined = undefined;
+    let requiresGoogleAuth: boolean | undefined = undefined;
     let rawErrorResponse: unknown = null;
 
-    if (exception instanceof HttpException) {
+    const exceptionAny = exception as any;
+    const exMessage = exception instanceof Error ? exception.message : typeof exception === 'string' ? exception : '';
+    const lowerExMsg = exMessage.toLowerCase();
+
+    // Check for YouTube API Quota Exceeded
+    const isQuotaExceeded =
+      exceptionAny?.reason === 'quotaExceeded' ||
+      exceptionAny?.code === 'QUOTA_EXCEEDED' ||
+      exceptionAny?.name === 'QuotaExceededException' ||
+      lowerExMsg.includes('quotaexceeded') ||
+      lowerExMsg.includes('quota exceeded') ||
+      lowerExMsg.includes('dailylimitexceeded') ||
+      lowerExMsg.includes('exceeded your quota');
+
+    // Check for YouTube OAuth Token Expiration / Missing Grant
+    const isOAuthExpired =
+      exceptionAny?.code === 'OAUTH_REFRESH_FAILED' ||
+      exceptionAny?.code === 'OAUTH_NO_TOKEN' ||
+      lowerExMsg.includes('oauth_refresh_failed') ||
+      lowerExMsg.includes('oauth_no_token') ||
+      lowerExMsg.includes('invalid_grant') ||
+      lowerExMsg.includes('token expired') ||
+      lowerExMsg.includes('re-login with google');
+
+    if (isQuotaExceeded) {
+      status = HttpStatus.TOO_MANY_REQUESTS;
+      errorCode = 'QUOTA_EXCEEDED';
+      errorName = 'QuotaExceededException';
+      message = 'YouTube API daily quota limit reached. Quota resets at midnight Pacific Time (PT).';
+      rawErrorResponse = { error: errorCode, message };
+    } else if (isOAuthExpired) {
+      status = HttpStatus.UNAUTHORIZED;
+      errorCode = 'OAUTH_REFRESH_FAILED';
+      errorName = 'OAuthSessionExpiredException';
+      requiresGoogleAuth = true;
+      message = 'YouTube token expired or revoked. Please re-login with Google.';
+      rawErrorResponse = { error: errorCode, message, requiresGoogleAuth: true };
+    } else if (exception instanceof HttpException) {
       status = exception.getStatus();
       errorName = exception.name;
       const exResponse = exception.getResponse();
@@ -124,7 +163,10 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     response.status(status).json({
       statusCode: status,
+      code: errorCode,
+      error: errorName,
       message,
+      requiresGoogleAuth,
       timestamp: new Date().toISOString(),
       path: request.url,
     });

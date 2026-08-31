@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useAppSelector } from '@/store/hooks'
 import api from '@/lib/api'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Target, RefreshCw, Plus, Trash2, TrendingUp, Users, Video, ExternalLink } from 'lucide-react'
 
@@ -77,8 +78,8 @@ export default function CompetitorsPage() {
     try {
       await api.discoverCompetitors(channelId)
       await loadData()
-    } catch {
-      // ignore
+    } catch (err: any) {
+      showApiErrorToast(err, 'Failed to discover competitors')
     } finally {
       setDiscovering(false)
     }
@@ -93,8 +94,8 @@ export default function CompetitorsPage() {
       await api.addCompetitor(channelId, channelIdOrUrl)
       setAddUrl('')
       await loadData()
-    } catch {
-      // ignore
+    } catch (err: any) {
+      showApiErrorToast(err, 'Failed to add competitor')
     } finally {
       setAdding(false)
     }

@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { api, formatAssetUrl } from '@/lib/api';
 import { toast } from 'sonner';
+import { showApiErrorToast } from '@/lib/error-handler';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
 
@@ -83,7 +84,7 @@ export function CommentAutomationTab() {
         setExpandedBatchId(batchesRes[0]._id || batchesRes[0].id);
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to load comment automation data');
+      showApiErrorToast(err, 'Failed to load comment automation data');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -119,7 +120,7 @@ export function CommentAutomationTab() {
       );
       await loadData(true);
     } catch (err: any) {
-      toast.error(err.message || 'Failed to toggle auto-reply');
+      showApiErrorToast(err, 'Failed to toggle auto-reply');
     } finally {
       setTogglingVideoId(null);
     }

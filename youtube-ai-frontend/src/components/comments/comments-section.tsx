@@ -25,6 +25,7 @@ import {
   Filter,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
@@ -65,8 +66,8 @@ export function CommentsSection({ videoId, youtubeId, initialAutoReplyEnabled = 
     try {
       await dispatch(syncComments({ videoId, order: sortBy })).unwrap()
       toast.success('Comments synced with YouTube')
-    } catch {
-      toast.error('Failed to sync comments')
+    } catch (err: any) {
+      showApiErrorToast(err, 'Failed to sync comments')
     }
   }
 
@@ -82,7 +83,7 @@ export function CommentsSection({ videoId, youtubeId, initialAutoReplyEnabled = 
         toast.info('Auto-Reply disabled for this video')
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to update auto-reply status')
+      showApiErrorToast(err, 'Failed to update auto-reply status')
     } finally {
       setTogglingAutoReply(false)
     }

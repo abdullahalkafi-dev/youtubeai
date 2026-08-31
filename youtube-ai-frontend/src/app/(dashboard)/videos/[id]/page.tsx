@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { formatNumber, formatDate } from '@/lib/utils'
 import { ArrowLeft, Check, Clock, RotateCcw, MessageSquare, Sparkles, Loader2, Copy, ExternalLink, Eye, X } from 'lucide-react'
 import { toast } from 'sonner'
+import { showApiErrorToast } from '@/lib/error-handler'
 import type { VideoVersion } from '@/types/video'
 import { CommentsSection } from '@/components/comments/comments-section'
 import { FormattedDescription } from '@/components/shared/formatted-description'
@@ -124,7 +125,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
         toast.error("No pending SEO suggestion found")
       }
     } catch (err: any) {
-      toast.error(err.message || "Failed to approve SEO")
+      showApiErrorToast(err, "Failed to approve SEO")
     } finally {
       setApproving(false)
     }
@@ -139,7 +140,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
       setVersionsKey(k => k + 1)
       toast.success("SEO regenerated successfully!", { description: regenerateNotes || "Updated AI suggestions" })
     } catch (err: any) {
-      toast.error(err.message || "Failed to regenerate SEO")
+      showApiErrorToast(err, "Failed to regenerate SEO")
     } finally {
       setIsRegenerating(false)
       setRegenerateOpen(false)
@@ -154,7 +155,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
       setVersionsKey(k => k + 1)
       toast.success("Rolled back successfully!")
     } catch (err: any) {
-      toast.error(err?.message || "Failed to rollback")
+      showApiErrorToast(err, "Failed to rollback")
     }
   }
 
@@ -164,7 +165,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
       dispatch(fetchVideoById(id))
       toast.success("Updated DB metadata to match YouTube!")
     } catch (err: any) {
-      toast.error(err?.message || "Failed to update from YouTube")
+      showApiErrorToast(err, "Failed to update from YouTube")
     }
   }
 

@@ -31,7 +31,7 @@ export function Sidebar() {
 
       <nav className="flex-1 py-3 px-2.5 space-y-0.5 overflow-y-auto">
         {NAV_ITEMS.map((item) => {
-          const Icon = iconMap[item.icon as keyof typeof iconMap]
+          const Icon = (item.icon && iconMap[item.icon as keyof typeof iconMap]) || LayoutDashboard
           const isActive = pathname === item.href || pathname.startsWith(item.href + '/')
           return (
             <Link
@@ -44,7 +44,7 @@ export function Sidebar() {
                   : 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50'
               )}
             >
-              <Icon className="w-4 h-4 shrink-0" />
+              {Icon && <Icon className="w-4 h-4 shrink-0" />}
               {item.label}
             </Link>
           )
@@ -55,7 +55,7 @@ export function Sidebar() {
         </div>
 
         {NAV_ITEMS_BOTTOM.map((item) => {
-          const Icon = iconMap[item.icon as keyof typeof iconMap]
+          const Icon = (item.icon && iconMap[item.icon as keyof typeof iconMap]) || Settings
           const isActive = pathname === item.href
           return (
             <Link

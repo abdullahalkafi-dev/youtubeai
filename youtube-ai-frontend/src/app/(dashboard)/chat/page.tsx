@@ -20,6 +20,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
+import { showApiErrorToast } from '@/lib/error-handler'
 import api, { formatAssetUrl } from '@/lib/api'
 import { MessageRenderer } from '@/components/chat/message-renderer'
 import { MessageActions } from '@/components/chat/message-actions'
@@ -401,7 +402,8 @@ export default function ChatPage() {
       await api.setVideoThumbnail(activeThread.videoId, image.url)
       toast.success('Thumbnail set & uploaded to YouTube!', { id: toastId })
     } catch (err: any) {
-      toast.error(err.message || 'Failed to upload thumbnail to YouTube', { id: toastId })
+      toast.dismiss(toastId)
+      showApiErrorToast(err, 'Failed to upload thumbnail to YouTube')
     }
   }
 

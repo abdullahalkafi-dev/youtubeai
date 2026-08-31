@@ -63,6 +63,40 @@ export function setLogoutHandler(handler: () => void) {
   dispatchLogout = handler
 }
 
+export class ApiError extends Error {
+  statusCode: number
+  code?: string
+  raw?: any
+  requiresReauth?: boolean
+  isQuotaError?: boolean
+
+  constructor(message: string, statusCode: number, data?: any) {
+    super(message)
+    this.name = 'ApiError'
+    this.statusCode = statusCode
+    this.code = data?.code || data?.error
+    this.raw = data
+    this.requiresReauth = Boolean(
+      data?.requiresGoogleAuth ||
+      data?.requiresReauth ||
+      data?.code === 'OAUTH_REFRESH_FAILED' ||
+      data?.code === 'OAUTH_NO_TOKEN' ||
+      message.includes('OAUTH_REFRESH_FAILED') ||
+      message.includes('OAUTH_NO_TOKEN') ||
+      message.includes('re-login with Google') ||
+      message.includes('YouTube token expired') ||
+      message.includes('invalid_grant')
+    )
+    this.isQuotaError = Boolean(
+      statusCode === 429 ||
+      data?.code === 'QUOTA_EXCEEDED' ||
+      message.includes('quotaExceeded') ||
+      message.toLowerCase().includes('quota') ||
+      message.toLowerCase().includes('daily limit')
+    )
+  }
+}
+
 class ApiClient {
   private get baseUrl(): string {
     return getApiBaseUrl()
@@ -98,9 +132,20 @@ class ApiClient {
     })
 
     if (!response.ok) {
-      const error = await response.json().catch(() => ({ message: response.statusText }))
-      // Auto-logout on 401 (but NOT for login endpoint — 401 there means wrong password)
-      if (response.status === 401 && typeof window !== 'undefined' && !endpoint.includes('/auth/login')) {
+      const errorData = await response.json().catch(() => ({ message: response.statusText }))
+      const errorMessage = errorData.message || `API error: ${response.status}`
+
+      const isYoutubeAuthError = 
+        errorData.code === 'OAUTH_REFRESH_FAILED' ||
+        errorData.code === 'OAUTH_NO_TOKEN' ||
+        errorData.requiresGoogleAuth === true ||
+        errorMessage.includes('OAUTH_REFRESH_FAILED') ||
+        errorMessage.includes('OAUTH_NO_TOKEN') ||
+        errorMessage.includes('invalid_grant') ||
+        errorMessage.includes('re-login with Google')
+
+      // Auto-logout on 401 ONLY for App JWT expiration (not for YouTube channel OAuth token expiration or login endpoint)
+      if (response.status === 401 && !isYoutubeAuthError && typeof window !== 'undefined' && !endpoint.includes('/auth/login')) {
         if (!isLoggingOut) {
           isLoggingOut = true
           localStorage.removeItem('auth_token')
@@ -108,7 +153,7 @@ class ApiClient {
           window.location.href = '/login'
         }
       }
-      throw new Error(error.message || `API error: ${response.status}`)
+      throw new ApiError(errorMessage, response.status, errorData)
     }
 
     const data = await response.json()

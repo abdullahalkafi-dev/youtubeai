@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useAppSelector } from '@/store/hooks'
 import api from '@/lib/api'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Search, TrendingUp, Target, ChevronRight, Zap, BarChart3, Lightbulb, ExternalLink } from 'lucide-react'
 
@@ -40,6 +41,7 @@ export default function KeywordsPage() {
       setRelated(relatedResult)
     } catch (err: any) {
       setError(err.message || 'Failed to research keyword')
+      showApiErrorToast(err, 'Keyword Research Failed')
     } finally {
       setLoading(false)
     }

@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Copy, Check, Sparkles, Video, ChevronDown } from 'lucide-react'
 import { toast } from 'sonner'
+import { showApiErrorToast } from '@/lib/error-handler'
 import { formatDate } from '@/lib/utils'
 import type { Video as VideoType } from '@/types/video'
 
@@ -70,14 +71,14 @@ export default function SeoPage() {
     dispatch(approveSeoAsync(id))
       .unwrap()
       .then(() => toast.success("SEO approved!"))
-      .catch((err) => toast.error(err.message || "Failed to approve"))
+      .catch((err) => showApiErrorToast(err, "Failed to approve SEO"))
   }
 
   const handleReject = (id: string) => {
     dispatch(rejectSeoAsync(id))
       .unwrap()
       .then(() => toast.success("SEO rejected"))
-      .catch(() => toast.error("Failed to reject"))
+      .catch((err) => showApiErrorToast(err, "Failed to reject SEO"))
   }
 
   const handleCopy = (text: string, field: string) => {
