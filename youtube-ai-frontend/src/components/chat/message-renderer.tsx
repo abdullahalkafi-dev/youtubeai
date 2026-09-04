@@ -44,9 +44,12 @@ export function MessageRenderer({
 }: MessageRendererProps) {
   // During active streaming, render Markdown directly to avoid UI parsing flickers
   if (isStreaming) {
-    // Strip trailing incomplete HTML tags like "<span" or "<div" during active stream
+    // Strip script delimiters and trailing incomplete HTML tags like "<span" or "<div" during active stream
     const rawContent = typeof content === 'string' ? content : ''
-    const cleanStreamingContent = rawContent.replace(/<[^>]*$/g, '')
+    const cleanStreamingContent = rawContent
+      .replace(/<!--\s*SCRIPT_(?:START|END)?\s*-->?/gi, '')
+      .replace(/<<<\/?SCRIPT_(?:START|END)?>>>?/gi, '')
+      .replace(/<[^>]*$/g, '')
     return <MarkdownRenderer content={cleanStreamingContent} />
   }
 

@@ -76,8 +76,9 @@ export class ChatController {
       (async () => {
         try {
           for await (const chunk of this.chatService.streamMessage(id, dto)) {
-            if (isAborted) break;
-            subscriber.next({ data: chunk });
+            if (!isAborted) {
+              subscriber.next({ data: chunk });
+            }
           }
           if (!isAborted) subscriber.complete();
         } catch (error) {

@@ -419,8 +419,9 @@ export default function ChatPage() {
   }
 
   const handleSelectThread = (threadId: string) => {
-    // Abort any in-progress stream before switching threads
     abortControllerRef.current?.abort()
+    abortControllerRef.current = new AbortController()
+    dispatch(clearStreaming())
     dispatch(setActiveThread(threadId))
     dispatch(selectThread(threadId))
     setDrawerOpen(false)

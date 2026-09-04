@@ -48,7 +48,10 @@ export interface ParsedScriptSection {
 export function parseScriptSections(content: string): ParsedScriptSection[] {
   if (!content || typeof content !== 'string') return [];
 
-  const normalized = content.replace(/\r\n/g, '\n');
+  const normalized = content
+    .replace(/<!--\s*SCRIPT_(?:START|END)\s*-->/gi, '')
+    .replace(/<<<\/?SCRIPT_(?:START|END)>>>/gi, '')
+    .replace(/\r\n/g, '\n');
   const sections: ParsedScriptSection[] = [];
   const parts = normalized.split(/(?=^#{1,3}\s+|^(?:\*\*)?(?:COLD OPEN|WHAT HAPPENED|UNIQUE MECCA BREAKDOWN|THE HUMAN COST|THE YOUTH WARNING|FINAL JEWEL|10 VIRAL QUESTIONS))/gim);
 

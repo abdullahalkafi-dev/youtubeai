@@ -61,6 +61,11 @@ export interface ParsedContent {
   postamble?: string
 }
 
+export function stripScriptDelimiters(text: string): string {
+  if (!text) return ''
+  return text.replace(/<!--\s*SCRIPT_(?:START|END)\s*-->|<<<\/?SCRIPT_(?:START|END)>>>/gi, '').trim()
+}
+
 function extractSources(content: string): Array<{ title: string; url: string }> {
   const sources: Array<{ title: string; url: string }> = []
   const seen = new Set<string>()
@@ -168,6 +173,20 @@ function parseThumbnailContent(content: string): ThumbnailConcept[] | null {
     }
   }
 
+  // Fallback B: Single thumbnail concept format (e.g. ## THUMBNAIL TEXT followed by **HEADLINE** and Visual concept)
+  if (concepts.length === 0 && /\bTHUMBNAIL\b/i.test(content) && /(?:Visual concept:|Visual:|Visual Hook:)/i.test(content)) {
+    const singleTextMatch = content.match(/(?:THUMBNAIL\s*(?:TEXT|CONCEPT)?\b[^\n]*\n+)?\*\*([^\*\n]+)\*\*/i)
+    const singleVisualMatch = content.match(/(?:Visual concept:|Visual Hook:|Visual:)\s*([\s\S]*?)(?=\n\s*(?:Color scheme:|Colors:|Why It Clicks:|##|$))/i)
+    const singleColorMatch = content.match(/(?:Color scheme:|Colors:)\s*([\s\S]*?)(?=\n\s*(?:Why It Clicks:|##|$))/i)
+    if (singleTextMatch || singleVisualMatch) {
+      concepts.push({
+        text: singleTextMatch?.[1]?.trim() || '',
+        visual: singleVisualMatch?.[1]?.replace(/\*\*/g, '').trim() || '',
+        colors: singleColorMatch?.[1]?.replace(/\*\*/g, '').trim() || '',
+      })
+    }
+  }
+
   return concepts.length > 0 ? concepts : null
 }
 
@@ -264,23 +283,41 @@ interface ExtractedSection {
 export function parseCompositeBlocks(textContent: string, category: string): ContentBlock[] {
   const sections: ExtractedSection[] = []
 
-  // 1. Script section (Section 8 Teleprompter Script or Cold Open)
-  const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:(?:FULL|TELEPROMPTER)\s+)+SCRIPT\b|^#{1,3}\s*(?:8\.\s*)?SCRIPT\s*(?:\r?\n|:|$)|^#\s+[^\n]+\n+##\s+(?:1\.\s+)?COLD\s+OPEN|^##\s+(?:1\.\s+)?COLD\s+OPEN)/im
-  const sec8Match = SECTION_8_REGEX.exec(textContent)
-  if (sec8Match && sec8Match.index !== undefined) {
-    const scriptStart = sec8Match.index
-    const remainder = textContent.slice(scriptStart)
-    const POSTAMBLE_REGEX = /(?:^#{1,3}\s*(?:9\.\s*)?YOUTUBE\s+DESCRIPTION|^#{1,3}\s*(?:17\.\s*)?.*VERIFIED\s+YOUTUBE|^##\s+17\.\s+|^##\s+18\.\s+|^##\s+Sources|^##\s+SEO|^##\s+Thumbnail|^##\s+Title)/im
-    const postMatch = POSTAMBLE_REGEX.exec(remainder)
-    const scriptEnd = postMatch && postMatch.index !== undefined ? scriptStart + postMatch.index : textContent.length
-    const scriptContent = textContent.slice(scriptStart, scriptEnd).trim()
-    if (scriptContent.length > 50) {
+  // 1. Script section (Primary: deterministic delimiters <!-- SCRIPT_START --> ... <!-- SCRIPT_END -->)
+  const SCRIPT_DELIMITER_REGEX = /(?:<!--\s*SCRIPT_START\s*-->|<<<SCRIPT_START>>>)([\s\S]*?)(?:<!--\s*SCRIPT_END\s*-->|<<<SCRIPT_END>>>|$)/i
+  const delimMatch = SCRIPT_DELIMITER_REGEX.exec(textContent)
+
+  if (delimMatch && delimMatch.index !== undefined) {
+    const scriptStart = delimMatch.index
+    const scriptEnd = scriptStart + delimMatch[0].length
+    const cleanScript = stripScriptDelimiters(delimMatch[1] || '')
+    if (cleanScript.length > 50) {
       sections.push({
         type: 'script',
         start: scriptStart,
         end: scriptEnd,
-        data: scriptContent,
+        data: cleanScript,
       })
+    }
+  } else {
+    // Fallback: Legacy regex for past conversations in DB without delimiters
+    const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:[^\n]*\b(?:LIVE|TELEPROMPTER|FULL|EPISODE|RECORDING)\s+)?SCRIPT\b|^#{1,3}\s*(?:8\.\s*)?SCRIPT\s*(?:\r?\n|:|$)|^#\s+[^\n]+\n+##\s+(?:(?:\d+[:.]\d+.*?|\d+\.\s*)?COLD\s+OPEN)|^##\s+(?:(?:\d+[:.]\d+.*?|\d+\.\s*)?COLD\s+OPEN))/im
+    const sec8Match = SECTION_8_REGEX.exec(textContent)
+    if (sec8Match && sec8Match.index !== undefined) {
+      const scriptStart = sec8Match.index
+      const remainder = textContent.slice(scriptStart)
+      const POSTAMBLE_REGEX = /(?:^#{1,3}\s*(?:9\.\s*)?YOUTUBE\s+DESCRIPTION|^#{1,3}\s*(?:17\.\s*)?.*VERIFIED\s+YOUTUBE|^##\s+17\.\s+|^##\s+18\.\s+|^##\s+Sources|^##\s+SEO|^##\s+Thumbnail|^##\s+Title|^#\s+📌\s*PINNED\s*COMMENT|^#\s+SEO\s*(?:DESCRIPTION|TAGS|PACKAGE))/im
+      const postMatch = POSTAMBLE_REGEX.exec(remainder)
+      const scriptEnd = postMatch && postMatch.index !== undefined ? scriptStart + postMatch.index : textContent.length
+      const scriptContent = textContent.slice(scriptStart, scriptEnd).trim()
+      if (scriptContent.length > 50) {
+        sections.push({
+          type: 'script',
+          start: scriptStart,
+          end: scriptEnd,
+          data: stripScriptDelimiters(scriptContent),
+        })
+      }
     }
   }
 
@@ -428,7 +465,7 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     if (category === 'script') {
       return [{ type: 'script', scriptContent: textContent, raw: textContent }]
     }
-    return [{ type: 'markdown', content: textContent }]
+    return [{ type: 'markdown', content: stripScriptDelimiters(textContent) }]
   }
 
   // Assemble blocks in chronological order
@@ -437,7 +474,7 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
 
   for (const sec of nonOverlapping) {
     if (sec.start > cursor) {
-      const textChunk = textContent.slice(cursor, sec.start).trim()
+      const textChunk = stripScriptDelimiters(textContent.slice(cursor, sec.start).trim())
       if (textChunk.length > 0) {
         blocks.push({ type: 'markdown', content: textChunk })
       }
@@ -450,14 +487,14 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     } else if (sec.type === 'seo') {
       blocks.push({ type: 'seo', seo: sec.data, raw: textContent.slice(sec.start, sec.end) })
     } else if (sec.type === 'script') {
-      blocks.push({ type: 'script', scriptContent: sec.data, raw: textContent.slice(sec.start, sec.end) })
+      blocks.push({ type: 'script', scriptContent: stripScriptDelimiters(sec.data), raw: textContent.slice(sec.start, sec.end) })
     }
 
     cursor = sec.end
   }
 
   if (cursor < textContent.length) {
-    const trailingText = textContent.slice(cursor).trim()
+    const trailingText = stripScriptDelimiters(textContent.slice(cursor).trim())
     if (trailingText.length > 0) {
       blocks.push({ type: 'markdown', content: trailingText })
     }

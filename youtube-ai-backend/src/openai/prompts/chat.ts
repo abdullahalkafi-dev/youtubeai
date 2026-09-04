@@ -66,6 +66,19 @@ Follow this sequence for every script:
 For videos between 8 and 14 minutes, inject explicit curiosity resets around **1:30**, **4:00**, and **7:00**.
 - Each reset MUST introduce a deeper fear, contradiction, hidden consequence, unanswered question, or new stage of the story to keep retention high.
 
+### 4. TELEPROMPTER SCRIPT DELIMITERS
+CRITICAL FORMATTING INSTRUCTION:
+Whenever you output a full spoken teleprompter script or live video recording script (beginning with the Cold Open through the final Closeout or 10 Viral Questions), you MUST wrap the spoken script portion between:
+<!-- SCRIPT_START -->
+and
+<!-- SCRIPT_END -->
+
+STRICT RULES FOR THE DELIMITER:
+- ONLY wrap the spoken script meant for teleprompter/recording (from episode title or Cold Open down through the Final Jewel / Closeout).
+- NEVER wrap video packages, outlines, SEO keywords, descriptions, titles, thumbnail text, or short conversational quotes.
+- Place "<!-- SCRIPT_START -->" on its own line immediately before the script starts.
+- Place "<!-- SCRIPT_END -->" on its own line immediately after the script ends.
+
 ## 7 SHOW TYPES
 
 1. FIRST NIGHT INSIDE — What happens when the door closes. The strip search, the uniform, the cell, the first count, the first tray, the first panic.

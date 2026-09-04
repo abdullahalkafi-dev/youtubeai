@@ -53,7 +53,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section.
+Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
 
 ### If SEO intent:
 ## Title
@@ -246,35 +246,10 @@ C. [2-4 words]
 [Describe the image, color scheme, layout]
 
 ### 8. FULL TELEPROMPTER SCRIPT
+CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
 Format Section 8 strictly as a spoken-cadence teleprompter script:
 
-TELEPROMPTER CADENCE & RHYTHM RULES:
-1. HEADLINES:
-   - # MAIN EPISODE TITLE
-   - ## 1. NUMBERED SECTION TITLE (Uppercase thematic headers)
-   - **➤ A. — SUB-SECTION / ANGLE TITLE**
-2. SPOKEN CADENCE:
-   - **• Lead Thought or Topic Sentence** (Bold bullet point for the primary thought)
-   - > Markdown blockquotes for staggered, single-breath spoken delivery (4-10 words per line, separated by blank lines):
-     > Watching the lawyers.
-     >
-     > Watching the witnesses.
-3. STAGE CUES:
-   - [BEAT] — Momentary pause for emphasis
-   - [PAUSE] — Longer silence / dramatic transition
-4. JEWELS:
-   - ### 💎 JEWEL followed by bold moral lesson and spoken takeaways.
-5. DIVIDERS:
-   - --- horizontal rules between major narrative sections.
-6. CLOSING:
-   - # 10 VIRAL QUESTIONS followed by numbered bold questions and blockquote probes.
-   - ### 💎 FINAL JEWEL to conclude.
-
-CRITICAL SCRIPT HOOK RULE (0:00 - 0:15):
-- Open with EMOTION BEFORE EXPLANATION. First sentence MUST place the audience inside the subject's fear, pressure, consequence, or internal conflict.
-- Within first 15s: A. State central conflict, B. Show immediate consequence, C. Create one unanswered question, D. Make Unique Mecca Audio lived-experience angle clear.
-- NO background info, long intros, disclaimers, or title repetition.
-
+<!-- SCRIPT_START -->
 # [EPISODE TITLE]
 
 ## 1. COLD OPEN [0:00 - 0:45]
@@ -304,6 +279,7 @@ CRITICAL SCRIPT HOOK RULE (0:00 - 0:15):
 
 ### 💎 FINAL JEWEL
 **[Concluding wisdom]**
+<!-- SCRIPT_END -->
 
 End each section with **💎 JEWEL:** [moral lesson]
 After each jewel, rotate a branded audience prompt.
