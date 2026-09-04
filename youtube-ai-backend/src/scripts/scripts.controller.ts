@@ -105,10 +105,17 @@ export class ScriptsController {
     @Param('channelId') channelId: string,
     @Param('id') id: string,
     @Param('versionNumber') versionNumber: string,
+    @Query('expectedVersion') expectedVersion: string,
     @Req() req: any,
   ) {
     const userId = req.user?.userId || req.user?.id || req.user?._id;
-    return this.scriptsService.restoreVersion(channelId, userId, id, Number(versionNumber));
+    return this.scriptsService.restoreVersion(
+      channelId,
+      userId,
+      id,
+      Number(versionNumber),
+      expectedVersion !== undefined ? Number(expectedVersion) : undefined,
+    );
   }
 
   @Post(':id/retry-sync')

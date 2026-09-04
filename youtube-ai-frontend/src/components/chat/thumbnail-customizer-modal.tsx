@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Sparkles, Check, User, ShieldCheck, Type, Loader2 } from 'lucide-react'
+import { X, Sparkles, Check, User, UserX, ShieldCheck, Type, Loader2, Monitor, Smartphone } from 'lucide-react'
 import api, { formatAssetUrl } from '@/lib/api'
 import { toast } from 'sonner'
 
@@ -26,10 +26,13 @@ interface ThumbnailCustomizerModalProps {
   defaultText: string
   visualDescription: string
   colors: string
+  initialAspectRatio?: '16:9' | '9:16'
+  initialHostImage?: string
   onConfirmGenerate: (options: {
     selectedHostImage: string
     logoPosition: 'top-left' | 'top-right' | 'none'
     customText: string
+    aspectRatio: '16:9' | '9:16'
   }) => Promise<void>
 }
 
@@ -40,19 +43,34 @@ export function ThumbnailCustomizerModal({
   defaultText,
   visualDescription,
   colors,
+  initialAspectRatio = '16:9',
+  initialHostImage = 'none',
   onConfirmGenerate,
 }: ThumbnailCustomizerModalProps) {
   const [hostImages, setHostImages] = useState<HostImage[]>([])
   const [logoAssets, setLogoAssets] = useState<LogoAsset[]>([])
   const [loadingAssets, setLoadingAssets] = useState(false)
-  const [selectedHostImage, setSelectedHostImage] = useState<string>('host_1.png')
+  const [selectedHostImage, setSelectedHostImage] = useState<string>(initialHostImage || 'none')
   const [logoPosition, setLogoPosition] = useState<'top-left' | 'top-right' | 'none'>('top-right')
+  const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>(initialAspectRatio)
   const [textOverlay, setTextOverlay] = useState<string>(defaultText)
   const [isGenerating, setIsGenerating] = useState(false)
 
   useEffect(() => {
     setTextOverlay(defaultText)
   }, [defaultText])
+
+  useEffect(() => {
+    if (initialAspectRatio) {
+      setAspectRatio(initialAspectRatio)
+    }
+  }, [initialAspectRatio])
+
+  useEffect(() => {
+    if (initialHostImage !== undefined) {
+      setSelectedHostImage(initialHostImage || 'none')
+    }
+  }, [initialHostImage])
 
   useEffect(() => {
     if (isOpen) {
@@ -70,11 +88,10 @@ export function ThumbnailCustomizerModal({
 
       if (images && images.length > 0) {
         setHostImages(images)
-        if (!selectedHostImage) {
-          setSelectedHostImage(images[0].filename)
+        if (!selectedHostImage && selectedHostImage !== 'none') {
+          setSelectedHostImage(initialHostImage || 'none')
         }
       } else {
-        // Complete fallback list of all 7 host images
         setHostImages([
           { id: 'host_1.png', filename: 'host_1.png', url: '/api/assets/unique-images/host_1.png', title: 'Host Photo #1' },
           { id: 'host_2.png', filename: 'host_2.png', url: '/api/assets/unique-images/host_2.png', title: 'Host Photo #2' },
@@ -111,6 +128,7 @@ export function ThumbnailCustomizerModal({
         selectedHostImage,
         logoPosition,
         customText: textOverlay,
+        aspectRatio,
       })
       onClose()
     } catch (err: any) {
@@ -123,27 +141,23 @@ export function ThumbnailCustomizerModal({
 
   if (!isOpen) return null
 
+  const wordCount = textOverlay.trim() ? textOverlay.trim().split(/\s+/).length : 0
+  const isOptimalWordCount = wordCount >= 2 && wordCount <= 4
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-gray-900 border border-violet-500/30 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80">
-          <div className="flex items-center gap-3">
-            <div className="p-2 rounded-xl bg-violet-500/20 text-violet-400">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <h3 className="text-base font-bold text-white flex items-center gap-2">
-                Customize Thumbnail — <span className="text-violet-400">{conceptTitle}</span>
-              </h3>
-              <p className="text-xs text-gray-400">Choose exact host face photo and brand logo placement</p>
-            </div>
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-violet-400" />
+            <h2 className="text-base font-bold text-white tracking-wide">
+              Customize Thumbnail Composition — {conceptTitle}
+            </h2>
           </div>
-
           <button
             onClick={onClose}
-            disabled={isGenerating}
-            className="p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition"
+            className="p-1 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition"
           >
             <X className="w-5 h-5" />
           </button>
@@ -151,12 +165,67 @@ export function ThumbnailCustomizerModal({
 
         {/* Content Body */}
         <div className="p-6 overflow-y-auto space-y-6 flex-1 text-left">
-          {/* Step 1: Select Unique Host Image */}
+          {/* Step 1: Aspect Ratio Selection */}
+          <div>
+            <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2 mb-3">
+              <Monitor className="w-4 h-4 text-cyan-400" />
+              1. Canvas Format & Aspect Ratio
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setAspectRatio('16:9')}
+                className={`p-3 rounded-xl border text-left transition flex items-center justify-between ${
+                  aspectRatio === '16:9'
+                    ? 'bg-cyan-500/10 border-cyan-500/60 text-white shadow-md'
+                    : 'bg-gray-800/50 border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Monitor className="w-4 h-4 text-cyan-400" />
+                  <div>
+                    <div className="text-xs font-semibold text-white">16:9 Standard Video</div>
+                    <div className="text-[10px] text-gray-400">1536x1024 YouTube Landscape</div>
+                  </div>
+                </div>
+                {aspectRatio === '16:9' && (
+                  <div className="w-4 h-4 rounded-full bg-cyan-400 text-gray-950 flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3 stroke-[3]" />
+                  </div>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setAspectRatio('9:16')}
+                className={`p-3 rounded-xl border text-left transition flex items-center justify-between ${
+                  aspectRatio === '9:16'
+                    ? 'bg-cyan-500/10 border-cyan-500/60 text-white shadow-md'
+                    : 'bg-gray-800/50 border-gray-800 text-gray-400 hover:border-gray-700 hover:text-gray-200'
+                }`}
+              >
+                <div className="flex items-center gap-2.5">
+                  <Smartphone className="w-4 h-4 text-cyan-400" />
+                  <div>
+                    <div className="text-xs font-semibold text-white">9:16 Vertical Reel</div>
+                    <div className="text-[10px] text-gray-400">1024x1536 Shorts & Reels</div>
+                  </div>
+                </div>
+                {aspectRatio === '9:16' && (
+                  <div className="w-4 h-4 rounded-full bg-cyan-400 text-gray-950 flex items-center justify-center shrink-0">
+                    <Check className="w-3 h-3 stroke-[3]" />
+                  </div>
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Step 2: Select Unique Host Image */}
           <div>
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
                 <User className="w-4 h-4 text-violet-400" />
-                1. Select Host Face Image
+                2. Select Host Face Image
               </label>
               <span className="text-[10px] text-violet-400 font-medium bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20">
                 100% Untouched Face
@@ -169,7 +238,26 @@ export function ThumbnailCustomizerModal({
                 <span>Loading unique host images...</span>
               </div>
             ) : (
-              <div className="grid grid-cols-4 sm:grid-cols-7 gap-2">
+              <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                {/* Dedicated No Host Option */}
+                <button
+                  type="button"
+                  onClick={() => setSelectedHostImage('none')}
+                  className={`relative aspect-square rounded-xl overflow-hidden border-2 transition group flex flex-col items-center justify-center p-1 ${
+                    selectedHostImage === 'none'
+                      ? 'border-red-500 ring-2 ring-red-500/40 bg-red-500/10 scale-105 shadow-lg shadow-red-500/20'
+                      : 'border-gray-800 hover:border-gray-600 bg-gray-800/40 opacity-70 hover:opacity-100'
+                  }`}
+                >
+                  <UserX className={`w-5 h-5 mb-1 ${selectedHostImage === 'none' ? 'text-red-400' : 'text-gray-400'}`} />
+                  <span className="text-[9px] font-bold text-gray-300 text-center leading-tight">No Host</span>
+                  {selectedHostImage === 'none' && (
+                    <div className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white flex items-center justify-center">
+                      <Check className="w-2.5 h-2.5" />
+                    </div>
+                  )}
+                </button>
+
                 {hostImages.map((img) => {
                   const isSelected = selectedHostImage === img.filename
                   return (
@@ -205,11 +293,11 @@ export function ThumbnailCustomizerModal({
             )}
           </div>
 
-          {/* Step 2: Brand Logo Position */}
+          {/* Step 3: Brand Logo Position */}
           <div>
             <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2 mb-3">
               <ShieldCheck className="w-4 h-4 text-amber-400" />
-              2. Brand Logo Position (MAE Logo)
+              3. Brand Logo Position (MAE Logo)
             </label>
 
             <div className="grid grid-cols-3 gap-3">
@@ -245,20 +333,33 @@ export function ThumbnailCustomizerModal({
             </div>
           </div>
 
-          {/* Step 3: Text Overlay */}
+          {/* Step 4: Text Overlay with Word Counter */}
           <div>
-            <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2 mb-2">
-              <Type className="w-4 h-4 text-emerald-400" />
-              3. Text Overlay Phrase
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
+                <Type className="w-4 h-4 text-emerald-400" />
+                4. Text Overlay Phrase
+              </label>
+              <span
+                className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
+                  isOptimalWordCount
+                    ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
+                    : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
+                }`}
+              >
+                {wordCount} {wordCount === 1 ? 'word' : 'words'} (Goal: 2-4)
+              </span>
+            </div>
             <input
               type="text"
               value={textOverlay}
               onChange={(e) => setTextOverlay(e.target.value)}
-              placeholder="2-3 bold words e.g. VERDICT REVEALED"
+              placeholder="2-4 bold impact words e.g. VERDICT REVEALED"
               className="w-full px-4 py-2.5 bg-gray-950 border border-gray-800 rounded-xl text-white font-bold tracking-wide focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 text-sm"
             />
-            <p className="text-[10px] text-gray-400 mt-1">Keep to 2-4 strong impact words for maximum YouTube CTR.</p>
+            <p className="text-[10px] text-gray-400 mt-1">
+              Keep strictly to 2-4 uppercase words placed safely away from borders for maximum click-through rate.
+            </p>
           </div>
         </div>
 
@@ -282,12 +383,12 @@ export function ThumbnailCustomizerModal({
             {isGenerating ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Generating Pristine Image...</span>
+                <span>Generating Image...</span>
               </>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 text-amber-300 fill-amber-300" />
-                <span>Confirm & Generate Pristine Thumbnail</span>
+                <span>Confirm & Generate Thumbnail</span>
               </>
             )}
           </button>

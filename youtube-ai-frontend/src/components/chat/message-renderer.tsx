@@ -23,7 +23,7 @@ interface MessageRendererProps {
   messageImages?: any[]
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, mode: 'thumbnail' | 'scene', cleanUrl?: string, selectedHostImage?: string) => void
+  onEditImage?: (url: string, mode: 'thumbnail' | 'scene', cleanUrl?: string, selectedHostImage?: string, aspectRatio?: '16:9' | '9:16') => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -65,7 +65,7 @@ export function MessageRenderer({
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
-          onEditImage={(url, cleanUrl, hostImg) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg)}
+          onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
           videoTitle={videoTitle}
           threadTitle={threadTitle}
         />
@@ -76,7 +76,7 @@ export function MessageRenderer({
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
-          onEditImage={(url) => onEditImage?.(url, 'scene')}
+          onEditImage={(url) => onEditImage?.(url, 'scene', url, undefined, '16:9')}
           videoTitle={videoTitle}
           threadTitle={threadTitle}
         />
@@ -85,12 +85,45 @@ export function MessageRenderer({
           <ScoreCard score={parsed.ideaScore} />
           <MarkdownRenderer content={parsed.raw} />
         </div>
+      ) : parsed.type === 'modular_package' ? (
+        <div className="space-y-6">
+          {parsed.preamble && (
+            <div className="rounded-2xl bg-zinc-50/70 dark:bg-zinc-900/40 p-5 border border-zinc-200/60 dark:border-zinc-800/60 space-y-3">
+              <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                <span>Production Strategy & Metadata</span>
+              </div>
+              <MarkdownRenderer content={parsed.preamble} />
+            </div>
+          )}
+
+          {parsed.teleprompterScript && (
+            <ScriptRenderer
+              content={parsed.teleprompterScript}
+              threadId={threadId}
+              messageId={messageId}
+              initialScriptId={initialScriptId}
+              threadTitle={threadTitle}
+              videoTitle={videoTitle}
+            />
+          )}
+
+          {parsed.postamble && (
+            <div className="rounded-2xl bg-zinc-50/70 dark:bg-zinc-900/40 p-5 border border-zinc-200/60 dark:border-zinc-800/60 space-y-3">
+              <div className="flex items-center space-x-2 text-xs font-bold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
+                <span>Distribution & SEO Package</span>
+              </div>
+              <MarkdownRenderer content={parsed.postamble} />
+            </div>
+          )}
+        </div>
       ) : parsed.type === 'script' ? (
         <ScriptRenderer
           content={parsed.raw}
           threadId={threadId}
           messageId={messageId}
           initialScriptId={initialScriptId}
+          threadTitle={threadTitle}
+          videoTitle={videoTitle}
         />
       ) : parsed.type === 'trends' && parsed.trends ? (
         <TrendsCard trends={parsed.trends} />
@@ -103,7 +136,9 @@ export function MessageRenderer({
             <div className="mt-3 space-y-3">
               {messageImages.map((img: any, idx: number) => (
                 <div key={img.id || idx} className="rounded-xl overflow-hidden border border-indigo-200 dark:border-indigo-800/50 bg-white dark:bg-gray-900 shadow-md">
-                  <div className="relative aspect-video bg-gray-950 overflow-hidden">
+                  <div className={`relative bg-gray-950 overflow-hidden ${
+                    img.aspectRatio === '9:16' ? 'aspect-[9/16] max-w-[280px] mx-auto' : 'aspect-video'
+                  }`}>
                     <img
                       src={formatAssetUrl(img.url)}
                       alt={img.prompt || 'Generated image'}
@@ -116,7 +151,7 @@ export function MessageRenderer({
                     </p>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage)}
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9')}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
                       >
                         <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate

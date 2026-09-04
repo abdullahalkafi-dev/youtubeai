@@ -15,7 +15,7 @@ import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { useAudioVisualizer } from '@/lib/hooks/use-audio-visualizer'
 import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -52,7 +52,13 @@ export default function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isFocusMode, setIsFocusMode] = useState(false)
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
-  const [iteratingImage, setIteratingImage] = useState<{ url: string; mode: 'thumbnail' | 'scene'; cleanUrl?: string; selectedHostImage?: string } | null>(null)
+  const [iteratingImage, setIteratingImage] = useState<{
+    url: string
+    mode: 'thumbnail' | 'scene'
+    cleanUrl?: string
+    selectedHostImage?: string
+    aspectRatio?: '16:9' | '9:16'
+  } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -203,6 +209,29 @@ export default function ChatPage() {
     }).catch(() => {})
   }, [urlNewScriptId, urlScriptId, channelId, dispatch])
 
+  // Handle 'outline-generate-script' custom event from OutlineCard
+  useEffect(() => {
+    const handleOutlineGenerateScript = (e: CustomEvent<any>) => {
+      const { hook, sections, showType } = e.detail || {}
+      let prompt = `Write a complete teleprompter video script based on this outline:\n`
+      if (showType) prompt += `Show Type: ${showType}\n`
+      if (hook) prompt += `Selected Hook (${hook.name || ''}): ${hook.script || ''}\n`
+      if (sections && sections.length > 0) {
+        prompt += `\nOutline Sections:\n`
+        sections.forEach((sec: any, idx: number) => {
+          prompt += `${idx + 1}. ${sec.title || sec.name || ''} (${sec.timing || ''}): ${sec.points?.join(', ') || ''}\n`
+        })
+      }
+      prompt += `\nPlease write the full spoken teleprompter script targeting 9 to 14 minutes.`
+      setInput(prompt)
+    }
+
+    window.addEventListener('outline-generate-script' as any, handleOutlineGenerateScript)
+    return () => {
+      window.removeEventListener('outline-generate-script' as any, handleOutlineGenerateScript)
+    }
+  }, [])
+
   const allImages = useMemo(() => {
     if (!activeThread) return []
     const images: ChatImage[] = []
@@ -261,16 +290,25 @@ export default function ChatPage() {
         // Upload reference image if user attached one
         const referenceUrls: string[] = []
         if (fileToSend) {
-          const uploaded = await api.uploadFile(threadId, fileToSend)
-          const refUrl = uploaded?.url || uploaded?.metadata?.attachments?.[0]?.url
+          const uploaded = await api.uploadReferenceAsset(threadId, fileToSend)
+          const refUrl = uploaded?.url
           if (refUrl) referenceUrls.push(refUrl)
         }
+        // Check if prompt triggers aspect ratio switch or inherit from pinnedImage
+        let targetAspectRatio = pinnedImage.aspectRatio
+        if (/\b(?:reel|reels|short|shorts|tiktok|9:16|vertical)\b/i.test(messageContent)) {
+          targetAspectRatio = '9:16'
+        } else if (/\b(?:16:9|landscape|horizontal)\b/i.test(messageContent)) {
+          targetAspectRatio = '16:9'
+        }
+
         await api.editImage(threadId, {
           prompt: messageContent,
           baseImageUrl: pinnedImage.cleanUrl || pinnedImage.url,
           referenceImageUrls: referenceUrls,
           mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
           selectedHostImage: pinnedImage.selectedHostImage,
+          aspectRatio: targetAspectRatio,
         })
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
@@ -340,9 +378,9 @@ export default function ChatPage() {
         streamPrompt,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
-        (messageId, usage, updatedTitle) => {
+        (messageId, usage, updatedTitle, streamCategory) => {
           streamCompleted = true
-          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: currentSkill, title: updatedTitle }))
+          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle }))
           if (channelId) {
             dispatch(fetchThreads(channelId))
           }
@@ -742,7 +780,7 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
-                            onEditImage={(url, mode, cleanUrl, hostImg) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url, selectedHostImage: hostImg })}
+                            onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url, selectedHostImage: hostImg, aspectRatio })}
                             videoTitle={activeThread?.videoTitle || activeThread?.title}
                             threadTitle={activeThread?.title}
                           />
@@ -989,24 +1027,62 @@ export default function ChatPage() {
                 </div>
               )}
 
-              {/* Iterating Image Preview */}
+              {/* Iterating Image Preview Banner with Quick Action Chips */}
               {iteratingImage && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-pink-50/70 dark:bg-pink-500/10 rounded-xl border border-pink-200 dark:border-pink-500/30">
-                  <img src={formatAssetUrl(iteratingImage.url)} alt="Editing" className="w-16 h-9 object-cover rounded" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-semibold text-pink-700 dark:text-pink-300">Editing this image</p>
-                    <p className="text-[9px] text-pink-500 truncate">Describe changes below</p>
+                <div className="flex flex-col gap-2 p-2.5 bg-pink-50/70 dark:bg-pink-500/10 rounded-xl border border-pink-200 dark:border-pink-500/30">
+                  <div className="flex items-center gap-2">
+                    <img
+                      src={formatAssetUrl(iteratingImage.url)}
+                      alt="Editing"
+                      className={`object-cover rounded border border-pink-300 dark:border-pink-500/40 shrink-0 ${
+                        iteratingImage.aspectRatio === '9:16' ? 'w-8 h-14' : 'w-16 h-9'
+                      }`}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-[10px] font-semibold text-pink-700 dark:text-pink-300">Editing Image</p>
+                        <span className="text-[9px] font-mono px-1 py-0.2 rounded bg-pink-500/20 text-pink-700 dark:text-pink-300">
+                          {iteratingImage.aspectRatio || '16:9'}
+                        </span>
+                      </div>
+                      <p className="text-[9px] text-pink-500 truncate">Describe changes or click quick chips below</p>
+                    </div>
+                    <button
+                      onClick={() => fileInputRef.current?.click()}
+                      className="p-1 text-gray-400 hover:text-pink-500 dark:hover:text-pink-400 rounded transition"
+                      title="Upload reference photo"
+                    >
+                      <Paperclip className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => setIteratingImage(null)} className="text-gray-400 hover:text-red-500 p-0.5">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
                   </div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="p-1 text-gray-400 hover:text-pink-500 dark:hover:text-pink-400 rounded transition"
-                    title="Upload reference image"
-                  >
-                    <Paperclip className="w-3.5 h-3.5" />
-                  </button>
-                  <button onClick={() => setIteratingImage(null)} className="text-gray-400 hover:text-red-500 p-0.5">
-                    <X className="w-3.5 h-3.5" />
-                  </button>
+
+                  {/* Quick Action Chips */}
+                  <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-pink-200/50 dark:border-pink-500/20 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => setInput((prev) => (prev ? `${prev}, remove the logo` : 'Remove the logo'))}
+                      className="px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition"
+                    >
+                      🚫 Remove Logo
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setInput((prev) => (prev ? `${prev}, remove me / no host` : 'Remove me / no host'))}
+                      className="px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition"
+                    >
+                      👤 Remove Host / Me
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIteratingImage((prev) => prev ? { ...prev, aspectRatio: prev.aspectRatio === '9:16' ? '16:9' : '9:16' } : null)}
+                      className="px-2 py-0.5 rounded-md bg-pink-100 dark:bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-300 dark:border-pink-500/40 hover:bg-pink-200 transition font-medium"
+                    >
+                      📐 Switch to {iteratingImage.aspectRatio === '9:16' ? '16:9 Video' : '9:16 Reel'}
+                    </button>
+                  </div>
                 </div>
               )}
 

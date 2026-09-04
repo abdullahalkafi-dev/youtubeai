@@ -16,7 +16,7 @@ import {
   ChevronDown,
   Navigation,
 } from 'lucide-react'
-import { parseScriptSections } from '@/lib/teleprompter-parser'
+import { parseScriptSections, calculateTeleprompterStats } from '@/lib/teleprompter-parser'
 
 interface FullscreenTeleprompterProps {
   isOpen: boolean
@@ -35,6 +35,10 @@ export function FullscreenTeleprompter({
   wordCount = 0,
   estimatedDurationMinutes = 0,
 }: FullscreenTeleprompterProps) {
+  const dynamicStats = calculateTeleprompterStats(content)
+  const displayWordCount = (wordCount > 2200 || !wordCount) ? dynamicStats.wordCount : wordCount
+  const displayDuration = (estimatedDurationMinutes > 20 || !estimatedDurationMinutes) ? dynamicStats.estimatedDurationMinutes : estimatedDurationMinutes
+
   const [isPlaying, setIsPlaying] = useState(false)
   const [wpm, setWpm] = useState(140)
   const [fontSize, setFontSize] = useState(28) // in px
@@ -142,7 +146,7 @@ export function FullscreenTeleprompter({
         setIsPlaying((prev) => !prev)
       } else if (e.code === 'ArrowUp') {
         e.preventDefault()
-        setWpm((prev) => Math.min(350, prev + 10))
+        setWpm((prev) => Math.min(1000, prev + 10))
       } else if (e.code === 'ArrowDown') {
         e.preventDefault()
         setWpm((prev) => Math.max(50, prev - 10))
@@ -253,11 +257,11 @@ export function FullscreenTeleprompter({
           {/* Speed Controller */}
           <div className="flex items-center space-x-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1.5 rounded-xl">
             <Gauge className="w-4 h-4 text-amber-400" />
-            <span className="text-xs font-semibold text-zinc-300 w-14">{wpm} WPM</span>
+            <span className="text-xs font-semibold text-zinc-300 min-w-[4.5rem]">{wpm} WPM</span>
             <input
               type="range"
               min={50}
-              max={350}
+              max={1000}
               step={5}
               value={wpm}
               onChange={(e) => setWpm(Number(e.target.value))}
@@ -348,7 +352,7 @@ export function FullscreenTeleprompter({
               {title}
             </h1>
             <p className="text-sm font-medium text-zinc-500 tracking-wide uppercase">
-              {estimatedDurationMinutes} MINUTE TARGET · {wordCount} WORDS
+              {displayDuration} MINUTE TARGET · {displayWordCount} WORDS
             </p>
           </div>
 

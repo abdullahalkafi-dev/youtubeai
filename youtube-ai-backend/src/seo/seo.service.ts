@@ -210,8 +210,10 @@ export class SeoService {
           'podcast', 'inside', 'story', 'news', 'update', 'real', 'reality', 'about',
           'with', 'from', 'that', 'this', 'have', 'were', 'will', 'what', 'when', 'where',
           'which', 'their', 'there', 'they', 'them', 'your', 'unique', 'mecca', 'audio',
+          'copy', 'part', 'pt', 'ep', 'series', 'stream', 'live', 'livestream',
         ]);
-        const titleText = (video.youtubeTitle || video.title).replace(/[^\w\s]/g, '');
+        const rawTitle = (video.youtubeTitle || video.title).replace(/^copy\s+of\s+/i, '').trim();
+        const titleText = rawTitle.replace(/[^\w\s]/g, '');
         const keyWords = titleText
           .split(/\s+/)
           .map(w => w.trim())
@@ -224,11 +226,34 @@ export class SeoService {
             channelId: video.channelId,
             _id: { $ne: video._id },
             deletedFromYoutube: { $ne: true },
+            privacyStatus: 'public', // Only public videos can be viewed by viewers
+            title: { $not: /^copy of/i }, // Never link ghost 'Copy of' drafts
+            viewCount: { $gt: 0 }, // Ignore 0-view drafts
             $and: conditions.slice(0, 2),
-          }).sort({ publishedAt: 1 }).limit(5).select('title youtubeId viewCount publishedAt').lean();
+          }).sort({ publishedAt: 1 }).limit(10).select('title youtubeId viewCount publishedAt').lean();
 
-          relatedSeriesVideos = seriesDocs.map((v: any) => ({
-            title: v.title,
+          // Normalize current video title for self-duplicate detection
+          const normalizedCurrentTitle = rawTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+          const seenTitles = new Set<string>();
+          const filteredCandidates: any[] = [];
+
+          for (const doc of seriesDocs) {
+            const cleanCandidateTitle = (doc.title || '').replace(/^copy\s+of\s+/i, '').trim();
+            const normalizedCandidate = cleanCandidateTitle.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+            // Skip if identical to current video title (duplicate broadcast / re-upload, not a series)
+            if (normalizedCandidate === normalizedCurrentTitle) continue;
+
+            // Deduplicate series candidates by normalized title
+            if (seenTitles.has(normalizedCandidate)) continue;
+            seenTitles.add(normalizedCandidate);
+
+            filteredCandidates.push(doc);
+            if (filteredCandidates.length >= 5) break;
+          }
+
+          relatedSeriesVideos = filteredCandidates.map((v: any) => ({
+            title: v.title.replace(/^copy\s+of\s+/i, '').trim(),
             youtubeId: v.youtubeId,
             views: v.viewCount,
             publishedDaysAgo: v.publishedAt ? Math.round((Date.now() - new Date(v.publishedAt).getTime()) / (1000 * 60 * 60 * 24)) : undefined,
@@ -246,8 +271,9 @@ export class SeoService {
         }
       } catch { /* RAG optional */ }
 
+      const cleanInputTitle = (video.youtubeTitle || video.title).replace(/^copy\s+of\s+/i, '').trim();
       const result = await this.openaiService.generateSeo({
-        videoTitle: video.youtubeTitle || video.title,
+        videoTitle: cleanInputTitle,
         videoDescription: video.youtubeDescription || video.description || undefined,
         showType: video.showType || undefined,
         transcriptAnchors,

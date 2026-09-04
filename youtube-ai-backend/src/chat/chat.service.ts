@@ -189,16 +189,22 @@ export class ChatService {
     const updatedThread = await this.threadModel.findById(threadId);
     if (!updatedThread) throw new NotFoundException(`Thread ${threadId} not found`);
 
+    // Extract actual user prompt if prepended with injected active script context
+    const cleanUserPrompt = dto.content.replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '').trim();
+
     // Find previous assistant message for dynamic A/B/C/D menu option resolution
     const prevAssistantMsg = updatedThread.messages
       .slice(0, -1)
       .reverse()
       .find(m => m.role === 'assistant')?.content;
 
-    // Resolve skill: manual override (sticky if non-general) or auto-classify intent across all 8 skills
-    const resolvedSkill = (!dto.skill || dto.skill === 'general')
-      ? this.skillRegistry.classifyIntent(dto.content, prevAssistantMsg)
-      : dto.skill;
+    // Resolve skill: auto-classify intent on clean prompt
+    const detectedIntent = this.skillRegistry.classifyIntent(cleanUserPrompt || dto.content, prevAssistantMsg);
+
+    // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
+    const resolvedSkill = (detectedIntent && detectedIntent !== 'general' && (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill))
+      ? detectedIntent
+      : (dto.skill || detectedIntent || 'general');
 
     // Get channel and skill
     const channel = await this.channelModel.findById(updatedThread.channelId).lean();
@@ -314,7 +320,7 @@ export class ChatService {
   /**
    * Stream a message — returns an async generator that yields chunks.
    */
-  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage; title?: string }> {
+  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage; title?: string; category?: string }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
@@ -338,10 +344,21 @@ export class ChatService {
       return;
     }
 
-    // Resolve skill: manual override (sticky if non-general) or auto-classify intent across all 8 skills
-    const resolvedSkill = (!dto.skill || dto.skill === 'general')
-      ? this.skillRegistry.classifyIntent(dto.content)
-      : dto.skill;
+    // Extract actual user prompt if prepended with injected active script context
+    const cleanUserPrompt = dto.content.replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '').trim();
+
+    const prevAssistantMsg = updatedThread.messages
+      ?.slice(0, -1)
+      ?.reverse()
+      ?.find(m => m.role === 'assistant')?.content;
+
+    // Resolve skill: auto-classify intent on clean prompt
+    const detectedIntent = this.skillRegistry.classifyIntent(cleanUserPrompt || dto.content, prevAssistantMsg);
+
+    // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
+    const resolvedSkill = (detectedIntent && detectedIntent !== 'general' && (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill))
+      ? detectedIntent
+      : (dto.skill || detectedIntent || 'general');
 
     const channel = await this.channelModel.findById(updatedThread.channelId).lean();
     const skill = this.skillRegistry.get(resolvedSkill);
@@ -495,7 +512,7 @@ export class ChatService {
 
     if (savedThread) {
       const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
-      yield { type: 'done', messageId: lastMsgId, usage: finalUsage, title: savedThread.title };
+      yield { type: 'done', messageId: lastMsgId, usage: finalUsage, title: savedThread.title, category: resolvedSkill };
     }
   }
 
@@ -575,6 +592,38 @@ export class ChatService {
         cachedTokens: params.usage?.cachedTokens || 0, cacheHitRate: params.usage?.cacheHitRate || 0, model: this.modelName,
       });
     } catch (error) { this.logger.error(`Failed to log AI output: ${error.message}`); }
+  }
+
+  async uploadAssetOnly(threadId: string, file: Express.Multer.File): Promise<{ url: string; filename: string }> {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const channelId = thread.channelId.toString();
+    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    let url: string;
+
+    if (isMinioReady) {
+      try {
+        const key = `uploads/${channelId}/${Date.now()}_${safeFilename}`;
+        url = await this.minioService.uploadBuffer(key, file.buffer, file.mimetype);
+      } catch (err: any) {
+        this.logger.warn(`MinIO upload failed in uploadAssetOnly (${err.message}), falling back to local...`);
+        const filename = `${Date.now()}_${safeFilename}`;
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        fs.writeFileSync(path.join(genDir, filename), file.buffer);
+        url = `/api/assets/generated/${filename}`;
+      }
+    } else {
+      const filename = `${Date.now()}_${safeFilename}`;
+      const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+      if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+      fs.writeFileSync(path.join(genDir, filename), file.buffer);
+      url = `/api/assets/generated/${filename}`;
+    }
+
+    return { url, filename: safeFilename };
   }
 
   async handleFileUpload(threadId: string, file: Express.Multer.File, content?: string) {
@@ -841,6 +890,120 @@ export class ChatService {
   }
 
   /**
+   * Parses user input and conversation context for thumbnail directives:
+   * - Host removal / inclusion ("remove me", "don't put me", "without host")
+   * - Logo removal / inclusion ("no logo", "without logo", "remove logo")
+   * - Aspect ratio selection ("reel", "shorts", "tiktok", "9:16", "vertical")
+   * - Custom host attachment recognition ("use this for me", "this is me")
+   *
+   * PRECEDENCE RULE: Directives in the current user prompt strictly override thread history.
+   */
+  parseClientThumbnailDirectives(
+    currentPrompt?: string,
+    threadMessages: any[] = [],
+    attachments?: Array<{ type: string; url: string }>,
+  ): {
+    excludeHost?: boolean;
+    excludeLogo?: boolean;
+    aspectRatio?: '16:9' | '9:16';
+    customHostUrl?: string;
+  } {
+    const result: {
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      aspectRatio?: '16:9' | '9:16';
+      customHostUrl?: string;
+    } = {};
+
+    const promptText = (currentPrompt || '').toLowerCase();
+
+    // Reusable regexes with negation protection for both prompt and thread history scanning
+    const hostExclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+me|don'?t\s+put\s+me|dont\s+put\s+me|without\s+me|without\s+host|no\s+host|take\s+me\s+out|no\s+me|delete\s+me)\b/i;
+    const hostInclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:put\s+me|add\s+me|with\s+me|include\s+me|keep\s+me|use\s+host|with\s+host)\b/i;
+    const logoExclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+logo|no\s+logo|without\s+logo|delete\s+logo|no\s+brand|without\s+brand)\b/i;
+    const logoInclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:add\s+logo|with\s+logo|include\s+logo|keep\s+logo|put\s+logo)\b/i;
+
+    // 1. Check current prompt with negation protection
+    if (promptText) {
+      if (hostExclusionRegex.test(promptText)) {
+        result.excludeHost = true;
+      } else if (hostInclusionRegex.test(promptText)) {
+        result.excludeHost = false;
+      }
+
+      if (logoExclusionRegex.test(promptText)) {
+        result.excludeLogo = true;
+      } else if (logoInclusionRegex.test(promptText)) {
+        result.excludeLogo = false;
+      }
+
+      // Aspect ratio auto-detection
+      if (/\b(?:reel|reels|short|shorts|tiktok|9:16|vertical)\b/i.test(promptText)) {
+        result.aspectRatio = '9:16';
+      } else if (/\b(?:16:9|landscape|horizontal|standard\s+video)\b/i.test(promptText)) {
+        result.aspectRatio = '16:9';
+      }
+
+      // Custom host attachment detection ("use this for me", "this is me", multi-turn supported)
+      let customAttachUrl: string | undefined;
+      if (attachments && attachments.length > 0) {
+        const imgAttach = attachments.find((a) => a.type === 'image' || /\.(png|jpg|jpeg|webp)$/i.test(a.url));
+        if (imgAttach) customAttachUrl = imgAttach.url;
+      } else if (threadMessages && threadMessages.length > 0) {
+        for (const msg of threadMessages.slice().reverse()) {
+          if (msg.role === 'user' && (msg.attachments?.length || msg.metadata?.attachments?.length)) {
+            const list = msg.attachments || msg.metadata?.attachments || [];
+            const imgAttach = list.find((a: any) => a.type === 'image' || /\.(png|jpg|jpeg|webp)$/i.test(a.url || a.path));
+            if (imgAttach?.url || imgAttach?.path) {
+              customAttachUrl = imgAttach.url || imgAttach.path;
+              break;
+            }
+          }
+        }
+      }
+
+      if (customAttachUrl) {
+        if (/\b(?:use\s+this\s+(?:one\s+)?(?:for\s+me|picture|photo)|this\s+is\s+me|my\s+picture|my\s+photo|with\s+this\s+photo|use\s+my\s+photo)\b/i.test(promptText)) {
+          result.customHostUrl = customAttachUrl;
+        }
+      }
+    }
+
+    // 2. Fallback to thread history ONLY if current prompt is silent on the option
+    if (result.excludeLogo === undefined && threadMessages.length > 0) {
+      for (const msg of threadMessages.slice().reverse()) {
+        if (msg.role === 'user' && msg.content) {
+          const content = msg.content.toLowerCase();
+          if (logoExclusionRegex.test(content)) {
+            result.excludeLogo = true;
+            break;
+          } else if (logoInclusionRegex.test(content)) {
+            result.excludeLogo = false;
+            break;
+          }
+        }
+      }
+    }
+
+    if (result.excludeHost === undefined && threadMessages.length > 0) {
+      for (const msg of threadMessages.slice().reverse()) {
+        if (msg.role === 'user' && msg.content) {
+          const content = msg.content.toLowerCase();
+          if (hostExclusionRegex.test(content)) {
+            result.excludeHost = true;
+            break;
+          } else if (hostInclusionRegex.test(content)) {
+            result.excludeHost = false;
+            break;
+          }
+        }
+      }
+    }
+
+    return result;
+  }
+
+  /**
    * Generate a thumbnail image using video context, default MAE logo, user reference images & custom layout rules.
    */
   async generateThumbnailImage(
@@ -855,6 +1018,11 @@ export class ChatService {
       logoPosition?: 'top-left' | 'top-right' | 'none';
       customLayoutInstructions?: string;
       messageId?: string;
+      aspectRatio?: '16:9' | '9:16';
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      customHostUrl?: string;
+      customHostImage?: string;
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -880,18 +1048,24 @@ export class ChatService {
       videoContextTitle = thread.title && thread.title !== 'New Thread' ? thread.title : firstUserMsg ? firstUserMsg.slice(0, 80) : 'YouTube Video';
     }
 
-    // 1. Inspect user prompt / messages for negative logo constraints ("no logo", "don't add logo")
-    const allUserText = thread.messages
-      .filter((m) => m.role === 'user')
-      .map((m) => m.content)
-      .join(' ')
-      .toLowerCase();
+    // 1. Inspect user prompt / messages for negative host/logo constraints
+    const parsedDirectives = this.parseClientThumbnailDirectives(dto.text, thread.messages);
 
     const excludeLogo =
-      dto.logoPosition === 'none' ||
-      /\b(no logo|don't add logo|dont add logo|without logo|remove logo|no brand)\b/i.test(
-        allUserText,
-      );
+      dto.excludeLogo ??
+      (dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true);
+
+    const excludeHost =
+      dto.excludeHost ??
+      (dto.selectedHostImage === 'none' || parsedDirectives.excludeHost === true);
+
+    const resolvedAspectRatio: '16:9' | '9:16' =
+      dto.aspectRatio || parsedDirectives.aspectRatio || '16:9';
+
+    const effectiveCustomHostUrl =
+      dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
+    // Canonical host: only include host if explicitly requested. Never default blindly.
+    const selectedHost = excludeHost ? undefined : dto.selectedHostImage;
 
     const storyContext = await this.openaiService.extractStoryContextFromThread({
       videoTitle: videoContextTitle,
@@ -904,10 +1078,13 @@ export class ChatService {
       concept: { text: dto.text, description: dto.visual, colors: dto.colors },
       videoTitle: videoContextTitle,
       showType: resolvedShowType,
-      selectedHostImage: dto.selectedHostImage || 'host_1.png',
-      logoPosition: dto.logoPosition || 'top-right',
+      selectedHostImage: selectedHost,
+      customHostUrl: effectiveCustomHostUrl,
+      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
       customLayoutInstructions: dto.customLayoutInstructions,
       excludeLogo,
+      excludeHost: excludeHost || (!selectedHost && !effectiveCustomHostUrl),
+      aspectRatio: resolvedAspectRatio,
       storyContext,
     });
 
@@ -919,8 +1096,9 @@ export class ChatService {
       conceptTitle: dto.conceptTitle || 'Concept',
       textOverlay: dto.text || '',
       visualDescription: dto.visual || '',
-      selectedHostImage: dto.selectedHostImage || 'host_1.png',
-      logoPosition: dto.logoPosition || 'top-right',
+      selectedHostImage: excludeHost ? 'none' : (selectedHost || (effectiveCustomHostUrl ? 'custom' : 'none')),
+      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      aspectRatio: resolvedAspectRatio,
       mode: 'thumbnail',
       createdAt: new Date(),
     };
@@ -1005,6 +1183,8 @@ export class ChatService {
         const composedBuffer = await this.composerService.composeThumbnail({
           backgroundInput: result.imageUrl,
           logoPosition: dto.logoPosition || 'top-right',
+          selectedHostImage: 'none',
+          excludeHost: true,
         });
         const isMinioReady = await this.minioService.isAvailable().catch(() => false);
         if (isMinioReady) {
@@ -1077,6 +1257,12 @@ export class ChatService {
       referenceImageUrls?: string[];
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+      aspectRatio?: '16:9' | '9:16';
+      customHostUrl?: string;
+      customHostImage?: string;
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -1094,6 +1280,43 @@ export class ChatService {
       } catch { /* optional */ }
     }
 
+    // Directives parsing on edit prompt
+    const parsedDirectives = this.parseClientThumbnailDirectives(dto.prompt, thread.messages);
+
+    const excludeLogo =
+      dto.excludeLogo ??
+      (dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true);
+
+    const excludeHost =
+      dto.excludeHost ??
+      (dto.selectedHostImage === 'none' || parsedDirectives.excludeHost === true);
+
+    // Aspect ratio inheritance: DTO -> parsed prompt -> parent message metadata -> default 16:9
+    let resolvedAspectRatio: '16:9' | '9:16' | undefined = dto.aspectRatio || parsedDirectives.aspectRatio;
+    if (!resolvedAspectRatio && thread.messages) {
+      const cleanBase = (dto.baseImageUrl || '').split('?')[0];
+      for (const msg of thread.messages.slice().reverse()) {
+        const matchingImg = (msg as any).metadata?.images?.find(
+          (img: any) =>
+            (img.url && img.url.split('?')[0] === cleanBase) ||
+            (img.cleanBackgroundUrl && img.cleanBackgroundUrl.split('?')[0] === cleanBase),
+        );
+        if (matchingImg?.aspectRatio) {
+          resolvedAspectRatio = matchingImg.aspectRatio;
+          break;
+        }
+      }
+    }
+    const finalAspectRatio: '16:9' | '9:16' = resolvedAspectRatio || '16:9';
+
+    // Build reference images list (including custom host if provided)
+    const referenceImageUrls = [...(dto.referenceImageUrls || [])];
+    const effectiveCustomHost =
+      dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
+    if (effectiveCustomHost && !referenceImageUrls.includes(effectiveCustomHost)) {
+      referenceImageUrls.push(effectiveCustomHost);
+    }
+
     const storyContext = await this.openaiService.extractStoryContextFromThread({
       videoTitle: videoContextTitle,
       videoDescription: videoDoc?.description,
@@ -1105,9 +1328,13 @@ export class ChatService {
       dto.baseImageUrl,
       dto.prompt,
       {
-        referenceImageUrls: dto.referenceImageUrls,
+        referenceImageUrls,
         mode: dto.mode || 'thumbnail',
-        selectedHostImage: dto.selectedHostImage,
+        selectedHostImage: excludeHost ? 'none' : dto.selectedHostImage,
+        excludeHost,
+        excludeLogo,
+        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        aspectRatio: finalAspectRatio,
         storyContext,
       },
     );
@@ -1120,7 +1347,9 @@ export class ChatService {
       conceptTitle: 'Edit',
       textOverlay: '',
       visualDescription: dto.prompt,
-      selectedHostImage: dto.selectedHostImage,
+      selectedHostImage: excludeHost ? 'none' : dto.selectedHostImage,
+      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      aspectRatio: finalAspectRatio,
       mode: dto.mode || 'thumbnail',
       createdAt: new Date(),
     };
@@ -1193,6 +1422,8 @@ export class ChatService {
         const composedBuffer = await this.composerService.composeThumbnail({
           backgroundInput: result.imageUrl,
           logoPosition: dto.logoPosition || 'top-right',
+          selectedHostImage: 'none',
+          excludeHost: true,
         });
         const isMinioReady = await this.minioService.isAvailable().catch(() => false);
         if (isMinioReady) {
@@ -1218,10 +1449,13 @@ export class ChatService {
     const imageObj = {
       id: new Types.ObjectId().toString(),
       url: finalImageUrl,
+      cleanBackgroundUrl: result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: 'Generated',
       textOverlay: '',
       visualDescription: dto.prompt,
+      mode: 'scene' as const,
+      aspectRatio: '16:9' as const,
       createdAt: new Date(),
     };
 

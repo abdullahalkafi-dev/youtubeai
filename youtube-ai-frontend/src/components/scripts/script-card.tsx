@@ -22,7 +22,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { extractCleanTeleprompterText } from '@/lib/teleprompter-parser'
+import { extractCleanTeleprompterText, calculateTeleprompterStats } from '@/lib/teleprompter-parser'
 import { downloadTeleprompterPdf } from './export/teleprompter-pdf'
 import type { ScriptItem } from '@/types/script'
 
@@ -84,11 +84,14 @@ export function ScriptCard({
   const handleDownloadPdf = async () => {
     setDownloadingPdf(true)
     try {
+      const stats = calculateTeleprompterStats(script.content)
+      const wordCount = (script.wordCount > 2200 || !script.wordCount) ? stats.wordCount : script.wordCount
+      const duration = (script.estimatedDurationMinutes > 20 || !script.estimatedDurationMinutes) ? stats.estimatedDurationMinutes : script.estimatedDurationMinutes
       await downloadTeleprompterPdf(
         script.title,
         script.content,
-        script.wordCount,
-        script.estimatedDurationMinutes,
+        wordCount,
+        duration,
       )
     } catch (err: any) {
       toast.error(`PDF download failed: ${err.message}`)
@@ -164,16 +167,23 @@ export function ScriptCard({
         </h3>
 
         {/* Word count & duration */}
-        <div className="flex items-center space-x-3 text-xs text-zinc-500 dark:text-zinc-400 mb-4">
-          <span className="flex items-center space-x-1">
-            <Clock className="w-3.5 h-3.5" />
-            <span>{script.estimatedDurationMinutes || 1} min read</span>
-          </span>
-          <span>•</span>
-          <span>{script.wordCount?.toLocaleString() || 0} words</span>
-          <span>•</span>
-          <span>{new Date(script.updatedAt || script.createdAt).toLocaleDateString()}</span>
-        </div>
+        {(() => {
+          const stats = calculateTeleprompterStats(script.content)
+          const wordCount = (script.wordCount > 2200 || !script.wordCount) ? stats.wordCount : script.wordCount
+          const duration = (script.estimatedDurationMinutes > 20 || !script.estimatedDurationMinutes) ? stats.estimatedDurationMinutes : script.estimatedDurationMinutes
+          return (
+            <div className="flex items-center space-x-3 text-xs text-zinc-500 dark:text-zinc-400 mb-4">
+              <span className="flex items-center space-x-1">
+                <Clock className="w-3.5 h-3.5" />
+                <span>{duration || 1} min read</span>
+              </span>
+              <span>•</span>
+              <span>{wordCount?.toLocaleString() || 0} words</span>
+              <span>•</span>
+              <span>{new Date(script.updatedAt || script.createdAt).toLocaleDateString()}</span>
+            </div>
+          )
+        })()}
 
         {/* Tags */}
         {script.tags && script.tags.length > 0 && (
@@ -260,19 +270,6 @@ export function ScriptCard({
                     <Sparkles className="w-3.5 h-3.5 text-amber-500" />
                     <span>Open in New Chat</span>
                   </button>
-
-                  {script.threadId && (
-                    <button
-                      onClick={() => {
-                        setShowMenu(false)
-                        handleOpenOldChat()
-                      }}
-                      className="w-full px-2.5 py-1.5 rounded-lg flex items-center space-x-2 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition text-left"
-                    >
-                      <MessageSquare className="w-3.5 h-3.5" />
-                      <span>Open in Source Chat</span>
-                    </button>
-                  )}
 
                   <div className="my-1 border-t border-zinc-100 dark:border-zinc-800" />
 

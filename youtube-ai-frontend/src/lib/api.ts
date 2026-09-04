@@ -332,6 +332,11 @@ class ApiClient {
       selectedHostImage?: string
       logoPosition?: 'top-left' | 'top-right' | 'none'
       messageId?: string
+      aspectRatio?: '16:9' | '9:16'
+      excludeHost?: boolean
+      excludeLogo?: boolean
+      customHostImage?: string
+      customHostUrl?: string
     },
   ) {
     return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
@@ -361,9 +366,15 @@ class ApiClient {
       referenceImageUrls?: string[]
       mode?: 'thumbnail' | 'scene'
       selectedHostImage?: string
+      aspectRatio?: '16:9' | '9:16'
+      excludeHost?: boolean
+      excludeLogo?: boolean
+      logoPosition?: 'top-left' | 'top-right' | 'none'
+      customHostImage?: string
+      customHostUrl?: string
     },
   ) {
-    return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/edit-image`, data)
+    return this.post<{ imageUrl: string; image?: any }>(`/api/threads/${threadId}/edit-image`, data)
   }
 
   async generateImageDirect(
@@ -386,7 +397,7 @@ class ApiClient {
     content: string,
     skill: string | undefined,
     onChunk: (chunk: string) => void,
-    onDone: (messageId: string, usage?: any, title?: string) => void,
+    onDone: (messageId: string, usage?: any, title?: string, category?: string) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -435,7 +446,7 @@ class ApiClient {
               if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {
-                onDone(data.messageId, data.usage, data.title)
+                onDone(data.messageId, data.usage, data.title, data.category)
                 streamDone = true
                 break
               } else if (data.type === 'error') {
@@ -464,6 +475,32 @@ class ApiClient {
     if (content) formData.append('content', content)
 
     const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/messages/upload`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    })
+
+    if (!response.ok) {
+      if (response.status === 401 && typeof window !== 'undefined') {
+        localStorage.removeItem('auth_token')
+        dispatchLogout?.()
+        window.location.href = '/login'
+        throw new Error('Session expired')
+      }
+      const err = await response.json().catch(() => ({ message: response.statusText }))
+      throw new Error(err.message || `Upload error: ${response.status}`)
+    }
+
+    const data = await response.json()
+    return data.data ?? data
+  }
+
+  async uploadReferenceAsset(threadId: string, file: File): Promise<{ url: string; filename: string }> {
+    const token = this.getToken()
+    const formData = new FormData()
+    formData.append('file', file)
+
+    const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/upload-asset`, {
       method: 'POST',
       headers: token ? { Authorization: `Bearer ${token}` } : {},
       body: formData,
@@ -887,8 +924,9 @@ class ApiClient {
     return this.get<ScriptVersionItem[]>(`/api/channels/${channelId}/scripts/${id}/versions`)
   }
 
-  async restoreScriptVersion(channelId: string, id: string, versionNumber: number): Promise<ScriptItem> {
-    return this.post<ScriptItem>(`/api/channels/${channelId}/scripts/${id}/versions/${versionNumber}/restore`, {})
+  async restoreScriptVersion(channelId: string, id: string, versionNumber: number, expectedVersion?: number): Promise<ScriptItem> {
+    const query = expectedVersion !== undefined ? `?expectedVersion=${expectedVersion}` : ''
+    return this.post<ScriptItem>(`/api/channels/${channelId}/scripts/${id}/versions/${versionNumber}/restore${query}`, {})
   }
 
   async beautifyScript(channelId: string, data: { rawText: string; title?: string }): Promise<{ title: string; content: string; wordCount: number; estimatedDurationMinutes: number }> {

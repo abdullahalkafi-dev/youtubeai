@@ -11,6 +11,7 @@ import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import { Script, ScriptDocument } from '../mongo/schemas/script.schema';
 import { ScriptVersion, ScriptVersionDocument } from '../mongo/schemas/script-version.schema';
+import { Thread, ThreadDocument } from '../mongo/schemas/thread.schema';
 import { CreateScriptDto, SaveScriptDto, ScriptQueryDto, BeautifyScriptDto } from './dto/script.dto';
 import { ChromaService } from '../chroma/chroma.service';
 import { OpenAIService } from '../openai/openai.service';
@@ -30,6 +31,7 @@ export class ScriptsService {
   constructor(
     @InjectModel(Script.name) private readonly scriptModel: Model<ScriptDocument>,
     @InjectModel(ScriptVersion.name) private readonly versionModel: Model<ScriptVersionDocument>,
+    @InjectModel(Thread.name) private readonly threadModel: Model<ThreadDocument>,
     @InjectConnection() private readonly connection: Connection,
     @InjectQueue('script-vector-sync') private readonly vectorSyncQueue: Queue,
     private readonly chromaService: ChromaService,
@@ -93,6 +95,21 @@ export class ScriptsService {
       });
     } catch (err: any) {
       this.logger.warn(`Failed to create initial version for script ${script._id}: ${err.message}`);
+    }
+
+    // Link scriptId back to thread message metadata atomically if created from chat
+    if (dto.threadId && dto.messageId && Types.ObjectId.isValid(dto.threadId)) {
+      const messageOid = Types.ObjectId.isValid(dto.messageId) ? new Types.ObjectId(dto.messageId) : null;
+      if (messageOid) {
+        try {
+          await this.threadModel.updateOne(
+            { _id: new Types.ObjectId(dto.threadId), 'messages._id': messageOid },
+            { $set: { 'messages.$.metadata.scriptId': script._id.toString() } },
+          );
+        } catch (err: any) {
+          this.logger.warn(`Failed to link scriptId to thread message: ${err.message}`);
+        }
+      }
     }
 
     await this.enqueueVectorSync(script._id.toString(), channelId);
@@ -287,9 +304,19 @@ export class ScriptsService {
     return leanDoc(updatedScript);
   }
 
-  async restoreVersion(channelId: string, userId: string, scriptId: string, targetVersionNumber: number) {
+  async restoreVersion(
+    channelId: string,
+    userId: string,
+    scriptId: string,
+    targetVersionNumber: number,
+    expectedVersion?: number,
+  ) {
     if (!Types.ObjectId.isValid(scriptId)) throw new BadRequestException('Invalid script ID');
     const script = await this.findById(channelId, scriptId);
+
+    if (expectedVersion !== undefined && script.currentVersion !== expectedVersion) {
+      throw new ConflictException('Script was modified by another session. Please reload before restoring.');
+    }
 
     const targetVersion = await this.versionModel.findOne({
       scriptId: new Types.ObjectId(scriptId),
@@ -303,7 +330,7 @@ export class ScriptsService {
     const nextVersionNumber = script.currentVersion + 1;
 
     // Insert append-only snapshot for nextVersionNumber
-    await this.versionModel.create({
+    const newVersionDoc = await this.versionModel.create({
       scriptId: new Types.ObjectId(scriptId),
       versionNumber: nextVersionNumber,
       title: targetVersion.title,
@@ -316,8 +343,13 @@ export class ScriptsService {
       userId: new Types.ObjectId(userId),
     });
 
+    const filter: any = { _id: new Types.ObjectId(scriptId), channelId: new Types.ObjectId(channelId) };
+    if (expectedVersion !== undefined) {
+      filter.currentVersion = expectedVersion;
+    }
+
     const updated = await this.scriptModel.findOneAndUpdate(
-      { _id: new Types.ObjectId(scriptId), channelId: new Types.ObjectId(channelId) },
+      filter,
       {
         $set: {
           title: targetVersion.title,
@@ -331,6 +363,12 @@ export class ScriptsService {
       },
       { new: true },
     ).lean();
+
+    if (!updated) {
+      // Clean up the uncommitted version snapshot to avoid orphaned records
+      await this.versionModel.deleteOne({ _id: newVersionDoc._id }).catch(() => {});
+      throw new ConflictException('Script was modified by another session during restore.');
+    }
 
     await this.enqueueVectorSync(scriptId, channelId);
     return leanDoc(updated);

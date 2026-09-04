@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { Image, Palette, Sparkles, Loader2, Download, ExternalLink, Wand2 } from 'lucide-react'
+import { Image, Palette, Sparkles, Loader2, ExternalLink, Wand2, Monitor, Smartphone } from 'lucide-react'
 import type { ThumbnailConcept } from '@/lib/content-detector'
 import api, { formatAssetUrl } from '@/lib/api'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -20,10 +20,11 @@ interface ThumbnailCardProps {
     textOverlay?: string
     selectedHostImage?: string
     logoPosition?: 'top-left' | 'top-right' | 'none'
+    aspectRatio?: '16:9' | '9:16'
   }>
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, cleanBackgroundUrl?: string, selectedHostImage?: string) => void
+  onEditImage?: (url: string, cleanBackgroundUrl?: string, selectedHostImage?: string, aspectRatio?: '16:9' | '9:16') => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -60,7 +61,10 @@ export function ThumbnailCard({
   const activeThreadId = useAppSelector((s) => s.chat.activeThreadId)
   const activeThread = useAppSelector((s) => s.chat.activeThread)
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
-  const [generatedImages, setGeneratedImages] = useState<Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string }>>({})
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'16:9' | '9:16'>('16:9')
+  const [generatedImages, setGeneratedImages] = useState<
+    Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; aspectRatio?: '16:9' | '9:16' }>
+  >({})
   const [modalState, setModalState] = useState<{ isOpen: boolean; concept: ThumbnailConcept | null; idx: number }>({
     isOpen: false,
     concept: null,
@@ -70,7 +74,7 @@ export function ThumbnailCard({
   // Hydrate generated images strictly from this message's metadata images
   useEffect(() => {
     if (messageImages && thumbnails) {
-      const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string }> = {}
+      const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; aspectRatio?: '16:9' | '9:16' }> = {}
       for (const img of messageImages) {
         const idx = thumbnails.findIndex(
           (c, i) =>
@@ -78,7 +82,12 @@ export function ThumbnailCard({
             img.conceptTitle === `Concept ${i + 1}`,
         )
         if (idx !== -1 && img.url) {
-          restored[idx] = { url: img.url, cleanBackgroundUrl: img.cleanBackgroundUrl, selectedHostImage: img.selectedHostImage }
+          restored[idx] = {
+            url: img.url,
+            cleanBackgroundUrl: img.cleanBackgroundUrl,
+            selectedHostImage: img.selectedHostImage,
+            aspectRatio: img.aspectRatio || '16:9',
+          }
         }
       }
       setGeneratedImages(restored)
@@ -90,7 +99,12 @@ export function ThumbnailCard({
   const handleGenerateImage = async (
     concept: ThumbnailConcept,
     idx: number,
-    options?: { selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; customText?: string },
+    options?: {
+      selectedHostImage?: string
+      logoPosition?: 'top-left' | 'top-right' | 'none'
+      customText?: string
+      aspectRatio?: '16:9' | '9:16'
+    },
   ) => {
     if (!activeThreadId) {
       toast.error('No active chat thread found')
@@ -98,11 +112,14 @@ export function ThumbnailCard({
     }
 
     const conceptTitle = `Concept ${idx + 1}`
+    const targetAspectRatio = options?.aspectRatio || selectedAspectRatio
+    const hostImg = options?.selectedHostImage === 'none' ? 'none' : options?.selectedHostImage
+    const excludeHost = hostImg === 'none'
 
     try {
       setGeneratingIdx(idx)
       onStartGenerate?.(conceptTitle)
-      toast.info(`Generating AI thumbnail for ${conceptTitle}...`)
+      toast.info(`Generating ${targetAspectRatio} thumbnail for ${conceptTitle}...`)
 
       const result = await api.generateThumbnailImage(activeThreadId, {
         text: options?.customText || concept.text,
@@ -110,8 +127,10 @@ export function ThumbnailCard({
         colors: concept.colors,
         conceptTitle,
         videoTitle: activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined,
-        selectedHostImage: options?.selectedHostImage || 'host_1.png',
+        selectedHostImage: hostImg,
         logoPosition: options?.logoPosition || 'top-right',
+        aspectRatio: targetAspectRatio,
+        excludeHost,
         messageId,
       })
 
@@ -121,7 +140,8 @@ export function ThumbnailCard({
           [idx]: {
             url: result.imageUrl,
             cleanBackgroundUrl: (result as any).cleanBackgroundUrl,
-            selectedHostImage: options?.selectedHostImage || 'host_1.png',
+            selectedHostImage: hostImg,
+            aspectRatio: targetAspectRatio,
           },
         }))
         await dispatch(selectThread(activeThreadId)).unwrap()
@@ -139,11 +159,41 @@ export function ThumbnailCard({
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2 mb-2">
-        <Image className="w-4 h-4 text-violet-500" />
-        <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-          Thumbnail Concepts
-        </span>
+      {/* Header & Aspect Ratio Selector */}
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <Image className="w-4 h-4 text-violet-500" />
+          <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+            Thumbnail Concepts
+          </span>
+        </div>
+
+        <div className="flex items-center bg-gray-200 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-300 dark:border-gray-700">
+          <button
+            type="button"
+            onClick={() => setSelectedAspectRatio('16:9')}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
+              selectedAspectRatio === '16:9'
+                ? 'bg-white dark:bg-gray-700 text-violet-600 dark:text-violet-300 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            <Monitor className="w-3 h-3" />
+            16:9 Video
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelectedAspectRatio('9:16')}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
+              selectedAspectRatio === '9:16'
+                ? 'bg-white dark:bg-gray-700 text-violet-600 dark:text-violet-300 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            <Smartphone className="w-3 h-3" />
+            9:16 Reel
+          </button>
+        </div>
       </div>
 
       {/* Context Anchor */}
@@ -160,6 +210,7 @@ export function ThumbnailCard({
           const generatedUrl = typeof imgData === 'string' ? imgData : imgData?.url
           const cleanUrl = typeof imgData === 'object' ? imgData?.cleanBackgroundUrl : undefined
           const hostImg = typeof imgData === 'object' ? imgData?.selectedHostImage : undefined
+          const currentRatio = (imgData as any)?.aspectRatio || selectedAspectRatio
           const isGenerating = generatingIdx === idx
 
           return (
@@ -175,6 +226,9 @@ export function ThumbnailCard({
                   </span>
                   <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
                     Concept {idx + 1}
+                  </span>
+                  <span className="text-[10px] text-violet-600 dark:text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded border border-violet-500/20 font-mono">
+                    {currentRatio}
                   </span>
                 </div>
 
@@ -200,21 +254,19 @@ export function ThumbnailCard({
                       </>
                     ) : (
                       <>
-                        <Sparkles className="w-3.5 h-3.5 text-amber-300" />
-                        <span>{generatedUrl ? 'Re-generate' : '1-Click Generate'}</span>
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>1-Click Generate</span>
                       </>
                     )}
                   </button>
                 </div>
               </div>
 
-              {/* Text Overlay Preview */}
+              {/* Text Overlay */}
               <div>
-                <label className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">Text Overlay</label>
-                <div className="mt-1 bg-gray-900 rounded-lg p-3 flex items-center justify-center min-h-[48px]">
-                  <span className="text-white font-black text-lg tracking-wide uppercase text-center leading-tight">
-                    {typeof concept.text === 'string' ? concept.text : ''}
-                  </span>
+                <label className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider">Headline Text</label>
+                <div className="text-sm font-bold text-gray-900 dark:text-white mt-0.5 tracking-wide uppercase">
+                  &ldquo;{concept.text}&rdquo;
                 </div>
               </div>
 
@@ -222,7 +274,7 @@ export function ThumbnailCard({
               {generatedUrl && (
                 <div className="mt-3 space-y-2">
                   <label className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider flex items-center justify-between">
-                    <span>Generated AI Thumbnail Preview</span>
+                    <span>Generated AI Thumbnail Preview ({currentRatio})</span>
                     <a
                       href={formatAssetUrl(generatedUrl)}
                       target="_blank"
@@ -232,7 +284,9 @@ export function ThumbnailCard({
                       <ExternalLink className="w-3 h-3" /> Full View
                     </a>
                   </label>
-                  <div className="relative rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-black aspect-video">
+                  <div className={`relative rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-black ${
+                    currentRatio === '9:16' ? 'aspect-[9/16] max-w-[280px] mx-auto' : 'aspect-video'
+                  }`}>
                     <img
                       src={formatAssetUrl(generatedUrl)}
                       alt={`Generated thumbnail concept ${idx + 1}`}
@@ -245,7 +299,7 @@ export function ThumbnailCard({
               {/* Edit / Iterate button */}
               {generatedUrl && onEditImage && (
                 <button
-                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg)}
+                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg, currentRatio)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
                 >
                   <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate
@@ -288,7 +342,14 @@ export function ThumbnailCard({
           defaultText={modalState.concept.text}
           visualDescription={modalState.concept.visual}
           colors={modalState.concept.colors}
-          onConfirmGenerate={async (options: any) => {
+          initialAspectRatio={selectedAspectRatio}
+          initialHostImage={generatedImages[modalState.idx]?.selectedHostImage || 'none'}
+          onConfirmGenerate={async (options: {
+            selectedHostImage: string
+            logoPosition: 'top-left' | 'top-right' | 'none'
+            customText: string
+            aspectRatio: '16:9' | '9:16'
+          }) => {
             if (modalState.concept) {
               await handleGenerateImage(modalState.concept, modalState.idx, options)
             }

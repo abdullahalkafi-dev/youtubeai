@@ -166,11 +166,12 @@ export function buildSeoPrompt(params: {
     userParts.push('');
     userParts.push(`SERIES CONTEXT — PREVIOUS VIDEOS ON THIS EXACT SAME SPECIFIC CASE/PERSON ON YOUR CHANNEL:`);
     params.relatedSeriesVideos.forEach((v, i) => {
+      const cleanTitle = (v.title || '').replace(/^copy\s+of\s+/i, '').trim();
       const viewsStr = v.views !== undefined ? ` — ${v.views.toLocaleString()} views` : '';
       const urlStr = v.youtubeId ? ` (Link: https://youtu.be/${v.youtubeId})` : '';
-      userParts.push(`${i + 1}. "${v.title}"${viewsStr}${urlStr}`);
+      userParts.push(`${i + 1}. "${cleanTitle}"${viewsStr}${urlStr}`);
     });
-    userParts.push(`INSTRUCTION: This video is a continuation of the exact same case/person. Reference these specific previous episode titles in the description under "📺 PREVIOUS EPISODES IN THIS SERIES:" along with their direct YouTube URL hyperlink (e.g. - Part 1: [Title] ➡️ https://youtu.be/[ID]) so viewers can directly click through to watch previous parts, and add a shared series tag.`);
+    userParts.push(`INSTRUCTION: This video is a continuation of the exact same case/person. Reference these specific previous episode titles in the description under "📺 PREVIOUS EPISODES IN THIS SERIES:" along with their direct YouTube URL hyperlink (e.g. - Part 1: [Title] ➡️ https://youtu.be/[ID]) so viewers can directly click through to watch previous parts, and add a shared series tag. (CRITICAL: Never output this section if the titles are duplicates or copies of the current video).`);
   } else {
     userParts.push('');
     userParts.push(`NO PREVIOUS SERIES VIDEOS FOUND FOR THIS TOPIC. DO NOT INCLUDE ANY "PREVIOUS EPISODES IN THIS SERIES" SECTION.`);

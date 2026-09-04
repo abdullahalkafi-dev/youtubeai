@@ -11,6 +11,7 @@ import { QuotaService } from '../quota/quota.service';
 import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { MAX_ACTIVE_COMMENT_VIDEOS } from '../automation/automation.constants';
+import { ConfigService } from '@nestjs/config';
 
 @Injectable()
 export class VideosService {
@@ -24,6 +25,7 @@ export class VideosService {
     private readonly chromaService: ChromaService,
     private readonly minioService: MinioService,
     private readonly quotaService: QuotaService,
+    private readonly configService: ConfigService,
   ) {}
 
   async findAll(channelId: string, query: VideoQueryDto) {
@@ -420,8 +422,9 @@ export class VideosService {
       }
     }
 
-    // Direct HTTP fetch (support localhost or remote)
-    const fetchUrl = url.startsWith('/') ? `http://localhost:5001${url}` : url;
+    // Direct HTTP fetch (support dynamic port or remote)
+    const port = this.configService.get<number>('PORT', 3001);
+    const fetchUrl = url.startsWith('/') ? `http://localhost:${port}${url}` : url;
     const response = await fetch(fetchUrl);
     if (!response.ok) {
       throw new Error(`Failed to fetch thumbnail image (${response.statusText})`);

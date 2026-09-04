@@ -449,12 +449,24 @@ export class AutomationService implements OnApplicationBootstrap {
     }
 
     // 3. Select Target Unoptimized Videos
+    const targetFilter: any = {
+      channelId: cId,
+      seoStatus: { $in: ['not_started', null] },
+      deletedFromYoutube: { $ne: true },
+    };
+
+    // For automated daily cron runs: protect quota by skipping ghost drafts and 0-view private streams.
+    // Manual batches and manual single-video optimization remain unrestricted so creators can optimize private uploads before going public.
+    if (source === 'auto_cron_batch') {
+      targetFilter.title = { $not: /^copy of/i };
+      targetFilter.$or = [
+        { privacyStatus: { $ne: 'private' } },
+        { viewCount: { $gt: 0 } },
+      ];
+    }
+
     const targetVideos = await this.videoModel
-      .find({
-        channelId: cId,
-        seoStatus: { $in: ['not_started', null] },
-        deletedFromYoutube: { $ne: true },
-      })
+      .find(targetFilter)
       .sort({ publishedAt: -1 })
       .limit(batchSize)
       .lean();

@@ -167,6 +167,17 @@ const chatSlice = createSlice({
         state.threads[idx].title = title
       }
     },
+    updateMessageScriptId(state, action: PayloadAction<{ messageId: string; scriptId: string }>) {
+      if (state.activeThread?.messages) {
+        const msg = state.activeThread.messages.find(
+          (m) => m.id === action.payload.messageId || m._id === action.payload.messageId
+        )
+        if (msg) {
+          if (!msg.metadata) msg.metadata = {}
+          msg.metadata.scriptId = action.payload.scriptId
+        }
+      }
+    },
   },
   extraReducers: (builder) => {
     builder
@@ -257,6 +268,7 @@ export const {
   removeLastUserMessage,
   finalizeStreamedMessage,
   updateThreadTitle,
+  updateMessageScriptId,
 } = chatSlice.actions
 
 export default chatSlice.reducer

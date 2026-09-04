@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Copy,
   Check,
@@ -18,7 +18,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
-import { useAppSelector } from '@/store/hooks'
+import { useAppDispatch, useAppSelector } from '@/store/hooks'
+import { updateMessageScriptId } from '@/store/slices/chat-slice'
 import api from '@/lib/api'
 import {
   calculateTeleprompterStats,
@@ -36,6 +37,8 @@ interface ScriptRendererProps {
   threadId?: string
   messageId?: string
   initialScriptId?: string
+  threadTitle?: string
+  videoTitle?: string
 }
 
 export function ScriptRenderer({
@@ -43,7 +46,10 @@ export function ScriptRenderer({
   threadId,
   messageId,
   initialScriptId,
+  threadTitle,
+  videoTitle,
 }: ScriptRendererProps) {
+  const dispatch = useAppDispatch()
   const channelId = useAppSelector((state) => state.auth.activeChannelId) || ''
 
   const [copied, setCopied] = useState(false)
@@ -57,13 +63,32 @@ export function ScriptRenderer({
   const [showEditor, setShowEditor] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
 
+  // If this message already has an associated script in the Library, hydrate the latest version on mount
+  useEffect(() => {
+    if (initialScriptId && channelId && !savedScript) {
+      api
+        .getScript(channelId, initialScriptId)
+        .then((script) => {
+          if (script) setSavedScript(script)
+        })
+        .catch(() => {
+          /* silently fall back to message content draft */
+        })
+    }
+  }, [initialScriptId, channelId])
+
   const effectiveContent = savedScript?.content || content
   const stats = calculateTeleprompterStats(effectiveContent)
   const sections = parseScriptSections(effectiveContent)
 
   // Extract a clean title from the content or first section
   const firstHeader = sections.find((s) => s.header && !s.header.includes('COLD OPEN'))?.header
-  const scriptTitle = savedScript?.title || firstHeader || sections[0]?.header || 'YouTube Video Script'
+  const isSectionRevision = Boolean(firstHeader && /^\d+\./.test(firstHeader))
+  const baseTitle = videoTitle || threadTitle?.replace(/^Script:\s*/i, '') || ''
+  const derivedTitle = isSectionRevision && baseTitle
+    ? `${baseTitle} - ${firstHeader}`
+    : (firstHeader || sections[0]?.header || baseTitle || 'YouTube Video Script')
+  const scriptTitle = savedScript?.title || derivedTitle
   const isAlreadySaved = Boolean(savedScript || initialScriptId)
   const currentSavedVersion = savedScript?.currentVersion || 1
 
@@ -91,6 +116,9 @@ export function ScriptRenderer({
         formatType: 'teleprompter_beat',
       })
       setSavedScript(script)
+      if (messageId) {
+        dispatch(updateMessageScriptId({ messageId, scriptId: script.id || (script as any)._id }))
+      }
       toast.success('Script saved to your Library!')
     } catch (err: any) {
       toast.error(`Failed to save script: ${err.message}`)
@@ -360,7 +388,7 @@ export function ScriptRenderer({
           isOpen={showTeleprompter}
           onClose={() => setShowTeleprompter(false)}
           title={scriptTitle}
-          content={content}
+          content={effectiveContent}
           wordCount={stats.wordCount}
           estimatedDurationMinutes={stats.estimatedDurationMinutes}
         />
@@ -388,7 +416,10 @@ export function ScriptRenderer({
           channelId={channelId}
           scriptId={savedScript?.id || savedScript?._id || initialScriptId || ''}
           currentVersion={currentSavedVersion}
-          onRestored={() => {
+          onRestored={(restored) => {
+            if (restored) {
+              setSavedScript(restored)
+            }
             setShowHistory(false)
           }}
         />

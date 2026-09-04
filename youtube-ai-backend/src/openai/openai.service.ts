@@ -848,10 +848,13 @@ export class OpenAIService {
     videoTitle: string;
     showType?: string;
     selectedHostImage?: string;
+    customHostUrl?: string;
     logoPosition?: 'top-left' | 'top-right' | 'none';
     referenceImages?: Array<{ type: 'logo' | 'host_photo' | 'reference'; url?: string; buffer?: Buffer }>;
     customLayoutInstructions?: string;
     excludeLogo?: boolean;
+    excludeHost?: boolean;
+    aspectRatio?: '16:9' | '9:16';
     storyContext?: string;
   }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
@@ -866,7 +869,11 @@ export class OpenAIService {
       .replace(/\s+/g, ' ')
       .trim();
 
-    let prompt = `Create a high-impact, cinematic 16:9 YouTube thumbnail image for a video titled "${params.videoTitle}".
+    const isVertical = params.aspectRatio === '9:16';
+    const targetRatioLabel = isVertical ? '9:16 vertical YouTube Shorts / Reel' : '16:9 cinematic YouTube';
+    const imageSize = isVertical ? '1024x1536' : '1536x1024';
+
+    let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail image for a video titled "${params.videoTitle}".
 
 STYLE: Cinematic dark, high-contrast photography, criminal psychology & courtroom breakdown aesthetic. Realistic photo style, NOT AI cartoon or 3D render.
 
@@ -875,17 +882,18 @@ ${params.storyContext ? `STORY & CHARACTER CONTEXT: ${params.storyContext}` : ''
 
 SUBJECT PLACEMENT & FRAMING:
 - Position the main subject, celebrity face, or key character with natural cinematic framing (rule of thirds, center dramatic portrait, or dynamic diagonal tension).
-- Keep the bottom-right corner relatively clear of critical faces (host portrait sticker sits in bottom-right).
+${!params.excludeHost ? `- Keep the bottom-right corner relatively clear of critical faces (host portrait sticker sits in bottom-right).` : '- Distribute subjects naturally across the frame with dramatic balance.'}
+${isVertical ? `- REELS / SHORTS SAFE ZONES: Keep the bottom 25% (UI title, handle, audio disc) and right 15% (Like, Comment, Share buttons) completely clear of main character faces.` : ''}
 
 TYPOGRAPHY & SAFE TITLE ZONE:
 - Render bold, high-contrast headline text reading "${params.concept.text}".
-- Bold UPPERCASE words: "${params.concept.text}"
+- Bold UPPERCASE words: strictly 2 to 4 words.
 - Bright yellow or white with heavy black drop-shadow and sharp outline.
-- SAFE MARGINS: Maintain generous breathing room from all image borders. The top edge of letters must NEVER touch, bleed into, or get clipped by the top edge of the frame (leave clear top margin padding).
-- Position in the upper-half / upper-center area comfortably below the top border.
+- SAFE MARGINS: Maintain at least 15% inner margin clearance from ALL 4 borders. The top edge of letters must NEVER touch, bleed into, or get clipped by the top edge of the frame.
+${isVertical ? `- VERTICAL PLACEMENT: Position headline text strictly in the upper-middle zone (Y: 25%–40%), leaving top status bar and bottom mobile UI clear.` : `- Position in the upper-third / upper-center area comfortably below the top border.`}
 - Clean, crisp 2D graphic font.
 
-COMPOSITION: Dramatic ambient lighting across full 16:9 frame with rich atmospheric depth. ${params.concept.colors ? `Color theme: ${params.concept.colors} background atmosphere, subtle warm ambient lighting.` : ''}
+COMPOSITION: Dramatic ambient lighting across full ${isVertical ? '9:16 vertical' : '16:9 landscape'} frame with rich atmospheric depth. ${params.concept.colors ? `Color theme: ${params.concept.colors} background atmosphere, subtle warm ambient lighting.` : ''}
 FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across subjects' faces or bodies, NO watermarks, NO outer borders, NO artificial frames, NO channel logos.`;
 
     if (params.showType) {
@@ -909,13 +917,13 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
 
     for (const model of modelsToTry) {
       try {
-        this.logger.log(`Generating 16:9 thumbnail background with model '${model}' for: "${params.concept.text}"`);
+        this.logger.log(`Generating ${params.aspectRatio || '16:9'} thumbnail background with model '${model}' for: "${params.concept.text}"`);
 
         const requestParams: Record<string, any> = {
           model,
           prompt: prompt,
           n: 1,
-          size: '1536x1024',
+          size: imageSize,
           quality: 'medium',
         };
 
@@ -962,13 +970,26 @@ FORBIDDEN: NO horizontal lens flares, NO laser lines, NO light streaks across su
       } catch { /* optional */ }
     }
 
-    // Run Sharp composition to composite exact host face sticker and exact pristine logo badge
+    // Run Sharp composition to composite host face sticker and logo badge (if enabled)
     try {
       this.logger.log(`Compositing pristine host face & logo with Sharp...`);
+      let customHostBuffer: Buffer | undefined;
+      if (params.customHostUrl && !params.excludeHost) {
+        try {
+          customHostBuffer = await this.composerService.fetchBufferFromUrl(params.customHostUrl);
+        } catch (e: any) {
+          this.logger.warn(`Failed to fetch custom host buffer from ${params.customHostUrl}: ${e.message}`);
+        }
+      }
+
       const composedBuffer = await this.composerService.composeThumbnail({
         backgroundInput: baseImageUrl,
         selectedHostImage: params.selectedHostImage,
+        customHostBuffer,
+        excludeHost: params.excludeHost,
         logoPosition: params.excludeLogo ? 'none' : params.logoPosition || 'top-right',
+        excludeLogo: params.excludeLogo,
+        aspectRatio: params.aspectRatio || '16:9',
       });
 
       let imageUrl: string;
@@ -1081,6 +1102,10 @@ User Request: ${params.userPrompt || ''}`,
       inputFidelity?: 'high' | 'low';
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+      aspectRatio?: '16:9' | '9:16';
       storyContext?: string;
     },
   ): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
@@ -1091,10 +1116,43 @@ User Request: ${params.userPrompt || ''}`,
       // Local generated files
       if (url.startsWith('/api/assets/generated/') || url.includes('/generated/')) {
         const filename = path.basename(url);
-        const localPath = path.join(process.cwd(), 'src', 'assets', 'generated', filename);
-        if (fs.existsSync(localPath)) return fs.readFileSync(localPath);
-        throw new Error(`Local image not found: ${localPath}`);
+        const candidatePaths = [
+          path.join(process.cwd(), 'src', 'assets', 'generated', filename),
+          path.join(process.cwd(), 'youtube-ai-backend', 'src', 'assets', 'generated', filename),
+          path.join(__dirname, '..', 'assets', 'generated', filename),
+        ];
+        for (const cp of candidatePaths) {
+          if (fs.existsSync(cp)) return fs.readFileSync(cp);
+        }
+        throw new Error(`Local image not found: ${filename}`);
       }
+
+      // Local unique host images
+      if (url.startsWith('/api/assets/unique-images/') || url.includes('/unique_images/') || url.includes('/unique-images/')) {
+        const filename = path.basename(url);
+        const candidatePaths = [
+          path.join(process.cwd(), 'src', 'assets', 'unique_images', filename),
+          path.join(process.cwd(), 'youtube-ai-backend', 'src', 'assets', 'unique_images', filename),
+          path.join(__dirname, '..', 'assets', 'unique_images', filename),
+        ];
+        for (const cp of candidatePaths) {
+          if (fs.existsSync(cp)) return fs.readFileSync(cp);
+        }
+      }
+
+      // Local logos
+      if (url.startsWith('/api/assets/logos/') || url.includes('/logo/') || url.includes('/logos/')) {
+        const filename = path.basename(url);
+        const candidatePaths = [
+          path.join(process.cwd(), 'src', 'assets', 'logo', filename),
+          path.join(process.cwd(), 'youtube-ai-backend', 'src', 'assets', 'logo', filename),
+          path.join(__dirname, '..', 'assets', 'logo', filename),
+        ];
+        for (const cp of candidatePaths) {
+          if (fs.existsSync(cp)) return fs.readFileSync(cp);
+        }
+      }
+
       // MinIO internal/public URLs or proxy URLs — use minioService directly (no network fetch)
       if (url.includes('/thumbnails/') || url.includes('/api/assets/minio/')) {
         try {
@@ -1107,8 +1165,15 @@ User Request: ${params.userPrompt || ''}`,
           }
         } catch { /* fall through to fetch */ }
       }
-      // Public URLs
-      const response = await fetch(url);
+
+      // Public URLs or absolutized local URLs
+      let fetchUrl = url;
+      if (url.startsWith('/')) {
+        const port = this.configService.get<number>('PORT', 3001);
+        fetchUrl = `http://localhost:${port}${url}`;
+      }
+
+      const response = await fetch(fetchUrl);
       if (!response.ok) throw new Error(`Failed to fetch image ${index}: ${response.statusText}`);
       return Buffer.from(await response.arrayBuffer());
     };
@@ -1123,12 +1188,21 @@ User Request: ${params.userPrompt || ''}`,
 
     // Build edit params — input_fidelity ONLY for gpt-image-1/1.5, NOT gpt-image-2
     const editModel = 'gpt-image-2';
+    const isVertical = options?.aspectRatio === '9:16';
+    const editSize = isVertical ? '1024x1536' : '1536x1024';
+
     let editPrompt = prompt;
     if (options?.storyContext) {
       editPrompt += `\nSTORY & CHARACTER CONTEXT: ${options.storyContext}`;
     }
     if (options?.mode !== 'scene') {
-      editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably below the top edge of the frame with generous top padding so no text touches or gets cut by the border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render in bold UPPERCASE with high-contrast yellow/white lettering and heavy black drop-shadow.`;
+      editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render strictly 2 to 4 words in bold UPPERCASE with high-contrast yellow/white lettering and heavy black drop-shadow.`;
+      if (options?.excludeHost) {
+        editPrompt += `\n4. EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene.`;
+      }
+      if (options?.referenceImageUrls && options.referenceImageUrls.length > 0) {
+        editPrompt += `\n5. REFERENCE INTEGRATION: Naturally blend the person from the reference image directly into the scene with authentic ambient lighting, matching courtroom/cinematic shadows, and realistic perspective.`;
+      }
     }
 
     const editParams: Record<string, any> = {
@@ -1136,7 +1210,7 @@ User Request: ${params.userPrompt || ''}`,
       image: files.length === 1 ? files[0] : files,
       prompt: editPrompt,
       quality: 'medium',
-      size: '1536x1024',
+      size: editSize,
     };
     if (options?.inputFidelity && editModel !== 'gpt-image-2') {
       editParams.input_fidelity = options.inputFidelity;
@@ -1162,14 +1236,22 @@ User Request: ${params.userPrompt || ''}`,
       } catch { /* optional */ }
     }
 
-    // For thumbnail mode (default): Re-composite pristine host sticker (bottom-right) and 1.75x logo (top-right)
+    // For thumbnail mode (default): Re-composite host sticker and logo watermark
     if (options?.mode !== 'scene') {
       try {
-        this.logger.log(`Re-compositing pristine host sticker and 1.75x logo on edited thumbnail...`);
+        const hasReferenceHost = options?.referenceImageUrls && options.referenceImageUrls.length > 0;
+        // Suppress Sharp host overlay if host was explicitly excluded OR passed via reference image (AI synthesized the host)
+        const suppressSharpHost = options?.excludeHost === true || hasReferenceHost || options?.selectedHostImage === 'none';
+        const resolvedLogoPos = options?.excludeLogo ? 'none' : (options?.logoPosition || 'top-right');
+
+        this.logger.log(`Re-compositing overlays on edited thumbnail (suppressHost: ${suppressSharpHost}, logoPos: ${resolvedLogoPos})...`);
         const composed = await this.composerService.composeThumbnail({
           backgroundInput: editedBuffer,
-          selectedHostImage: options?.selectedHostImage,
-          logoPosition: 'top-right',
+          selectedHostImage: suppressSharpHost ? 'none' : options?.selectedHostImage,
+          excludeHost: suppressSharpHost,
+          logoPosition: resolvedLogoPos,
+          excludeLogo: options?.excludeLogo || resolvedLogoPos === 'none',
+          aspectRatio: options?.aspectRatio || (isVertical ? '9:16' : '16:9'),
         });
         finalBuffer = Buffer.from(composed);
       } catch (composeErr: any) {

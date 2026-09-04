@@ -12,7 +12,7 @@ interface VersionHistoryModalProps {
   channelId: string
   scriptId: string
   currentVersion: number
-  onRestored: () => void
+  onRestored: (restoredScript?: any) => void
 }
 
 export function VersionHistoryModal({
@@ -23,11 +23,16 @@ export function VersionHistoryModal({
   currentVersion,
   onRestored,
 }: VersionHistoryModalProps) {
+  const [currentVer, setCurrentVer] = useState(currentVersion)
   const [versions, setVersions] = useState<ScriptVersionItem[]>([])
   const [loading, setLoading] = useState(false)
   const [restoringVersion, setRestoringVersion] = useState<number | null>(null)
   const [selectedVersion, setSelectedVersion] = useState<ScriptVersionItem | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (currentVersion) setCurrentVer(currentVersion)
+  }, [currentVersion])
 
   useEffect(() => {
     if (!isOpen || !scriptId) return
@@ -36,8 +41,19 @@ export function VersionHistoryModal({
       setLoading(true)
       setError(null)
       try {
-        const data = await api.getScriptVersions(channelId, scriptId)
+        const [data, scriptDoc] = await Promise.all([
+          api.getScriptVersions(channelId, scriptId),
+          api.getScript(channelId, scriptId).catch(() => null),
+        ])
         setVersions(data)
+        if (scriptDoc?.currentVersion) {
+          setCurrentVer(scriptDoc.currentVersion)
+        } else if (data.length > 0) {
+          const maxVer = Math.max(...data.map((v) => v.versionNumber))
+          if (maxVer > currentVer) {
+            setCurrentVer(maxVer)
+          }
+        }
         if (data.length > 0) {
           setSelectedVersion(data[0])
         }
@@ -58,9 +74,9 @@ export function VersionHistoryModal({
 
     setRestoringVersion(versionNumber)
     try {
-      await api.restoreScriptVersion(channelId, scriptId, versionNumber)
+      const restored = await api.restoreScriptVersion(channelId, scriptId, versionNumber, currentVer)
       toast.success(`Successfully restored Version ${versionNumber}!`)
-      onRestored()
+      onRestored(restored)
       onClose()
     } catch (err: any) {
       toast.error(`Restore failed: ${err.message}`)
@@ -82,7 +98,7 @@ export function VersionHistoryModal({
               Version History
             </h2>
             <span className="text-xs px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 font-semibold">
-              Current: v{currentVersion}
+              Current: v{currentVer}
             </span>
           </div>
           <button
@@ -114,7 +130,7 @@ export function VersionHistoryModal({
             ) : (
               versions.map((ver) => {
                 const isSelected = selectedVersion?.versionNumber === ver.versionNumber
-                const isCurrent = ver.versionNumber === currentVersion
+                const isCurrent = ver.versionNumber === currentVer
 
                 return (
                   <div

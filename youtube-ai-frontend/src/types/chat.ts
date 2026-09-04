@@ -11,6 +11,8 @@ export interface ChatImage {
   textOverlay?: string
   visualDescription?: string
   selectedHostImage?: string
+  logoPosition?: 'top-left' | 'top-right' | 'none'
+  aspectRatio?: '16:9' | '9:16'
   mode?: 'thumbnail' | 'scene'
   isSceneImage?: boolean
   createdAt: string

@@ -91,6 +91,22 @@ export class ChatController {
     });
   }
 
+  @Post('threads/:id/upload-asset')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 15 * 1024 * 1024 },
+    fileFilter: (req, file, cb) => {
+      if (ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) cb(null, true);
+      else cb(new BadRequestException(`File type "${file.mimetype}" not allowed.`), false);
+    },
+  }))
+  async uploadAssetOnly(
+    @Param('id') threadId: string,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    if (!file) throw new BadRequestException('No file uploaded');
+    return this.chatService.uploadAssetOnly(threadId, file);
+  }
+
   @Post('threads/:id/messages/upload')
   @UseInterceptors(FileInterceptor('file', {
     limits: { fileSize: 10 * 1024 * 1024 },
@@ -145,6 +161,11 @@ export class ChatController {
       logoPosition?: 'top-left' | 'top-right' | 'none';
       customLayoutInstructions?: string;
       messageId?: string;
+      aspectRatio?: '16:9' | '9:16';
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      customHostUrl?: string;
+      customHostImage?: string;
     },
   ) {
     return this.chatService.generateThumbnailImage(id, body);
@@ -171,12 +192,19 @@ export class ChatController {
   @Post('threads/:id/edit-image')
   editImage(
     @Param('id') id: string,
-    @Body() body: {
+    @Body()
+    body: {
       prompt: string;
       baseImageUrl: string;
       referenceImageUrls?: string[];
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
+      aspectRatio?: '16:9' | '9:16';
+      excludeHost?: boolean;
+      excludeLogo?: boolean;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+      customHostUrl?: string;
+      customHostImage?: string;
     },
   ) {
     return this.chatService.editImage(id, body);
