@@ -56,7 +56,105 @@ export function MessageRenderer({
 
   return (
     <div>
-      {parsed.type === 'seo' && parsed.seo ? (
+      {parsed.blocks && parsed.blocks.length > 1 ? (
+        <div className="space-y-6">
+          {parsed.blocks.map((block, idx) => {
+            switch (block.type) {
+              case 'markdown':
+                return <MarkdownRenderer key={idx} content={block.content} />
+              case 'thumbnail':
+                return (
+                  <ThumbnailCard
+                    key={idx}
+                    thumbnails={block.thumbnails}
+                    messageId={messageId}
+                    messageImages={messageImages}
+                    onStartGenerate={onStartGenerate}
+                    onFinishGenerate={onFinishGenerate}
+                    onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
+                    videoTitle={videoTitle}
+                    threadTitle={threadTitle}
+                  />
+                )
+              case 'script':
+                return (
+                  <ScriptRenderer
+                    key={idx}
+                    content={block.scriptContent}
+                    threadId={threadId}
+                    messageId={messageId}
+                    initialScriptId={initialScriptId}
+                    threadTitle={threadTitle}
+                    videoTitle={videoTitle}
+                  />
+                )
+              case 'seo':
+                return <SeoCard key={idx} content={block.seo} />
+              case 'ideas':
+                return <ScoreCard key={idx} score={block.ideaScore} />
+              case 'scene':
+                return (
+                  <SceneCard
+                    key={idx}
+                    concepts={block.sceneConcepts}
+                    messageId={messageId}
+                    messageImages={messageImages}
+                    onStartGenerate={onStartGenerate}
+                    onFinishGenerate={onFinishGenerate}
+                    onEditImage={(url) => onEditImage?.(url, 'scene', url, undefined, '16:9')}
+                    videoTitle={videoTitle}
+                    threadTitle={threadTitle}
+                  />
+                )
+              case 'trends':
+                return <TrendsCard key={idx} trends={block.trends} />
+              case 'outline':
+                return <OutlineCard key={idx} content={block.content} />
+              default:
+                return null
+            }
+          })}
+
+          {!parsed.blocks.some((b) => b.type === 'thumbnail' || b.type === 'scene') && messageImages && messageImages.length > 0 && (
+            <div className="mt-3 space-y-3">
+              {messageImages.map((img: any, idx: number) => (
+                <div key={img.id || idx} className="rounded-xl overflow-hidden border border-indigo-200 dark:border-indigo-800/50 bg-white dark:bg-gray-900 shadow-md">
+                  <div className={`relative bg-gray-950 overflow-hidden ${
+                    img.aspectRatio === '9:16' ? 'aspect-[9/16] max-w-[280px] mx-auto' : 'aspect-video'
+                  }`}>
+                    <img
+                      src={formatAssetUrl(img.url)}
+                      alt={img.prompt || 'Generated image'}
+                      className="w-full h-full object-cover"
+                    />
+                  </div>
+                  <div className="p-3 bg-gray-50/80 dark:bg-gray-800/40 flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-800">
+                    <p className="text-xs text-gray-500 dark:text-gray-400 line-clamp-1 flex-1">
+                      {img.prompt}
+                    </p>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9')}
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
+                      >
+                        <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate
+                      </button>
+                      <a
+                        href={formatAssetUrl(img.url)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
+                      >
+                        <ExternalLink className="w-3.5 h-3.5 text-gray-400" /> Full View
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : parsed.type === 'seo' && parsed.seo ? (
         <SeoCard content={parsed.seo} />
       ) : parsed.type === 'thumbnail' && parsed.thumbnails ? (
         <ThumbnailCard

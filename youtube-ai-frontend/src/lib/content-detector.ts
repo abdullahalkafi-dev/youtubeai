@@ -1,4 +1,4 @@
-export type ContentType = 'seo' | 'thumbnail' | 'ideas' | 'trends' | 'script' | 'outline' | 'image' | 'markdown' | 'modular_package'
+export type ContentType = 'seo' | 'thumbnail' | 'ideas' | 'trends' | 'script' | 'outline' | 'image' | 'markdown' | 'modular_package' | 'composite'
 
 export interface SeoContent {
   title: string
@@ -36,9 +36,20 @@ export interface TrendItem {
   whyNow: string
 }
 
+export type ContentBlock =
+  | { type: 'markdown'; content: string }
+  | { type: 'thumbnail'; thumbnails: ThumbnailConcept[]; raw?: string }
+  | { type: 'scene'; sceneConcepts: SceneConcept[]; raw?: string }
+  | { type: 'seo'; seo: SeoContent; raw?: string }
+  | { type: 'ideas'; ideaScore: IdeaScore; raw?: string }
+  | { type: 'script'; scriptContent: string; raw?: string }
+  | { type: 'trends'; trends: TrendItem[]; raw?: string }
+  | { type: 'outline'; content: string; raw?: string }
+
 export interface ParsedContent {
   type: ContentType
   raw: string
+  blocks?: ContentBlock[]
   seo?: SeoContent
   thumbnails?: ThumbnailConcept[]
   sceneConcepts?: SceneConcept[]
@@ -126,16 +137,17 @@ function parseThumbnailContent(content: string): ThumbnailConcept[] | null {
     const section = match[2] || match[0]
 
     // Extract text overlay
-    const textMatch = section.match(/(?:\*\*Text overlay:\*\*|Thumbnail Text:|Text overlay:|Text:)\s*(.+)/i)
-    const text = textMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+    const textMatch = section.match(/(?:\*\*Text overlay:\*\*|Thumbnail Text:|Headline Text:|Headline:|Text overlay:|Title Text:|Text:)\s*(.+)/i)
+    let text = textMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+    text = text.replace(/^[\*\"\“\”\']+|[\*\"\“\”\']+$/g, '').trim()
 
     // Extract visual concept
-    const visualMatch = section.match(/(?:\*\*Visual concept:\*\*|Visual Hook:|Visual:|Visual concept:|Visual Layout\s*(?:—|-)\s*16:9:?)\s*([\s\S]*?)(?=\n\s*(?:Composition:|Color Strategy:|Color scheme:|Why It Clicks:|AI \/ Designer Prompt:|\*\*Color scheme:\*\*|$))/i)
+    const visualMatch = section.match(/(?:\*\*Visual concept:\*\*|Visual Concept:|Visual Hook:|Visual:|Visual concept:|Visual Layout\s*(?:—|-)\s*16:9:?)\s*([\s\S]*?)(?=\n\s*(?:Composition:|Color Strategy:|Color scheme:|Why It Clicks:|AI \/ Designer Prompt:|Image Prompt:|\*\*Color scheme:\*\*|$))/i)
       || section.match(/(?:AI \/ Designer Prompt:|AI Prompt:|Image Prompt:)\s*(.+)/i)
     const visual = visualMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
 
     // Extract color scheme
-    const colorMatch = section.match(/(?:\*\*Color scheme:\*\*|Color Strategy:|Colors:|Color scheme:)\s*([\s\S]*?)(?=\n\s*(?:Why It Clicks:|AI \/ Designer Prompt:|$))/i)
+    const colorMatch = section.match(/(?:\*\*Color scheme:\*\*|Color Strategy:|Colors:|Color scheme:)\s*([\s\S]*?)(?=\n\s*(?:Why It Clicks:|AI \/ Designer Prompt:|Image Prompt:|$))/i)
     const colors = colorMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
 
     if (text || visual) {
@@ -242,114 +254,279 @@ function parseTrendItems(content: string): TrendItem[] | null {
   return trends.length > 0 ? trends : null
 }
 
+interface ExtractedSection {
+  type: 'thumbnail' | 'scene' | 'seo' | 'script'
+  start: number
+  end: number
+  data: any
+}
+
+export function parseCompositeBlocks(textContent: string, category: string): ContentBlock[] {
+  const sections: ExtractedSection[] = []
+
+  // 1. Script section (Section 8 Teleprompter Script or Cold Open)
+  const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:(?:FULL|TELEPROMPTER)\s+)+SCRIPT\b|^#{1,3}\s*(?:8\.\s*)?SCRIPT\s*(?:\r?\n|:|$)|^#\s+[^\n]+\n+##\s+(?:1\.\s+)?COLD\s+OPEN|^##\s+(?:1\.\s+)?COLD\s+OPEN)/im
+  const sec8Match = SECTION_8_REGEX.exec(textContent)
+  if (sec8Match && sec8Match.index !== undefined) {
+    const scriptStart = sec8Match.index
+    const remainder = textContent.slice(scriptStart)
+    const POSTAMBLE_REGEX = /(?:^#{1,3}\s*(?:9\.\s*)?YOUTUBE\s+DESCRIPTION|^#{1,3}\s*(?:17\.\s*)?.*VERIFIED\s+YOUTUBE|^##\s+17\.\s+|^##\s+18\.\s+|^##\s+Sources|^##\s+SEO|^##\s+Thumbnail|^##\s+Title)/im
+    const postMatch = POSTAMBLE_REGEX.exec(remainder)
+    const scriptEnd = postMatch && postMatch.index !== undefined ? scriptStart + postMatch.index : textContent.length
+    const scriptContent = textContent.slice(scriptStart, scriptEnd).trim()
+    if (scriptContent.length > 50) {
+      sections.push({
+        type: 'script',
+        start: scriptStart,
+        end: scriptEnd,
+        data: scriptContent,
+      })
+    }
+  }
+
+  // 2. Thumbnail concepts section (e.g. ## Thumbnail Direction or ### Concept 1... )
+  const THUMBNAIL_HEADER_REGEX = /(?:^|\n)(#{1,3}\s*(?:\d+\.\s*)?THUMBNAIL\s*(?:DIRECTION|CONCEPTS?|IDEAS?|OPTIONS?|DESIGNS?|PACKAGE)?\b[^\n]*|(?=#{1,3}\s*(?:\d+\.\s*)?Concept\s*#?1\b))/i
+  const thumbHeaderMatch = THUMBNAIL_HEADER_REGEX.exec(textContent)
+
+  if (thumbHeaderMatch && thumbHeaderMatch.index !== undefined) {
+    const matchedStr = thumbHeaderMatch[0]
+    const headerStart = thumbHeaderMatch.index + (matchedStr.startsWith('\n') ? 1 : 0)
+    const afterHeader = textContent.slice(headerStart)
+
+    // Find the end: next section heading, recommendation note, or separator
+    const NEXT_SECTION_REGEX = /(?:\n\n(?:\*\*Best choice|\*\*Best pick|\*\*Why this|\*\*Recommendation|\*\*Note|---)|\n#{1,3}\s+(?!Concept\b|Thumbnail\b)[^\n]+)/i
+    const firstLineEnd = afterHeader.indexOf('\n')
+    const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
+    const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
+
+    const sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
+      ? firstLineEnd + nextSectionMatch.index
+      : afterHeader.length
+
+    const thumbSectionText = afterHeader.slice(0, sectionLength).trim()
+    const concepts = parseThumbnailContent(thumbSectionText)
+    if (concepts && concepts.length > 0) {
+      sections.push({
+        type: 'thumbnail',
+        start: headerStart,
+        end: headerStart + sectionLength,
+        data: concepts,
+      })
+    }
+  } else if (category === 'thumbnail') {
+    const concept1Match = /(?:^|\n)(#{1,3}\s*Concept\s*1\b|1\.\s*["“]?)/i.exec(textContent)
+    const concepts = parseThumbnailContent(textContent)
+    if (concepts && concepts.length > 0) {
+      const start = concept1Match && concept1Match.index !== undefined
+        ? concept1Match.index + (concept1Match[0].startsWith('\n') ? 1 : 0)
+        : 0
+      sections.push({
+        type: 'thumbnail',
+        start,
+        end: textContent.length,
+        data: concepts,
+      })
+    }
+  }
+
+  // 3. Scene concepts section
+  const SCENE_HEADER_REGEX = /(?:^|\n)(#{1,3}\s*(?:\d+\.\s*)?(?:SCENE\s*CONCEPTS?|VISUAL\s*BREAKDOWN|B-ROLL\s*PROMPTS?)\b[^\n]*)/i
+  const sceneHeaderMatch = SCENE_HEADER_REGEX.exec(textContent)
+  if (sceneHeaderMatch && sceneHeaderMatch.index !== undefined) {
+    const matchedStr = sceneHeaderMatch[0]
+    const headerStart = sceneHeaderMatch.index + (matchedStr.startsWith('\n') ? 1 : 0)
+    const afterHeader = textContent.slice(headerStart)
+    const firstLineEnd = afterHeader.indexOf('\n')
+    const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
+    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Scene\b|Visual\b)[^\n]+)/i
+    const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
+    const sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
+      ? firstLineEnd + nextSectionMatch.index
+      : afterHeader.length
+    const sceneSectionText = afterHeader.slice(0, sectionLength).trim()
+    const scenes = parseSceneConcepts(sceneSectionText)
+    if (scenes && scenes.length > 0) {
+      sections.push({
+        type: 'scene',
+        start: headerStart,
+        end: headerStart + sectionLength,
+        data: scenes,
+      })
+    }
+  } else if (category === 'image') {
+    const scenes = parseSceneConcepts(textContent)
+    if (scenes && scenes.length > 0) {
+      sections.push({
+        type: 'scene',
+        start: 0,
+        end: textContent.length,
+        data: scenes,
+      })
+    }
+  }
+
+  // 4. SEO Section (e.g. ## SEO Package or ## Title + ## Description + ## Tags)
+  const SEO_HEADER_REGEX = /(?:^|\n)(#{1,3}\s*(?:\d+\.\s*)?(?:SEO\s*(?:PACKAGE|METADATA|OPTIMIZATION|SUGGESTIONS?)|METADATA\s*PACKAGE)\b[^\n]*)/i
+  const seoHeaderMatch = SEO_HEADER_REGEX.exec(textContent)
+  if (seoHeaderMatch && seoHeaderMatch.index !== undefined) {
+    const matchedStr = seoHeaderMatch[0]
+    const headerStart = seoHeaderMatch.index + (matchedStr.startsWith('\n') ? 1 : 0)
+    const afterHeader = textContent.slice(headerStart)
+    const firstLineEnd = afterHeader.indexOf('\n')
+    const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
+    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b)[^\n]+)/i
+    const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
+    const sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
+      ? firstLineEnd + nextSectionMatch.index
+      : afterHeader.length
+    const seoSectionText = afterHeader.slice(0, sectionLength).trim()
+    const seo = parseSeoContent(seoSectionText)
+    if (seo) {
+      sections.push({
+        type: 'seo',
+        start: headerStart,
+        end: headerStart + sectionLength,
+        data: seo,
+      })
+    }
+  } else if (category === 'seo') {
+    const seo = parseSeoContent(textContent)
+    if (seo) {
+      sections.push({
+        type: 'seo',
+        start: 0,
+        end: textContent.length,
+        data: seo,
+      })
+    }
+  }
+
+  // Sort sections by start position and filter out overlapping ranges
+  sections.sort((a, b) => a.start - b.start)
+  const nonOverlapping: ExtractedSection[] = []
+  let lastEnd = 0
+  for (const sec of sections) {
+    if (sec.start >= lastEnd) {
+      nonOverlapping.push(sec)
+      lastEnd = sec.end
+    }
+  }
+
+  // If no specialized sections were extracted:
+  if (nonOverlapping.length === 0) {
+    if (category === 'ideas') {
+      const ideaScore = parseIdeaScore(textContent)
+      if (ideaScore) return [{ type: 'ideas', ideaScore, raw: textContent }]
+    }
+    if (category === 'trends') {
+      const trends = parseTrendItems(textContent)
+      if (trends) return [{ type: 'trends', trends, raw: textContent }]
+    }
+    if (category === 'outline' && textContent.includes('## Hook Options')) {
+      return [{ type: 'outline', content: textContent, raw: textContent }]
+    }
+    if (category === 'script') {
+      return [{ type: 'script', scriptContent: textContent, raw: textContent }]
+    }
+    return [{ type: 'markdown', content: textContent }]
+  }
+
+  // Assemble blocks in chronological order
+  const blocks: ContentBlock[] = []
+  let cursor = 0
+
+  for (const sec of nonOverlapping) {
+    if (sec.start > cursor) {
+      const textChunk = textContent.slice(cursor, sec.start).trim()
+      if (textChunk.length > 0) {
+        blocks.push({ type: 'markdown', content: textChunk })
+      }
+    }
+
+    if (sec.type === 'thumbnail') {
+      blocks.push({ type: 'thumbnail', thumbnails: sec.data, raw: textContent.slice(sec.start, sec.end) })
+    } else if (sec.type === 'scene') {
+      blocks.push({ type: 'scene', sceneConcepts: sec.data, raw: textContent.slice(sec.start, sec.end) })
+    } else if (sec.type === 'seo') {
+      blocks.push({ type: 'seo', seo: sec.data, raw: textContent.slice(sec.start, sec.end) })
+    } else if (sec.type === 'script') {
+      blocks.push({ type: 'script', scriptContent: sec.data, raw: textContent.slice(sec.start, sec.end) })
+    }
+
+    cursor = sec.end
+  }
+
+  if (cursor < textContent.length) {
+    const trailingText = textContent.slice(cursor).trim()
+    if (trailingText.length > 0) {
+      blocks.push({ type: 'markdown', content: trailingText })
+    }
+  }
+
+  return blocks
+}
+
 export function detectAndParse(content: any, category: string): ParsedContent {
   const textContent = typeof content === 'string' ? content : (content ? String(content) : '')
   const sources = extractSources(textContent)
 
-  // Try parsing based on category first
-  if (category === 'seo') {
-    const seo = parseSeoContent(textContent)
-    if (seo) return { type: 'seo', raw: textContent, seo, sources }
-  }
+  const blocks = parseCompositeBlocks(textContent, category)
 
-  // 1. Content-based detection for thumbnails and scenes FIRST so sticky categories don't hijack them
-  const detectedThumbnails = parseThumbnailContent(textContent)
-  if (category === 'thumbnail' || (detectedThumbnails && (category !== 'script' || !textContent.includes('COLD OPEN')))) {
-    if (detectedThumbnails) return { type: 'thumbnail', raw: textContent, thumbnails: detectedThumbnails, sources }
-  }
+  // If multiple blocks exist, return composite document
+  if (blocks.length > 1) {
+    // Check if it's the classic modular_package (markdown preamble + script + markdown postamble)
+    const scriptBlock = blocks.find(b => b.type === 'script')
+    const hasThumb = blocks.some(b => b.type === 'thumbnail')
+    const hasSeo = blocks.some(b => b.type === 'seo')
+    const hasScene = blocks.some(b => b.type === 'scene')
 
-  const detectedScenes = parseSceneConcepts(textContent)
-  if (category === 'image' || (detectedScenes && (category !== 'script' || !textContent.includes('COLD OPEN')))) {
-    if (detectedScenes) return { type: 'image', raw: textContent, sceneConcepts: detectedScenes, sources }
-  }
-
-  if (category === 'ideas') {
-    const ideaScore = parseIdeaScore(textContent)
-    if (ideaScore) return { type: 'ideas', raw: textContent, ideaScore, sources }
-  }
-
-  if (category === 'trends') {
-    const trends = parseTrendItems(textContent)
-    if (trends) return { type: 'trends', raw: textContent, trends, sources }
-  }
-
-  if (category === 'outline' && textContent.includes('## Hook Options')) {
-    return { type: 'outline', raw: textContent, sources }
-  }
-
-  // 2. Check for 3-way modular package (Preamble + Section 8 Teleprompter Script + Postamble)
-  const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:(?:FULL|TELEPROMPTER)\s+)+SCRIPT\b|^#{1,3}\s*(?:8\.\s*)?SCRIPT\s*(?:\r?\n|:|$)|^#\s+[^\n]+\n+##\s+(?:1\.\s+)?COLD\s+OPEN|^##\s+(?:1\.\s+)?COLD\s+OPEN)/im
-  const sec8Match = SECTION_8_REGEX.exec(textContent)
-
-  if (sec8Match && sec8Match.index !== undefined) {
-    const preamble = textContent.slice(0, sec8Match.index).trim()
-    const remainder = textContent.slice(sec8Match.index)
-
-    // Stop at postamble boundary (Description, Sources, High-Volume Keywords, etc.)
-    const POSTAMBLE_REGEX = /(?:^#{1,3}\s*(?:9\.\s*)?YOUTUBE\s+DESCRIPTION|^#{1,3}\s*(?:17\.\s*)?.*VERIFIED\s+YOUTUBE|^##\s+17\.\s+|^##\s+18\.\s+|^##\s+Sources)/im
-    const postMatch = POSTAMBLE_REGEX.exec(remainder)
-
-    let teleprompterScript = remainder.trim()
-    let postamble = ''
-
-    if (postMatch && postMatch.index !== undefined) {
-      teleprompterScript = remainder.slice(0, postMatch.index).trim()
-      postamble = remainder.slice(postMatch.index).trim()
-    }
-
-    // If there is meaningful preamble before the teleprompter script, treat as modular package
-    if (preamble.length > 50) {
+    // If it's strictly a 3-part script package without interactive cards, preserve legacy modular_package
+    if (scriptBlock && !hasThumb && !hasSeo && !hasScene && blocks.length <= 3) {
+      const preambleBlock = blocks.find((b, idx) => idx === 0 && b.type === 'markdown')
+      const postambleBlock = blocks.find((b, idx) => idx > 0 && b.type === 'markdown')
       return {
         type: 'modular_package',
         raw: textContent,
-        preamble,
-        teleprompterScript,
-        postamble,
+        preamble: preambleBlock?.type === 'markdown' ? preambleBlock.content : '',
+        teleprompterScript: scriptBlock.type === 'script' ? scriptBlock.scriptContent : '',
+        postamble: postambleBlock?.type === 'markdown' ? postambleBlock.content : '',
         sources,
+        blocks,
       }
-    } else {
-      // Clean standalone script (e.g. revision or script-only generation)
-      return {
-        type: 'script',
-        raw: teleprompterScript,
-        sources,
-      }
+    }
+
+    return {
+      type: 'composite',
+      raw: textContent,
+      blocks,
+      sources,
     }
   }
 
-  // 3. Fallback script detection (e.g. section rewrites that don't start with Cold Open)
-  if (category === 'script') {
-    return { type: 'script', raw: textContent, sources }
+  // Single block handling
+  const single = blocks[0] || { type: 'markdown', content: textContent }
+
+  if (single.type === 'thumbnail') {
+    return { type: 'thumbnail', raw: textContent, thumbnails: single.thumbnails, sources, blocks }
+  }
+  if (single.type === 'scene') {
+    return { type: 'image', raw: textContent, sceneConcepts: single.sceneConcepts, sources, blocks }
+  }
+  if (single.type === 'seo') {
+    return { type: 'seo', raw: textContent, seo: single.seo, sources, blocks }
+  }
+  if (single.type === 'script') {
+    return { type: 'script', raw: textContent, sources, blocks }
+  }
+  if (single.type === 'ideas') {
+    return { type: 'ideas', raw: textContent, ideaScore: single.ideaScore, sources, blocks }
+  }
+  if (single.type === 'trends') {
+    return { type: 'trends', raw: textContent, trends: single.trends, sources, blocks }
+  }
+  if (single.type === 'outline') {
+    return { type: 'outline', raw: textContent, sources, blocks }
   }
 
-  if (textContent.includes('## Title') && textContent.includes('## Description') && textContent.includes('## Tags')) {
-    const seo = parseSeoContent(textContent)
-    if (seo) return { type: 'seo', raw: textContent, seo, sources }
-  }
-
-  if (textContent.includes('## Score') && textContent.includes('## Criteria')) {
-    const ideaScore = parseIdeaScore(textContent)
-    if (ideaScore) return { type: 'ideas', raw: textContent, ideaScore, sources }
-  }
-
-  if (textContent.includes('## Hook Options') && textContent.includes('## Outline')) {
-    return { type: 'outline', raw: textContent, sources }
-  }
-
-  const isThumbnailText = Boolean(detectedThumbnails || textContent.includes('Thumbnail Text:') || textContent.includes('Visual Hook:'))
-
-  const hasScriptMarkers =
-    !isThumbnailText &&
-    category !== 'general' &&
-    (textContent.includes('💎 JEWEL') ||
-    /cold\s+open/i.test(textContent) ||
-    textContent.includes('[BEAT]') ||
-    textContent.includes('[PAUSE]') ||
-    textContent.includes('10 VIRAL QUESTIONS'))
-
-  if (hasScriptMarkers) {
-    return { type: 'script', raw: textContent, sources }
-  }
-
-  return { type: 'markdown', raw: textContent, sources }
+  return { type: 'markdown', raw: textContent, sources, blocks }
 }
