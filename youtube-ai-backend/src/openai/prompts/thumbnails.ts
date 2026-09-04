@@ -19,18 +19,21 @@ Generate 3 DISTINCT, story-grounded YouTube thumbnail concepts specifically tail
 3. Concept 3 (Psychological Atmosphere / Solitary Tension): Focus on a powerful solitary portrait or scene — e.g. subject in holding cell or courtroom spotlight, deep chiaroscuro shadows, intense emotional gaze.
 
 RULES FOR THUMBNAIL CONCEPTS:
-1. OVERLAY TEXT: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g., "HE SAID TOO MUCH", "UNDER PRESSURE", "YOU GOT IT WRONG!", "TELLING ON THE DEAD?"). Use two-tone phrasing (e.g. Line 1 White, Line 2 Yellow/Red). Never exceed 4 words.
-2. NAMED CHARACTERS: Use actual subject names (e.g. Lil Durk, Keefe D, Young Thug) and specify their physical attire (e.g. navy prison scrubs, dark suit, hoodie).
-3. GPT-IMAGE-2 CAMERA-READY DIRECTIVE:
+1. OVERLAY TEXT: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g., "HE SAID TOO MUCH", "UNDER PRESSURE", "YOU GOT IT WRONG!", "TELLING ON THE DEAD?"). Use two-tone phrasing (Line 1 White, Line 2 Yellow or Red). Never exceed 4 words. Keep text in the left third or top-left.
+2. FULL-CANVAS 3-ZONE STAGING: Fill the entire 16:9 canvas with rich environmental detail from left to right. NEVER leave the right side as an empty black void. Background courtroom spectators, jury benches, and architectural details must extend across the full frame.
+3. SUBJECT PROXIMITY: Subjects must be commanding close-up chest-up shots (occupying 40–60% of canvas height). Never place subjects far away as tiny distant figures.
+4. NAMED CHARACTERS: Use actual subject names (e.g. Lil Durk, Keefe D, Young Thug) and specify their physical attire (e.g. navy prison scrubs, dark suit, hoodie).
+5. CONTEXTUAL STORY DEVICES: Use broken glass fracture seam ONLY when the story specifically involves broken trust, confessions, or betrayal. Otherwise use clean directional spotlights, authentic red evidence dossiers, transcripts, scales of justice, or American flags.
+6. GPT-IMAGE-2 CAMERA-READY DIRECTIVE:
    - Every "description" is sent DIRECTLY into OpenAI's gpt-image-2 diffusion model.
-   - Structure each description: [Subject & Staging]: Named person(s) on left/center with attire & emotional expression. [Documentary Devices]: Red confidential folder stamped "CASE FILE" separated by a diagonal cracked glass fracture seam, moody courtroom background. [Lighting & Camera]: 35mm film photography, intense directional white spotlight, deep chiaroscuro shadows. Keep bottom-right corner clear of faces (reserved for host sticker).
+   - Structure each description: - Left Zone (0-40%): Close-up chest-up shot of named subject with attire & emotion. - Center Zone (35-65%): Central conflict anchor or prop. - Right Zone & Background (60-100%): Rich background setting filling the full frame edge-to-edge. - Lighting & Camera: 35mm film photography, directional lighting, deep chiaroscuro.
    - STRICTLY FORBIDDEN: NEVER include meta-disclaimers or conversational phrases (DO NOT WRITE: "legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
-4. COLOR SCHEME: Specify 2-3 dominant colors (e.g. "Cold deep blue, slate black, high-contrast white, crimson red accent").
-5. BRANDING: Do NOT mention any logos, channel names, watermarks, or brand badges (Sharp adds official logo and host cutout automatically).
-6. STYLE: Cinematic dark, high-contrast photography, criminal breakdown aesthetic. Realistic photo look, NOT AI cartoon or 3D render.
+7. COLOR SCHEME: Specify 2-3 dominant colors (e.g. "Cold deep blue, slate black, high-contrast white, crimson red accent").
+8. BRANDING: Do NOT mention any logos, channel names, watermarks, or brand badges (Sharp adds official logo and host cutout automatically).
+9. STYLE: Cinematic dark, high-contrast photography, criminal breakdown aesthetic. Realistic photo look, NOT AI cartoon or 3D render.
 
 Return ONLY valid JSON:
-{"thumbnails": [{"text": "2-4 WORDS MAX", "description": "[Subject & Staging]: ... [Documentary Devices]: ... [Lighting & Camera]: ...", "colors": "Primary colors (e.g., Cold blue, black, white, red accent)"}]}`;
+{"thumbnails": [{"text": "2-4 WORDS MAX", "description": "Left Zone: ... | Center Zone: ... | Right Zone & Background: ... | Lighting & Camera: ...", "colors": "Primary colors (e.g., Cold blue, black, white, red accent)"}]}`;
 
 export function buildThumbnailPrompt(params: {
   videoTitle: string;

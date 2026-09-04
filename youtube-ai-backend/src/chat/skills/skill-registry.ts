@@ -68,9 +68,13 @@ Follow the 6-part script structure with timestamps, section headers, and 💎 JE
 ### If THUMBNAIL intent:
 ### Concept 1
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
-**Visual concept:** [Subject & Staging]: Named real person(s) with physical attire & emotional expression. [Documentary Devices]: Red evidence folder stamped "CASE FILE", diagonal cracked glass seam, moody courtroom background. [Lighting & Camera]: 35mm film photography, directional white rim spotlight, deep shadows. Bottom-right corner kept clear of faces.
+**Visual concept:**
+- Left Zone (0-40%): [Commanding close-up chest-up shot of named subject with physical attire and emotion]
+- Center Zone (35-65%): [Key story prop, e.g. red evidence folder stamped "CASE FILE", court transcripts]
+- Right Zone & Background (60-100%): [Rich background setting filling full frame, e.g. courtroom gallery with spectators, flags]
+- Lighting & Camera: [35mm documentary photography, directional rim lighting, deep shadows]
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
-(Same structure for Concept 2 and 3)
+(Same 3-zone structure for Concept 2 and 3)
 
 ### If IDEA intent:
 ## Score
@@ -403,21 +407,33 @@ ${scriptFormat}`,
     });
 
     // Thumbnail skill
-    const thumbnailFormat = `Format 3 thumbnail concepts in this exact structure:
+    const thumbnailFormat = `Format 3 thumbnail concepts strictly in this structure:
 
 ### Concept 1
-**Text overlay:** [2-4 UPPERCASE words max, e.g. "HE SAID TOO MUCH", "UNDER PRESSURE"]
-**Visual concept:** [Subject & Staging]: Named real person(s) on left/center with physical clothing and contrasting emotional expression (e.g. Keefe D in blue prison scrubs looking down solemnly). [Documentary Devices]: Red confidential folder stamped "CASE FILE" separated by a diagonal cracked glass fracture seam, moody courtroom background. [Lighting & Camera]: 35mm film photography, intense directional white spotlight, deep chiaroscuro shadows. Keep bottom-right corner clear of faces.
+**Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
+**Visual concept:**
+- Left Zone (0-40%): [Commanding close-up chest-up shot (40-60% canvas height) of named subject with physical attire and distinct emotional expression]
+- Center Zone (35-65%): [Key story prop or split, e.g. red evidence dossier stamped "CASE FILE", scattered transcripts, or confrontation point]
+- Right Zone & Background (60-100%): [Rich background setting filling the full canvas edge-to-edge, e.g. courtroom gallery with seated spectators in suits, jury box, flags, or warm paneling]
+- Lighting & Camera: [35mm documentary photography, 85mm portrait lens, directional rim lighting, deep chiaroscuro]
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
 
 ### Concept 2
-**Text overlay:** [2-4 UPPERCASE words max]
-**Visual concept:** [Subject & Staging]: Named person(s) with physical attire and emotional expression. [Documentary Devices]: Forensic evidence dossier, documents, or shadowy corridor. [Lighting & Camera]: Dramatic high-contrast 35mm photography. Keep bottom-right corner clear of faces.
+**Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
+**Visual concept:**
+- Left Zone (0-40%): [Named subject close-up with physical attire and emotional expression]
+- Center Zone (35-65%): [Forensic evidence dossier, documents, scales of justice, or confrontation point]
+- Right Zone & Background (60-100%): [Full atmospheric courtroom or holding corridor environment filling the right side]
+- Lighting & Camera: [Dramatic high-contrast 35mm photo style]
 **Color scheme:** [Primary colors to use]
 
 ### Concept 3
 **Text overlay:** [2-4 UPPERCASE words max]
-**Visual concept:** [Subject & Staging]: Solitary powerful portrait or confrontation with physical attire. [Documentary Devices]: Holding cell, courtroom bench, or symbolic setting. [Lighting & Camera]: Intense chiaroscuro lighting, 35mm photo style. Keep bottom-right corner clear of faces.
+**Visual concept:**
+- Left Zone (0-40%): [Intense commanding portrait or face-off with physical attire]
+- Center Zone (35-65%): [Symbolic evidence anchor, defense table, or document stack]
+- Right Zone & Background (60-100%): [Atmospheric courtroom bench or dim gallery filling the full canvas]
+- Lighting & Camera: [High-contrast chiaroscuro lighting, 35mm photo look]
 **Color scheme:** [Primary colors to use]`;
     this.register({
       name: 'Thumbnail Designer',
@@ -428,17 +444,16 @@ ${scriptFormat}`,
 
 Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 diverse narrative angles & visual framings:
 1. Concept 1 (Multi-Character Drama & Emotional Contrast): When multiple figures are involved (e.g. rapper, defense lawyer, co-defendant, witness), give EACH named person a contrasting, heightened facial expression (e.g., Lawyer smiling/confident on left, Defendant stressed/looking down in center, Witness angry/defensive on right).
-2. Concept 2 (Evidence & Forensic Tension): Focus on high-stakes documentary devices — e.g. a red confidential evidence dossier ("CASE FILE: ...") with a diagonal broken glass fracture seam, dramatic spotlight on documents, scales of justice, or subject in profile shadow.
+2. Concept 2 (Evidence & Forensic Tension): Focus on high-stakes documentary devices — e.g. a red confidential evidence dossier ("CASE FILE: ..."), dramatic spotlight on documents, scales of justice, or subject in profile shadow.
 3. Concept 3 (Psychological Atmosphere / Solitary Tension): Focus on a powerful solitary portrait or scene — e.g. subject in holding cell or courtroom spotlight, deep chiaroscuro shadows, intense emotional gaze.
 
 RULES:
-- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?", "THE REAL STORY", "OLD WORDS"). Do NOT output full titles or long sentences.
-- NAMED CHARACTERS: Use actual subject names (e.g. Lil Durk, Keefe D, Young Thug) and specify their physical attire (e.g. navy prison scrubs, dark suit, hoodie).
-- GPT-IMAGE-2 CAMERA-READY DIRECTIVE:
-  * Every "Visual concept" is sent DIRECTLY into OpenAI's gpt-image-2 diffusion model.
-  * Describe ONLY physical, tangible visual elements that a camera can photograph (faces, expressions, attire, lighting, evidence folders, broken glass seams).
-  * STRICTLY FORBIDDEN: NEVER include meta-disclaimers or conversational phrases (DO NOT WRITE: "legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
-- SPATIAL DISTRIBUTION: Balance characters naturally across left, center, and right. Always keep the bottom-right corner clear of faces (reserved for Unique Mecca host sticker). Supports both 16:9 video and 9:16 vertical Reel formats.
+- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?"). Use two-tone phrasing (Line 1 White, Line 2 Yellow or Red). Do NOT output full titles or long sentences.
+- FULL-CANVAS 3-ZONE STAGING: Fill the entire 16:9 canvas with rich environmental detail from left to right. NEVER leave the right side as an empty black void. Background courtroom spectators, jury benches, and architectural details must extend across the full frame.
+- SUBJECT PROXIMITY: Subjects must be commanding close-up chest-up shots (occupying 40–60% of canvas height). Never place subjects far away as tiny distant figures.
+- CONTEXTUAL STORY DEVICES: Use broken glass fracture seam ONLY when the story specifically involves broken trust, confessions, or betrayal. Otherwise use clean directional spotlights, authentic red evidence dossiers, transcripts, scales of justice, or American flags.
+- TYPOGRAPHY & OVERLAY CLEARANCE: Headline text belongs in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
+- GPT-IMAGE-2 CAMERA-READY DIRECTIVE: Describe ONLY tangible physical objects, lighting, and attire that a camera can photograph. STRICTLY FORBIDDEN: Never write meta-disclaimers ("legally sourced image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
 - Style: Cinematic dark, dramatic chiaroscuro lighting, high-contrast photography look. Realistic photo style, NOT cartoon or 3D animation.
 
 ${thumbnailFormat}`,

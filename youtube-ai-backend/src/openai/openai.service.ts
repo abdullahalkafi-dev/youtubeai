@@ -896,15 +896,15 @@ export class OpenAIService {
 
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
 
-STYLE: Cinematic dark true-crime documentary aesthetic, high-contrast chiaroscuro photography, 35mm film texture. Realistic photo style, NOT 3D render, NOT cartoon.
+STYLE: Cinematic dark true-crime documentary aesthetic, 35mm film photography, 85mm portrait lens, shallow depth of field f/1.8, sharp micro-contrast, natural skin pores, dramatic chiaroscuro lighting. Realistic photo style, NOT 3D render, NOT cartoon, ZERO plastic skin smoothing.
 
-SCENE & EMOTIONAL STAGING:
+SCENE & 3-ZONE SPATIAL STAGING:
 ${cleanDescription || 'Cinematic courtroom drama scene with intense emotional expressions.'}
 
-BRAND SAFE ZONES:
-${!params.excludeHost ? `- Bottom-Right Corner: Keep deep in shadow and completely clear of faces (reserved for host portrait cutout sticker).` : '- Full Canvas: Distribute subjects naturally across the full canvas.'}
-${params.logoPosition !== 'none' && !params.excludeLogo ? `- Top-Right Corner: Keep dark and clear of key visual elements (reserved for channel badge).` : ''}
-${isVertical ? `- Mobile Safe Zone: Keep bottom 25% clear of main character faces.` : ''}
+FULL-CANVAS COMPOSITION & PLACEMENT:
+- Fill the entire canvas with rich environmental detail from left to right (characters, evidence props, courtroom gallery, spectators, ambient lighting). NEVER leave empty blank voids.
+- Subject Proximity: Main character faces must be commanding close-up/bust shots (occupying 40–60% of canvas height).
+- Clearance: Headline text must be placed in the left third or top-left. Do NOT place headline text in the bottom-right corner (reserved for creator cutout) or extreme top-right corner.
 
 HEADLINE TYPOGRAPHY:
 - Render bold 2D headline text reading "${params.concept.text}".

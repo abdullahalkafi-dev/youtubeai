@@ -148,19 +148,19 @@ Scripts must be written to be spoken, not read like an article. Follow these rul
 - NOT cluttered, NOT AI-generated cartoon style
 - Should open a wound the title has to explain
 - DO NOT mention logos or brand badges in visual concept descriptions (Sharp adds the official MAE logo automatically).
-- MULTI-CHARACTER CONTRAST: When multiple figures are in the story (e.g. rapper, defense lawyer, witness, co-defendant), give EACH named person a distinct, contrasting emotional expression:
-  * Person 1: confident smile / smirk / calm posture
-  * Person 2: stressed / solemn / looking down / anxious
-  * Person 3: angry / defensive / intense stare
-- SIGNATURE DOCUMENTARY DEVICES: Use authentic true-crime storytelling devices:
-  * Diagonal cracked glass fracture seam across a red confidential evidence folder ("CASE FILE: ...")
-  * Solitary figure under a harsh downward white beam in a shadowy courtroom
-  * Faded archival memorial silhouette in amber/gold lighting
-- VISUAL COMPOSITION & GPT-IMAGE-2 CAMERA-READY FORMAT:
-  * Every "Visual concept" is directly fed into the gpt-image-2 diffusion engine. Describe ONLY concrete, physical scene elements that a camera can photograph (subject positions, attire, facial expressions, tangible evidence props, and 35mm chiaroscuro lighting).
-  * Keep bottom-right corner clear of faces (reserved for Unique Mecca host sticker).
+- 3-ZONE SPATIAL COMPOSITION: Structure every visual concept into 3 zones to fill the full 16:9 canvas from left to right. NEVER leave the right side as an empty black void:
+  * Left Zone (0-40%): Commanding close-up chest-up shot (40-60% canvas height) of the main subject with authentic attire and emotional expression.
+  * Center Zone (35-65%): Central conflict anchor (e.g. red confidential evidence folder stamped "CASE FILE", court transcripts, or multi-character face-off).
+  * Right Zone & Background (60-100%): Rich environmental background extending across the full frame (e.g. courtroom gallery with spectators in dark suits, jury box, flags, holding cell corridor).
+- MULTI-CHARACTER CONTRAST: When multiple figures are in the story (e.g. rapper, defense lawyer, witness, co-defendant), give EACH named person a distinct, contrasting emotional expression (e.g., Person 1: confident smile / smirk; Person 2: stressed / looking down; Person 3: angry / defensive).
+- CONTEXTUAL DOCUMENTARY DEVICES:
+  * Broken glass fracture seam is ONLY for betrayal, cracked deals, or confessions. Do NOT force broken glass on every thumbnail.
+  * For other topics, use clean directional spotlights, authentic red evidence dossiers, court transcripts, scales of justice, or American flags.
+- HEADLINE TYPOGRAPHY & OVERLAY CLEARANCE:
   * Use bold, 2-4 uppercase word headlines ("HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?").
-  * STRICTLY FORBIDDEN IN VISUAL CONCEPTS: Never write meta-disclaimers or conversational commentary like "legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing the consequence", or "allegedly". Keep it 100% photographic and camera-ready.
+  * Use two-tone color pairing: Line 1 White, Line 2 Yellow or Red.
+  * Keep headline text in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
+- GPT-IMAGE-2 CAMERA-READY FORMAT: Describe ONLY tangible physical elements that a camera can photograph. Strictly forbid meta-disclaimers ("legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly"). Keep it 100% photographic and camera-ready.
 
 ## CONTENT SAFETY
 
