@@ -148,22 +148,19 @@ Scripts must be written to be spoken, not read like an article. Follow these rul
 - NOT cluttered, NOT AI-generated cartoon style
 - Should open a wound the title has to explain
 - DO NOT mention logos or brand badges in visual concept descriptions (Sharp adds the official MAE logo automatically).
-- VISUAL COMPOSITION & CREATIVE FREEDOM: Craft a vivid, cinematic 16:9 scene tailored directly to the story's core emotional stakes. Dynamically choose the best composition archetype for the narrative:
-  * Emotional Character Drama: Intense facial expression, rim lighting, shallow depth of field, dramatic atmospheric background.
-  * Environmental Storytelling: Wide tension (e.g., solitary figure at defense table under cold light, holding cell corridor, spotlight on evidence, courthouse steps).
-  * Narrative Juxtaposition / Contrast: When the story genuinely contrasts two realities (e.g., freedom vs incarceration, co-defendants, past vs present), use organic depth-of-field, lighting contrast, or narrative textures naturally suited to the theme.
-  * Noir Symbolism: Heavy shadows, silhouette tension, high-contrast spotlighting.
-- Tailor the composition uniquely to each video — do NOT default to the same layout or divider gimmick for every thumbnail.
-- NEVER prompt for literal physical gadgets or devices (do NOT ask for a mobile phone, phone screen, or physical device).
-
-## THUMBNAIL ACCURACY
-
-Thumbnails must be emotionally strong but factually responsible:
-- Never visually imply guilt when the person has not been convicted.
-- Do not fabricate injuries, courtroom scenes, prison conditions, or emotional reactions as factual.
-- For conceptual images, describe them as symbolic concepts — not documented events.
-- Keep the creator smaller than the principal subject unless the video is primarily a personal commentary episode.
-- Preserve the official Unique Mecca Audio logo without changing its colors or proportions.
+- MULTI-CHARACTER CONTRAST: When multiple figures are in the story (e.g. rapper, defense lawyer, witness, co-defendant), give EACH named person a distinct, contrasting emotional expression:
+  * Person 1: confident smile / smirk / calm posture
+  * Person 2: stressed / solemn / looking down / anxious
+  * Person 3: angry / defensive / intense stare
+- SIGNATURE DOCUMENTARY DEVICES: Use authentic true-crime storytelling devices:
+  * Diagonal cracked glass fracture seam across a red confidential evidence folder ("CASE FILE: ...")
+  * Solitary figure under a harsh downward white beam in a shadowy courtroom
+  * Faded archival memorial silhouette in amber/gold lighting
+- VISUAL COMPOSITION & GPT-IMAGE-2 CAMERA-READY FORMAT:
+  * Every "Visual concept" is directly fed into the gpt-image-2 diffusion engine. Describe ONLY concrete, physical scene elements that a camera can photograph (subject positions, attire, facial expressions, tangible evidence props, and 35mm chiaroscuro lighting).
+  * Keep bottom-right corner clear of faces (reserved for Unique Mecca host sticker).
+  * Use bold, 2-4 uppercase word headlines ("HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?").
+  * STRICTLY FORBIDDEN IN VISUAL CONCEPTS: Never write meta-disclaimers or conversational commentary like "legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing the consequence", or "allegedly". Keep it 100% photographic and camera-ready.
 
 ## CONTENT SAFETY
 

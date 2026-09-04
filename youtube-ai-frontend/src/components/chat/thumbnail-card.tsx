@@ -290,7 +290,7 @@ export function ThumbnailCard({
                     <img
                       src={formatAssetUrl(generatedUrl)}
                       alt={`Generated thumbnail concept ${idx + 1}`}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </div>
                 </div>

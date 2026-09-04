@@ -128,7 +128,7 @@ export function MessageRenderer({
                     <img
                       src={formatAssetUrl(img.url)}
                       alt={img.prompt || 'Generated image'}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </div>
                   <div className="p-3 bg-gray-50/80 dark:bg-gray-800/40 flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-800">
@@ -243,7 +243,7 @@ export function MessageRenderer({
                     <img
                       src={formatAssetUrl(img.url)}
                       alt={img.prompt || 'Generated image'}
-                      className="w-full h-full object-cover"
+                      className="w-full h-full object-contain"
                     />
                   </div>
                   <div className="p-3 bg-gray-50/80 dark:bg-gray-800/40 flex items-center justify-between gap-2 border-t border-gray-100 dark:border-gray-800">
