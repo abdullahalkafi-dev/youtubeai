@@ -278,7 +278,7 @@ export function detectAndParse(content: any, category: string): ParsedContent {
   }
 
   // 2. Check for 3-way modular package (Preamble + Section 8 Teleprompter Script + Postamble)
-  const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:FULL\s+)?(?:TELEPROMPTER\s+)?SCRIPT|^#\s+[^\n]+\n+##\s+(?:1\.\s+)?COLD\s+OPEN|^##\s+(?:1\.\s+)?COLD\s+OPEN)/im
+  const SECTION_8_REGEX = /(?:^#{1,3}\s*(?:8\.\s*)?(?:(?:FULL|TELEPROMPTER)\s+)+SCRIPT\b|^#{1,3}\s*(?:8\.\s*)?SCRIPT\s*(?:\r?\n|:|$)|^#\s+[^\n]+\n+##\s+(?:1\.\s+)?COLD\s+OPEN|^##\s+(?:1\.\s+)?COLD\s+OPEN)/im
   const sec8Match = SECTION_8_REGEX.exec(textContent)
 
   if (sec8Match && sec8Match.index !== undefined) {
@@ -340,12 +340,12 @@ export function detectAndParse(content: any, category: string): ParsedContent {
 
   const hasScriptMarkers =
     !isThumbnailText &&
+    category !== 'general' &&
     (textContent.includes('💎 JEWEL') ||
     /cold\s+open/i.test(textContent) ||
     textContent.includes('[BEAT]') ||
     textContent.includes('[PAUSE]') ||
-    textContent.includes('10 VIRAL QUESTIONS') ||
-    (textContent.includes('## ') && textContent.includes('> ') && (textContent.includes('**•') || textContent.includes('**➤')) && !textContent.includes('Thumbnail Text:')))
+    textContent.includes('10 VIRAL QUESTIONS'))
 
   if (hasScriptMarkers) {
     return { type: 'script', raw: textContent, sources }

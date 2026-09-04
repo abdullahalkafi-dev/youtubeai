@@ -85,7 +85,8 @@ export function parseScriptSections(content: string): ParsedScriptSection[] {
         continue;
       }
 
-      const body = trimmed.replace(/^(?:#{1,3}\s+|\*\*)?.+?(?:\*\*)?\n?/, '').trim();
+      const firstNl = trimmed.indexOf('\n');
+      const body = firstNl !== -1 ? trimmed.slice(firstNl + 1).trim() : '';
 
       const isJewel = header.toLowerCase().includes('jewel');
       const isViralQuestions = header.toLowerCase().includes('viral question');

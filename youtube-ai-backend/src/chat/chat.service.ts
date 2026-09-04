@@ -1064,8 +1064,8 @@ export class ChatService {
 
     const effectiveCustomHostUrl =
       dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
-    // Canonical host: only include host if explicitly requested. Never default blindly.
-    const selectedHost = excludeHost ? undefined : dto.selectedHostImage;
+    // Canonical host: default to channel default host unless explicitly excluded
+    const selectedHost = excludeHost ? undefined : (dto.selectedHostImage || 'default');
 
     const storyContext = await this.openaiService.extractStoryContextFromThread({
       videoTitle: videoContextTitle,
@@ -1083,7 +1083,7 @@ export class ChatService {
       logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
       customLayoutInstructions: dto.customLayoutInstructions,
       excludeLogo,
-      excludeHost: excludeHost || (!selectedHost && !effectiveCustomHostUrl),
+      excludeHost: excludeHost === true,
       aspectRatio: resolvedAspectRatio,
       storyContext,
     });

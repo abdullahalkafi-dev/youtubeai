@@ -908,13 +908,22 @@ export default function ChatPage() {
                 ) : (
                   allImages.map((img) => (
                     <div key={img.id} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                      <div className="relative aspect-video bg-gray-100 dark:bg-gray-800">
+                      <div className={`relative bg-gray-100 dark:bg-gray-800 ${
+                        (img as any).aspectRatio === '9:16'
+                          ? 'aspect-[9/16] max-w-[200px] mx-auto'
+                          : 'aspect-video'
+                      }`}>
                         <img src={formatAssetUrl(img.url)} alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'} className="w-full h-full object-cover" loading="lazy" />
-                        {img.conceptTitle && (
-                          <span className="absolute top-2 left-2 px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
-                            {img.conceptTitle}
+                        <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+                          {img.conceptTitle && (
+                            <span className="px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
+                              {img.conceptTitle}
+                            </span>
+                          )}
+                          <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-gray-200 font-semibold text-[8px] backdrop-blur-sm">
+                            {(img as any).aspectRatio === '9:16' ? '9:16 Reel' : '16:9'}
                           </span>
-                        )}
+                        </div>
                       </div>
                       <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
                         {img.textOverlay && (
@@ -930,6 +939,7 @@ export default function ChatPage() {
                               mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
                               cleanUrl: (img as any).cleanBackgroundUrl || img.url,
                               selectedHostImage: (img as any).selectedHostImage,
+                              aspectRatio: (img as any).aspectRatio || '16:9',
                             })}
                             className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
                           >

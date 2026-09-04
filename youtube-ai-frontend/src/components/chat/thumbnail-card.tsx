@@ -113,7 +113,7 @@ export function ThumbnailCard({
 
     const conceptTitle = `Concept ${idx + 1}`
     const targetAspectRatio = options?.aspectRatio || selectedAspectRatio
-    const hostImg = options?.selectedHostImage === 'none' ? 'none' : options?.selectedHostImage
+    const hostImg = options?.selectedHostImage === 'none' ? 'none' : (options?.selectedHostImage || 'default')
     const excludeHost = hostImg === 'none'
 
     try {

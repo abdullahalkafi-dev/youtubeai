@@ -871,7 +871,7 @@ export class OpenAIService {
 
     const isVertical = params.aspectRatio === '9:16';
     const targetRatioLabel = isVertical ? '9:16 vertical YouTube Shorts / Reel' : '16:9 cinematic YouTube';
-    const imageSize = isVertical ? '1024x1536' : '1536x1024';
+    const imageSize = isVertical ? '864x1536' : '1536x864';
 
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail image for a video titled "${params.videoTitle}".
 
@@ -1189,7 +1189,7 @@ User Request: ${params.userPrompt || ''}`,
     // Build edit params — input_fidelity ONLY for gpt-image-1/1.5, NOT gpt-image-2
     const editModel = 'gpt-image-2';
     const isVertical = options?.aspectRatio === '9:16';
-    const editSize = isVertical ? '1024x1536' : '1536x1024';
+    const editSize = isVertical ? '864x1536' : '1536x864';
 
     let editPrompt = prompt;
     if (options?.storyContext) {
@@ -1332,7 +1332,7 @@ PRIORITY INSTRUCTIONS:
           model,
           prompt,
           n: 1,
-          size: '1536x1024',
+          size: '1536x864',
           quality: 'medium',
         });
 

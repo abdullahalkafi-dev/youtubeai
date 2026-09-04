@@ -28,7 +28,7 @@ export interface ComposeThumbnailOptions {
 export class ThumbnailComposerService {
   private readonly logger = new Logger(ThumbnailComposerService.name);
   private readonly defaultWidth = 1536;
-  private readonly defaultHeight = 1024;
+  private readonly defaultHeight = 864;
 
   /**
    * Main composition entry point using Sharp.
@@ -82,8 +82,8 @@ export class ThumbnailComposerService {
 
     if (!baseBuffer) {
       // Fallback dark gradient canvas
-      const fallbackW = options.width || (options.aspectRatio === '9:16' ? 1024 : 1536);
-      const fallbackH = options.height || (options.aspectRatio === '9:16' ? 1536 : 1024);
+      const fallbackW = options.width || (options.aspectRatio === '9:16' ? 864 : 1536);
+      const fallbackH = options.height || (options.aspectRatio === '9:16' ? 1536 : 864);
       baseBuffer = await sharp({
         create: {
           width: fallbackW,
@@ -106,7 +106,7 @@ export class ThumbnailComposerService {
     } catch { /* use fallbacks */ }
 
     const isVertical = Boolean(options.aspectRatio === '9:16' || (bgHeight && bgWidth && bgHeight > bgWidth));
-    const width = bgWidth || (isVertical ? 1024 : this.defaultWidth);
+    const width = bgWidth || (isVertical ? 864 : this.defaultWidth);
     const height = bgHeight || (isVertical ? 1536 : this.defaultHeight);
 
     // Resize background to target resolution preserving aspect ratio
