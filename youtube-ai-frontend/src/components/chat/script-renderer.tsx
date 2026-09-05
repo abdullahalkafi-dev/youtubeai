@@ -25,6 +25,7 @@ import {
   calculateTeleprompterStats,
   parseScriptSections,
   extractCleanTeleprompterText,
+  extractScriptTitle,
 } from '@/lib/teleprompter-parser'
 import { downloadTeleprompterPdf } from '@/components/scripts/export/teleprompter-pdf'
 import { FullscreenTeleprompter } from '@/components/scripts/teleprompter/fullscreen-teleprompter'
@@ -81,13 +82,9 @@ export function ScriptRenderer({
   const stats = calculateTeleprompterStats(effectiveContent)
   const sections = parseScriptSections(effectiveContent)
 
-  // Extract a clean title from the content or first section
-  const firstHeader = sections.find((s) => s.header && !s.header.includes('COLD OPEN'))?.header
-  const isSectionRevision = Boolean(firstHeader && /^\d+\./.test(firstHeader))
+  // Extract a clean topic title from the content, explicit AI contract line, or video/thread title
   const baseTitle = videoTitle || threadTitle?.replace(/^Script:\s*/i, '') || ''
-  const derivedTitle = isSectionRevision && baseTitle
-    ? `${baseTitle} - ${firstHeader}`
-    : (firstHeader || sections[0]?.header || baseTitle || 'YouTube Video Script')
+  const derivedTitle = extractScriptTitle(effectiveContent, baseTitle, videoTitle)
   const scriptTitle = savedScript?.title || derivedTitle
   const isAlreadySaved = Boolean(savedScript || initialScriptId)
   const currentSavedVersion = savedScript?.currentVersion || 1

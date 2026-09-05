@@ -24,6 +24,79 @@ function calculateStats(content: string): { wordCount: number; estimatedDuration
   return { wordCount: words, estimatedDurationMinutes: minutes };
 }
 
+function sanitizeTitle(title: string): string {
+  if (!title) return '';
+  return title
+    .replace(/^[🎙\s*#"'“”]+|[🎙\s*#"'“”]+$/g, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+function isGenericTitle(title?: string): boolean {
+  if (!title) return true;
+  const clean = sanitizeTitle(title);
+  if (clean.length < 4) return true;
+  const genericPatterns = [
+    /^(?:🎙\s*)?LIVE SCRIPT/i,
+    /^TELEPROMPTER/i,
+    /^ACCURACY NOTE/i,
+    /^IMPORTANT ACCURACY/i,
+    /^LEGAL STATUS/i,
+    /^BEFORE YOU RECORD/i,
+    /^SCRIPT DRAFT/i,
+    /^FULL SCRIPT/i,
+    /^6-PART SCRIPT/i,
+    /^BEAUTIFIED TELEPROMPTER/i,
+    /^YOUTUBE (?:VIDEO )?SCRIPT/i,
+    /^PRODUCTION PACKAGE/i,
+    /^VIDEO TOPIC IDEAS/i,
+    /^UNTITLED/i,
+    /^AI CHAT/i,
+    /^SECTION \d+/i,
+    /^COLD OPEN/i,
+    /^WHAT HAPPENED/i,
+    /^UNIQUE MECCA BREAKDOWN/i,
+    /^THE HUMAN COST/i,
+    /^THE YOUTH WARNING/i,
+    /^FINAL JEWEL/i,
+    /^10 VIRAL QUESTIONS/i,
+  ];
+  return genericPatterns.some((rx) => rx.test(clean));
+}
+
+function extractTopicTitle(content: string, fallbackTitle?: string): string {
+  if (!content) return fallbackTitle || 'YouTube Video Script';
+
+  // 1. Explicit AI Contract: # SCRIPT TITLE: [Title]
+  const explicitMatch = content.match(/(?:^|\n)(?:#+\s*)?(?:(?:Episode|Script|Video)\s+)?Title:\s*["“]?([^"\n\r”]+)["”]?/i);
+  if (explicitMatch && explicitMatch[1]) {
+    const clean = sanitizeTitle(explicitMatch[1]);
+    if (!isGenericTitle(clean)) return clean;
+  }
+
+  // 2. Quoted Headline on its own line near the start
+  const quotedMatch = content.match(/(?:^|\n)\s*["“]([^"”\n\r]{6,120})["”]\s*(?:\n|$)/);
+  if (quotedMatch && quotedMatch[1]) {
+    const clean = sanitizeTitle(quotedMatch[1]);
+    if (!isGenericTitle(clean)) return clean;
+  }
+
+  // 3. Markdown Heading # or ## near top
+  const headingMatches = content.matchAll(/(?:^|\n)(?:#{1,3})\s+([^#\n\r]{6,120})(?:\n|$)/g);
+  for (const m of headingMatches) {
+    const candidate = sanitizeTitle(m[1]);
+    if (!isGenericTitle(candidate)) {
+      return candidate;
+    }
+  }
+
+  if (fallbackTitle && !isGenericTitle(fallbackTitle)) {
+    return sanitizeTitle(fallbackTitle);
+  }
+
+  return 'YouTube Video Script';
+}
+
 @Injectable()
 export class ScriptsService {
   private readonly logger = new Logger(ScriptsService.name);
@@ -59,6 +132,7 @@ export class ScriptsService {
     const stats = calculateStats(dto.content);
     const wordCount = dto.wordCount || stats.wordCount;
     const estimatedDurationMinutes = dto.estimatedDurationMinutes || stats.estimatedDurationMinutes;
+    const resolvedTitle = isGenericTitle(dto.title) ? extractTopicTitle(dto.content, dto.title) : dto.title;
 
     const script = await this.scriptModel.create({
       channelId: new Types.ObjectId(channelId),
@@ -66,7 +140,7 @@ export class ScriptsService {
       threadId: dto.threadId && Types.ObjectId.isValid(dto.threadId) ? new Types.ObjectId(dto.threadId) : undefined,
       messageId: dto.messageId,
       videoId: dto.videoId,
-      title: dto.title,
+      title: resolvedTitle,
       content: dto.content,
       blocks: dto.blocks || [],
       wordCount,
@@ -84,7 +158,7 @@ export class ScriptsService {
       await this.versionModel.create({
         scriptId: script._id,
         versionNumber: 1,
-        title: dto.title,
+        title: resolvedTitle,
         content: dto.content,
         blocks: dto.blocks || [],
         wordCount,
@@ -480,7 +554,7 @@ export class ScriptsService {
 Transform the following raw, unstructured text into a professional teleprompter script using strict spoken cadence rules.
 
 FORMATTING RULES:
-1. Main Episode Title: # TITLE
+1. Main Episode Title: # SCRIPT TITLE: [TOPIC HEADLINE]
 2. Numbered Section Titles: ## 1. SECTION TITLE
 3. Sub-sections: **➤ A. — SUB-SECTION TITLE**
 4. Lead thoughts: **• Main lead thought sentence**
@@ -506,8 +580,9 @@ ${dto.rawText}`;
     });
 
     const stats = calculateStats(formatted);
+    const resolvedTitle = isGenericTitle(dto.title) ? extractTopicTitle(formatted, dto.title) : (dto.title || 'YouTube Video Script');
     return {
-      title: dto.title || 'Beautified Teleprompter Script',
+      title: resolvedTitle,
       content: formatted,
       wordCount: stats.wordCount,
       estimatedDurationMinutes: stats.estimatedDurationMinutes,

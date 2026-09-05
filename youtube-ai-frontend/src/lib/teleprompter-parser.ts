@@ -42,6 +42,90 @@ export interface ParsedScriptSection {
   isViralQuestions?: boolean;
 }
 
+export function sanitizeScriptTitle(title: string): string {
+  if (!title) return '';
+  return title
+    .replace(/^[🎙\s*#"'“”]+|[🎙\s*#"'“”]+$/g, '')
+    .replace(/\*\*/g, '')
+    .trim();
+}
+
+export function isValidScriptTitle(title: string): boolean {
+  if (!title || typeof title !== 'string') return false;
+  const clean = sanitizeScriptTitle(title);
+  if (clean.length < 4 || clean.length > 150) return false;
+
+  const blacklist = [
+    /^(?:🎙\s*)?LIVE SCRIPT/i,
+    /^TELEPROMPTER/i,
+    /^ACCURACY NOTE/i,
+    /^IMPORTANT ACCURACY/i,
+    /^LEGAL STATUS/i,
+    /^BEFORE YOU RECORD/i,
+    /^SCRIPT DRAFT/i,
+    /^FULL SCRIPT/i,
+    /^6-PART SCRIPT/i,
+    /^BEAUTIFIED TELEPROMPTER/i,
+    /^YOUTUBE (?:VIDEO )?SCRIPT/i,
+    /^PRODUCTION PACKAGE/i,
+    /^VIDEO TOPIC IDEAS/i,
+    /^UNTITLED/i,
+    /^AI CHAT/i,
+    /^SECTION \d+/i,
+    /^COLD OPEN/i,
+    /^WHAT HAPPENED/i,
+    /^UNIQUE MECCA BREAKDOWN/i,
+    /^THE HUMAN COST/i,
+    /^THE YOUTH WARNING/i,
+    /^FINAL JEWEL/i,
+    /^10 VIRAL QUESTIONS/i,
+  ];
+
+  return !blacklist.some((rx) => rx.test(clean));
+}
+
+export function extractScriptTitle(content: string, baseTitle?: string, videoTitle?: string): string {
+  if (!content) return videoTitle || baseTitle || 'YouTube Video Script';
+
+  // 1. Explicit AI Contract line: # SCRIPT TITLE: [Title] or Title: [Title]
+  const explicitMatch = content.match(/(?:^|\n)(?:#+\s*)?(?:(?:Episode|Script|Video)\s+)?Title:\s*["“]?([^"\n\r”]+)["”]?/i);
+  if (explicitMatch && explicitMatch[1]) {
+    const clean = sanitizeScriptTitle(explicitMatch[1]);
+    if (isValidScriptTitle(clean)) return clean;
+  }
+
+  // 2. Quoted Headline on its own line near the start
+  const quotedMatch = content.match(/(?:^|\n)\s*["“]([^"”\n\r]{6,120})["”]\s*(?:\n|$)/);
+  if (quotedMatch && quotedMatch[1]) {
+    const clean = sanitizeScriptTitle(quotedMatch[1]);
+    if (isValidScriptTitle(clean)) return clean;
+  }
+
+  // 3. Markdown Heading # or ## near the top
+  const headingMatches = content.matchAll(/(?:^|\n)(?:#{1,3})\s+([^#\n\r]{6,120})(?:\n|$)/g);
+  for (const m of headingMatches) {
+    const candidate = sanitizeScriptTitle(m[1]);
+    if (isValidScriptTitle(candidate)) {
+      return candidate;
+    }
+  }
+
+  // 4. Quoted hook in COLD OPEN line
+  const coldOpenHook = content.match(/COLD OPEN[^\n]*?["“]([^"”\n\r]{6,120})["”]/i);
+  if (coldOpenHook && coldOpenHook[1]) {
+    const clean = sanitizeScriptTitle(coldOpenHook[1]);
+    if (isValidScriptTitle(clean)) return clean;
+  }
+
+  // 5. Video Title / Thread Title fallback
+  const fallback = videoTitle || baseTitle;
+  if (fallback && isValidScriptTitle(fallback)) {
+    return sanitizeScriptTitle(fallback);
+  }
+
+  return fallback || 'YouTube Video Script';
+}
+
 /**
  * Splits raw teleprompter markdown into structured sections.
  */
@@ -51,6 +135,7 @@ export function parseScriptSections(content: string): ParsedScriptSection[] {
   const normalized = content
     .replace(/<!--\s*SCRIPT_(?:START|END)\s*-->/gi, '')
     .replace(/<<<\/?SCRIPT_(?:START|END)>>>/gi, '')
+    .replace(/^[#\s]*(?:SCRIPT|EPISODE|VIDEO)\s+TITLE:\s*[^\n\r]*$/gim, '')
     .replace(/\r\n/g, '\n');
   const sections: ParsedScriptSection[] = [];
   const parts = normalized.split(/(?=^#{1,3}\s+|^(?:\*\*)?(?:COLD OPEN|WHAT HAPPENED|UNIQUE MECCA BREAKDOWN|THE HUMAN COST|THE YOUTH WARNING|FINAL JEWEL|10 VIRAL QUESTIONS))/gim);

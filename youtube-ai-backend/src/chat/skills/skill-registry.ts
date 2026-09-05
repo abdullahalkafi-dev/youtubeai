@@ -53,7 +53,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
+Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -66,7 +66,9 @@ Follow the 6-part script structure with timestamps, section headers, and 💎 JE
 [3-5 hashtags with #]
 
 ### If THUMBNAIL intent:
-### Concept 1
+Always deliver your strategic explanation first in markdown, then wrap the concrete concepts inside <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END -->:
+<!-- THUMBNAILS_START -->
+### Concept 1: [Angle Name]
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
 - Left Zone (0-40%): [Commanding close-up chest-up shot of named subject with physical attire and emotion]
@@ -74,7 +76,10 @@ Follow the 6-part script structure with timestamps, section headers, and 💎 JE
 - Right Zone & Background (60-100%): [Rich background setting filling full frame, e.g. courtroom gallery with spectators, flags]
 - Lighting & Camera: [35mm documentary photography, directional rim lighting, deep shadows]
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
+**Why it clicks:** [1-sentence psychological rationale]
+
 (Same 3-zone structure for Concept 2 and 3)
+<!-- THUMBNAILS_END -->
 
 ### If IDEA intent:
 ## Score
@@ -254,6 +259,8 @@ CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->"
 Format Section 8 strictly as a spoken-cadence teleprompter script:
 
 <!-- SCRIPT_START -->
+# SCRIPT TITLE: [Specific Topic / Case Headline]
+
 # [EPISODE TITLE]
 
 ## 1. COLD OPEN [0:00 - 0:45]
@@ -407,9 +414,10 @@ ${scriptFormat}`,
     });
 
     // Thumbnail skill
-    const thumbnailFormat = `Format 3 thumbnail concepts strictly in this structure:
+    const thumbnailFormat = `Always wrap all 3 thumbnail concepts strictly inside the delimiters <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END -->:
 
-### Concept 1
+<!-- THUMBNAILS_START -->
+### Concept 1: [Angle Name]
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
 - Left Zone (0-40%): [Commanding close-up chest-up shot (40-60% canvas height) of named subject with physical attire and distinct emotional expression]
@@ -417,8 +425,9 @@ ${scriptFormat}`,
 - Right Zone & Background (60-100%): [Rich background setting filling the full canvas edge-to-edge, e.g. courtroom gallery with seated spectators in suits, jury box, flags, or warm paneling]
 - Lighting & Camera: [35mm documentary photography, 85mm portrait lens, directional rim lighting, deep chiaroscuro]
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
+**Why it clicks:** [1-sentence psychological rationale]
 
-### Concept 2
+### Concept 2: [Angle Name]
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
 **Visual concept:**
 - Left Zone (0-40%): [Named subject close-up with physical attire and emotional expression]
@@ -426,15 +435,18 @@ ${scriptFormat}`,
 - Right Zone & Background (60-100%): [Full atmospheric courtroom or holding corridor environment filling the right side]
 - Lighting & Camera: [Dramatic high-contrast 35mm photo style]
 **Color scheme:** [Primary colors to use]
+**Why it clicks:** [Rationale]
 
-### Concept 3
+### Concept 3: [Angle Name]
 **Text overlay:** [2-4 UPPERCASE words max]
 **Visual concept:**
 - Left Zone (0-40%): [Intense commanding portrait or face-off with physical attire]
 - Center Zone (35-65%): [Symbolic evidence anchor, defense table, or document stack]
 - Right Zone & Background (60-100%): [Atmospheric courtroom bench or dim gallery filling the full canvas]
 - Lighting & Camera: [High-contrast chiaroscuro lighting, 35mm photo look]
-**Color scheme:** [Primary colors to use]`;
+**Color scheme:** [Primary colors to use]
+**Why it clicks:** [Rationale]
+<!-- THUMBNAILS_END -->`;
     this.register({
       name: 'Thumbnail Designer',
       category: 'thumbnail',
@@ -735,29 +747,36 @@ ${imageFormat}`,
       }
     }
 
+    // Check for conversational iteration on previous thumbnails (e.g. "make them darker", "change concept 2", "try lighter")
+    if (previousAssistantMessage && (previousAssistantMessage.includes('THUMBNAILS_START') || /Concept\s*[1-3]/i.test(previousAssistantMessage))) {
+      if (/\b(darker|lighter|change\s+concept|concept\s*[1-3]|make\s+(?:it|them)\s+(?:more|less)?\s*(?:dark|light|cinematic|dramatic|intense)|different\s+(?:angle|color|face)|add\s+(?:prosecutor|lawyer|judge|microphone|gavel)|try\s+another|give\s+me\s+\d+\s+more)\b/i.test(trimmed)) {
+        return 'thumbnail';
+      }
+    }
+
     return this.classifyTextIntent(trimmed);
   }
 
   private classifyTextIntent(lower: string): string {
-    // 1. Action-specific visual intents FIRST (prevent "for a video" or "for this script" from hijacking to script)
-    if (/\b(thumbnail|cover.*art|thumb)\b/i.test(lower)) return 'thumbnail';
+    // 1. Action-specific visual intents FIRST (handles singular/plural and phrase patterns)
+    if (/\b(thumbnails?|cover\s*arts?|thumbs?)\b/i.test(lower)) return 'thumbnail';
 
-    if (/\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photo|wallpaper)\b/i.test(lower)) return 'image';
+    if (/\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photos?|wallpapers?)\b/i.test(lower)) return 'image';
 
     // 2. Metadata / SEO
-    if (/\b(seo|title.*description|tags|keywords|optimize|hashtag|meta\s*description)\b/i.test(lower)) return 'seo';
+    if (/\b(seo|title.*description|tags?|keywords?|optimize|hashtags?|meta\s*description)\b/i.test(lower)) return 'seo';
 
     // 3. Script intent (explicit script requests only)
-    if (/\b(write.*script|draft.*script|full.*script|teleprompter|cold\s+open|6.?part|video\s+script|\bscript\b)\b/i.test(lower)) return 'script';
+    if (/\b(write.*scripts?|draft.*scripts?|full.*scripts?|teleprompter|cold\s+open|6.?part|video\s+scripts?|\bscripts?\b)\b/i.test(lower)) return 'script';
 
     // 4. Analysis, Strategy & Trends
-    if (/\b(trending|trends|what.*popular|hot topic|current events|whats.*news)\b/i.test(lower)) return 'trends';
+    if (/\b(trending|trends|what.*popular|hot topics?|current events|whats.*news)\b/i.test(lower)) return 'trends';
 
-    if (/\b(competitor|competing|other channel|content gap|rival|what.*they.*doing)\b/i.test(lower)) return 'competitor';
+    if (/\b(competitor|competing|other channels?|content gaps?|rivals?|what.*they.*doing)\b/i.test(lower)) return 'competitor';
 
-    if (/\b(idea|score.*idea|rate.*idea|evaluate|greenlight|pass)\b/i.test(lower)) return 'ideas';
+    if (/\b(ideas?|score.*ideas?|rate.*ideas?|evaluate|greenlight|pass)\b/i.test(lower)) return 'ideas';
 
-    if (/\b(outline|structure|organize|plan.*video|hook|angle)\b/i.test(lower)) return 'outline';
+    if (/\b(outlines?|structure|organize|plan.*video|hooks?|angles?)\b/i.test(lower)) return 'outline';
 
     return 'general';
   }
