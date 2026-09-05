@@ -2,6 +2,7 @@ export interface ThumbnailEditDecision {
   userIntentSummary: string;
   category: 'overlay_only' | 'scene_generation' | 'hybrid';
   detectedMainSubject?: string;
+  uploadedImageRole?: 'host' | 'main_character' | 'none';
   overlayActions: {
     host: 'remove' | 'keep' | 'change_image' | 'no_change';
     newHostImage?: string;

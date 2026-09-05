@@ -1306,14 +1306,6 @@ export class ChatService {
       }
     }
 
-    // Build reference images list (including custom host if provided)
-    const referenceImageUrls = [...(dto.referenceImageUrls || [])];
-    const effectiveCustomHost =
-      dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
-    if (effectiveCustomHost && !referenceImageUrls.includes(effectiveCustomHost)) {
-      referenceImageUrls.push(effectiveCustomHost);
-    }
-
     const storyContext = await this.openaiService.extractStoryContextFromThread({
       videoTitle: videoContextTitle,
       videoDescription: videoDoc?.description,
@@ -1332,6 +1324,20 @@ export class ChatService {
       currentAspectRatio: resolvedAspectRatio || '16:9',
       recentMessages: thread.messages,
     });
+
+    // Disambiguate uploaded images: Host vs Story Subject
+    const incomingUploadedUrls = [...(dto.referenceImageUrls || [])];
+    const rawCustomHost = dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
+    let effectiveCustomHost = rawCustomHost;
+    const diffusionReferenceUrls: string[] = [];
+
+    for (const u of incomingUploadedUrls) {
+      if (u === rawCustomHost || compiledDecision.uploadedImageRole === 'host') {
+        if (!effectiveCustomHost) effectiveCustomHost = u;
+      } else {
+        diffusionReferenceUrls.push(u);
+      }
+    }
 
     // Derive overlay flags from middleware decision with top priority
     let excludeHost: boolean;
@@ -1371,27 +1377,136 @@ export class ChatService {
     // Prioritize clean un-composited background so OpenAI operates on clean scene pixels
     const baseImageToSend = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
 
-    const resolvedHostImage = excludeHost
-      ? 'none'
-      : (compiledDecision.overlayActions.newHostImage || (dto.selectedHostImage && dto.selectedHostImage !== 'none' ? dto.selectedHostImage : 'default'));
+    // Look back in thread messages to find original concept's host if restoring
+    let threadOriginalHost: string | undefined;
+    for (const msg of thread.messages) {
+      if (msg.metadata?.images) {
+        for (const img of (msg.metadata.images as any[])) {
+          if (img.selectedHostImage && img.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(img.selectedHostImage) || img.selectedHostImage === 'default')) {
+            threadOriginalHost = img.selectedHostImage;
+            break;
+          }
+        }
+      }
+      if (threadOriginalHost) break;
+    }
+
+    const rawNewHost = compiledDecision.overlayActions.newHostImage;
+    const isValidHostFilename =
+      typeof rawNewHost === 'string' &&
+      (/^host_\d+(\.png)?$/i.test(rawNewHost) || rawNewHost === 'default');
+
+    let resolvedHostImage = 'none';
+    if (!excludeHost) {
+      if (isValidHostFilename) {
+        resolvedHostImage = rawNewHost.endsWith('.png') || rawNewHost === 'default' ? rawNewHost : `${rawNewHost}.png`;
+      } else if (dto.selectedHostImage && dto.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(dto.selectedHostImage) || dto.selectedHostImage === 'default')) {
+        resolvedHostImage = dto.selectedHostImage;
+      } else if (matchedImg?.selectedHostImage && matchedImg.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(matchedImg.selectedHostImage) || matchedImg.selectedHostImage === 'default')) {
+        resolvedHostImage = matchedImg.selectedHostImage;
+      } else if (threadOriginalHost) {
+        resolvedHostImage = threadOriginalHost;
+      } else {
+        resolvedHostImage = 'default';
+      }
+    }
 
     this.logger.log(
       `[Thumbnail Edit] Processing edit request for thread ${threadId}:\n` +
       `- Client Prompt: "${dto.prompt}"\n` +
+      `- Category: ${compiledDecision.category}\n` +
       `- Middleware Intent: "${compiledDecision.userIntentSummary}"\n` +
       `- Main Subject Decision: ${compiledDecision.sceneActions?.mainSubject || 'keep_intact'}\n` +
-      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost}, selectedHost: ${resolvedHostImage})\n` +
+      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost}, selectedHost: ${resolvedHostImage}, customHost: ${effectiveCustomHost || 'none'})\n` +
       `- Logo Action: ${compiledDecision.overlayActions.logo} (excludeLogo: ${excludeLogo})\n` +
       `- Base Image Sent: ${baseImageToSend}`,
     );
 
+    // Instant 50ms Overlay-Only Path: When user only changes host/logo and no scene modifications
+    if (compiledDecision.category === 'overlay_only' && baseImageToSend) {
+      this.logger.log(`[Thumbnail Edit] Executing instant overlay-only composition via Sharp (zero background drift)...`);
+
+      let customHostBuffer: Buffer | undefined;
+      if (effectiveCustomHost && !excludeHost) {
+        try {
+          customHostBuffer = await this.composerService.fetchBufferFromUrl(effectiveCustomHost);
+        } catch (e: any) {
+          this.logger.warn(`Failed to fetch custom host buffer: ${e.message}`);
+        }
+      }
+
+      const composedBuffer = await this.composerService.composeThumbnail({
+        backgroundInput: baseImageToSend,
+        selectedHostImage: excludeHost ? 'none' : resolvedHostImage,
+        customHostBuffer,
+        excludeHost,
+        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        excludeLogo,
+        aspectRatio: finalAspectRatio,
+      });
+
+      let finalUrl: string;
+      const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+      if (isMinioReady) {
+        try {
+          finalUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, composedBuffer);
+        } catch {
+          const filename = `edited_${Date.now()}.png`;
+          const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+          if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+          fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+          finalUrl = `/api/assets/generated/${filename}`;
+        }
+      } else {
+        const filename = `edited_${Date.now()}.png`;
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+        finalUrl = `/api/assets/generated/${filename}`;
+      }
+
+      const imageObj = {
+        id: new Types.ObjectId().toString(),
+        url: finalUrl,
+        cleanBackgroundUrl: baseImageToSend,
+        prompt: matchedImg?.prompt || dto.prompt,
+        conceptTitle: 'Edit',
+        textOverlay: matchedImg?.textOverlay || dto.textOverlay || '',
+        visualDescription: compiledDecision.userIntentSummary || dto.prompt,
+        selectedHostImage: resolvedHostImage,
+        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        aspectRatio: finalAspectRatio,
+        mode: dto.mode || 'thumbnail',
+        createdAt: new Date(),
+      };
+
+      const assistantMessage: Message = {
+        role: 'assistant',
+        content: `Edited image: ${dto.prompt}`,
+        metadata: {
+          category: 'image',
+          images: [imageObj],
+        },
+        createdAt: new Date(),
+      } as any;
+
+      await this.threadModel.findByIdAndUpdate(threadId, {
+        $push: { messages: assistantMessage },
+        $set: { updatedAt: new Date() },
+      });
+
+      return { imageUrl: finalUrl, image: imageObj };
+    }
+
+    // Diffusion Path (Scene / Hybrid Edit)
     const result = await this.openaiService.editImageWithReference(
       baseImageToSend,
       compiledDecision.compiledDiffusionPrompt || dto.prompt,
       {
-        referenceImageUrls,
+        referenceImageUrls: diffusionReferenceUrls,
         mode: dto.mode || 'thumbnail',
         selectedHostImage: resolvedHostImage,
+        customHostUrl: effectiveCustomHost,
         excludeHost,
         excludeLogo,
         logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),

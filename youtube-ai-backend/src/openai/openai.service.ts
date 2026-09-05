@@ -1303,29 +1303,45 @@ User Request: ${params.userPrompt || ''}`,
       const systemPrompt = `You are an expert AI Image Edit Intent & Prompt Compiler for a YouTube true crime and high-profile courtroom trials channel ("Unique Mecca Audio").
 The client is giving feedback or requesting an edit on a generated thumbnail image.
 
-CRITICAL ENTITY DISAMBIGUATION (NEVER CONFUSE THESE TWO):
+CRITICAL ARCHITECTURE - HOW OVERLAYS WORK:
+- The channel host/presenter corner cutout sticker and logo watermark are ALWAYS composited in high-resolution post-processing via Sharp, NEVER painted by the AI diffusion model!
+- The AI diffusion model ONLY modifies the background scene canvas, main subject (e.g. Duane "Keefe D" Davis, Lil Durk, Diddy), lighting, props, and headline text.
+- If the client requests to ADD or KEEP the host/presenter:
+  * In compiledDiffusionPrompt, instruct the AI: "Keep the bottom-right corner completely empty, dark, and clear of faces or text (reserved for creator overlay). Do NOT paint or draw any channel host portrait or corner cutout sticker."
+  * Do NOT ask the diffusion model to draw or paint the host/presenter!
+- If the client ONLY requests overlay changes (e.g. "add me", "remove me", "without me", "move logo", "no logo") and requests NO changes to the scene, character, or headline:
+  * Set "category": "overlay_only"
+
+CRITICAL ENTITY & IMAGE DISAMBIGUATION (NEVER CONFUSE THESE):
 1. "MAIN STORY SUBJECT": The historical/news figure inside the courtroom/crime documentary scene (e.g. Duane "Keefe D" Davis, Sean "Diddy" Combs, Lil Durk, Donald Trump, Tupac Shakur). They are seated at defense tables, in prison jumpsuits, or in handcuffs.
 2. "CHANNEL HOST / PRESENTER": The YouTube channel host (Unique Mecca in bucket hat, or client's uploaded custom portrait) who appears as a corner cutout sticker.
 - RULE 1: When the client says "remove me", "no host", "without me", "take me out", "delete me", "remove my picture", "no me", they ALWAYS refer to the CHANNEL HOST / PRESENTER corner cutout. They NEVER mean the main story subject!
 - RULE 2: When the client says "remove the main guy", "empty the chair", "remove the defendant", "remove Keefe D", they refer to the MAIN STORY SUBJECT.
-- RULE 3: Filter out all conversational chatter, meta-complaints, and speech-to-text typos (e.g. "than when cliek edit i got the main subject gor removed, what need to do what is the issue"). Focus strictly on what they want the image to become.
+- RULE 3: When the client provides an uploaded image:
+  * If client says "use this as me", "my photo", "my picture", "use as presenter", set "uploadedImageRole": "host".
+  * If client says "use this as this person", "use as Keefe D / defendant / victim", set "uploadedImageRole": "main_character".
+  * Otherwise set "uploadedImageRole": "none".
+- RULE 4: Filter out all conversational chatter, meta-complaints, and speech-to-text typos. Focus strictly on what they want the image to become.
 
 COMPILED PROMPT RULES FOR images.edit:
 - If the main story subject should be kept: You MUST start the compiled prompt with:
   "CRITICAL SUBJECT PRESERVATION: Strictly keep [main story subject name] in the scene completely intact with consistent facial features, build, and attire. Do NOT erase or remove [main story subject name]."
 - If the client wants the host/presenter removed: Include:
-  "Remove the corner presenter cutout sticker (person wearing bucket hat/sunglasses) from the corner. Cleanly inpaint and reconstruct the underlying courtroom desk, case files, or papers naturally under the scene lighting."
+  "Remove any corner presenter cutout sticker from the corner. Cleanly inpaint and reconstruct the underlying courtroom desk, case files, or papers naturally under the scene lighting."
 - If the client requests headline text changes: Specify the exact uppercase words (2-4 words) with bold high-contrast styling.
 - If the client requests scene changes (lighting, background): Explicitly describe the visual alterations.
+- If the host is present or being added: Include:
+  "Keep the bottom-right corner completely empty, dark, and clear of faces and text (reserved for creator overlay). Do NOT paint or draw any channel host portrait or corner cutout sticker."
 
 You must respond in strict JSON matching this schema:
 {
   "userIntentSummary": "string (1 line summary)",
   "category": "overlay_only" | "scene_generation" | "hybrid",
   "detectedMainSubject": "string (e.g. Duane 'Keefe D' Davis)",
+  "uploadedImageRole": "host" | "main_character" | "none",
   "overlayActions": {
     "host": "remove" | "keep" | "change_image" | "no_change",
-    "newHostImage": "string or null",
+    "newHostImage": "host_1.png" | "host_2.png" | "host_3.png" | "host_4.png" | "host_5.png" | "host_6.png" | "host_7.png" | "default" | null,
     "logo": "remove" | "keep" | "top-left" | "top-right" | "no_change",
     "aspectRatio": "16:9" | "9:16" | "keep"
   },
@@ -1444,6 +1460,7 @@ CLIENT EDIT REQUEST:
       inputFidelity?: 'high' | 'low';
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
+      customHostUrl?: string;
       excludeHost?: boolean;
       excludeLogo?: boolean;
       logoPosition?: 'top-left' | 'top-right' | 'none';
@@ -1541,10 +1558,12 @@ CLIENT EDIT REQUEST:
     if (options?.mode !== 'scene') {
       editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render strictly 2 to 4 words in bold UPPERCASE with high-contrast yellow/white lettering and heavy black drop-shadow.`;
       if (options?.excludeHost) {
-        editPrompt += `\n4. EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene.`;
+        editPrompt += `\n4. EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene. Cleanly inpaint underlying scene elements.`;
+      } else {
+        editPrompt += `\n4. HOST CORNER CLEARANCE: Do NOT paint, draw, or synthesize any channel host portrait or corner cutout sticker directly into the scene. Keep the bottom-right corner completely empty, dark, and in shadow so the host sticker can be composited separately in post-processing.`;
       }
       if (options?.referenceImageUrls && options.referenceImageUrls.length > 0) {
-        editPrompt += `\n5. REFERENCE INTEGRATION: Naturally blend the person from the reference image directly into the scene with authentic ambient lighting, matching courtroom/cinematic shadows, and realistic perspective.`;
+        editPrompt += `\n5. REFERENCE INTEGRATION: Reference Image 1 depicts the main story subject. Naturally blend this person directly into the scene at the defense table / courtroom setting with authentic ambient lighting, matching courtroom/cinematic shadows, and realistic perspective. This reference is NOT the host cutout.`;
       }
     }
 
@@ -1615,15 +1634,23 @@ CLIENT EDIT REQUEST:
     // For thumbnail mode (default): Re-composite host sticker and logo watermark
     if (options?.mode !== 'scene') {
       try {
-        const hasReferenceHost = options?.referenceImageUrls && options.referenceImageUrls.length > 0;
-        // Suppress Sharp host overlay if host was explicitly excluded OR passed via reference image (AI synthesized the host)
-        const suppressSharpHost = options?.excludeHost === true || hasReferenceHost || options?.selectedHostImage === 'none';
+        const suppressSharpHost = options?.excludeHost === true || options?.selectedHostImage === 'none';
         const resolvedLogoPos = options?.excludeLogo ? 'none' : (options?.logoPosition || 'top-right');
+
+        let customHostBuffer: Buffer | undefined;
+        if (options?.customHostUrl && !suppressSharpHost) {
+          try {
+            customHostBuffer = await this.composerService.fetchBufferFromUrl(options.customHostUrl);
+          } catch (e: any) {
+            this.logger.warn(`Failed to fetch custom host buffer from ${options.customHostUrl}: ${e.message}`);
+          }
+        }
 
         this.logger.log(`Re-compositing overlays on edited thumbnail (suppressHost: ${suppressSharpHost}, logoPos: ${resolvedLogoPos})...`);
         const composed = await this.composerService.composeThumbnail({
           backgroundInput: editedBuffer,
           selectedHostImage: suppressSharpHost ? 'none' : options?.selectedHostImage,
+          customHostBuffer,
           excludeHost: suppressSharpHost,
           logoPosition: resolvedLogoPos,
           excludeLogo: options?.excludeLogo || resolvedLogoPos === 'none',

@@ -179,8 +179,12 @@ export class ThumbnailComposerService {
       return null;
     }
 
-    if (options.customHostBuffer) return options.customHostBuffer;
-    if (options.hostImageBuffer) return options.hostImageBuffer;
+    if (options.customHostBuffer) {
+      return await this.ensureTransparentCutout(options.customHostBuffer);
+    }
+    if (options.hostImageBuffer) {
+      return await this.ensureTransparentCutout(options.hostImageBuffer);
+    }
 
     const uniqueDir = this.resolveAssetDir('unique_images');
 
@@ -327,5 +331,162 @@ export class ThumbnailComposerService {
       { input: logoShadowBuffer, top: shadowTop, left: shadowLeft },
       { input: resizedLogo, top, left },
     ];
+  }
+
+  /**
+   * Intelligently ensure a host image is a transparent cutout.
+   * If the input is already transparent, passes through untouched.
+   * If the input has a solid background (black, dark gray, white, green screen):
+   * automatically keys out the solid background with smooth edge anti-aliasing.
+   * If it has a complex un-keyed background, formats it as a modern rounded presenter badge.
+   */
+  public async ensureTransparentCutout(inputBuffer: Buffer): Promise<Buffer> {
+    try {
+      const { data, info } = await sharp(inputBuffer)
+        .ensureAlpha()
+        .raw()
+        .toBuffer({ resolveWithObject: true });
+
+      const { width, height, channels } = info;
+      if (channels !== 4 || width < 10 || height < 10) return inputBuffer;
+
+      // Sample border pixels to check if already transparent
+      let transparentBorderPixels = 0;
+      const sampleCoords: Array<[number, number]> = [];
+      const stepX = Math.max(1, Math.floor(width / 10));
+      const stepY = Math.max(1, Math.floor(height / 10));
+
+      for (let x = 0; x < width; x += stepX) {
+        sampleCoords.push([x, 0], [x, height - 1]);
+      }
+      for (let y = 0; y < height; y += stepY) {
+        sampleCoords.push([0, y], [width - 1, y]);
+      }
+
+      for (const [x, y] of sampleCoords) {
+        const idx = (y * width + x) * 4;
+        if (data[idx + 3] < 50) {
+          transparentBorderPixels++;
+        }
+      }
+
+      // If > 20% of border pixels are already transparent, it's already a clean cutout
+      if (transparentBorderPixels > sampleCoords.length * 0.20) {
+        return inputBuffer;
+      }
+
+      // Check corners for solid background color
+      const cornerIndices = [
+        0, // top-left
+        (width - 1) * 4, // top-right
+        ((height - 1) * width) * 4, // bottom-left
+        ((height - 1) * width + (width - 1)) * 4, // bottom-right
+      ];
+
+      const cornerColors = cornerIndices.map((idx) => ({
+        r: data[idx],
+        g: data[idx + 1],
+        b: data[idx + 2],
+      }));
+
+      // Check if corners are black / dark background (r < 45, g < 45, b < 45)
+      const isDarkBg = cornerColors.every((c) => c.r < 45 && c.g < 45 && c.b < 45);
+      // Check if corners are white background (r > 225, g > 225, b > 225)
+      const isWhiteBg = cornerColors.every((c) => c.r > 225 && c.g > 225 && c.b > 225);
+      // Check if corners are green screen (g > 140 && g > r * 1.3 && g > b * 1.3)
+      const isGreenBg = cornerColors.every((c) => c.g > 140 && c.g > c.r * 1.3 && c.g > c.b * 1.3);
+
+      if (isDarkBg) {
+        this.logger.log(`[Auto-Cutout] Detected solid dark/black background. Keying out into transparent cutout...`);
+        const outData = Buffer.from(data);
+        const lowCut = 30;
+        const highCut = 55;
+
+        for (let i = 0; i < outData.length; i += 4) {
+          const r = outData[i];
+          const g = outData[i + 1];
+          const b = outData[i + 2];
+          const maxBrightness = Math.max(r, g, b);
+
+          if (maxBrightness <= lowCut) {
+            outData[i + 3] = 0; // completely transparent
+          } else if (maxBrightness < highCut) {
+            const alphaRatio = (maxBrightness - lowCut) / (highCut - lowCut);
+            outData[i + 3] = Math.round(alphaRatio * 255);
+          }
+        }
+
+        return await sharp(outData, {
+          raw: { width, height, channels: 4 },
+        })
+          .png()
+          .toBuffer();
+      }
+
+      if (isWhiteBg) {
+        this.logger.log(`[Auto-Cutout] Detected solid white background. Keying out into transparent cutout...`);
+        const outData = Buffer.from(data);
+        const lowCut = 220;
+        const highCut = 245;
+
+        for (let i = 0; i < outData.length; i += 4) {
+          const r = outData[i];
+          const g = outData[i + 1];
+          const b = outData[i + 2];
+          const minBrightness = Math.min(r, g, b);
+
+          if (minBrightness >= highCut) {
+            outData[i + 3] = 0;
+          } else if (minBrightness > lowCut) {
+            const alphaRatio = 1 - (minBrightness - lowCut) / (highCut - lowCut);
+            outData[i + 3] = Math.round(alphaRatio * 255);
+          }
+        }
+
+        return await sharp(outData, {
+          raw: { width, height, channels: 4 },
+        })
+          .png()
+          .toBuffer();
+      }
+
+      if (isGreenBg) {
+        this.logger.log(`[Auto-Cutout] Detected green screen background. Keying out chroma-green into transparent cutout...`);
+        const outData = Buffer.from(data);
+        for (let i = 0; i < outData.length; i += 4) {
+          const r = outData[i];
+          const g = outData[i + 1];
+          const b = outData[i + 2];
+          if (g > 120 && g > r * 1.3 && g > b * 1.3) {
+            outData[i + 3] = 0;
+          }
+        }
+
+        return await sharp(outData, {
+          raw: { width, height, channels: 4 },
+        })
+          .png()
+          .toBuffer();
+      }
+
+      // Complex photo background: format as a sleek circular presenter badge
+      this.logger.log(`[Auto-Cutout] Complex background detected. Formatting as rounded presenter badge...`);
+      const size = Math.min(width, height);
+      const radius = Math.round(size / 2);
+      const circleSvg = Buffer.from(`
+        <svg width="${size}" height="${size}">
+          <circle cx="${radius}" cy="${radius}" r="${radius}" fill="#fff"/>
+        </svg>
+      `);
+
+      return await sharp(inputBuffer)
+        .resize(size, size, { fit: 'cover' })
+        .composite([{ input: circleSvg, blend: 'dest-in' }])
+        .png()
+        .toBuffer();
+    } catch (err: any) {
+      this.logger.warn(`Auto-cutout processing failed: ${err.message}. Using raw buffer.`);
+      return inputBuffer;
+    }
   }
 }

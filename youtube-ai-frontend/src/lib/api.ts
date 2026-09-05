@@ -48,8 +48,10 @@ export function formatAssetUrl(url: any): string {
   // If it's an external third-party URL (e.g. YouTube CDN, Google user content)
   if (cleanUrl.startsWith('http://') || cleanUrl.startsWith('https://')) {
     if (!cleanUrl.includes('meccaaudio.com') && !cleanUrl.includes('localhost') && !cleanUrl.includes('127.0.0.1')) {
-      return cleanUrl
+      return cleanUrl;
     }
+    // Strip our domain origin so we only have the path part
+    cleanUrl = cleanUrl.replace(/^https?:\/\/[^/]+/i, '');
   }
 
   const cleanPath = cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`
