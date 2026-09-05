@@ -1039,6 +1039,11 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
 
       try {
         this.logger.log(`Generating ${params.aspectRatio || '16:9'} thumbnail background with model '${model}' (${modelImageSize}) for: "${params.concept.text}"`);
+        this.logger.log(
+          `[Thumbnail Creation] Sending prompt to Image AI (${model}, ${modelImageSize}, quality: medium):\n` +
+          `Prompt: ${prompt}\n` +
+          `Headline: "${params.concept.text}" | Colors: "${params.concept.colors}" | Host: ${params.selectedHostImage || 'default'} | Logo: ${params.logoPosition || 'top-right'}`
+        );
 
         const requestParams: Record<string, any> = {
           model,
@@ -1227,10 +1232,13 @@ ${historySnippet}
 User Request: ${params.userPrompt || ''}`,
           },
         ],
-        max_completion_tokens: 100,
+        max_completion_tokens: 2048,
       });
 
-      const response = await this.client.chat.completions.create(requestPayload);
+      const response = await retryWithBackoff(
+        () => this.client.chat.completions.create(requestPayload),
+        { operationName: 'Fast Story Context Extraction' },
+      );
 
       return response.choices[0]?.message?.content?.trim() || '';
     } catch (err: any) {
@@ -1270,6 +1278,7 @@ User Request: ${params.userPrompt || ''}`,
       compiledDiffusionPrompt: params.clientPrompt,
     };
 
+    let rawText = '';
     try {
       const historySnippet = (params.recentMessages || [])
         .slice(-4)
@@ -1338,15 +1347,39 @@ CLIENT EDIT REQUEST:
           { role: 'user', content: userContent },
         ],
         response_format: { type: 'json_object' },
-        max_completion_tokens: 500,
+        max_completion_tokens: 4096,
       });
 
-      const response = await this.client.chat.completions.create(requestPayload);
-      const rawText = response.choices[0]?.message?.content?.trim() || '';
-      const parsed = JSON.parse(rawText) as ThumbnailEditDecision;
+      const response = await retryWithBackoff(
+        () => this.client.chat.completions.create(requestPayload),
+        { operationName: 'Compile Edit Intent' },
+      );
+
+      const choice = response.choices[0];
+      rawText = choice?.message?.content?.trim() || '';
+      const finishReason = choice?.finish_reason;
+
+      if (!rawText) {
+        throw new Error(`Empty response content from ${model} (finish_reason: ${finishReason || 'unknown'})`);
+      }
+      if (finishReason === 'length') {
+        this.logger.warn(`[OpenAIService] compileEditIntent response truncated by token limit (finish_reason: length). Attempting partial recovery.`);
+      }
+
+      let cleanJson = rawText;
+      if (cleanJson.includes('```')) {
+        cleanJson = cleanJson.replace(/```(?:json)?\s*([\s\S]*?)\s*```/g, '$1').trim();
+      }
+      const firstBrace = cleanJson.indexOf('{');
+      const lastBrace = cleanJson.lastIndexOf('}');
+      if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+        cleanJson = cleanJson.substring(firstBrace, lastBrace + 1);
+      }
+
+      const parsed = JSON.parse(cleanJson) as ThumbnailEditDecision;
 
       this.logger.log(
-        `Compiled edit intent via ${model}: intent="${parsed.userIntentSummary}", hostAction=${parsed.overlayActions?.host}, mainSubject=${parsed.sceneActions?.mainSubject}`,
+        `[Thumbnail Edit Intent] Compiled via ${model}: intent="${parsed.userIntentSummary}", hostAction=${parsed.overlayActions?.host}, logoAction=${parsed.overlayActions?.logo}, mainSubject=${parsed.sceneActions?.mainSubject}`,
       );
 
       return {
@@ -1369,8 +1402,10 @@ CLIENT EDIT REQUEST:
         compiledDiffusionPrompt: parsed.compiledDiffusionPrompt || params.clientPrompt,
       };
     } catch (err: any) {
-      this.logger.warn(`Failed to compile edit intent via fastModel (${err.message}). Using safe heuristic.`);
-      const isRemoveHost = /(?:remove\s+me|no\s+host|without\s+me|take\s+me\s+out|delete\s+me)/i.test(params.clientPrompt);
+      this.logger.warn(
+        `Failed to compile edit intent via fastModel (${err.message}). Raw snippet: "${rawText.slice(0, 200)}". Using safe heuristic.`,
+      );
+      const isRemoveHost = /(?:remove\s+me|no\s+host|without\s+me|take\s+me\s+out|delete\s+me|remove\s+(?:the\s+)?host|remove\s+my\s+picture|remove\s+my\s+photo)/i.test(params.clientPrompt);
       if (isRemoveHost) {
         defaultDecision.overlayActions.host = 'remove';
         defaultDecision.compiledDiffusionPrompt = `CRITICAL SUBJECT PRESERVATION: Keep the primary story subject in the scene completely intact. Remove any corner presenter sticker cutout from the frame and cleanly inpaint the desk and background.`;
@@ -1510,6 +1545,13 @@ CLIENT EDIT REQUEST:
       editParams.input_fidelity = options.inputFidelity;
     }
 
+    this.logger.log(
+      `[Thumbnail Edit] Sending edit request to Image AI (${editModel}, ${editSize}, quality: ${editParams.quality}):\n` +
+      `Base Image URL: ${baseImageUrl}\n` +
+      `Reference Images (${files.length - 1}): ${allUrls.slice(1).join(', ') || 'none'}\n` +
+      `Compiled Edit Prompt:\n${editPrompt}`,
+    );
+
     const result = await retryWithBackoff(
       () => this.client.images.edit(editParams as any),
       { operationName: 'OpenAI Image Edit' },
@@ -1517,6 +1559,10 @@ CLIENT EDIT REQUEST:
 
     const b64 = (result.data?.[0] as any)?.b64_json;
     if (!b64) throw new Error('No image data returned from edit API');
+
+    this.logger.log(
+      `[Thumbnail Edit] Successfully received edited image from ${editModel} (b64 size: ${b64.length} chars).`,
+    );
 
     const editedBuffer = Buffer.from(b64, 'base64');
     let finalBuffer: Buffer = editedBuffer;

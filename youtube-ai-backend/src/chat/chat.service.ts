@@ -1354,6 +1354,16 @@ export class ChatService {
     // Prioritize clean un-composited background so OpenAI operates on clean scene pixels
     const baseImageToSend = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
 
+    this.logger.log(
+      `[Thumbnail Edit] Processing edit request for thread ${threadId}:\n` +
+      `- Client Prompt: "${dto.prompt}"\n` +
+      `- Middleware Intent: "${compiledDecision.userIntentSummary}"\n` +
+      `- Main Subject Decision: ${compiledDecision.sceneActions?.mainSubject || 'keep_intact'}\n` +
+      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost})\n` +
+      `- Logo Action: ${compiledDecision.overlayActions.logo} (excludeLogo: ${excludeLogo})\n` +
+      `- Base Image Sent: ${baseImageToSend}`,
+    );
+
     const result = await this.openaiService.editImageWithReference(
       baseImageToSend,
       compiledDecision.compiledDiffusionPrompt || dto.prompt,
