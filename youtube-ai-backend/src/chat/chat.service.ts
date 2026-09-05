@@ -1333,18 +1333,35 @@ export class ChatService {
       recentMessages: thread.messages,
     });
 
-    // Derive overlay flags from middleware decision + explicit overrides
-    const excludeHost =
-      dto.excludeHost ??
-      (compiledDecision.overlayActions.host === 'remove' ||
-        dto.selectedHostImage === 'none' ||
-        parsedDirectives.excludeHost === true);
+    // Derive overlay flags from middleware decision with top priority
+    let excludeHost: boolean;
+    if (dto.excludeHost !== undefined) {
+      excludeHost = dto.excludeHost;
+    } else if (compiledDecision.overlayActions.host === 'remove') {
+      excludeHost = true;
+    } else if (
+      compiledDecision.overlayActions.host === 'keep' ||
+      compiledDecision.overlayActions.host === 'change_image'
+    ) {
+      excludeHost = false;
+    } else {
+      excludeHost = parsedDirectives.excludeHost === true || dto.selectedHostImage === 'none';
+    }
 
-    const excludeLogo =
-      dto.excludeLogo ??
-      (compiledDecision.overlayActions.logo === 'remove' ||
-        dto.logoPosition === 'none' ||
-        parsedDirectives.excludeLogo === true);
+    let excludeLogo: boolean;
+    if (dto.excludeLogo !== undefined) {
+      excludeLogo = dto.excludeLogo;
+    } else if (compiledDecision.overlayActions.logo === 'remove') {
+      excludeLogo = true;
+    } else if (
+      compiledDecision.overlayActions.logo === 'keep' ||
+      compiledDecision.overlayActions.logo === 'top-left' ||
+      compiledDecision.overlayActions.logo === 'top-right'
+    ) {
+      excludeLogo = false;
+    } else {
+      excludeLogo = dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true;
+    }
 
     if (compiledDecision.overlayActions.aspectRatio && compiledDecision.overlayActions.aspectRatio !== 'keep') {
       resolvedAspectRatio = compiledDecision.overlayActions.aspectRatio;
@@ -1354,12 +1371,16 @@ export class ChatService {
     // Prioritize clean un-composited background so OpenAI operates on clean scene pixels
     const baseImageToSend = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
 
+    const resolvedHostImage = excludeHost
+      ? 'none'
+      : (compiledDecision.overlayActions.newHostImage || (dto.selectedHostImage && dto.selectedHostImage !== 'none' ? dto.selectedHostImage : 'default'));
+
     this.logger.log(
       `[Thumbnail Edit] Processing edit request for thread ${threadId}:\n` +
       `- Client Prompt: "${dto.prompt}"\n` +
       `- Middleware Intent: "${compiledDecision.userIntentSummary}"\n` +
       `- Main Subject Decision: ${compiledDecision.sceneActions?.mainSubject || 'keep_intact'}\n` +
-      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost})\n` +
+      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost}, selectedHost: ${resolvedHostImage})\n` +
       `- Logo Action: ${compiledDecision.overlayActions.logo} (excludeLogo: ${excludeLogo})\n` +
       `- Base Image Sent: ${baseImageToSend}`,
     );
@@ -1370,7 +1391,7 @@ export class ChatService {
       {
         referenceImageUrls,
         mode: dto.mode || 'thumbnail',
-        selectedHostImage: excludeHost ? 'none' : (compiledDecision.overlayActions.newHostImage || dto.selectedHostImage),
+        selectedHostImage: resolvedHostImage,
         excludeHost,
         excludeLogo,
         logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
@@ -1387,7 +1408,7 @@ export class ChatService {
       conceptTitle: 'Edit',
       textOverlay: compiledDecision.sceneActions?.newHeadlineText || matchedImg?.textOverlay || dto.textOverlay || '',
       visualDescription: compiledDecision.userIntentSummary || dto.prompt,
-      selectedHostImage: excludeHost ? 'none' : dto.selectedHostImage,
+      selectedHostImage: resolvedHostImage,
       logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
       aspectRatio: finalAspectRatio,
       mode: dto.mode || 'thumbnail',

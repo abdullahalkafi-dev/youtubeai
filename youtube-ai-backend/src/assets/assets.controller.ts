@@ -4,7 +4,7 @@ import { AssetsService } from './assets.service';
 import { MinioService } from '../minio/minio.service';
 import * as fs from 'fs';
 
-@Controller('assets')
+@Controller(['assets', 'thumbnails'])
 export class AssetsController {
   constructor(
     private readonly assetsService: AssetsService,
@@ -77,9 +77,19 @@ export class AssetsController {
   @Get('minio/*')
   async getMinioFile(@Req() req: Request, @Res() res: Response) {
     const rawPath = req.url.replace(/^.*\/minio\//, '').split('?')[0];
-    const objectKey = decodeURIComponent(rawPath);
+    return this.streamMinioKey(rawPath, res);
+  }
 
-    if (!objectKey || objectKey === req.url) {
+  @Get('thumbnails/*')
+  async getThumbnailsFile(@Req() req: Request, @Res() res: Response) {
+    const rawPath = req.url.replace(/^.*\/thumbnails\//, '').split('?')[0];
+    return this.streamMinioKey(rawPath, res);
+  }
+
+  private async streamMinioKey(rawKey: string, res: Response) {
+    const objectKey = decodeURIComponent(rawKey);
+
+    if (!objectKey) {
       throw new NotFoundException('MinIO asset key missing');
     }
 

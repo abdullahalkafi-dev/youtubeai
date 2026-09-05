@@ -33,7 +33,7 @@ export class MinioService implements OnModuleInit {
     });
 
     this.baseUrl = `http${useSSL ? 's' : ''}://${endpoint}:${port}`;
-    this.publicBaseUrl = config.get<string>('MINIO_PUBLIC_URL') || this.baseUrl.replace('://minio:', '://localhost:');
+    this.publicBaseUrl = (config.get<string>('MINIO_PUBLIC_URL') || this.baseUrl.replace('://minio:', '://localhost:')).replace(/\/+$/, '');
   }
 
   async onModuleInit() {
@@ -185,8 +185,8 @@ export class MinioService implements OnModuleInit {
       metadata,
     );
 
-    const url = `${this.publicBaseUrl}/${this.bucket}/${cleanKey}`;
-    this.logger.log(`Uploaded file: ${cleanKey}`);
+    const url = `${this.publicBaseUrl}/api/assets/minio/${cleanKey}`;
+    this.logger.log(`Uploaded file: ${cleanKey} -> ${url}`);
     return url;
   }
 
