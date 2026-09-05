@@ -126,7 +126,7 @@ export function ThumbnailCard({
         visual: concept.visual,
         colors: concept.colors,
         conceptTitle,
-        videoTitle: activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined,
+        videoTitle: videoTitle || (activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined),
         selectedHostImage: hostImg,
         logoPosition: options?.logoPosition || 'top-right',
         aspectRatio: targetAspectRatio,
@@ -166,6 +166,14 @@ export function ThumbnailCard({
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
             Thumbnail Concepts
           </span>
+          {videoTitle && (
+            <span
+              className="text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-500/10 dark:bg-violet-500/20 px-2 py-0.5 rounded-full truncate max-w-[260px]"
+              title={videoTitle}
+            >
+              {videoTitle}
+            </span>
+          )}
         </div>
 
         <div className="flex items-center bg-gray-200 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-300 dark:border-gray-700">

@@ -28,6 +28,24 @@ interface MessageRendererProps {
   threadTitle?: string
 }
 
+function resolveTopicHeadline(content: string, videoTitle?: string, threadTitle?: string): string {
+  if (videoTitle && !/^(?:today'?s\s+video\s+topic\s+ideas|new\s+thread|video\s+topic\s+ideas)$/i.test(videoTitle.trim())) {
+    return videoTitle.trim();
+  }
+  const scriptTitleMatch = content.match(/^(?:#+\s*)SCRIPT TITLE:\s*([^\n\r]+)/im);
+  if (scriptTitleMatch && scriptTitleMatch[1]?.trim()) {
+    return scriptTitleMatch[1].trim();
+  }
+  const topicMatch = content.match(/(?:(?:make\s+this\s+video\s+today|video\s+topic|topic|case|story|episode):\s*([^\n\r\*#]+))/im);
+  if (topicMatch && topicMatch[1]?.trim()) {
+    return topicMatch[1].trim();
+  }
+  if (threadTitle && !/^(?:today'?s\s+video\s+topic\s+ideas|new\s+thread)$/i.test(threadTitle.trim())) {
+    return threadTitle.replace(/^Script:\s*/i, '').trim();
+  }
+  return videoTitle || threadTitle || '';
+}
+
 export function MessageRenderer({
   content,
   category,
@@ -55,6 +73,7 @@ export function MessageRenderer({
 
   if (!content || typeof content !== 'string') return <MarkdownRenderer content="" />
 
+  const effectiveTopic = resolveTopicHeadline(content, videoTitle, threadTitle);
   const parsed = detectAndParse(content, category)
 
   return (
@@ -75,7 +94,7 @@ export function MessageRenderer({
                     onStartGenerate={onStartGenerate}
                     onFinishGenerate={onFinishGenerate}
                     onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
-                    videoTitle={videoTitle}
+                    videoTitle={effectiveTopic}
                     threadTitle={threadTitle}
                   />
                 )
@@ -88,7 +107,7 @@ export function MessageRenderer({
                     messageId={messageId}
                     initialScriptId={initialScriptId}
                     threadTitle={threadTitle}
-                    videoTitle={videoTitle}
+                    videoTitle={effectiveTopic}
                   />
                 )
               case 'seo':
@@ -105,7 +124,7 @@ export function MessageRenderer({
                     onStartGenerate={onStartGenerate}
                     onFinishGenerate={onFinishGenerate}
                     onEditImage={(url) => onEditImage?.(url, 'scene', url, undefined, '16:9')}
-                    videoTitle={videoTitle}
+                    videoTitle={effectiveTopic}
                     threadTitle={threadTitle}
                   />
                 )
@@ -167,7 +186,7 @@ export function MessageRenderer({
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
           onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
-          videoTitle={videoTitle}
+          videoTitle={effectiveTopic}
           threadTitle={threadTitle}
         />
       ) : parsed.type === 'image' && parsed.sceneConcepts ? (
@@ -178,7 +197,7 @@ export function MessageRenderer({
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
           onEditImage={(url) => onEditImage?.(url, 'scene', url, undefined, '16:9')}
-          videoTitle={videoTitle}
+          videoTitle={effectiveTopic}
           threadTitle={threadTitle}
         />
       ) : parsed.type === 'ideas' && parsed.ideaScore ? (
@@ -204,7 +223,7 @@ export function MessageRenderer({
               messageId={messageId}
               initialScriptId={initialScriptId}
               threadTitle={threadTitle}
-              videoTitle={videoTitle}
+              videoTitle={effectiveTopic}
             />
           )}
 
@@ -224,7 +243,7 @@ export function MessageRenderer({
           messageId={messageId}
           initialScriptId={initialScriptId}
           threadTitle={threadTitle}
-          videoTitle={videoTitle}
+          videoTitle={effectiveTopic}
         />
       ) : parsed.type === 'trends' && parsed.trends ? (
         <TrendsCard trends={parsed.trends} />

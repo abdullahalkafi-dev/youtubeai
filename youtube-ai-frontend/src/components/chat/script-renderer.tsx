@@ -63,20 +63,22 @@ export function ScriptRenderer({
   const [showTeleprompter, setShowTeleprompter] = useState(false)
   const [showEditor, setShowEditor] = useState(false)
   const [showHistory, setShowHistory] = useState(false)
+  const [scriptNotFound, setScriptNotFound] = useState(false)
 
   // If this message already has an associated script in the Library, hydrate the latest version on mount
   useEffect(() => {
-    if (initialScriptId && channelId && !savedScript) {
+    if (initialScriptId && channelId && !savedScript && !scriptNotFound) {
       api
         .getScript(channelId, initialScriptId)
         .then((script) => {
           if (script) setSavedScript(script)
+          else setScriptNotFound(true)
         })
         .catch(() => {
-          /* silently fall back to message content draft */
+          setScriptNotFound(true)
         })
     }
-  }, [initialScriptId, channelId])
+  }, [initialScriptId, channelId, savedScript, scriptNotFound])
 
   const effectiveContent = savedScript?.content || content
   const stats = calculateTeleprompterStats(effectiveContent)
@@ -86,7 +88,7 @@ export function ScriptRenderer({
   const baseTitle = videoTitle || threadTitle?.replace(/^Script:\s*/i, '') || ''
   const derivedTitle = extractScriptTitle(effectiveContent, baseTitle, videoTitle)
   const scriptTitle = savedScript?.title || derivedTitle
-  const isAlreadySaved = Boolean(savedScript || initialScriptId)
+  const isAlreadySaved = Boolean(savedScript || (initialScriptId && !scriptNotFound))
   const currentSavedVersion = savedScript?.currentVersion || 1
 
   const handleSaveToLibrary = async () => {

@@ -66,19 +66,38 @@ Follow the 6-part script structure with timestamps, section headers, and 💎 JE
 [3-5 hashtags with #]
 
 ### If THUMBNAIL intent:
-Always deliver your strategic explanation first in markdown, then wrap the concrete concepts inside <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END -->:
+Always deliver your strategic explanation first in markdown, then wrap the concrete concepts inside <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END --> across the 3 PROVEN COMPOSITIONAL ARCHETYPES (do NOT force identical 3-zone layouts on every concept):
+
 <!-- THUMBNAILS_START -->
-### Concept 1: [Angle Name]
+### Concept 1: [Angle Name] — Archetype 1: Split Confrontation
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
-- Left Zone (0-40%): [Commanding close-up chest-up shot of named subject with physical attire and emotion]
-- Center Zone (35-65%): [Key story prop, e.g. red evidence folder stamped "CASE FILE", court transcripts]
-- Right Zone & Background (60-100%): [Rich background setting filling full frame, e.g. courtroom gallery with spectators, flags]
-- Lighting & Camera: [35mm documentary photography, directional rim lighting, deep shadows]
+- Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Prosecutor confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
+- Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
+- Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
+- Lighting & Camera: [35mm documentary photography, directional rim lighting, deep chiaroscuro].
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
 **Why it clicks:** [1-sentence psychological rationale]
 
-(Same 3-zone structure for Concept 2 and 3)
+### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
+**Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
+**Visual concept:**
+- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with intense emotional gaze under directional spotlight.
+- Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
+- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; deep atmospheric courtroom in dim backdrop].
+- Lighting & Camera: [High-contrast 35mm film photography, 85mm portrait lens, sharp natural skin texture].
+**Color scheme:** [Primary colors to use]
+**Why it clicks:** [Rationale]
+
+### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
+**Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
+**Visual concept:**
+- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject reacting in dramatic shadow and background courtroom spectators.
+- Subject Demographics: [Full official name and physical demographics].
+- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject in profile shadow; Background: jury box].
+- Lighting & Camera: [Moody dramatic documentary lighting, 35mm film look].
+**Color scheme:** [Primary colors to use]
+**Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->
 
 ### If IDEA intent:
@@ -414,36 +433,36 @@ ${scriptFormat}`,
     });
 
     // Thumbnail skill
-    const thumbnailFormat = `Always wrap all 3 thumbnail concepts strictly inside the delimiters <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END -->:
+    const thumbnailFormat = `Always wrap all 3 thumbnail concepts strictly inside the delimiters <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END --> across the 3 PROVEN COMPOSITIONAL ARCHETYPES (do NOT force a rigid 3-zone box on every concept):
 
 <!-- THUMBNAILS_START -->
-### Concept 1: [Angle Name]
+### Concept 1: [Angle Name] — Archetype 1: Split Confrontation
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
-- Left Zone (0-40%): [Commanding close-up chest-up shot (40-60% canvas height) of named subject with physical attire and distinct emotional expression]
-- Center Zone (35-65%): [Key story prop or split, e.g. red evidence dossier stamped "CASE FILE", scattered transcripts, or confrontation point]
-- Right Zone & Background (60-100%): [Rich background setting filling the full canvas edge-to-edge, e.g. courtroom gallery with seated spectators in suits, jury box, flags, or warm paneling]
-- Lighting & Camera: [35mm documentary photography, 85mm portrait lens, directional rim lighting, deep chiaroscuro]
+- Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Lawyer confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
+- Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
+- Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
+- Lighting & Camera: [35mm documentary photography, 85mm lens, directional rim lighting, deep chiaroscuro].
 **Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
 **Why it clicks:** [1-sentence psychological rationale]
 
-### Concept 2: [Angle Name]
+### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
 **Visual concept:**
-- Left Zone (0-40%): [Named subject close-up with physical attire and emotional expression]
-- Center Zone (35-65%): [Forensic evidence dossier, documents, scales of justice, or confrontation point]
-- Right Zone & Background (60-100%): [Full atmospheric courtroom or holding corridor environment filling the right side]
-- Lighting & Camera: [Dramatic high-contrast 35mm photo style]
+- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with intense emotional gaze under directional spotlight.
+- Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
+- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; deep atmospheric courtroom in dim backdrop].
+- Lighting & Camera: [High-contrast 35mm film photography, 85mm portrait lens, sharp natural skin texture].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 
-### Concept 3: [Angle Name]
-**Text overlay:** [2-4 UPPERCASE words max]
+### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
+**Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
 **Visual concept:**
-- Left Zone (0-40%): [Intense commanding portrait or face-off with physical attire]
-- Center Zone (35-65%): [Symbolic evidence anchor, defense table, or document stack]
-- Right Zone & Background (60-100%): [Atmospheric courtroom bench or dim gallery filling the full canvas]
-- Lighting & Camera: [High-contrast chiaroscuro lighting, 35mm photo look]
+- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject reacting in dramatic shadow and background courtroom spectators.
+- Subject Demographics: [Full official name and physical demographics].
+- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject in profile shadow; Background: jury box].
+- Lighting & Camera: [Moody dramatic documentary lighting, 35mm film look].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->`;

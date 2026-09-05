@@ -219,8 +219,14 @@ const chatSlice = createSlice({
         state.activeThread = action.payload
         state.activeThreadId = action.payload.id
       })
-      .addCase(selectThread.rejected, (state) => {
+      .addCase(selectThread.rejected, (state, action) => {
         state.loading = false
+        const failedId = action.meta?.arg
+        if (failedId && state.activeThreadId === failedId) {
+          state.threads = state.threads.filter((t) => t.id !== failedId)
+          state.activeThreadId = state.threads[0]?.id || null
+          state.activeThread = null
+        }
       })
       .addCase(renameThread.fulfilled, (state, action) => {
         const updated = action.payload

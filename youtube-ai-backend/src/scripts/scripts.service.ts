@@ -473,6 +473,13 @@ export class ScriptsService {
     await Promise.all([
       this.scriptModel.findByIdAndDelete(new Types.ObjectId(scriptId)),
       this.versionModel.deleteMany({ scriptId: new Types.ObjectId(scriptId) }),
+      this.threadModel
+        .updateMany(
+          { 'messages.metadata.scriptId': scriptId },
+          { $unset: { 'messages.$[elem].metadata.scriptId': '' } },
+          { arrayFilters: [{ 'elem.metadata.scriptId': scriptId }] },
+        )
+        .catch(() => {}),
       this.chromaService.delete('scripts', scriptId).catch(() => {}),
     ]);
 

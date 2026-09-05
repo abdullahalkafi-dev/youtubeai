@@ -862,6 +862,72 @@ export class OpenAIService {
   }
 
   /**
+   * Verified physical demographic profiles for recurring true-crime figures.
+   * Injected into gpt-image-2 prompts to guarantee photographic likeness and eliminate generic stereotypes.
+   */
+  private static readonly KNOWN_SUBJECT_PROFILES: Array<{
+    canonicalName: string;
+    aliases: string[];
+    demographics: string;
+    negatives: string;
+  }> = [
+    {
+      canonicalName: 'Duane "Keefe D" Davis',
+      aliases: ['keefe d', 'keffe d', 'duane davis', 'keith davis'],
+      demographics: 'elderly African-American man in his 60s, completely bald shaved head, graying mustache and goatee, heavy-set stocky build, wearing dark blue/navy detention uniform or courtroom suit',
+      negatives: 'NOT a young man, NO dreadlocks, NO hair, NO face tattoos',
+    },
+    {
+      canonicalName: 'Sean "Diddy" Combs',
+      aliases: ['diddy', 'puffy', 'puff daddy', 'sean combs'],
+      demographics: 'African-American man in his mid-50s, closely cropped short buzzcut or shaved head, trimmed mustache and goatee, tailored dark suit or detention uniform',
+      negatives: 'NO long hair, NO dreadlocks, NO face tattoos',
+    },
+    {
+      canonicalName: 'Lil Durk (Durk Banks)',
+      aliases: ['lil durk', 'durk', 'durk banks', 'otf durk'],
+      demographics: 'African-American man in his early 30s, signature blonde-dyed dreadlocks or dread twists, trimmed goatee, wide intense eyes, dark hoodie or tailored courtroom suit',
+      negatives: 'NOT an elderly man, NOT bald',
+    },
+    {
+      canonicalName: 'Roger Bonds',
+      aliases: ['roger bonds'],
+      demographics: 'African-American man in his 50s, bald head, goatee, muscular athletic stocky build, wearing casual dark jacket or streetwear',
+      negatives: 'NO long hair, NO dreadlocks',
+    },
+    {
+      canonicalName: 'Marion "Suge" Knight',
+      aliases: ['suge knight', 'suge'],
+      demographics: 'elderly African-American man in his late 50s, massive heavy-set broad muscular build, bald head, thick graying beard, orange detention jumpsuit or dark suit',
+      negatives: 'NO dreadlocks, NOT slim',
+    },
+    {
+      canonicalName: '1090 Jake',
+      aliases: ['1090 jake', 'jake'],
+      demographics: 'Caucasian man in his early 30s, short dark brown hair, short beard/stubble, distinctive neck and arm tattoos, casual hoodie or t-shirt',
+      negatives: 'NOT African-American, NOT elderly',
+    },
+    {
+      canonicalName: 'Young Thug (Jeffery Williams)',
+      aliases: ['young thug', 'jeffery williams', 'thugger'],
+      demographics: 'African-American man in his early 30s, tall slim build, blonde-tipped or dark dreadlocks, courtroom glasses and designer sweater or tailored suit',
+      negatives: 'NOT bald, NOT an elderly man',
+    },
+    {
+      canonicalName: 'Boosie Badazz',
+      aliases: ['boosie badazz', 'boosie', 'torrence hatch'],
+      demographics: 'African-American man in his 40s, faded buzz haircut, pencil mustache, lean athletic build',
+      negatives: 'NO long hair, NO dreadlocks',
+    },
+    {
+      canonicalName: 'Maino',
+      aliases: ['maino'],
+      demographics: 'African-American man in his early 50s, bald head, dark goatee, athletic broad build',
+      negatives: 'NO long hair, NO dreadlocks',
+    },
+  ];
+
+  /**
    * Generate a thumbnail image using OpenAI Image Engine with reference images, exact face & logo compositing.
    */
   async generateThumbnailImage(params: {
@@ -888,33 +954,60 @@ export class OpenAIService {
       .replace(/\s+/g, ' ')
       .trim();
 
+    // Auto-correct common nicknames/typos in the description
+    cleanDescription = cleanDescription
+      .replace(/\bkeffe\s*d\b/gi, 'Duane "Keefe D" Davis')
+      .replace(/\bkeef\s*d\b/gi, 'Duane "Keefe D" Davis');
+
     // Clean non-visual editorial meta-commentary that trips safety filters
     cleanDescription = this.desensitizeImagePrompt(cleanDescription);
+
+    // Resolve subject identity demographics (Dual-Pass: Visual Staging + Subject Demographics)
+    const combinedSearchText = `${cleanDescription} ${params.videoTitle || ''} ${params.storyContext || ''}`.toLowerCase();
+    const matchedProfile = OpenAIService.KNOWN_SUBJECT_PROFILES.find((p) =>
+      p.aliases.some((alias) => new RegExp(`\\b${alias}\\b`, 'i').test(combinedSearchText)),
+    );
+
+    let subjectIdentitySection = '';
+    if (matchedProfile) {
+      subjectIdentitySection = `SUBJECT IDENTITY & PHYSICAL DEMOGRAPHICS:
+- ${matchedProfile.canonicalName} MUST be accurately depicted as: ${matchedProfile.demographics}.
+- NEGATIVE CONSTRAINTS: ${matchedProfile.negatives}.`;
+    } else if (params.storyContext && params.storyContext.trim().length > 10) {
+      const cleanContext = this.desensitizeImagePrompt(params.storyContext).slice(0, 200);
+      subjectIdentitySection = `SUBJECT IDENTITY & CONTEXT:\n- ${cleanContext}.`;
+    }
 
     const isVertical = params.aspectRatio === '9:16';
     const targetRatioLabel = isVertical ? '9:16 vertical YouTube Shorts' : '16:9 cinematic YouTube';
 
+    const hostDirective = params.excludeHost
+      ? '- Do NOT reserve space or include creator host photo (client directive: no host).'
+      : '- Bottom-Right Corner: Keep deep in shadow and completely clear of faces (reserved for creator cutout sticker).';
+
+    const logoDirective = params.excludeLogo
+      ? '- Do NOT include any brand logos, channel badges, or watermarks.'
+      : '- Top-Right Corner: Keep dark and clear of key visual elements (reserved for channel badge).';
+
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
 
-STYLE: Cinematic dark true-crime documentary aesthetic, 35mm film photography, 85mm portrait lens, shallow depth of field f/1.8, sharp micro-contrast, natural skin pores, dramatic chiaroscuro lighting. Realistic photo style, NOT 3D render, NOT cartoon, ZERO plastic skin smoothing.
+STYLE & LIGHTING:
+Cinematic dark true-crime documentary aesthetic, 35mm film photography, 85mm portrait lens, shallow depth of field f/1.8, sharp micro-contrast, natural skin pores, dramatic chiaroscuro lighting. Realistic photo style, NOT 3D render, NOT cartoon, ZERO plastic skin smoothing.
 
-SCENE & 3-ZONE SPATIAL STAGING:
+SCENE STAGING & COMPOSITION:
 ${cleanDescription || 'Cinematic courtroom drama scene with intense emotional expressions.'}
-
+${subjectIdentitySection ? `\n${subjectIdentitySection}\n` : ''}
 FULL-CANVAS COMPOSITION & PLACEMENT:
-- Fill the entire canvas with rich environmental detail from left to right (characters, evidence props, courtroom gallery, spectators, ambient lighting). NEVER leave empty blank voids.
+- Fill the entire canvas with rich environmental detail edge-to-edge (characters, evidence props, courtroom gallery, spectators, ambient lighting). NEVER leave empty blank voids.
 - Subject Proximity: Main character faces must be commanding close-up/bust shots (occupying 40–60% of canvas height).
-- Clearance: Headline text must be placed in the left third or top-left. Do NOT place headline text in the bottom-right corner (reserved for creator cutout) or extreme top-right corner.
+- Headline Clearance: Keep headline text area in the left third or top-left clear of faces.
+${hostDirective}
+${logoDirective}
 
 HEADLINE TYPOGRAPHY:
 - Render bold 2D headline text reading "${params.concept.text}".
 - Two-tone bold impact typography: Line 1 in crisp bold WHITE, Line 2 in vibrant golden-YELLOW or bold crimson-RED with heavy black drop-shadow and sharp outline.
 ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` : ''}`;
-
-    if (params.storyContext) {
-      const cleanContext = this.desensitizeImagePrompt(params.storyContext).slice(0, 150);
-      prompt += ` STORY CONTEXT: ${cleanContext}.`;
-    }
 
     if (params.showType) {
       prompt += ` Show Type: ${params.showType}.`;
@@ -1121,9 +1214,9 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
             role: 'system',
             content: `You are a visual scene context assistant for Unique Mecca Audio (true crime, courtroom breakdowns, prison reality).
 Given the video topic and recent conversation history, output a concise 1-2 sentence visual context summary identifying:
-1. Main subject(s) / real people named and their role/appearance
+1. Main public figures named and their specific physical appearance (age bracket, hair/bald status, facial hair, build, attire)
 2. The specific case / courtroom / setting or evidence discussed
-Keep it under 40 words. Output ONLY the visual context summary.`,
+Keep it under 50 words. Output ONLY the visual context summary.`,
           },
           {
             role: 'user',
@@ -1133,8 +1226,7 @@ ${historySnippet}
 User Request: ${params.userPrompt || ''}`,
           },
         ],
-        max_completion_tokens: 80,
-        temperature: 0.3,
+        max_completion_tokens: 100,
       });
 
       const response = await this.client.chat.completions.create(requestPayload);

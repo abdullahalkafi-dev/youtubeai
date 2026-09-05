@@ -189,12 +189,18 @@ When recommending, proposing, generating, or iterating on thumbnail concepts for
 - High contrast colors
 - NOT cluttered, NOT AI-generated cartoon style
 - Should open a wound the title has to explain
-- DO NOT mention logos or brand badges in visual concept descriptions (Sharp adds the official MAE logo automatically).
-- 3-ZONE SPATIAL COMPOSITION: Structure every visual concept into 3 zones to fill the full 16:9 canvas from left to right. NEVER leave the right side as an empty black void:
-  * Left Zone (0-40%): Commanding close-up chest-up shot (40-60% canvas height) of the main subject with authentic attire and emotional expression.
-  * Center Zone (35-65%): Central conflict anchor (e.g. red confidential evidence folder stamped "CASE FILE", court transcripts, or multi-character face-off).
-  * Right Zone & Background (60-100%): Rich environmental background extending across the full frame (e.g. courtroom gallery with spectators in dark suits, jury box, flags, holding cell corridor).
+- DO NOT mention logos or brand badges in visual concept descriptions (Sharp adds the official MAE logo automatically unless the client explicitly says 'no logo').
+- 3 PROVEN COMPOSITIONAL ARCHETYPES (Do NOT force a rigid 3-zone template on every concept):
+  Choose the best archetype tailored to the specific story angle to ensure rich visual variety across Concepts 1, 2, and 3:
+  * Archetype 1: Split Confrontation (2 Zones): Two contrasting figures or opposing forces side-by-side (e.g. Defendant looking down stressed on left, Star Witness or Prosecutor confident on right), separated by a diagonal cracked glass seam, light split, or court seal.
+  * Archetype 2: Solo Hero Portrait (1 Hero Zone + Atmospheric Depth): Single dominant commanding bust shot (50-65% height) under directional chiaroscuro spotlight, with deep courtroom gallery or holding cell in background, and a physical prop anchor (handcuffs, glass partition, subpoena).
+  * Archetype 3: Forensic Evidence Triptych: Visceral foreground evidence prop (Red "CASE FILE" dossier, wiretap reel, gavel) with midground subject reacting in emotional shadow and background courtroom spectators.
 - MULTI-CHARACTER CONTRAST: When multiple figures are in the story (e.g. rapper, defense lawyer, witness, co-defendant), give EACH named person a distinct, contrasting emotional expression (e.g., Person 1: confident smile / smirk; Person 2: stressed / looking down; Person 3: angry / defensive).
+- REAL SUBJECT PHYSICAL LIKENESS & DEMOGRAPHICS:
+  When featuring real-world public figures (e.g. Duane "Keefe D" Davis, Lil Durk, Sean "Diddy" Combs, Roger Bonds, Suge Knight), you MUST:
+  1. Use their correct, official name (e.g. Duane "Keefe D" Davis, never slang typos like "Keffe D").
+  2. Specify their explicit physical demographic traits: approximate age (e.g. "elderly African-American man in his 60s"), hair/baldness status ("completely bald shaved head"), facial hair ("graying mustache and goatee"), build ("heavy-set stocky build"), and attire ("navy detention scrubs").
+  3. Include negative constraints: e.g. "(NOT a young man, NO dreadlocks, NO hair, NO face tattoos)".
 - CONTEXTUAL DOCUMENTARY DEVICES:
   * Broken glass fracture seam is ONLY for betrayal, cracked deals, or confessions. Do NOT force broken glass on every thumbnail.
   * For other topics, use clean directional spotlights, authentic red evidence dossiers, court transcripts, scales of justice, or American flags.
@@ -202,6 +208,9 @@ When recommending, proposing, generating, or iterating on thumbnail concepts for
   * Use bold, 2-4 uppercase word headlines ("HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?").
   * Use two-tone color pairing: Line 1 White, Line 2 Yellow or Red.
   * Keep headline text in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
+- CLIENT DIRECTIVE SENSITIVITY:
+  * If the client says "no host", "remove me", or "without me", omit host placement.
+  * If the client says "no logo" or "remove logo", do not include or reserve space for logos.
 - GPT-IMAGE-2 CAMERA-READY FORMAT: Describe ONLY tangible physical elements that a camera can photograph. Strictly forbid meta-disclaimers ("legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly"). Keep it 100% photographic and camera-ready.
 
 ## CONTENT SAFETY
