@@ -206,6 +206,8 @@ export class ChatController {
       logoPosition?: 'top-left' | 'top-right' | 'none';
       customHostUrl?: string;
       customHostImage?: string;
+      textOverlay?: string;
+      visualDescription?: string;
     },
   ) {
     return this.chatService.editImage(id, body);

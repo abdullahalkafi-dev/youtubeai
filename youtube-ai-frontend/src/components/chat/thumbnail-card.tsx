@@ -24,7 +24,14 @@ interface ThumbnailCardProps {
   }>
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, cleanBackgroundUrl?: string, selectedHostImage?: string, aspectRatio?: '16:9' | '9:16') => void
+  onEditImage?: (
+    url: string,
+    cleanBackgroundUrl?: string,
+    selectedHostImage?: string,
+    aspectRatio?: '16:9' | '9:16',
+    textOverlay?: string,
+    visualDescription?: string,
+  ) => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -307,7 +314,7 @@ export function ThumbnailCard({
               {/* Edit / Iterate button */}
               {generatedUrl && onEditImage && (
                 <button
-                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg, currentRatio)}
+                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg, currentRatio, concept.text, concept.visual)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
                 >
                   <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate

@@ -1263,6 +1263,8 @@ export class ChatService {
       aspectRatio?: '16:9' | '9:16';
       customHostUrl?: string;
       customHostImage?: string;
+      textOverlay?: string;
+      visualDescription?: string;
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -1283,31 +1285,26 @@ export class ChatService {
     // Directives parsing on edit prompt
     const parsedDirectives = this.parseClientThumbnailDirectives(dto.prompt, thread.messages);
 
-    const excludeLogo =
-      dto.excludeLogo ??
-      (dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true);
-
-    const excludeHost =
-      dto.excludeHost ??
-      (dto.selectedHostImage === 'none' || parsedDirectives.excludeHost === true);
-
-    // Aspect ratio inheritance: DTO -> parsed prompt -> parent message metadata -> default 16:9
+    // Context resolution from parent thumbnail metadata
+    let matchedImg: any = null;
     let resolvedAspectRatio: '16:9' | '9:16' | undefined = dto.aspectRatio || parsedDirectives.aspectRatio;
-    if (!resolvedAspectRatio && thread.messages) {
+    if (thread.messages) {
       const cleanBase = (dto.baseImageUrl || '').split('?')[0];
       for (const msg of thread.messages.slice().reverse()) {
-        const matchingImg = (msg as any).metadata?.images?.find(
+        const found = (msg as any).metadata?.images?.find(
           (img: any) =>
             (img.url && img.url.split('?')[0] === cleanBase) ||
             (img.cleanBackgroundUrl && img.cleanBackgroundUrl.split('?')[0] === cleanBase),
         );
-        if (matchingImg?.aspectRatio) {
-          resolvedAspectRatio = matchingImg.aspectRatio;
+        if (found) {
+          matchedImg = found;
+          if (!resolvedAspectRatio && found.aspectRatio) {
+            resolvedAspectRatio = found.aspectRatio;
+          }
           break;
         }
       }
     }
-    const finalAspectRatio: '16:9' | '9:16' = resolvedAspectRatio || '16:9';
 
     // Build reference images list (including custom host if provided)
     const referenceImageUrls = [...(dto.referenceImageUrls || [])];
@@ -1324,13 +1321,46 @@ export class ChatService {
       userPrompt: dto.prompt,
     });
 
+    // Run gpt-5.6-luna compiler middleware to disambiguate intent and shield main subject
+    const compiledDecision = await this.openaiService.compileEditIntent({
+      clientPrompt: dto.prompt,
+      videoTitle: videoContextTitle,
+      storyContext,
+      visualDescription: dto.visualDescription || matchedImg?.visualDescription || dto.prompt,
+      textOverlay: dto.textOverlay || matchedImg?.textOverlay || '',
+      currentHostImage: matchedImg?.selectedHostImage || dto.selectedHostImage,
+      currentAspectRatio: resolvedAspectRatio || '16:9',
+      recentMessages: thread.messages,
+    });
+
+    // Derive overlay flags from middleware decision + explicit overrides
+    const excludeHost =
+      dto.excludeHost ??
+      (compiledDecision.overlayActions.host === 'remove' ||
+        dto.selectedHostImage === 'none' ||
+        parsedDirectives.excludeHost === true);
+
+    const excludeLogo =
+      dto.excludeLogo ??
+      (compiledDecision.overlayActions.logo === 'remove' ||
+        dto.logoPosition === 'none' ||
+        parsedDirectives.excludeLogo === true);
+
+    if (compiledDecision.overlayActions.aspectRatio && compiledDecision.overlayActions.aspectRatio !== 'keep') {
+      resolvedAspectRatio = compiledDecision.overlayActions.aspectRatio;
+    }
+    const finalAspectRatio: '16:9' | '9:16' = resolvedAspectRatio || '16:9';
+
+    // Prioritize clean un-composited background so OpenAI operates on clean scene pixels
+    const baseImageToSend = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+
     const result = await this.openaiService.editImageWithReference(
-      dto.baseImageUrl,
-      dto.prompt,
+      baseImageToSend,
+      compiledDecision.compiledDiffusionPrompt || dto.prompt,
       {
         referenceImageUrls,
         mode: dto.mode || 'thumbnail',
-        selectedHostImage: excludeHost ? 'none' : dto.selectedHostImage,
+        selectedHostImage: excludeHost ? 'none' : (compiledDecision.overlayActions.newHostImage || dto.selectedHostImage),
         excludeHost,
         excludeLogo,
         logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
@@ -1345,8 +1375,8 @@ export class ChatService {
       cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: 'Edit',
-      textOverlay: '',
-      visualDescription: dto.prompt,
+      textOverlay: compiledDecision.sceneActions?.newHeadlineText || matchedImg?.textOverlay || dto.textOverlay || '',
+      visualDescription: compiledDecision.userIntentSummary || dto.prompt,
       selectedHostImage: excludeHost ? 'none' : dto.selectedHostImage,
       logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
       aspectRatio: finalAspectRatio,

@@ -50,6 +50,7 @@ export interface CacheAlert {
  */
 import { ThumbnailComposerService } from './thumbnail-composer.service';
 import { MinioService } from '../minio/minio.service';
+import { ThumbnailEditDecision } from './dto/thumbnail-edit-compiler.dto';
 
 @Injectable()
 export class OpenAIService {
@@ -1235,6 +1236,146 @@ User Request: ${params.userPrompt || ''}`,
     } catch (err: any) {
       this.logger.warn(`Fast context extraction failed (${err.message}), falling back to direct snippet`);
       return params.videoDescription ? params.videoDescription.slice(0, 200) : '';
+    }
+  }
+
+  /**
+   * AI Prompt Compiler Middleware using gpt-5.6-luna.
+   * Disambiguates user intent, protects the main story subject from erasure,
+   * separates host cutout instructions from main subject instructions, and compiles
+   * an explicit, bug-free prompt for the OpenAI images.edit diffusion API.
+   */
+  async compileEditIntent(params: {
+    clientPrompt: string;
+    videoTitle?: string;
+    storyContext?: string;
+    visualDescription?: string;
+    textOverlay?: string;
+    currentHostImage?: string;
+    currentAspectRatio?: '16:9' | '9:16';
+    recentMessages?: Array<{ role: string; content: string }>;
+  }): Promise<ThumbnailEditDecision> {
+    const defaultDecision: ThumbnailEditDecision = {
+      userIntentSummary: params.clientPrompt,
+      category: 'scene_generation',
+      overlayActions: {
+        host: 'no_change',
+        logo: 'no_change',
+        aspectRatio: params.currentAspectRatio || '16:9',
+      },
+      sceneActions: {
+        mainSubject: 'keep_intact',
+        headlineText: 'keep',
+      },
+      compiledDiffusionPrompt: params.clientPrompt,
+    };
+
+    try {
+      const historySnippet = (params.recentMessages || [])
+        .slice(-4)
+        .map((m) => `${m.role === 'user' ? 'Client' : 'Assistant'}: ${m.content.slice(0, 250)}`)
+        .join('\n');
+
+      const model = this.fastModel || 'gpt-5.6-luna';
+
+      const systemPrompt = `You are an expert AI Image Edit Intent & Prompt Compiler for a YouTube true crime and high-profile courtroom trials channel ("Unique Mecca Audio").
+The client is giving feedback or requesting an edit on a generated thumbnail image.
+
+CRITICAL ENTITY DISAMBIGUATION (NEVER CONFUSE THESE TWO):
+1. "MAIN STORY SUBJECT": The historical/news figure inside the courtroom/crime documentary scene (e.g. Duane "Keefe D" Davis, Sean "Diddy" Combs, Lil Durk, Donald Trump, Tupac Shakur). They are seated at defense tables, in prison jumpsuits, or in handcuffs.
+2. "CHANNEL HOST / PRESENTER": The YouTube channel host (Unique Mecca in bucket hat, or client's uploaded custom portrait) who appears as a corner cutout sticker.
+- RULE 1: When the client says "remove me", "no host", "without me", "take me out", "delete me", "remove my picture", "no me", they ALWAYS refer to the CHANNEL HOST / PRESENTER corner cutout. They NEVER mean the main story subject!
+- RULE 2: When the client says "remove the main guy", "empty the chair", "remove the defendant", "remove Keefe D", they refer to the MAIN STORY SUBJECT.
+- RULE 3: Filter out all conversational chatter, meta-complaints, and speech-to-text typos (e.g. "than when cliek edit i got the main subject gor removed, what need to do what is the issue"). Focus strictly on what they want the image to become.
+
+COMPILED PROMPT RULES FOR images.edit:
+- If the main story subject should be kept: You MUST start the compiled prompt with:
+  "CRITICAL SUBJECT PRESERVATION: Strictly keep [main story subject name] in the scene completely intact with consistent facial features, build, and attire. Do NOT erase or remove [main story subject name]."
+- If the client wants the host/presenter removed: Include:
+  "Remove the corner presenter cutout sticker (person wearing bucket hat/sunglasses) from the corner. Cleanly inpaint and reconstruct the underlying courtroom desk, case files, or papers naturally under the scene lighting."
+- If the client requests headline text changes: Specify the exact uppercase words (2-4 words) with bold high-contrast styling.
+- If the client requests scene changes (lighting, background): Explicitly describe the visual alterations.
+
+You must respond in strict JSON matching this schema:
+{
+  "userIntentSummary": "string (1 line summary)",
+  "category": "overlay_only" | "scene_generation" | "hybrid",
+  "detectedMainSubject": "string (e.g. Duane 'Keefe D' Davis)",
+  "overlayActions": {
+    "host": "remove" | "keep" | "change_image" | "no_change",
+    "newHostImage": "string or null",
+    "logo": "remove" | "keep" | "top-left" | "top-right" | "no_change",
+    "aspectRatio": "16:9" | "9:16" | "keep"
+  },
+  "sceneActions": {
+    "mainSubject": "keep_intact" | "remove" | "replace" | "modify_appearance",
+    "mainSubjectInstruction": "string",
+    "headlineText": "keep" | "change" | "remove",
+    "newHeadlineText": "string",
+    "visualModifications": "string"
+  },
+  "compiledDiffusionPrompt": "string (complete, unambiguous prompt for OpenAI diffusion images.edit)"
+}`;
+
+      const userContent = `ACTIVE THUMBNAIL CONTEXT:
+- Video Topic: ${params.videoTitle || 'YouTube Crime Video'}
+- Story & Subject Facts: ${params.storyContext || 'High-profile courtroom trial'}
+- Visual Description: ${params.visualDescription || 'Courtroom scene with defendant at table'}
+- Headline Text: ${params.textOverlay || 'Headline text'}
+- Host Overlay Present: ${params.currentHostImage && params.currentHostImage !== 'none' ? `Yes (${params.currentHostImage})` : 'No'}
+- Current Aspect Ratio: ${params.currentAspectRatio || '16:9'}
+
+RECENT CONVERSATION:
+${historySnippet || 'None'}
+
+CLIENT EDIT REQUEST:
+"${params.clientPrompt}"`;
+
+      const requestPayload = this.buildCompletionParams({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userContent },
+        ],
+        response_format: { type: 'json_object' },
+        max_completion_tokens: 500,
+      });
+
+      const response = await this.client.chat.completions.create(requestPayload);
+      const rawText = response.choices[0]?.message?.content?.trim() || '';
+      const parsed = JSON.parse(rawText) as ThumbnailEditDecision;
+
+      this.logger.log(
+        `Compiled edit intent via ${model}: intent="${parsed.userIntentSummary}", hostAction=${parsed.overlayActions?.host}, mainSubject=${parsed.sceneActions?.mainSubject}`,
+      );
+
+      return {
+        userIntentSummary: parsed.userIntentSummary || params.clientPrompt,
+        category: parsed.category || 'scene_generation',
+        detectedMainSubject: parsed.detectedMainSubject,
+        overlayActions: {
+          host: parsed.overlayActions?.host || 'no_change',
+          newHostImage: parsed.overlayActions?.newHostImage,
+          logo: parsed.overlayActions?.logo || 'no_change',
+          aspectRatio: parsed.overlayActions?.aspectRatio || 'keep',
+        },
+        sceneActions: {
+          mainSubject: parsed.sceneActions?.mainSubject || 'keep_intact',
+          mainSubjectInstruction: parsed.sceneActions?.mainSubjectInstruction,
+          headlineText: parsed.sceneActions?.headlineText || 'keep',
+          newHeadlineText: parsed.sceneActions?.newHeadlineText,
+          visualModifications: parsed.sceneActions?.visualModifications,
+        },
+        compiledDiffusionPrompt: parsed.compiledDiffusionPrompt || params.clientPrompt,
+      };
+    } catch (err: any) {
+      this.logger.warn(`Failed to compile edit intent via fastModel (${err.message}). Using safe heuristic.`);
+      const isRemoveHost = /(?:remove\s+me|no\s+host|without\s+me|take\s+me\s+out|delete\s+me)/i.test(params.clientPrompt);
+      if (isRemoveHost) {
+        defaultDecision.overlayActions.host = 'remove';
+        defaultDecision.compiledDiffusionPrompt = `CRITICAL SUBJECT PRESERVATION: Keep the primary story subject in the scene completely intact. Remove any corner presenter sticker cutout from the frame and cleanly inpaint the desk and background.`;
+      }
+      return defaultDecision;
     }
   }
 

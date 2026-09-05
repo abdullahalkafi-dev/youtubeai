@@ -231,8 +231,8 @@ export class ThumbnailComposerService {
     hostPosition: 'left' | 'right' = 'right',
   ): Promise<OverlayOptions[]> {
     // Scale host cutout proportionally as a percentage of thumbnail height
-    // Landscape: ~38% height; Vertical Reels: ~22% height to avoid dominating screen
-    const targetHeight = isVertical ? Math.round(canvasHeight * 0.22) : Math.round(canvasHeight * 0.38);
+    // Landscape: ~38% height; Vertical Reels: ~20% height for clean corner anchor
+    const targetHeight = isVertical ? Math.round(canvasHeight * 0.20) : Math.round(canvasHeight * 0.38);
     const maxHostWidth = Math.round(canvasWidth * 0.45);
 
     const resizedHost = await sharp(hostBuffer)
@@ -243,16 +243,16 @@ export class ThumbnailComposerService {
     const hostWidth = Math.min(metadata.width || Math.round(targetHeight * 0.8), canvasWidth);
 
     // Percentage-based margins
-    const marginX = isVertical ? Math.round(canvasWidth * 0.04) : Math.round(canvasWidth * 0.02);
-    // In vertical Reels, place host above the bottom 18% caption & audio disc zone
-    const bottomClearance = isVertical ? Math.round(canvasHeight * 0.18) : 0;
+    const marginX = isVertical ? Math.round(canvasWidth * 0.03) : Math.round(canvasWidth * 0.02);
+    // Anchor host cutout flush to the bottom baseline (torso cut off at screen border)
+    const bottomClearance = 0;
 
     const left = hostPosition === 'left' ? marginX : Math.max(0, canvasWidth - hostWidth - marginX);
     const top = Math.max(0, canvasHeight - targetHeight - bottomClearance);
 
-    // Dark gradient shadow backdrop scaled to canvas resolution with strict bounds clamping
-    const padX = Math.round(canvasWidth * 0.03);
-    const padY = Math.round(canvasHeight * 0.03);
+    // Soft ambient occlusion shadow backdrop scaled to canvas resolution
+    const padX = Math.round(canvasWidth * 0.025);
+    const padY = Math.round(canvasHeight * 0.025);
 
     const shadowLeft = Math.max(0, left - padX);
     const shadowTop = Math.max(0, top - padY);
@@ -263,7 +263,8 @@ export class ThumbnailComposerService {
       <svg width="${shadowWidth}" height="${shadowHeight}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="halo" cx="50%" cy="85%" r="60%">
-            <stop offset="0%" stop-color="#000000" stop-opacity="0.72"/>
+            <stop offset="0%" stop-color="#000000" stop-opacity="0.35"/>
+            <stop offset="70%" stop-color="#000000" stop-opacity="0.15"/>
             <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
           </radialGradient>
         </defs>
@@ -312,7 +313,7 @@ export class ThumbnailComposerService {
       <svg width="${shadowWidth}" height="${shadowHeight}" xmlns="http://www.w3.org/2000/svg">
         <defs>
           <radialGradient id="logohalo" cx="50%" cy="50%" r="50%">
-            <stop offset="0%" stop-color="#000000" stop-opacity="0.75"/>
+            <stop offset="0%" stop-color="#000000" stop-opacity="0.40"/>
             <stop offset="100%" stop-color="#000000" stop-opacity="0"/>
           </radialGradient>
         </defs>

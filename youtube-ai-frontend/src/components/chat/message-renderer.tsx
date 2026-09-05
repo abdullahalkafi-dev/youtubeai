@@ -23,7 +23,15 @@ interface MessageRendererProps {
   messageImages?: any[]
   onStartGenerate?: (conceptTitle: string) => void
   onFinishGenerate?: () => void
-  onEditImage?: (url: string, mode: 'thumbnail' | 'scene', cleanUrl?: string, selectedHostImage?: string, aspectRatio?: '16:9' | '9:16') => void
+  onEditImage?: (
+    url: string,
+    mode: 'thumbnail' | 'scene',
+    cleanUrl?: string,
+    selectedHostImage?: string,
+    aspectRatio?: '16:9' | '9:16',
+    textOverlay?: string,
+    visualDescription?: string,
+  ) => void
   videoTitle?: string
   threadTitle?: string
 }
@@ -92,8 +100,8 @@ export function MessageRenderer({
                     messageId={messageId}
                     messageImages={messageImages}
                     onStartGenerate={onStartGenerate}
-                    onFinishGenerate={onFinishGenerate}
-                    onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
+                    onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
+                      onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription)}
                     videoTitle={effectiveTopic}
                     threadTitle={threadTitle}
                   />
@@ -156,7 +164,7 @@ export function MessageRenderer({
                     </p>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9')}
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9', img.textOverlay, img.visualDescription)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
                       >
                         <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate
@@ -184,8 +192,8 @@ export function MessageRenderer({
           messageId={messageId}
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
-          onFinishGenerate={onFinishGenerate}
-          onEditImage={(url, cleanUrl, hostImg, aspectRatio) => onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio)}
+          onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
+            onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription)}
           videoTitle={effectiveTopic}
           threadTitle={threadTitle}
         />
@@ -271,7 +279,7 @@ export function MessageRenderer({
                     </p>
                     <div className="flex items-center gap-1.5 shrink-0">
                       <button
-                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9')}
+                        onClick={() => onEditImage?.(img.url, img.mode || 'thumbnail', img.cleanBackgroundUrl, img.selectedHostImage, img.aspectRatio || '16:9', img.textOverlay, img.visualDescription)}
                         className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-semibold shadow-sm transition"
                       >
                         <Wand2 className="w-3.5 h-3.5 text-indigo-500" /> Edit / Iterate

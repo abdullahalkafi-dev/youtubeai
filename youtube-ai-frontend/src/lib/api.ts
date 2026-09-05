@@ -372,6 +372,8 @@ class ApiClient {
       logoPosition?: 'top-left' | 'top-right' | 'none'
       customHostImage?: string
       customHostUrl?: string
+      textOverlay?: string
+      visualDescription?: string
     },
   ) {
     return this.post<{ imageUrl: string; image?: any }>(`/api/threads/${threadId}/edit-image`, data)

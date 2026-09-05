@@ -58,6 +58,8 @@ export default function ChatPage() {
     cleanUrl?: string
     selectedHostImage?: string
     aspectRatio?: '16:9' | '9:16'
+    textOverlay?: string
+    visualDescription?: string
   } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -309,6 +311,8 @@ export default function ChatPage() {
           mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
           selectedHostImage: pinnedImage.selectedHostImage,
           aspectRatio: targetAspectRatio,
+          textOverlay: pinnedImage.textOverlay,
+          visualDescription: pinnedImage.visualDescription,
         })
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
@@ -781,7 +785,16 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
-                            onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio) => setIteratingImage({ url, mode, cleanUrl: cleanUrl || url, selectedHostImage: hostImg, aspectRatio })}
+                            onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
+                              setIteratingImage({
+                                url,
+                                mode,
+                                cleanUrl: cleanUrl || url,
+                                selectedHostImage: hostImg,
+                                aspectRatio,
+                                textOverlay,
+                                visualDescription,
+                              })}
                             videoTitle={activeThread?.videoTitle || activeThread?.title}
                             threadTitle={activeThread?.title}
                           />
