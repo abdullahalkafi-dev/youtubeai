@@ -12,6 +12,7 @@ import {
   ChevronRight,
   Minus,
   Plus,
+  Highlighter,
 } from 'lucide-react'
 import { parseScriptSections, calculateTeleprompterStats } from '@/lib/teleprompter-parser'
 
@@ -54,6 +55,8 @@ export function FullscreenTeleprompter({
   const [showMinimap, setShowMinimap] = useState(false) // Auto-collapsed on compact/half-screen
   const [activeSectionIdx, setActiveSectionIdx] = useState(0)
   const [activeSentenceId, setActiveSentenceId] = useState<string | null>(null)
+  const [isHighlightEnabled, setIsHighlightEnabled] = useState<boolean>(true)
+  const isHighlightEnabledRef = useRef<boolean>(true)
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -62,6 +65,23 @@ export function FullscreenTeleprompter({
   const lastTimeRef = useRef<number | null>(null)
   const accumulatedScrollRef = useRef<number>(0)
   const hideControlsTimerRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Keep ref synchronized with state to avoid re-binding 60fps animation loops
+  useEffect(() => {
+    isHighlightEnabledRef.current = isHighlightEnabled
+  }, [isHighlightEnabled])
+
+  // Restore client highlight preference from localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('teleprompter_highlight_enabled')
+      if (saved !== null) {
+        const enabled = saved === 'true'
+        setIsHighlightEnabled(enabled)
+        isHighlightEnabledRef.current = enabled
+      }
+    }
+  }, [])
 
   const sections = parseScriptSections(content)
 
@@ -158,8 +178,10 @@ export function FullscreenTeleprompter({
           setActiveSectionIdx(activeIdx)
         }
 
-        // Update eyeline sentence highlight
-        updateEyelineSentence()
+        // Update eyeline sentence highlight only when enabled (saves 60fps DOM query overhead)
+        if (isHighlightEnabledRef.current) {
+          updateEyelineSentence()
+        }
 
         // Update progress
         const maxScroll = container.scrollHeight - container.clientHeight
@@ -184,6 +206,34 @@ export function FullscreenTeleprompter({
     }
   }, [isPlaying, getScrollSpeedPxPerSec, updateEyelineSentence])
 
+  const toggleHighlight = useCallback(() => {
+    setIsHighlightEnabled((prev) => {
+      const next = !prev
+      isHighlightEnabledRef.current = next
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('teleprompter_highlight_enabled', String(next))
+      }
+      if (!next) {
+        setActiveSentenceId(null)
+      } else {
+        setTimeout(updateEyelineSentence, 50)
+      }
+      return next
+    })
+  }, [updateEyelineSentence])
+
+  const resetToTop = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTop = 0
+      accumulatedScrollRef.current = 0
+      setActiveSectionIdx(0)
+      setProgress(0)
+      if (isHighlightEnabledRef.current) {
+        setTimeout(updateEyelineSentence, 50)
+      }
+    }
+  }, [updateEyelineSentence])
+
   // Keyboard Shortcuts
   useEffect(() => {
     if (!isOpen) return
@@ -198,6 +248,9 @@ export function FullscreenTeleprompter({
       } else if (e.code === 'ArrowDown') {
         e.preventDefault()
         setWpm((prev) => Math.max(50, prev - 10))
+      } else if (e.code === 'KeyH') {
+        e.preventDefault()
+        toggleHighlight()
       } else if (e.code === 'Escape') {
         e.preventDefault()
         onClose()
@@ -218,7 +271,7 @@ export function FullscreenTeleprompter({
 
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen, onClose, toggleHighlight, resetToTop])
 
   // Sync scroll state on user manual scroll
   const handleContainerScroll = () => {
@@ -228,7 +281,9 @@ export function FullscreenTeleprompter({
       if (maxScroll > 0) {
         setProgress(Math.min(100, Math.round((scrollContainerRef.current.scrollTop / maxScroll) * 100)))
       }
-      updateEyelineSentence()
+      if (isHighlightEnabledRef.current) {
+        updateEyelineSentence()
+      }
     }
   }
 
@@ -256,13 +311,17 @@ export function FullscreenTeleprompter({
       if (maxScroll > 0) {
         setProgress(Math.min(100, Math.round((targetTop / maxScroll) * 100)))
       }
-      setTimeout(updateEyelineSentence, 50)
+      if (isHighlightEnabledRef.current) {
+        setTimeout(updateEyelineSentence, 50)
+      }
     }
   }
 
   // Tap or click on a sentence to focus and scroll right to the eyeline
   const handleSentenceClick = (sentenceId: string) => {
-    setActiveSentenceId(sentenceId)
+    if (isHighlightEnabledRef.current) {
+      setActiveSentenceId(sentenceId)
+    }
     const el = sentenceRefs.current.get(sentenceId)
     if (el && scrollContainerRef.current) {
       const container = scrollContainerRef.current
@@ -272,16 +331,6 @@ export function FullscreenTeleprompter({
       const offsetDiff = rect.top - targetEyeline
       container.scrollTop += offsetDiff
       accumulatedScrollRef.current = container.scrollTop
-    }
-  }
-
-  const resetToTop = () => {
-    if (scrollContainerRef.current) {
-      scrollContainerRef.current.scrollTop = 0
-      accumulatedScrollRef.current = 0
-      setActiveSectionIdx(0)
-      setProgress(0)
-      setTimeout(updateEyelineSentence, 50)
     }
   }
 
@@ -310,7 +359,7 @@ export function FullscreenTeleprompter({
           <div className="truncate min-w-0">
             <h2 className="text-xs sm:text-sm font-bold text-zinc-100 truncate">{title}</h2>
             <p className="hidden md:block text-[11px] text-zinc-400 truncate">
-              {displayDuration}m read · {displayWordCount} words · Space to Play/Pause
+              {displayDuration}m read · {displayWordCount} words · Space to Play · H to Highlight
             </p>
           </div>
         </div>
@@ -390,6 +439,20 @@ export function FullscreenTeleprompter({
             title="Toggle Column Width"
           >
             {columnWidth}
+          </button>
+
+          {/* Sentence Highlight Toggle */}
+          <button
+            onClick={toggleHighlight}
+            className={`p-1.5 sm:px-2.5 sm:py-1 rounded-xl border transition flex items-center space-x-1.5 text-xs font-semibold ${
+              isHighlightEnabled
+                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                : 'bg-zinc-900/90 border-zinc-800/90 text-zinc-400 hover:text-white'
+            }`}
+            title="Toggle Sentence Highlight (H)"
+          >
+            <Highlighter className="w-3.5 h-3.5 shrink-0" />
+            <span className="hidden xl:inline text-[11px]">Highlight (H)</span>
           </button>
 
           {/* Minimap Outline Toggle */}
@@ -483,7 +546,7 @@ export function FullscreenTeleprompter({
                   >
                     {parseSentencesFromText(section.body).map((sent, sIdx) => {
                       const sentenceId = `sec-${idx}-jewel-${sIdx}`
-                      const isActive = activeSentenceId === sentenceId
+                      const isActive = isHighlightEnabled && activeSentenceId === sentenceId
                       return (
                         <span
                           key={sentenceId}
@@ -525,7 +588,7 @@ export function FullscreenTeleprompter({
 
                     if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
                       const bulletId = `sec-${idx}-bullet-${lIdx}`
-                      const isBulletActive = activeSentenceId === bulletId
+                      const isBulletActive = isHighlightEnabled && activeSentenceId === bulletId
                       return (
                         <div
                           key={lIdx}
@@ -559,7 +622,7 @@ export function FullscreenTeleprompter({
                       >
                         {sentences.map((sent, sIdx) => {
                           const sentenceId = `sec-${idx}-p-${lIdx}-s-${sIdx}`
-                          const isActive = activeSentenceId === sentenceId
+                          const isActive = isHighlightEnabled && activeSentenceId === sentenceId
                           return (
                             <span
                               key={sentenceId}
