@@ -4,18 +4,29 @@ import type { QuotaUsage } from '@/types/quota'
 
 interface QuotaState {
   usage: QuotaUsage | null
+  analyticsUsage: QuotaUsage | null
   loading: boolean
+  analyticsLoading: boolean
 }
 
 const initialState: QuotaState = {
   usage: null,
+  analyticsUsage: null,
   loading: false,
+  analyticsLoading: false,
 }
 
 export const fetchQuotaUsage = createAsyncThunk(
   'quota/fetchUsage',
   async (channelId: string) => {
     return api.getQuotaUsage(channelId)
+  },
+)
+
+export const fetchAnalyticsQuotaUsage = createAsyncThunk(
+  'quota/fetchAnalyticsUsage',
+  async (channelId: string) => {
+    return api.getAnalyticsQuotaUsage(channelId)
   },
 )
 
@@ -34,6 +45,16 @@ const quotaSlice = createSlice({
       })
       .addCase(fetchQuotaUsage.rejected, (state) => {
         state.loading = false
+      })
+      .addCase(fetchAnalyticsQuotaUsage.pending, (state) => {
+        state.analyticsLoading = true
+      })
+      .addCase(fetchAnalyticsQuotaUsage.fulfilled, (state, action) => {
+        state.analyticsLoading = false
+        state.analyticsUsage = action.payload as QuotaUsage
+      })
+      .addCase(fetchAnalyticsQuotaUsage.rejected, (state) => {
+        state.analyticsLoading = false
       })
   },
 })

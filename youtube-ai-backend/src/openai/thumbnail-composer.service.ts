@@ -152,8 +152,60 @@ export class ThumbnailComposerService {
   }
 
   public async fetchBufferFromUrl(url: string): Promise<Buffer> {
+    if (!url || typeof url !== 'string') {
+      throw new Error('Invalid URL provided to fetchBufferFromUrl');
+    }
+
+    // 1. Data Base64 URL
+    if (url.startsWith('data:image/')) {
+      const base64Data = url.replace(/^data:image\/\w+;base64,/, '');
+      return Buffer.from(base64Data, 'base64');
+    }
+
+    // 2. Direct local filesystem path
+    if (fs.existsSync(url)) {
+      return fs.readFileSync(url);
+    }
+
+    // 3. Local asset path (/api/assets/...) or relative path
+    if (url.startsWith('/api/assets/') || url.startsWith('/')) {
+      const rawRelPath = url.replace(/^\/api\/assets\//, '').replace(/^\//, '');
+      const normalizedRelPath = rawRelPath
+        .replace(/^unique-images\//, 'unique_images/')
+        .replace(/^logos\//, 'logo/');
+
+      const candidatePaths = [
+        path.join(process.cwd(), 'src', 'assets', normalizedRelPath),
+        path.join(process.cwd(), 'youtube-ai-backend', 'src', 'assets', normalizedRelPath),
+        path.join(__dirname, '..', 'assets', normalizedRelPath),
+        path.join(process.cwd(), 'src', 'assets', rawRelPath),
+        path.join(process.cwd(), 'youtube-ai-backend', 'src', 'assets', rawRelPath),
+        path.join(__dirname, '..', 'assets', rawRelPath),
+      ];
+
+      for (const cp of candidatePaths) {
+        if (fs.existsSync(cp)) {
+          return fs.readFileSync(cp);
+        }
+      }
+
+      // If not immediately found on disk, attempt localhost port fetch
+      const port = process.env.PORT || 3001;
+      const localUrl = `http://localhost:${port}${url.startsWith('/') ? '' : '/'}${url}`;
+      try {
+        const res = await fetch(localUrl);
+        if (res.ok) {
+          const arrayBuffer = await res.arrayBuffer();
+          return Buffer.from(arrayBuffer);
+        }
+      } catch (err: any) {
+        this.logger.warn(`Failed to resolve local asset path ${url} via localhost:${port}: ${err.message}`);
+      }
+    }
+
+    // 4. Remote HTTP/HTTPS URL
     const res = await fetch(url);
-    if (!res.ok) throw new Error(`HTTP error fetching background image: ${res.statusText}`);
+    if (!res.ok) throw new Error(`HTTP error fetching image from ${url}: ${res.statusText}`);
     const arrayBuffer = await res.arrayBuffer();
     return Buffer.from(arrayBuffer);
   }

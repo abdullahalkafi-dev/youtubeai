@@ -8,7 +8,7 @@ import { Switch } from '@/components/ui/switch'
 import { Label } from '@/components/ui/label'
 import { Eye, Loader2, Save, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
-import { fetchQuotaUsage } from '@/store/slices/quota-slice'
+import { fetchQuotaUsage, fetchAnalyticsQuotaUsage } from '@/store/slices/quota-slice'
 import { fetchChannels } from '@/store/slices/auth-slice'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/api'
@@ -22,7 +22,7 @@ export default function SettingsPage() {
   const user = useAppSelector((s) => s.auth.user)
   const channelId = useAppSelector((s) => s.auth.activeChannelId)
   const channels = useAppSelector((s) => s.auth.channels)
-  const { usage, loading: quotaLoading } = useAppSelector((s) => s.quota)
+  const { usage, analyticsUsage, loading: quotaLoading, analyticsLoading } = useAppSelector((s) => s.quota)
 
   const activeChannel = channels.find(
     (c) => c.id === channelId || (c as any)._id === channelId,
@@ -37,6 +37,7 @@ export default function SettingsPage() {
     dispatch(fetchChannels())
     if (channelId) {
       dispatch(fetchQuotaUsage(channelId))
+      dispatch(fetchAnalyticsQuotaUsage(channelId))
     }
   }, [channelId, dispatch])
 
@@ -73,6 +74,7 @@ export default function SettingsPage() {
 
   const isGoogleExpired = user ? (!user.hasGoogleToken || user.isGoogleTokenExpired) : false
   const percentage = usage ? Math.round((usage.used / usage.limit) * 100) : 0
+  const analyticsPercentage = analyticsUsage ? Math.round((analyticsUsage.used / analyticsUsage.limit) * 100) : 0
 
   return (
     <div className="p-4 lg:p-6 2xl:p-8 max-w-[1600px] mx-auto">
@@ -312,6 +314,78 @@ export default function SettingsPage() {
               </div>
             ) : (
               <p className="text-xs text-gray-400">Unable to load quota data</p>
+            )}
+          </CardContent>
+        </Card>
+        {/* YouTube Analytics API Quota */}
+        <Card>
+          <CardContent className="p-5 lg:p-6">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white font-heading">
+                  YouTube Analytics API Quota
+                </h3>
+                <p className="text-xs text-gray-400 mt-0.5">High-volume analytics reporting queries</p>
+              </div>
+              <Badge variant="blue" className="text-[10px] font-mono">
+                100,000 queries / day
+              </Badge>
+            </div>
+            {analyticsLoading && !analyticsUsage ? (
+              <div className="space-y-2 animate-pulse">
+                <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded-full" />
+                <div className="h-2 bg-gray-200 dark:bg-gray-800 rounded w-1/2" />
+              </div>
+            ) : analyticsUsage ? (
+              <div className="space-y-4">
+                {/* Progress Bar */}
+                <div>
+                  <div className="flex justify-between text-xs mb-1.5">
+                    <span className="font-medium text-gray-700 dark:text-gray-300">
+                      {analyticsUsage.used.toLocaleString()} / {analyticsUsage.limit.toLocaleString()} queries
+                    </span>
+                    <span className={cn(
+                      'font-semibold',
+                      analyticsPercentage > 80 ? 'text-red-500' : analyticsPercentage > 60 ? 'text-amber-500' : 'text-emerald-500',
+                    )}>
+                      {analyticsPercentage}%
+                    </span>
+                  </div>
+                  <div className="w-full bg-gray-200 dark:bg-gray-800 rounded-full h-2">
+                    <div
+                      className={cn(
+                        'h-2 rounded-full transition-all',
+                        analyticsPercentage > 80 ? 'bg-red-500' : analyticsPercentage > 60 ? 'bg-amber-500' : 'bg-emerald-500',
+                      )}
+                      style={{ width: `${Math.max(1, analyticsPercentage)}%` }}
+                    />
+                  </div>
+                  <p className="text-[10px] text-gray-400 mt-1">Independent limit • Resets at midnight Pacific Time</p>
+                </div>
+
+                {/* Breakdown by Endpoint */}
+                {Object.keys(analyticsUsage.breakdown).length > 0 && (
+                  <div>
+                    <p className="text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">Queries by Endpoint</p>
+                    <div className="space-y-1.5">
+                      {Object.entries(analyticsUsage.breakdown)
+                        .sort(([, a], [, b]) => b - a)
+                        .map(([endpoint, queries]) => (
+                          <div key={endpoint} className="flex justify-between text-xs">
+                            <span className="text-gray-500 dark:text-gray-400 font-mono">{endpoint}</span>
+                            <span className="font-medium text-gray-700 dark:text-gray-300">{queries} {queries === 1 ? 'query' : 'queries'}</span>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                {Object.keys(analyticsUsage.breakdown).length === 0 && (
+                  <p className="text-xs text-gray-400 italic">No Analytics queries recorded today</p>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-gray-400">Unable to load analytics quota data</p>
             )}
           </CardContent>
         </Card>

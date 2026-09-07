@@ -93,3 +93,13 @@ export interface ThreadListItem {
 export type SendMessageResponse =
   | Message
   | { error: string; threadId: string; archived: true }
+
+export interface StorySubject {
+  id: string
+  name: string
+  role?: string
+  searchQuery: string
+  imageUrl?: string
+  source?: 'wikipedia' | 'web' | 'upload'
+  selected?: boolean
+}

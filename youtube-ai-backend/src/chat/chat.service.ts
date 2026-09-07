@@ -12,6 +12,7 @@ import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-
 import { AIOutputLog, AIOutputLogDocument } from '../mongo/schemas/ai-output-log.schema';
 import { OpenAIService, TokenUsage } from '../openai/openai.service';
 import { ThumbnailComposerService } from '../openai/thumbnail-composer.service';
+import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { SkillRegistry } from './skills/skill-registry';
@@ -36,6 +37,7 @@ export class ChatService {
     @InjectModel(AIOutputLog.name) private readonly aiOutputLogModel: Model<AIOutputLogDocument>,
     private readonly openaiService: OpenAIService,
     private readonly composerService: ThumbnailComposerService,
+    private readonly subjectReferenceService: SubjectReferenceService,
     private readonly minioService: MinioService,
     private readonly chromaService: ChromaService,
     private readonly skillRegistry: SkillRegistry,
@@ -1023,6 +1025,7 @@ export class ChatService {
       excludeLogo?: boolean;
       customHostUrl?: string;
       customHostImage?: string;
+      referenceImageUrls?: string[];
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -1086,6 +1089,7 @@ export class ChatService {
       excludeHost: excludeHost === true,
       aspectRatio: resolvedAspectRatio,
       storyContext,
+      referenceImageUrls: dto.referenceImageUrls,
     });
 
     const imageObj = {
@@ -1651,5 +1655,137 @@ export class ChatService {
     });
 
     return { imageUrl: finalImageUrl, image: imageObj };
+  }
+
+  /**
+   * Recompose thumbnail overlay instantly without diffusion (zero background drift).
+   * Finds the target message in thread.messages matching dto.baseImageUrl,
+   * extracts its cleanBackgroundUrl, applies host cutout and/or logo, and appends to thread.
+   */
+  async recomposeThumbnailOverlay(
+    threadId: string,
+    dto: {
+      baseImageUrl: string;
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      excludeHost?: boolean;
+      logoPosition?: 'top-right' | 'none';
+      excludeLogo?: boolean;
+      aspectRatio?: '16:9' | '9:16';
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // Match image from thread to retrieve cleanBackgroundUrl
+    let matchedImg: any = null;
+    for (const msg of thread.messages) {
+      if (msg.metadata?.images) {
+        matchedImg = (msg.metadata.images as any[]).find(
+          (img) => img.url === dto.baseImageUrl || img.cleanBackgroundUrl === dto.baseImageUrl,
+        );
+        if (matchedImg) break;
+      }
+    }
+
+    const cleanCanvas = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+    const excludeHost = dto.excludeHost ?? (dto.selectedHostImage === 'none');
+    const excludeLogo = dto.excludeLogo ?? (dto.logoPosition === 'none');
+    const finalAspectRatio: '16:9' | '9:16' = dto.aspectRatio || matchedImg?.aspectRatio || '16:9';
+
+    let customHostBuffer: Buffer | undefined;
+    if (dto.customHostUrl && !excludeHost) {
+      try {
+        customHostBuffer = await this.composerService.fetchBufferFromUrl(dto.customHostUrl);
+      } catch (e: any) {
+        this.logger.warn(`Failed to fetch custom host buffer in recompose: ${e.message}`);
+      }
+    }
+
+    const resolvedHostImage = excludeHost ? 'none' : (dto.selectedHostImage || matchedImg?.selectedHostImage || 'default');
+
+    const composedBuffer = await this.composerService.composeThumbnail({
+      backgroundInput: cleanCanvas,
+      selectedHostImage: resolvedHostImage,
+      customHostBuffer,
+      excludeHost,
+      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      excludeLogo,
+      aspectRatio: finalAspectRatio,
+    });
+
+    let finalUrl: string;
+    const filename = `recomposed_${Date.now()}.png`;
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    if (isMinioReady) {
+      try {
+        finalUrl = await this.minioService.uploadThumbnail('system', filename, composedBuffer);
+      } catch {
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+        finalUrl = `/api/assets/generated/${filename}`;
+      }
+    } else {
+      const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+      if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+      fs.writeFileSync(path.join(genDir, filename), composedBuffer);
+      finalUrl = `/api/assets/generated/${filename}`;
+    }
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: finalUrl,
+      cleanBackgroundUrl: cleanCanvas,
+      prompt: matchedImg?.prompt || 'Recomposed overlay',
+      conceptTitle: 'Recompose',
+      textOverlay: matchedImg?.textOverlay || '',
+      visualDescription: matchedImg?.visualDescription || 'Overlay modified',
+      selectedHostImage: resolvedHostImage,
+      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      aspectRatio: finalAspectRatio,
+      mode: matchedImg?.mode || 'thumbnail',
+      createdAt: new Date(),
+    };
+
+    const assistantMessage: Message = {
+      role: 'assistant',
+      content: `Updated host & layout overlay`,
+      metadata: {
+        category: 'image',
+        images: [imageObj],
+      },
+      createdAt: new Date(),
+    } as any;
+
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: assistantMessage },
+      $set: { updatedAt: new Date() },
+    });
+
+    return { imageUrl: finalUrl, image: imageObj };
+  }
+
+  async suggestSubjects(
+    threadId: string,
+    dto: { videoTitle?: string; visualConcept?: string },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    let title = dto.videoTitle || thread?.title || '';
+    let concept = dto.visualConcept || '';
+
+    if (!title && thread?.videoId) {
+      try {
+        const video = await this.videoModel.findById(thread.videoId).lean();
+        if (video) title = video.youtubeTitle || video.title || '';
+      } catch { /* ignore */ }
+    }
+
+    return this.subjectReferenceService.detectAndFetchSubjects(title, concept);
+  }
+
+  async searchSubjectImage(query: string) {
+    const imageUrl = await this.subjectReferenceService.searchSubjectPublicImage(query);
+    return { name: query, imageUrl };
   }
 }

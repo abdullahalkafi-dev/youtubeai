@@ -12,6 +12,7 @@ import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { MAX_ACTIVE_COMMENT_VIDEOS } from '../automation/automation.constants';
 import { ConfigService } from '@nestjs/config';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class VideosService {
@@ -26,6 +27,7 @@ export class VideosService {
     private readonly minioService: MinioService,
     private readonly quotaService: QuotaService,
     private readonly configService: ConfigService,
+    private readonly redisService: RedisService,
   ) {}
 
   async findAll(channelId: string, query: VideoQueryDto) {
@@ -98,6 +100,7 @@ export class VideosService {
           `Title: ${updated.title}\nDescription: ${(updated.description || '').slice(0, 500)}\nTags: ${(updated.tags || []).join(', ')}`,
           { channelId: updated.channelId.toString(), viewCount: updated.viewCount, title: updated.title });
       } catch { /* RAG optional */ }
+      await this.invalidateVideoTimelineCache(id);
     }
     return leanDoc(updated);
   }
@@ -323,6 +326,7 @@ export class VideosService {
           `Title: ${video.title}\nDescription: ${(video.description || '').slice(0, 500)}\nTags: ${(video.tags || []).join(', ')}`,
           { channelId: video.channelId.toString(), viewCount: video.viewCount, title: video.title });
       } catch { /* RAG optional */ }
+      await this.invalidateVideoTimelineCache(video._id.toString());
     } catch (error: any) {
       this.logger.warn(`Push to YouTube failed for ${video.youtubeId}: ${error.message}`);
       await this.quotaService.logCall({
@@ -458,5 +462,272 @@ export class VideosService {
     ).lean();
 
     return leanDoc(updated);
+  }
+
+  async invalidateVideoTimelineCache(videoId: string): Promise<void> {
+    try {
+      await this.redisService.del(`video:timeline:${videoId}:all`);
+      await this.redisService.del(`video:timeline:${videoId}:90d`);
+      await this.redisService.del(`video:timeline:${videoId}:30d`);
+      this.logger.log(`Invalidated Redis timeline cache for video ${videoId}`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to invalidate timeline cache for video ${videoId}: ${err?.message || err}`);
+    }
+  }
+
+  async getVideoPerformanceTimeline(
+    videoId: string,
+    userId: string,
+    forceRefresh = false,
+    range = 'all',
+  ) {
+    if (!videoId || typeof videoId !== 'string') {
+      throw new BadRequestException('Video ID is required');
+    }
+
+    // Dual-resolution: Supports MongoDB ObjectId, string id, and YouTube Video ID
+    const isObjectId = Types.ObjectId.isValid(videoId);
+    const video = await this.videoModel.findOne(
+      isObjectId ? { _id: new Types.ObjectId(videoId) } : { youtubeId: videoId }
+    ).lean();
+
+    if (!video) throw new NotFoundException(`Video ${videoId} not found`);
+    if (!video.youtubeId) throw new BadRequestException('Video has no YouTube ID');
+
+    const actualMongoId = video._id.toString();
+    const validRange = ['30d', '90d', 'all'].includes(range) ? range : 'all';
+    const cacheKey = `video:timeline:${actualMongoId}:${validRange}`;
+
+    // 1. Check Redis cache if not forced refresh
+    if (!forceRefresh) {
+      try {
+        const cached = await this.redisService.getJson<any>(cacheKey);
+        if (cached && typeof cached === 'object' && Array.isArray(cached.dailyData)) {
+          return { ...cached, fromCache: true };
+        }
+      } catch (err: any) {
+        this.logger.warn(`Redis cache get failed for ${cacheKey}: ${err?.message || err}`);
+      }
+    }
+
+    const channelModel = this.videoModel.db.model('Channel') as any;
+    const channel = await channelModel.findById(video.channelId).lean();
+    if (!channel?.youtubeChannelId) {
+      throw new NotFoundException('Channel or YouTube Channel ID not found');
+    }
+
+    // 3. Fetch All SEO Versions for this video to track multiple iterations (v1, v2, v3, etc.)
+    const rawVersions = await this.seoVersionModel
+      .find({ videoId: video._id })
+      .sort({ createdAt: 1 })
+      .lean();
+
+    // Map versions with null-safety
+    const versions = (rawVersions || []).map((v, index) => {
+      const createdDate = v.createdAt ? new Date(v.createdAt) : null;
+      const isValidDate = createdDate && !isNaN(createdDate.getTime());
+      const dateStr = isValidDate ? createdDate.toISOString().split('T')[0] : '';
+      return {
+        id: v._id?.toString() || `ver-${index}`,
+        versionIndex: index + 1,
+        type: v.type || 'ai_optimized',
+        approved: Boolean(v.approved),
+        date: dateStr,
+        timestamp: isValidDate ? createdDate.getTime() : 0,
+        title: v.seo?.title || '',
+        note: v.note || (v.type === 'original' ? 'Original YouTube Metadata' : `AI Optimization v${index + 1}`),
+      };
+    }).filter(v => v.date && v.timestamp > 0);
+
+    // Filter milestones that represent applied optimizations
+    const milestones = versions.filter(v => v.type === 'ai_optimized' || v.approved);
+
+    // 4. Calculate Date Range
+    const now = new Date();
+    const endDate = now.toISOString().split('T')[0];
+    let startDate: string;
+
+    if (validRange === '30d') {
+      const d = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+      startDate = d.toISOString().split('T')[0];
+    } else if (validRange === '90d') {
+      const d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+      startDate = d.toISOString().split('T')[0];
+    } else {
+      // 'all' range: use publishedAt date, fallback to 90 days ago if missing/invalid
+      if (video.publishedAt && !isNaN(new Date(video.publishedAt).getTime())) {
+        startDate = new Date(video.publishedAt).toISOString().split('T')[0];
+      } else if (milestones.length > 0 && milestones[0].timestamp > 0) {
+        // 30 days before earliest version
+        const earliest = new Date(milestones[0].timestamp - 30 * 24 * 60 * 60 * 1000);
+        startDate = earliest.toISOString().split('T')[0];
+      } else {
+        const d = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+        startDate = d.toISOString().split('T')[0];
+      }
+    }
+
+    if (startDate > endDate) {
+      startDate = endDate;
+    }
+
+    // 5. Fetch Daily Time-Series from YouTube Analytics API
+    const dailyData = await this.youtubeAnalyticsService.getVideoDailyTimeseries(
+      userId,
+      channel.youtubeChannelId,
+      video.youtubeId,
+      startDate,
+      endDate,
+    );
+
+    // 6. Calculate Phase Statistics (Baseline vs v1 vs v2 vs etc.)
+    interface PhaseMetric {
+      phaseName: string;
+      label: string;
+      startDate: string;
+      endDate: string;
+      totalDays: number;
+      totalViews: number;
+      avgDailyViews: number;
+      liftPercentFromBaseline: number | null;
+      liftPercentFromPrevious: number | null;
+    }
+
+    const phases: PhaseMetric[] = [];
+
+    if (milestones.length === 0) {
+      const totalViews = (dailyData || []).reduce((sum, d) => sum + (Number(d?.views) || 0), 0);
+      const totalDays = dailyData?.length || 1;
+      const avg = Number((totalViews / totalDays).toFixed(2));
+      phases.push({
+        phaseName: 'baseline',
+        label: 'Original / Unoptimized',
+        startDate,
+        endDate,
+        totalDays,
+        totalViews,
+        avgDailyViews: isNaN(avg) ? 0 : avg,
+        liftPercentFromBaseline: null,
+        liftPercentFromPrevious: null,
+      });
+    } else {
+      // Step 1: Baseline phase (before milestones[0].date)
+      const firstOptDate = milestones[0].date;
+      const baselinePoints = (dailyData || []).filter(d => d?.date && d.date < firstOptDate);
+      const bViews = baselinePoints.reduce((sum, d) => sum + (Number(d?.views) || 0), 0);
+      const bDays = baselinePoints.length > 0 ? baselinePoints.length : 1;
+      const baselineAvg = Number((bViews / bDays).toFixed(2));
+
+      phases.push({
+        phaseName: 'baseline',
+        label: 'Baseline (Pre-SEO)',
+        startDate: baselinePoints[0]?.date || startDate,
+        endDate: baselinePoints[baselinePoints.length - 1]?.date || firstOptDate,
+        totalDays: baselinePoints.length,
+        totalViews: bViews,
+        avgDailyViews: isNaN(baselineAvg) ? 0 : baselineAvg,
+        liftPercentFromBaseline: 0,
+        liftPercentFromPrevious: 0,
+      });
+
+      // Step 2: Milestone phases
+      let prevAvg = isNaN(baselineAvg) ? 0 : baselineAvg;
+      for (let i = 0; i < milestones.length; i++) {
+        const curOpt = milestones[i];
+        const nextOpt = milestones[i + 1];
+        const phaseStart = curOpt.date;
+        const phaseEnd = nextOpt ? nextOpt.date : endDate;
+
+        const phasePoints = (dailyData || []).filter(d => {
+          if (!d?.date) return false;
+          return nextOpt ? d.date >= phaseStart && d.date < phaseEnd : d.date >= phaseStart;
+        });
+
+        const pViews = phasePoints.reduce((sum, d) => sum + (Number(d?.views) || 0), 0);
+        const pDays = phasePoints.length > 0 ? phasePoints.length : 1;
+        const pAvg = Number((pViews / pDays).toFixed(2));
+
+        const liftFromBaseline = baselineAvg > 0
+          ? Number((((pAvg - baselineAvg) / baselineAvg) * 100).toFixed(1))
+          : pAvg > 0 ? 100 : 0;
+
+        const liftFromPrev = prevAvg > 0
+          ? Number((((pAvg - prevAvg) / prevAvg) * 100).toFixed(1))
+          : pAvg > 0 ? 100 : 0;
+
+        phases.push({
+          phaseName: `v${i + 1}`,
+          label: milestones.length === 1 ? 'Post-SEO' : `v${i + 1} (${curOpt.date})`,
+          startDate: phasePoints[0]?.date || phaseStart,
+          endDate: phasePoints[phasePoints.length - 1]?.date || phaseEnd,
+          totalDays: phasePoints.length,
+          totalViews: pViews,
+          avgDailyViews: isNaN(pAvg) ? 0 : pAvg,
+          liftPercentFromBaseline: isNaN(liftFromBaseline) ? 0 : liftFromBaseline,
+          liftPercentFromPrevious: isNaN(liftFromPrev) ? 0 : liftFromPrev,
+        });
+
+        prevAvg = pAvg;
+      }
+    }
+
+    // Annotate daily points with their corresponding active phase
+    const pointsWithPhase = (dailyData || []).map(point => {
+      let activePhase = 'baseline';
+      let activeVersionLabel = 'Original';
+
+      for (let i = milestones.length - 1; i >= 0; i--) {
+        if (point?.date && point.date >= milestones[i].date) {
+          activePhase = `v${i + 1}`;
+          activeVersionLabel = `Version ${i + 1}`;
+          break;
+        }
+      }
+
+      return {
+        date: point?.date || '',
+        views: Number(point?.views) || 0,
+        watchMinutes: Number(point?.watchMinutes) || 0,
+        avgDurationSeconds: Number(point?.avgDurationSeconds) || 0,
+        phase: activePhase,
+        versionLabel: activeVersionLabel,
+      };
+    });
+
+    const totalViewsInPeriod = pointsWithPhase.reduce((sum, d) => sum + (d.views || 0), 0);
+    const totalWatchMinutes = pointsWithPhase.reduce((sum, d) => sum + (d.watchMinutes || 0), 0);
+
+    const result = {
+      videoId,
+      youtubeId: video.youtubeId,
+      title: video.title || video.youtubeTitle || 'Untitled Video',
+      publishedAt: video.publishedAt ? new Date(video.publishedAt).toISOString() : null,
+      range: validRange,
+      startDate,
+      endDate,
+      totalPoints: pointsWithPhase.length,
+      totalViewsInPeriod,
+      totalWatchMinutes,
+      cachedAt: new Date().toISOString(),
+      fromCache: false,
+      milestones: milestones.map((m, idx) => ({
+        versionNumber: idx + 1,
+        date: m.date,
+        label: `v${idx + 1} (${m.date})`,
+        title: m.title || '',
+      })),
+      phases,
+      dailyData: pointsWithPhase,
+    };
+
+    // Store in Redis (2 Hours TTL = 7200 seconds)
+    try {
+      await this.redisService.setJson(cacheKey, result, 7200);
+      this.logger.log(`Cached video timeline in Redis: ${cacheKey} (TTL: 7200s)`);
+    } catch (err: any) {
+      this.logger.warn(`Failed to set Redis cache for ${cacheKey}: ${err?.message || err}`);
+    }
+
+    return result;
   }
 }

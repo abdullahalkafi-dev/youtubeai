@@ -957,6 +957,7 @@ export class OpenAIService {
     excludeHost?: boolean;
     aspectRatio?: '16:9' | '9:16';
     storyContext?: string;
+    referenceImageUrls?: string[];
   }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
     // 1. Strip logo/brand references so OpenAI doesn't paint duplicate logos
@@ -1029,6 +1030,29 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
 
     if (params.customLayoutInstructions) {
       prompt += ` DIRECTIVE: ${params.customLayoutInstructions}.`;
+    }
+
+    if (params.referenceImageUrls && params.referenceImageUrls.length > 0) {
+      this.logger.log(`[Thumbnail] Generating thumbnail with ${params.referenceImageUrls.length} real subject reference image(s)...`);
+      try {
+        return await this.editImageWithReference(
+          params.referenceImageUrls[0],
+          prompt,
+          {
+            referenceImageUrls: params.referenceImageUrls.slice(1),
+            mode: 'thumbnail',
+            selectedHostImage: params.selectedHostImage,
+            customHostUrl: params.customHostUrl,
+            excludeHost: params.excludeHost,
+            excludeLogo: params.excludeLogo,
+            logoPosition: params.logoPosition,
+            aspectRatio: params.aspectRatio,
+            storyContext: params.storyContext,
+          },
+        );
+      } catch (refErr: any) {
+        this.logger.warn(`Failed to generate thumbnail with subject references (${refErr.message}), falling back to fresh generation`);
+      }
     }
 
     const primaryModel = this.configService.get<string>('OPENAI_IMAGE_MODEL', 'gpt-image-2');
@@ -1137,6 +1161,25 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
         }
         cleanBackgroundUrl = await this.minioService.uploadThumbnail('system', `clean_bg_${Date.now()}.png`, cleanBuffer);
       } catch { /* optional */ }
+    }
+
+    // Always persist raw background canvas locally if MinIO is unavailable
+    if (!cleanBackgroundUrl) {
+      try {
+        const cleanFilename = `clean_bg_${Date.now()}.png`;
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        let cleanBuffer: Buffer;
+        if (baseImageUrl.startsWith('data:image/')) {
+          cleanBuffer = Buffer.from(baseImageUrl.replace(/^data:image\/\w+;base64,/, ''), 'base64');
+        } else {
+          cleanBuffer = await this.composerService.fetchBufferFromUrl(baseImageUrl).catch(() => Buffer.from(baseImageUrl));
+        }
+        fs.writeFileSync(path.join(genDir, cleanFilename), cleanBuffer);
+        cleanBackgroundUrl = `/api/assets/generated/${cleanFilename}`;
+      } catch (err: any) {
+        this.logger.warn(`Failed to save clean background locally: ${err.message}`);
+      }
     }
 
     // Run Sharp composition to composite host face sticker and logo badge (if enabled)
@@ -1629,6 +1672,19 @@ CLIENT EDIT REQUEST:
       try {
         cleanBackgroundUrl = await this.minioService.uploadThumbnail('system', `clean_edit_${Date.now()}.png`, editedBuffer);
       } catch { /* optional */ }
+    }
+
+    // Always persist raw edited background canvas locally if MinIO is unavailable
+    if (!cleanBackgroundUrl) {
+      try {
+        const cleanFilename = `clean_edit_${Date.now()}.png`;
+        const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+        if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+        fs.writeFileSync(path.join(genDir, cleanFilename), editedBuffer);
+        cleanBackgroundUrl = `/api/assets/generated/${cleanFilename}`;
+      } catch (err: any) {
+        this.logger.warn(`Failed to save clean edited background locally: ${err.message}`);
+      }
     }
 
     // For thumbnail mode (default): Re-composite host sticker and logo watermark

@@ -31,6 +31,7 @@ interface ThumbnailCardProps {
     aspectRatio?: '16:9' | '9:16',
     textOverlay?: string,
     visualDescription?: string,
+    logoPosition?: 'top-left' | 'top-right' | 'none',
   ) => void
   videoTitle?: string
   threadTitle?: string
@@ -70,7 +71,7 @@ export function ThumbnailCard({
   const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<'16:9' | '9:16'>('16:9')
   const [generatedImages, setGeneratedImages] = useState<
-    Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; aspectRatio?: '16:9' | '9:16' }>
+    Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }>
   >({})
   const [modalState, setModalState] = useState<{ isOpen: boolean; concept: ThumbnailConcept | null; idx: number }>({
     isOpen: false,
@@ -81,7 +82,7 @@ export function ThumbnailCard({
   // Hydrate generated images strictly from this message's metadata images
   useEffect(() => {
     if (messageImages && thumbnails) {
-      const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; aspectRatio?: '16:9' | '9:16' }> = {}
+      const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }> = {}
       for (const img of messageImages) {
         const idx = thumbnails.findIndex(
           (c, i) =>
@@ -93,6 +94,7 @@ export function ThumbnailCard({
             url: img.url,
             cleanBackgroundUrl: img.cleanBackgroundUrl,
             selectedHostImage: img.selectedHostImage,
+            logoPosition: img.logoPosition,
             aspectRatio: img.aspectRatio || '16:9',
           }
         }
@@ -108,9 +110,11 @@ export function ThumbnailCard({
     idx: number,
     options?: {
       selectedHostImage?: string
+      customHostUrl?: string
       logoPosition?: 'top-left' | 'top-right' | 'none'
       customText?: string
       aspectRatio?: '16:9' | '9:16'
+      referenceImageUrls?: string[]
     },
   ) => {
     if (!activeThreadId) {
@@ -135,9 +139,11 @@ export function ThumbnailCard({
         conceptTitle,
         videoTitle: videoTitle || (activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined),
         selectedHostImage: hostImg,
+        customHostUrl: options?.customHostUrl,
         logoPosition: options?.logoPosition || 'top-right',
         aspectRatio: targetAspectRatio,
         excludeHost,
+        referenceImageUrls: options?.referenceImageUrls,
         messageId,
       })
 
@@ -149,6 +155,7 @@ export function ThumbnailCard({
             cleanBackgroundUrl: (result as any).cleanBackgroundUrl,
             selectedHostImage: hostImg,
             aspectRatio: targetAspectRatio,
+            logoPosition: options?.logoPosition || 'top-right',
           },
         }))
         await dispatch(selectThread(activeThreadId)).unwrap()
@@ -225,6 +232,7 @@ export function ThumbnailCard({
           const generatedUrl = typeof imgData === 'string' ? imgData : imgData?.url
           const cleanUrl = typeof imgData === 'object' ? imgData?.cleanBackgroundUrl : undefined
           const hostImg = typeof imgData === 'object' ? imgData?.selectedHostImage : undefined
+          const logoPos = typeof imgData === 'object' ? imgData?.logoPosition : undefined
           const currentRatio = (imgData as any)?.aspectRatio || selectedAspectRatio
           const isGenerating = generatingIdx === idx
 
@@ -314,7 +322,7 @@ export function ThumbnailCard({
               {/* Edit / Iterate button */}
               {generatedUrl && onEditImage && (
                 <button
-                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg, currentRatio, concept.text, concept.visual)}
+                  onClick={() => onEditImage(generatedUrl, cleanUrl, hostImg, currentRatio, concept.text, concept.visual, logoPos)}
                   className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 text-xs font-medium transition"
                 >
                   <Wand2 className="w-3.5 h-3.5" /> Edit / Iterate
@@ -359,12 +367,9 @@ export function ThumbnailCard({
           colors={modalState.concept.colors}
           initialAspectRatio={selectedAspectRatio}
           initialHostImage={generatedImages[modalState.idx]?.selectedHostImage || 'none'}
-          onConfirmGenerate={async (options: {
-            selectedHostImage: string
-            logoPosition: 'top-left' | 'top-right' | 'none'
-            customText: string
-            aspectRatio: '16:9' | '9:16'
-          }) => {
+          threadId={activeThreadId || undefined}
+          videoTitle={videoTitle || (activeThread?.title && activeThread.title !== 'New Thread' ? activeThread.title : undefined)}
+          onConfirmGenerate={async (options) => {
             if (modalState.concept) {
               await handleGenerateImage(modalState.concept, modalState.idx, options)
             }

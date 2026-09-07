@@ -17,6 +17,7 @@ import { showApiErrorToast } from '@/lib/error-handler'
 import type { VideoVersion } from '@/types/video'
 import { CommentsSection } from '@/components/comments/comments-section'
 import { FormattedDescription } from '@/components/shared/formatted-description'
+import { VideoAnalyticsTimeline } from '@/components/video-detail/video-analytics-timeline'
 
 export default function VideoDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params)
@@ -297,6 +298,9 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
           </CardContent>
         </Card>
       </div>
+
+      {/* Visual Timeline & SEO View Velocity */}
+      <VideoAnalyticsTimeline videoId={video.id || (video as any)._id || id} publishedAt={video.publishedAt} />
 
       {/* FULL-WIDTH Before vs After SEO Card */}
       <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 shadow-sm">

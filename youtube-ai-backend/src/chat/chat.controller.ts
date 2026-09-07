@@ -165,6 +165,7 @@ export class ChatController {
       aspectRatio?: '16:9' | '9:16';
       excludeHost?: boolean;
       excludeLogo?: boolean;
+      referenceImageUrls?: string[];
       customHostUrl?: string;
       customHostImage?: string;
     },
@@ -223,5 +224,45 @@ export class ChatController {
     },
   ) {
     return this.chatService.generateImageDirect(id, body);
+  }
+
+  @Post('threads/:id/recompose-overlay')
+  recomposeOverlay(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      baseImageUrl: string;
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      excludeHost?: boolean;
+      logoPosition?: 'top-right' | 'none';
+      excludeLogo?: boolean;
+      aspectRatio?: '16:9' | '9:16';
+    },
+  ) {
+    return this.chatService.recomposeThumbnailOverlay(id, body);
+  }
+
+  @Post('threads/:id/suggest-subjects')
+  suggestSubjects(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      videoTitle?: string;
+      visualConcept?: string;
+    },
+  ) {
+    return this.chatService.suggestSubjects(id, body);
+  }
+
+  @Post('threads/:id/search-subject-image')
+  searchSubjectImage(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      query: string;
+    },
+  ) {
+    return this.chatService.searchSubjectImage(body.query);
   }
 }

@@ -15,7 +15,7 @@ import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { useAudioVisualizer } from '@/lib/hooks/use-audio-visualizer'
 import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone, User, UserX } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -27,6 +27,7 @@ import { MessageActions } from '@/components/chat/message-actions'
 import { EmptyState } from '@/components/chat/empty-state'
 import { CategorySelector } from '@/components/chat/category-selector'
 import { VoiceWaveform } from '@/components/chat/voice-waveform'
+import { HostCutoutModal } from '@/components/chat/host-cutout-modal'
 import type { ThreadCategory, ChatImage } from '@/types/chat'
 
 export default function ChatPage() {
@@ -52,11 +53,15 @@ export default function ChatPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [isFocusMode, setIsFocusMode] = useState(false)
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
+  const [isHostCutoutModalOpen, setIsHostCutoutModalOpen] = useState(false)
+  const [isRecomposing, setIsRecomposing] = useState(false)
   const [iteratingImage, setIteratingImage] = useState<{
     url: string
     mode: 'thumbnail' | 'scene'
     cleanUrl?: string
     selectedHostImage?: string
+    customHostUrl?: string
+    logoPosition?: 'top-right' | 'none'
     aspectRatio?: '16:9' | '9:16'
     textOverlay?: string
     visualDescription?: string
@@ -244,6 +249,63 @@ export default function ChatPage() {
   }, [activeThread])
 
   const hasMessages = Boolean(activeThread && activeThread.messages && activeThread.messages.length > 0)
+
+  const handleInstantRecompose = async (overrides?: {
+    selectedHostImage?: string
+    customHostUrl?: string
+    excludeHost?: boolean
+    logoPosition?: 'top-right' | 'none'
+    excludeLogo?: boolean
+    aspectRatio?: '16:9' | '9:16'
+  }) => {
+    if (!iteratingImage || !activeThreadId) return
+    const toastId = toast.loading('Recomposing overlay in ~50ms (zero diffusion delay)...')
+    setIsRecomposing(true)
+    try {
+      const rawCanvas = iteratingImage.cleanUrl || iteratingImage.url
+      const resolvedHost = overrides?.selectedHostImage ?? iteratingImage.selectedHostImage ?? 'default'
+      const resolvedCustomHost = overrides?.customHostUrl ?? iteratingImage.customHostUrl
+      const resolvedExcludeHost = overrides?.excludeHost ?? (resolvedHost === 'none')
+      const resolvedLogo = overrides?.logoPosition ?? iteratingImage.logoPosition ?? 'top-right'
+      const resolvedExcludeLogo = overrides?.excludeLogo ?? (resolvedLogo === 'none')
+      const resolvedRatio = overrides?.aspectRatio ?? iteratingImage.aspectRatio ?? '16:9'
+
+      const res = await api.recomposeOverlay(activeThreadId, {
+        baseImageUrl: rawCanvas,
+        selectedHostImage: resolvedHost,
+        customHostUrl: resolvedCustomHost,
+        excludeHost: resolvedExcludeHost,
+        logoPosition: resolvedLogo === 'none' ? 'none' : 'top-right',
+        excludeLogo: resolvedExcludeLogo,
+        aspectRatio: resolvedRatio,
+      })
+
+      if (res?.imageUrl) {
+        setIteratingImage((prev) =>
+          prev
+            ? {
+                ...prev,
+                url: res.imageUrl,
+                cleanUrl: rawCanvas,
+                selectedHostImage: resolvedHost,
+                customHostUrl: resolvedCustomHost,
+                logoPosition: resolvedLogo,
+                aspectRatio: resolvedRatio,
+              }
+            : null,
+        )
+        dispatch(selectThread(activeThreadId))
+        if (channelId) dispatch(fetchThreads(channelId))
+        toast.success('Overlay updated instantly with pure background lineage!', { id: toastId })
+      } else {
+        toast.error('Failed to recompose overlay', { id: toastId })
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Instant recomposition failed', { id: toastId })
+    } finally {
+      setIsRecomposing(false)
+    }
+  }
 
   const handleSend = async () => {
     if (!input.trim() && !selectedFile) return
@@ -785,7 +847,7 @@ export default function ChatPage() {
                               setGeneratingConceptText(title)
                             }}
                             onFinishGenerate={() => setGeneratingConceptText(null)}
-                            onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
+                            onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition) =>
                               setIteratingImage({
                                 url,
                                 mode,
@@ -794,6 +856,7 @@ export default function ChatPage() {
                                 aspectRatio,
                                 textOverlay,
                                 visualDescription,
+                                logoPosition: logoPosition === 'none' ? 'none' : 'top-right',
                               })}
                             videoTitle={activeThread?.videoTitle || activeThread?.title}
                             threadTitle={activeThread?.title}
@@ -953,6 +1016,7 @@ export default function ChatPage() {
                               mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
                               cleanUrl: (img as any).cleanBackgroundUrl || img.url,
                               selectedHostImage: (img as any).selectedHostImage,
+                              logoPosition: (img as any).logoPosition || 'top-right',
                               aspectRatio: (img as any).aspectRatio || '16:9',
                             })}
                             className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
@@ -1074,7 +1138,7 @@ export default function ChatPage() {
                     <button
                       onClick={() => fileInputRef.current?.click()}
                       className="p-1 text-gray-400 hover:text-pink-500 dark:hover:text-pink-400 rounded transition"
-                      title="Upload reference photo"
+                      title="Attach Scene Reference (Props / Evidence / Backgrounds)"
                     >
                       <Paperclip className="w-3.5 h-3.5" />
                     </button>
@@ -1083,28 +1147,62 @@ export default function ChatPage() {
                     </button>
                   </div>
 
-                  {/* Quick Action Chips */}
+                  {/* Instant Overlay Recomposition Controls */}
                   <div className="flex items-center gap-1.5 flex-wrap pt-1 border-t border-pink-200/50 dark:border-pink-500/20 text-[10px]">
                     <button
                       type="button"
-                      onClick={() => setInput((prev) => (prev ? `${prev}, remove the logo` : 'Remove the logo'))}
-                      className="px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition"
+                      onClick={() => setIsHostCutoutModalOpen(true)}
+                      disabled={isRecomposing}
+                      className="px-2.5 py-1 rounded-md bg-pink-600 hover:bg-pink-700 text-white font-medium transition shadow-sm flex items-center gap-1 disabled:opacity-50"
+                      title="Select host preset or upload custom selfie"
                     >
-                      🚫 Remove Logo
+                      <User className="w-3 h-3" />
+                      <span>Change Host Photo</span>
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => setInput((prev) => (prev ? `${prev}, remove me / no host` : 'Remove me / no host'))}
-                      className="px-2 py-0.5 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition"
+                      onClick={() =>
+                        handleInstantRecompose({
+                          selectedHostImage: 'none',
+                          excludeHost: true,
+                          customHostUrl: undefined,
+                        })
+                      }
+                      disabled={isRecomposing}
+                      className="px-2 py-1 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition flex items-center gap-1 disabled:opacity-50"
+                      title="Instantly remove host overlay (50ms local composite)"
                     >
-                      👤 Remove Host / Me
+                      <span>👤 No Host</span>
                     </button>
+
                     <button
                       type="button"
-                      onClick={() => setIteratingImage((prev) => prev ? { ...prev, aspectRatio: prev.aspectRatio === '9:16' ? '16:9' : '9:16' } : null)}
-                      className="px-2 py-0.5 rounded-md bg-pink-100 dark:bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-300 dark:border-pink-500/40 hover:bg-pink-200 transition font-medium"
+                      onClick={() => {
+                        const currentLogo = iteratingImage.logoPosition || 'top-right'
+                        const nextLogo = currentLogo === 'none' ? 'top-right' : 'none'
+                        handleInstantRecompose({
+                          logoPosition: nextLogo,
+                          excludeLogo: nextLogo === 'none',
+                        })
+                      }}
+                      disabled={isRecomposing}
+                      className="px-2 py-1 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition flex items-center gap-1 disabled:opacity-50"
+                      title="Toggle MAE Brand Logo"
                     >
-                      📐 Switch to {iteratingImage.aspectRatio === '9:16' ? '16:9 Video' : '9:16 Reel'}
+                      <span>{iteratingImage.logoPosition === 'none' ? '🛡️ Add Logo' : '🚫 No Logo'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const nextRatio = iteratingImage.aspectRatio === '9:16' ? '16:9' : '9:16'
+                        handleInstantRecompose({ aspectRatio: nextRatio })
+                      }}
+                      disabled={isRecomposing}
+                      className="px-2 py-1 rounded-md bg-pink-100 dark:bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-300 dark:border-pink-500/40 hover:bg-pink-200 transition font-medium flex items-center gap-1 disabled:opacity-50"
+                    >
+                      <span>📐 Switch to {iteratingImage.aspectRatio === '9:16' ? '16:9 Video' : '9:16 Reel'}</span>
                     </button>
                   </div>
                 </div>
@@ -1287,6 +1385,22 @@ export default function ChatPage() {
         </div>
       </div>
     )}
+
+    {/* Dedicated Host Cutout Management Modal */}
+    <HostCutoutModal
+      isOpen={isHostCutoutModalOpen}
+      onClose={() => setIsHostCutoutModalOpen(false)}
+      selectedHostImage={iteratingImage?.selectedHostImage || 'none'}
+      customHostUrl={iteratingImage?.customHostUrl}
+      threadId={activeThreadId || undefined}
+      onApply={(sel) => {
+        handleInstantRecompose({
+          selectedHostImage: sel.selectedHostImage,
+          customHostUrl: sel.customHostUrl,
+          excludeHost: sel.excludeHost,
+        })
+      }}
+    />
     </>
   )
 }

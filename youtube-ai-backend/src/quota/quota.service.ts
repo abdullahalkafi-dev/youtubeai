@@ -40,29 +40,91 @@ export class QuotaService {
     relatedId?: string;
     success?: boolean;
     errorMessage?: string;
+    apiType?: 'youtube_data' | 'youtube_analytics';
   }): Promise<void> {
     try {
       const model = this.channelModel.db.model('ApiQuotaLog') as any;
+      let targetChannelId: any = undefined;
+      let targetYoutubeChannelId: string | undefined = undefined;
+
+      if (params.channelId) {
+        if (Types.ObjectId.isValid(params.channelId)) {
+          targetChannelId = new Types.ObjectId(params.channelId);
+        } else {
+          targetYoutubeChannelId = params.channelId;
+          const ch = await this.channelModel
+            .findOne({ youtubeChannelId: params.channelId })
+            .select('_id')
+            .lean();
+          if (ch?._id) {
+            targetChannelId = ch._id;
+          }
+        }
+      }
+
       await model.create({
-        channelId: params.channelId,
+        channelId: targetChannelId,
+        youtubeChannelId: targetYoutubeChannelId,
         endpoint: params.endpoint,
         quotaCost: params.quotaCost,
         relatedId: params.relatedId,
         success: params.success ?? true,
         errorMessage: params.errorMessage,
+        apiType: params.apiType || 'youtube_data',
       });
     } catch (error) {
       this.logger.error(`Failed to log quota call: ${error.message}`);
     }
   }
 
+  async logAnalyticsCall(params: {
+    channelId: string;
+    endpoint: string;
+    relatedId?: string;
+    success?: boolean;
+    errorMessage?: string;
+  }): Promise<void> {
+    await this.logCall({
+      channelId: params.channelId,
+      endpoint: params.endpoint,
+      quotaCost: 1,
+      apiType: 'youtube_analytics',
+      relatedId: params.relatedId,
+      success: params.success ?? true,
+      errorMessage: params.errorMessage,
+    });
+    this.logger.log(`[YouTube Analytics Quota] 1 query logged for ${params.relatedId || 'video'} on channel ${params.channelId} (apiType: youtube_analytics, 0 Data units)`);
+  }
+
+  /**
+   * Pre-check: verify analytics quota is available before making a YouTube Analytics API call.
+   */
+  async checkAnalyticsQuota(channelId: string, endpoint: string): Promise<void> {
+    const { used, limit } = await this.getAnalyticsDailyUsage(channelId);
+    if (used + 1 > limit) {
+      this.logger.warn(`Analytics quota check failed: ${used}/${limit} used, cannot call ${endpoint}`);
+      throw new QuotaExceededException(used, limit, endpoint, 1);
+    }
+  }
+
   async getDailyUsage(channelId: string) {
     const ptMidnight = this.getPTMidnight();
     const model = this.channelModel.db.model('ApiQuotaLog') as any;
-    const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+    const isObjId = Types.ObjectId.isValid(channelId);
+    const cId = isObjId ? new Types.ObjectId(channelId) : null;
+    const channelMatch = cId
+      ? { $or: [{ channelId: cId }, { channelId }] }
+      : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
 
+    // Strictly exclude 'youtube_analytics' so Analytics queries NEVER count against the 10,000 Data API daily limit!
     const breakdown = await model.aggregate([
-      { $match: { $or: [{ channelId: cId }, { channelId }], calledAt: { $gte: ptMidnight } } },
+      {
+        $match: {
+          ...channelMatch,
+          calledAt: { $gte: ptMidnight },
+          apiType: { $ne: 'youtube_analytics' },
+        },
+      },
       { $group: { _id: '$endpoint', total: { $sum: '$quotaCost' } } },
     ]);
 
@@ -73,6 +135,35 @@ export class QuotaService {
     }
 
     return { used, limit: this.YOUTUBE_DAILY_LIMIT, breakdown: breakdownMap };
+  }
+
+  async getAnalyticsDailyUsage(channelId: string) {
+    const ptMidnight = this.getPTMidnight();
+    const model = this.channelModel.db.model('ApiQuotaLog') as any;
+    const isObjId = Types.ObjectId.isValid(channelId);
+    const cId = isObjId ? new Types.ObjectId(channelId) : null;
+    const channelMatch = cId
+      ? { $or: [{ channelId: cId }, { channelId }] }
+      : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
+
+    const breakdown = await model.aggregate([
+      {
+        $match: {
+          ...channelMatch,
+          calledAt: { $gte: ptMidnight },
+          apiType: 'youtube_analytics',
+        },
+      },
+      { $group: { _id: '$endpoint', total: { $sum: { $ifNull: ['$quotaCost', 1] } } } },
+    ]);
+
+    const used = breakdown.reduce((sum: number, b: any) => sum + (b.total || 0), 0);
+    const breakdownMap: Record<string, number> = {};
+    for (const b of breakdown) {
+      breakdownMap[b._id] = b.total || 0;
+    }
+
+    return { used, limit: 100000, breakdown: breakdownMap };
   }
 
   async getTodayEndpointCount(channelId: string, endpoint: string): Promise<number> {

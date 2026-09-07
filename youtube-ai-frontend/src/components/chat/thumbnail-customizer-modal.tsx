@@ -1,9 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { X, Sparkles, Check, User, UserX, ShieldCheck, Type, Loader2, Monitor, Smartphone } from 'lucide-react'
+import { X, Sparkles, Check, User, UserX, ShieldCheck, Type, Loader2, Monitor, Smartphone, Camera, SlidersHorizontal } from 'lucide-react'
 import api, { formatAssetUrl } from '@/lib/api'
 import { toast } from 'sonner'
+import type { StorySubject } from '@/types/chat'
+import { SubjectReferenceCards } from './subject-reference-cards'
+import { HostCutoutModal } from './host-cutout-modal'
 
 interface HostImage {
   id: string
@@ -28,11 +31,15 @@ interface ThumbnailCustomizerModalProps {
   colors: string
   initialAspectRatio?: '16:9' | '9:16'
   initialHostImage?: string
+  threadId?: string
+  videoTitle?: string
   onConfirmGenerate: (options: {
     selectedHostImage: string
     logoPosition: 'top-left' | 'top-right' | 'none'
     customText: string
     aspectRatio: '16:9' | '9:16'
+    referenceImageUrls?: string[]
+    customHostUrl?: string
   }) => Promise<void>
 }
 
@@ -45,12 +52,17 @@ export function ThumbnailCustomizerModal({
   colors,
   initialAspectRatio = '16:9',
   initialHostImage = 'none',
+  threadId,
+  videoTitle,
   onConfirmGenerate,
 }: ThumbnailCustomizerModalProps) {
   const [hostImages, setHostImages] = useState<HostImage[]>([])
   const [logoAssets, setLogoAssets] = useState<LogoAsset[]>([])
   const [loadingAssets, setLoadingAssets] = useState(false)
   const [selectedHostImage, setSelectedHostImage] = useState<string>(initialHostImage || 'none')
+  const [customHostUrl, setCustomHostUrl] = useState<string | undefined>()
+  const [isCutoutModalOpen, setIsCutoutModalOpen] = useState(false)
+  const [subjects, setSubjects] = useState<StorySubject[]>([])
   const [logoPosition, setLogoPosition] = useState<'top-left' | 'top-right' | 'none'>('top-right')
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>(initialAspectRatio)
   const [textOverlay, setTextOverlay] = useState<string>(defaultText)
@@ -124,11 +136,17 @@ export function ThumbnailCustomizerModal({
   const handleConfirm = async () => {
     try {
       setIsGenerating(true)
+      const referenceImageUrls = subjects
+        .filter((s) => s.selected !== false && s.imageUrl)
+        .map((s) => s.imageUrl!)
+
       await onConfirmGenerate({
         selectedHostImage,
+        customHostUrl,
         logoPosition,
         customText: textOverlay,
         aspectRatio,
+        referenceImageUrls,
       })
       onClose()
     } catch (err: any) {
@@ -220,16 +238,37 @@ export function ThumbnailCustomizerModal({
             </div>
           </div>
 
-          {/* Step 2: Select Unique Host Image */}
-          <div>
+          {/* Step 2: Real Story Subjects (Reference Photos) */}
+          <div className="pt-2 border-t border-gray-800">
+            <SubjectReferenceCards
+              threadId={threadId || ''}
+              videoTitle={videoTitle}
+              visualConcept={visualDescription}
+              subjects={subjects}
+              onChangeSubjects={setSubjects}
+            />
+          </div>
+
+          {/* Step 3: Select Unique Host Image */}
+          <div className="pt-2 border-t border-gray-800">
             <div className="flex items-center justify-between mb-3">
               <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
                 <User className="w-4 h-4 text-violet-400" />
-                2. Select Host Face Image
+                3. Select Host Face Image
               </label>
-              <span className="text-[10px] text-violet-400 font-medium bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20">
-                100% Untouched Face
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsCutoutModalOpen(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-pink-500/10 border border-pink-500/30 text-pink-400 hover:bg-pink-500/20 rounded-lg text-xs font-medium transition"
+                >
+                  <SlidersHorizontal className="w-3 h-3" />
+                  Cutout Studio / Upload Selfie
+                </button>
+                <span className="text-[10px] text-violet-400 font-medium bg-violet-500/10 px-2 py-0.5 rounded border border-violet-500/20">
+                  100% Untouched Face
+                </span>
+              </div>
             </div>
 
             {loadingAssets ? (
@@ -239,6 +278,33 @@ export function ThumbnailCustomizerModal({
               </div>
             ) : (
               <div className="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                {/* Custom Uploaded Host Option if available */}
+                {customHostUrl && (
+                  <button
+                    type="button"
+                    onClick={() => setSelectedHostImage('custom')}
+                    className={`relative aspect-square rounded-xl overflow-hidden border-2 transition group flex flex-col items-center justify-center p-1 ${
+                      selectedHostImage === 'custom'
+                        ? 'border-pink-500 ring-2 ring-pink-500/40 bg-pink-500/10 scale-105 shadow-lg shadow-pink-500/20'
+                        : 'border-gray-800 hover:border-gray-600 bg-gray-800/40 opacity-70 hover:opacity-100'
+                    }`}
+                  >
+                    <img
+                      src={formatAssetUrl(customHostUrl)}
+                      alt="Custom Host"
+                      className="w-full h-full object-contain"
+                    />
+                    {selectedHostImage === 'custom' && (
+                      <div className="absolute top-1 right-1 w-3.5 h-3.5 rounded-full bg-pink-500 text-white flex items-center justify-center">
+                        <Check className="w-2.5 h-2.5" />
+                      </div>
+                    )}
+                    <div className="absolute bottom-0 inset-x-0 bg-pink-950/80 py-0.2 text-[8px] text-center text-pink-300 font-bold">
+                      Custom
+                    </div>
+                  </button>
+                )}
+
                 {/* Dedicated No Host Option */}
                 <button
                   type="button"
@@ -394,6 +460,22 @@ export function ThumbnailCustomizerModal({
           </button>
         </div>
       </div>
+
+      <HostCutoutModal
+        isOpen={isCutoutModalOpen}
+        onClose={() => setIsCutoutModalOpen(false)}
+        selectedHostImage={selectedHostImage}
+        customHostUrl={customHostUrl}
+        threadId={threadId}
+        onApply={(sel) => {
+          setSelectedHostImage(sel.selectedHostImage)
+          if (sel.customHostUrl) {
+            setCustomHostUrl(sel.customHostUrl)
+          } else if (sel.excludeHost) {
+            setCustomHostUrl(undefined)
+          }
+        }}
+      />
     </div>
   )
 }

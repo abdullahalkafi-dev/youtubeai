@@ -13,6 +13,11 @@ export class QuotaController {
     return this.quotaService.getDailyUsage(channelId);
   }
 
+  @Get('analytics')
+  async getAnalyticsDailyUsage(@Param('channelId') channelId: string) {
+    return this.quotaService.getAnalyticsDailyUsage(channelId);
+  }
+
   @Get('logs')
   async getRecentLogs(
     @Param('channelId') channelId: string,

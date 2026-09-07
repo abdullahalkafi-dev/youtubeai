@@ -7,6 +7,7 @@ import {
   OnApplicationBootstrap,
   Inject,
   forwardRef,
+  Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -28,6 +29,7 @@ import { User, UserDocument } from '../mongo/schemas/user.schema';
 import { SeoService } from '../seo/seo.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { QuotaService, QuotaExceededException } from '../quota/quota.service';
+import { RedisService } from '../redis/redis.service';
 import { AutomationGateway } from './automation.gateway';
 import { BatchQueryDto } from './dto/automation.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -67,6 +69,8 @@ export class AutomationService implements OnApplicationBootstrap {
     private readonly youtubeService: YouTubeService,
     private readonly quotaService: QuotaService,
     private readonly gateway: AutomationGateway,
+    @Optional()
+    private readonly redisService?: RedisService,
   ) {}
 
   /**
@@ -809,6 +813,14 @@ export class AutomationService implements OnApplicationBootstrap {
         item.processedAt = new Date();
         batch.successfulItems++;
         batch.quotaUnitsUsed += YOUTUBE_QUOTA_COST_PER_VIDEO;
+
+        // Invalidate Redis timeline cache for this video
+        if (this.redisService && item.videoId) {
+          const vId = item.videoId.toString();
+          this.redisService.del(`video:timeline:${vId}:all`).catch(() => {});
+          this.redisService.del(`video:timeline:${vId}:90d`).catch(() => {});
+          this.redisService.del(`video:timeline:${vId}:30d`).catch(() => {});
+        }
 
         this.gateway.emitItemProgress(channelId, {
           batchId,

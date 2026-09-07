@@ -96,3 +96,49 @@ export interface VideoStats {
   avgWatchTime: number
   avgRetention: number
 }
+
+export interface VideoTimelineMilestone {
+  versionNumber: number
+  date: string
+  label: string
+  title: string
+}
+
+export interface VideoTimelinePhase {
+  phaseName: string
+  label: string
+  startDate: string
+  endDate: string
+  totalDays: number
+  totalViews: number
+  avgDailyViews: number
+  liftPercentFromBaseline: number | null
+  liftPercentFromPrevious: number | null
+}
+
+export interface VideoTimelinePoint {
+  date: string
+  views: number
+  watchMinutes: number
+  avgDurationSeconds: number
+  phase: string
+  versionLabel: string
+}
+
+export interface VideoTimelineResponse {
+  videoId: string
+  youtubeId: string
+  title: string
+  publishedAt?: string | null
+  range: string
+  startDate: string
+  endDate: string
+  totalPoints: number
+  totalViewsInPeriod: number
+  totalWatchMinutes: number
+  cachedAt: string
+  fromCache: boolean
+  milestones: VideoTimelineMilestone[]
+  phases: VideoTimelinePhase[]
+  dailyData: VideoTimelinePoint[]
+}

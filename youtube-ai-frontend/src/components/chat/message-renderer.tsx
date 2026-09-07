@@ -31,6 +31,7 @@ interface MessageRendererProps {
     aspectRatio?: '16:9' | '9:16',
     textOverlay?: string,
     visualDescription?: string,
+    logoPosition?: 'top-left' | 'top-right' | 'none',
   ) => void
   videoTitle?: string
   threadTitle?: string
@@ -192,8 +193,8 @@ export function MessageRenderer({
           messageId={messageId}
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
-          onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
-            onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription)}
+          onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition) =>
+            onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition)}
           videoTitle={effectiveTopic}
           threadTitle={threadTitle}
         />

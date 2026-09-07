@@ -26,6 +26,7 @@ import { AutomationService } from '../automation/automation.service';
 import { buildChannelContext } from '../openai/prompts/context';
 import { GenerateSeoDto } from './dto/seo.dto';
 import { DEFAULT_DAILY_BATCH_SIZE } from '../automation/automation.constants';
+import { RedisService } from '../redis/redis.service';
 
 @Injectable()
 export class SeoService {
@@ -47,7 +48,20 @@ export class SeoService {
     @Inject(forwardRef(() => AutomationService))
     @Optional()
     private readonly automationService?: AutomationService,
+    @Optional()
+    private readonly redisService?: RedisService,
   ) {}
+
+  private async invalidateTimelineCache(videoId: string | Types.ObjectId): Promise<void> {
+    try {
+      if (this.redisService && videoId) {
+        const id = videoId.toString();
+        await this.redisService.del(`video:timeline:${id}:all`);
+        await this.redisService.del(`video:timeline:${id}:90d`);
+        await this.redisService.del(`video:timeline:${id}:30d`);
+      }
+    } catch { /* optional */ }
+  }
 
   /**
    * Main SEO generation method: integrates Channel, RAG memory, 
@@ -511,6 +525,9 @@ export class SeoService {
         this.logger.warn(`Failed to reconcile automation batch for video ${suggestion.videoId}: ${err.message}`);
       }
 
+      // Invalidate timeline cache for this video
+      await this.invalidateTimelineCache(suggestion.videoId);
+
       return { success: true, videoId: suggestion.videoId, youtubePushed, dailyCount: dailyApproveCount + 1, dailyCap };
     } catch (error) {
       await resetPending();
@@ -621,6 +638,8 @@ export class SeoService {
         `Title: ${targetVersion.seo.title}\nDescription: ${targetVersion.seo.description}\nTags: ${targetVersion.seo.tags.join(', ')}`,
         { channelId: video.channelId.toString(), viewCount: video.viewCount, title: targetVersion.seo.title });
     } catch { /* RAG optional */ }
+
+    await this.invalidateTimelineCache(video._id);
 
     return this.videoModel.findById(video._id).lean();
   }

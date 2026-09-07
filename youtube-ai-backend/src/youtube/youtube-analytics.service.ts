@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { google } from 'googleapis';
 import { YouTubeService } from './youtube.service';
 import { retryWithBackoff } from '../common/utils/retry';
+import { QuotaService } from '../quota/quota.service';
 
 const MAX_RESULTS_PER_PAGE = 100;
 const MAX_ITERATIONS = 50;
@@ -19,7 +20,10 @@ export interface VideoAnalytics {
 export class YoutubeAnalyticsService {
   private readonly logger = new Logger(YoutubeAnalyticsService.name);
 
-  constructor(private readonly youtubeService: YouTubeService) {}
+  constructor(
+    private readonly youtubeService: YouTubeService,
+    private readonly quotaService: QuotaService,
+  ) {}
 
   async getChannelVideoAnalytics(userId: string, youtubeChannelId: string): Promise<Map<string, VideoAnalytics>> {
     const accessToken = await this.youtubeService.getValidAccessToken(userId);
@@ -45,6 +49,12 @@ export class YoutubeAnalyticsService {
         const rows = response.data.rows;
         this.logger.log(`Analytics query iteration ${i + 1} (startIndex=${startIndex}): returned ${rows?.length || 0} rows in ${elapsed}ms`);
 
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: 'analytics.reports.query (channel-videos)',
+          success: true,
+        });
+
         if (!rows || rows.length === 0) break;
         for (const row of rows) {
           analyticsMap.set(row[0] as string, {
@@ -55,7 +65,16 @@ export class YoutubeAnalyticsService {
         }
         if (rows.length < MAX_RESULTS_PER_PAGE || startIndex + MAX_RESULTS_PER_PAGE > 200) break;
         startIndex += MAX_RESULTS_PER_PAGE;
-      } catch (error) { this.logger.warn(`Analytics query ended: ${error.message}`); break; }
+      } catch (error: any) {
+        this.logger.warn(`Analytics query ended: ${error.message}`);
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: 'analytics.reports.query (channel-videos)',
+          success: false,
+          errorMessage: error.message,
+        });
+        break;
+      }
     }
     return analyticsMap;
   }
@@ -75,8 +94,82 @@ export class YoutubeAnalyticsService {
 
       const rows = response.data.rows;
       if (!rows || rows.length === 0) return null;
+
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (single-video)',
+        relatedId: youtubeVideoId,
+        success: true,
+      });
+
       return { videoId: rows[0][0] as string, views: (rows[0][1] as number) || 0, estimatedMinutesWatched: (rows[0][2] as number) || 0, averageViewDuration: (rows[0][3] as number) || 0, averageViewPercentage: (rows[0][4] as number) || 0, estimatedRevenue: (rows[0][5] as number) || 0 };
-    } catch (error) { this.logger.error(`Failed to fetch analytics: ${error.message}`); return null; }
+    } catch (error) { 
+      this.logger.error(`Failed to fetch analytics: ${error.message}`); 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (single-video)',
+        relatedId: youtubeVideoId,
+        success: false,
+        errorMessage: error.message,
+      });
+      return null; 
+    }
+  }
+
+  async getVideoDailyTimeseries(
+    userId: string,
+    youtubeChannelId: string,
+    youtubeVideoId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<Array<{ date: string; views: number; watchMinutes: number; avgDurationSeconds: number }>> {
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    if (!accessToken) return [];
+
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    try {
+      const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
+        auth: oauth2Client,
+        ids: `channel==${youtubeChannelId}`,
+        startDate,
+        endDate,
+        metrics: 'views,estimatedMinutesWatched,averageViewDuration',
+        dimensions: 'day',
+        filters: `video==${youtubeVideoId}`,
+        sort: 'day',
+        maxResults: 5000,
+      }), { operationName: 'YouTube Analytics Video Daily Timeseries' });
+
+      const rows = response.data?.rows;
+      if (!rows || !Array.isArray(rows) || rows.length === 0) return [];
+
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (daily-timeseries)',
+        relatedId: youtubeVideoId,
+        success: true,
+      });
+
+      return rows.map((row: any[]) => ({
+        date: String(row?.[0] || ''),
+        views: Number(row?.[1]) || 0,
+        watchMinutes: Number(row?.[2]) || 0,
+        avgDurationSeconds: Number(row?.[3]) || 0,
+      }));
+    } catch (error: any) {
+      this.logger.error(`Failed to fetch daily timeseries for ${youtubeVideoId}: ${error?.message || error}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (daily-timeseries)',
+        relatedId: youtubeVideoId,
+        success: false,
+        errorMessage: error?.message || String(error),
+      });
+      return [];
+    }
   }
 
   /**
@@ -111,6 +204,12 @@ export class YoutubeAnalyticsService {
         { operationName: 'YouTube Analytics Traffic Sources' },
       );
 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (traffic-breakdown)',
+        success: true,
+      });
+
       const rows = response.data.rows;
       if (!rows || rows.length === 0) return [];
 
@@ -135,8 +234,14 @@ export class YoutubeAnalyticsService {
         views: (row[1] as number) || 0,
         watchMinutes: (row[2] as number) || 0,
       }));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Failed to fetch traffic sources: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (traffic-breakdown)',
+        success: false,
+        errorMessage: error.message,
+      });
       return [];
     }
   }
@@ -167,14 +272,26 @@ export class YoutubeAnalyticsService {
         { operationName: 'YouTube Analytics Traffic Sources' },
       );
 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (traffic-sources)',
+        success: true,
+      });
+
       return (response.data.rows || []).map((row) => ({
         source: row[0] as string,
         views: (row[1] as number) || 0,
         watchMinutes: (row[2] as number) || 0,
         subsGained: 0,
       }));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Failed to fetch traffic sources: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (traffic-sources)',
+        success: false,
+        errorMessage: error.message,
+      });
       return [];
     }
   }
@@ -205,13 +322,25 @@ export class YoutubeAnalyticsService {
         { operationName: 'YouTube Analytics Retention' },
       );
 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (retention-over-time)',
+        success: true,
+      });
+
       return (response.data.rows || []).map((row) => ({
         date: row[0] as string,
         retentionPercent: (row[1] as number) || 0,
         avgDuration: (row[2] as number) || 0,
       }));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Failed to fetch retention: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (retention-over-time)',
+        success: false,
+        errorMessage: error.message,
+      });
       return [];
     }
   }
@@ -242,13 +371,25 @@ export class YoutubeAnalyticsService {
         { operationName: 'YouTube Analytics Revenue' },
       );
 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (revenue-over-time)',
+        success: true,
+      });
+
       return (response.data.rows || []).map((row) => ({
         date: row[0] as string,
         revenue: (row[1] as number) || 0,
         adRevenue: (row[2] as number) || 0,
       }));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Failed to fetch revenue: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (revenue-over-time)',
+        success: false,
+        errorMessage: error.message,
+      });
       return [];
     }
   }
@@ -281,6 +422,12 @@ export class YoutubeAnalyticsService {
         { operationName: 'YouTube Analytics Top Videos' },
       );
 
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (top-videos)',
+        success: true,
+      });
+
       const rows = response.data.rows || [];
       if (rows.length === 0) return [];
 
@@ -304,8 +451,14 @@ export class YoutubeAnalyticsService {
         retentionPercent: (row[3] as number) || 0,
         revenue: (row[4] as number) || 0,
       }));
-    } catch (error) {
+    } catch (error: any) {
       this.logger.warn(`Failed to fetch top videos: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (top-videos)',
+        success: false,
+        errorMessage: error.message,
+      });
       return [];
     }
   }

@@ -43,6 +43,17 @@ export class VideosController {
     return this.videosService.findById(id);
   }
 
+  @Get('videos/:id/timeline')
+  getVideoTimeline(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Query('refresh') refresh?: string,
+    @Query('range') range?: string,
+  ) {
+    const forceRefresh = refresh === 'true' || refresh === '1';
+    return this.videosService.getVideoPerformanceTimeline(id, userId, forceRefresh, range || 'all');
+  }
+
   @Post('videos/:id/analytics')
   fetchAnalytics(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.videosService.fetchVideoAnalytics(id, userId);

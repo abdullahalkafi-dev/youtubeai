@@ -1,4 +1,4 @@
-import type { Video, PaginatedVideos, VideoStats } from '@/types/video'
+import type { Video, PaginatedVideos, VideoStats, VideoTimelineResponse } from '@/types/video'
 import type { Channel } from '@/types/channel'
 import type { SeoSuggestion } from '@/types/seo'
 import type { Thread, ThreadListItem, Message, SendMessageResponse } from '@/types/chat'
@@ -246,6 +246,14 @@ class ApiClient {
     return this.get<Video>(`/api/videos/${id}`)
   }
 
+  async getVideoTimeline(id: string, refresh?: boolean, range?: string) {
+    const params = new URLSearchParams()
+    if (refresh) params.set('refresh', 'true')
+    if (range) params.set('range', range)
+    const qs = params.toString()
+    return this.get<VideoTimelineResponse>(`/api/videos/${id}/timeline${qs ? `?${qs}` : ''}`)
+  }
+
   async fetchVideoAnalytics(id: string) {
     return this.post<Video>(`/api/videos/${id}/analytics`)
   }
@@ -337,11 +345,47 @@ class ApiClient {
       aspectRatio?: '16:9' | '9:16'
       excludeHost?: boolean
       excludeLogo?: boolean
+      referenceImageUrls?: string[]
       customHostImage?: string
       customHostUrl?: string
     },
   ) {
     return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
+  }
+
+  async recomposeOverlay(
+    threadId: string,
+    data: {
+      baseImageUrl: string
+      selectedHostImage?: string
+      customHostUrl?: string
+      excludeHost?: boolean
+      logoPosition?: 'top-right' | 'none'
+      excludeLogo?: boolean
+      aspectRatio?: '16:9' | '9:16'
+    },
+  ) {
+    return this.post<{ imageUrl: string; image?: any }>(`/api/threads/${threadId}/recompose-overlay`, data)
+  }
+
+  async suggestSubjects(
+    threadId: string,
+    data: {
+      videoTitle?: string
+      visualConcept?: string
+    },
+  ) {
+    return this.post<Array<{ id: string; name: string; role?: string; searchQuery: string; imageUrl?: string; source?: string }>>(
+      `/api/threads/${threadId}/suggest-subjects`,
+      data,
+    )
+  }
+
+  async searchSubjectImage(
+    threadId: string,
+    query: string,
+  ) {
+    return this.post<{ name: string; imageUrl?: string }>(`/api/threads/${threadId}/search-subject-image`, { query })
   }
 
   async generateSceneImage(
@@ -942,6 +986,14 @@ class ApiClient {
 
   async retryScriptSync(channelId: string, id: string): Promise<{ success: boolean; scriptId: string; status: string }> {
     return this.post<{ success: boolean; scriptId: string; status: string }>(`/api/channels/${channelId}/scripts/${id}/retry-sync`, {})
+  }
+
+  async getAnalyticsQuotaUsage(channelId: string): Promise<QuotaUsage> {
+    return this.get<QuotaUsage>(`/api/channels/${channelId}/quota/analytics`)
+  }
+
+  async getRecentQuotaLogs(channelId: string, limit = 50): Promise<QuotaLog[]> {
+    return this.get<QuotaLog[]>(`/api/channels/${channelId}/quota/logs?limit=${limit}`)
   }
 }
 
