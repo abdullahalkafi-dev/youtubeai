@@ -38,23 +38,51 @@ interface HostCutoutModalProps {
 function getCroppedImgBase64(image: HTMLImageElement, crop?: PixelCrop): string {
   const canvas = document.createElement('canvas')
   if (!crop || !crop.width || !crop.height) {
-    canvas.width = image.naturalWidth
-    canvas.height = image.naturalHeight
+    let w = image.naturalWidth
+    let h = image.naturalHeight
+    const maxDim = 1200
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w)
+        w = maxDim
+      } else {
+        w = Math.round((w * maxDim) / h)
+        h = maxDim
+      }
+    }
+    canvas.width = w
+    canvas.height = h
     const ctx = canvas.getContext('2d')
     if (!ctx) return ''
-    ctx.drawImage(image, 0, 0)
+    ctx.imageSmoothingQuality = 'high'
+    ctx.drawImage(image, 0, 0, w, h)
     return canvas.toDataURL('image/png')
   }
 
   const scaleX = image.naturalWidth / image.width
   const scaleY = image.naturalHeight / image.height
 
-  canvas.width = Math.floor(crop.width * scaleX)
-  canvas.height = Math.floor(crop.height * scaleY)
+  let targetWidth = Math.floor(crop.width * scaleX)
+  let targetHeight = Math.floor(crop.height * scaleY)
+
+  const maxDim = 1200
+  if (targetWidth > maxDim || targetHeight > maxDim) {
+    if (targetWidth > targetHeight) {
+      targetHeight = Math.round((targetHeight * maxDim) / targetWidth)
+      targetWidth = maxDim
+    } else {
+      targetWidth = Math.round((targetWidth * maxDim) / targetHeight)
+      targetHeight = maxDim
+    }
+  }
+
+  canvas.width = targetWidth
+  canvas.height = targetHeight
 
   const ctx = canvas.getContext('2d')
   if (!ctx) return ''
 
+  ctx.imageSmoothingQuality = 'high'
   ctx.drawImage(
     image,
     crop.x * scaleX,
@@ -63,8 +91,8 @@ function getCroppedImgBase64(image: HTMLImageElement, crop?: PixelCrop): string 
     crop.height * scaleY,
     0,
     0,
-    canvas.width,
-    canvas.height,
+    targetWidth,
+    targetHeight,
   )
 
   return canvas.toDataURL('image/png')
@@ -134,17 +162,27 @@ export function HostCutoutModal({
       reader.addEventListener('load', () => {
         setRawImageSrc(reader.result?.toString() || null)
         setPreviewCutoutUrl(null)
-        // Default crop to center vertical bust shot
+        // Default crop from top of head (y: 0) to torso
         setCrop({
           unit: '%',
-          x: 15,
-          y: 5,
-          width: 70,
+          x: 10,
+          y: 0,
+          width: 80,
           height: 85,
         })
       })
       reader.readAsDataURL(file)
     }
+  }
+
+  const onImageLoad = () => {
+    setCrop({
+      unit: '%',
+      x: 10,
+      y: 0,
+      width: 80,
+      height: 85,
+    })
   }
 
   const handleGeneratePreview = async () => {
@@ -410,17 +448,20 @@ export function HostCutoutModal({
                         </span>
                       </div>
 
-                      <div className="max-h-[360px] overflow-auto rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-950 flex items-center justify-center p-2">
+                      <div className="rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-950 flex items-center justify-center p-3 select-none min-h-[380px] max-h-[500px]">
                         <ReactCrop
                           crop={crop}
                           onChange={(_, percentCrop) => setCrop(percentCrop)}
                           onComplete={(c) => setCompletedCrop(c)}
+                          className="flex items-center justify-center"
                         >
                           <img
                             ref={imgRef}
                             src={rawImageSrc}
                             alt="Crop target"
-                            className="max-h-[340px] w-auto object-contain select-none"
+                            onLoad={onImageLoad}
+                            style={{ maxHeight: 'min(440px, 48vh)', maxWidth: '100%', width: 'auto', objectFit: 'contain' }}
+                            className="select-none"
                           />
                         </ReactCrop>
                       </div>
@@ -511,7 +552,7 @@ export function HostCutoutModal({
                         )}
                       </div>
 
-                      <div className="h-[360px] rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[size:10px_10px] flex items-center justify-center p-4 relative shadow-inner">
+                      <div className="min-h-[380px] max-h-[500px] h-full rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[size:10px_10px] flex items-center justify-center p-4 relative shadow-inner">
                         {previewCutoutUrl ? (
                           <img
                             src={previewCutoutUrl}
