@@ -265,4 +265,41 @@ export class ChatController {
   ) {
     return this.chatService.searchSubjectImage(body.query);
   }
+
+  @Post('threads/:id/preview-cutout')
+  previewCutout(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      imageBase64: string;
+      mode?: 'green_screen' | 'ai';
+      tolerance?: number;
+      smoothness?: number;
+    },
+  ) {
+    return this.chatService.previewCutout(id, body);
+  }
+
+  @Post('threads/:id/save-custom-host')
+  saveCustomHost(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      imageBase64: string;
+      filename?: string;
+    },
+  ) {
+    return this.chatService.saveCustomHost(id, body);
+  }
+
+  @Delete('threads/:id/custom-host')
+  deleteCustomHost(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      filename: string;
+    },
+  ) {
+    return this.chatService.deleteCustomHost(id, body.filename);
+  }
 }

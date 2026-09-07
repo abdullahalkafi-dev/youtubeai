@@ -67,6 +67,18 @@ export function ThumbnailCustomizerModal({
   const [aspectRatio, setAspectRatio] = useState<'16:9' | '9:16'>(initialAspectRatio)
   const [textOverlay, setTextOverlay] = useState<string>(defaultText)
   const [isGenerating, setIsGenerating] = useState(false)
+  const [generationElapsed, setGenerationElapsed] = useState(0)
+
+  useEffect(() => {
+    let timer: any
+    if (isGenerating) {
+      setGenerationElapsed(0)
+      timer = setInterval(() => setGenerationElapsed((prev) => prev + 1), 1000)
+    } else {
+      setGenerationElapsed(0)
+    }
+    return () => clearInterval(timer)
+  }, [isGenerating])
 
   useEffect(() => {
     setTextOverlay(defaultText)
@@ -164,7 +176,7 @@ export function ThumbnailCustomizerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="relative w-full max-w-3xl lg:max-w-4xl bg-gray-900 border border-gray-800 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-800 bg-gray-900/80">
           <div className="flex items-center gap-2">
@@ -430,34 +442,64 @@ export function ThumbnailCustomizerModal({
         </div>
 
         {/* Footer Actions */}
-        <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-gray-800 bg-gray-900/90">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={isGenerating}
-            className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white rounded-xl hover:bg-gray-800 transition"
-          >
-            Cancel
-          </button>
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 px-6 py-4 border-t border-gray-800 bg-gray-900/90">
+          {/* Real-time Progress Status when generating */}
+          {isGenerating ? (
+            <div className="flex items-center gap-2.5 text-left flex-1 min-w-0 pr-2">
+              <div className="w-7 h-7 rounded-lg bg-violet-600/20 border border-violet-500/40 flex items-center justify-center shrink-0">
+                <Loader2 className="w-4 h-4 text-violet-400 animate-spin" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-white">Generating 4K Thumbnail</span>
+                  <span className="px-1.5 py-0.2 rounded bg-violet-500/20 text-violet-300 font-mono text-[10px] font-semibold">
+                    {generationElapsed}s
+                  </span>
+                </div>
+                <p className="text-[10px] text-gray-400 truncate">
+                  {generationElapsed < 22
+                    ? '1/3 OpenAI Diffusion rendering photorealistic scene...'
+                    : generationElapsed < 32
+                    ? '2/3 Extracting raw background & saving clean canvas...'
+                    : '3/3 Sharp compositing host cutout & brand logo...'}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="text-[11px] text-gray-500 italic hidden sm:block">
+              Takes ~30–40s for full diffusion rendering & Sharp composite
+            </div>
+          )}
 
-          <button
-            type="button"
-            onClick={handleConfirm}
-            disabled={isGenerating}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-violet-500/25 transition disabled:opacity-50"
-          >
-            {isGenerating ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Generating Image...</span>
-              </>
-            ) : (
-              <>
-                <Sparkles className="w-4 h-4 text-amber-300 fill-amber-300" />
-                <span>Confirm & Generate Thumbnail</span>
-              </>
-            )}
-          </button>
+          <div className="flex items-center justify-end gap-2.5 shrink-0">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={isGenerating}
+              className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white rounded-xl hover:bg-gray-800 transition"
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={isGenerating}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white font-bold text-xs shadow-lg shadow-violet-500/25 transition disabled:opacity-50"
+            >
+              {isGenerating ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Generating ({generationElapsed}s)...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4 text-amber-300 fill-amber-300" />
+                  <span>Confirm & Generate Thumbnail</span>
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 

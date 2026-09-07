@@ -51,12 +51,34 @@ Visual Concept: "${visualConcept || ''}"`;
         systemPrompt,
         userMessage,
         temperature: 0.2,
-        maxCompletionTokens: 512,
+        maxCompletionTokens: 2000,
       });
 
-      const parsed = JSON.parse(
-        rawJson.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim(),
-      );
+      let parsed: any = null;
+      try {
+        let clean = rawJson.replace(/```(?:json)?/gi, '').replace(/```/g, '').trim();
+        const firstBrace = clean.indexOf('{');
+        const lastBrace = clean.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+          clean = clean.substring(firstBrace, lastBrace + 1);
+        }
+        parsed = JSON.parse(clean);
+      } catch (parseErr: any) {
+        this.logger.warn(`Initial JSON parse failed, attempting regex recovery: ${parseErr.message}`);
+        // Regex recovery for {"name": "...", "role": "...", "searchQuery": "..."}
+        const nameMatches = [...rawJson.matchAll(/"name"\s*:\s*"([^"]+)"/gi)];
+        const roleMatches = [...rawJson.matchAll(/"role"\s*:\s*"([^"]+)"/gi)];
+        const queryMatches = [...rawJson.matchAll(/"searchQuery"\s*:\s*"([^"]+)"/gi)];
+        if (nameMatches.length > 0) {
+          parsed = {
+            subjects: nameMatches.slice(0, 3).map((m, i) => ({
+              name: m[1],
+              role: roleMatches[i]?.[1] || 'Key Subject',
+              searchQuery: queryMatches[i]?.[1] || m[1],
+            })),
+          };
+        }
+      }
 
       const rawSubjects = Array.isArray(parsed?.subjects)
         ? parsed.subjects.slice(0, 3)

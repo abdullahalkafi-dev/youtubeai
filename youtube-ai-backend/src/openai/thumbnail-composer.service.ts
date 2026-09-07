@@ -386,6 +386,65 @@ export class ThumbnailComposerService {
   }
 
   /**
+   * High-fidelity green-screen chroma keyer with active edge de-spill & feathering.
+   */
+  public async chromaKeyWithDeSpill(
+    inputBuffer: Buffer,
+    tolerance = 0.25,
+    smoothness = 0.1,
+  ): Promise<Buffer> {
+    const { data, info } = await sharp(inputBuffer)
+      .ensureAlpha()
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+
+    const { width, height, channels } = info;
+    if (channels !== 4) return inputBuffer;
+
+    const outData = Buffer.from(data);
+    // Green dominance delta threshold scaled by tolerance
+    const greenDomMin = 20 + Math.round(tolerance * 70); // ~37
+    const greenRatio = 1.12 + tolerance * 0.25;
+
+    for (let i = 0; i < outData.length; i += 4) {
+      const r = outData[i];
+      const g = outData[i + 1];
+      const b = outData[i + 2];
+
+      const maxOther = Math.max(r, b);
+      const greenDelta = g - maxOther;
+
+      if (g > 75 && greenDelta > greenDomMin && g > maxOther * greenRatio) {
+        // Completely green background
+        outData[i + 3] = 0;
+      } else if (g > 65 && greenDelta > greenDomMin * 0.45 && g > maxOther * 1.05) {
+        // Edge transition feathering
+        const edgeRatio = (greenDelta - greenDomMin * 0.45) / (greenDomMin * 0.55);
+        const alpha = Math.max(0, Math.min(255, Math.round((1 - edgeRatio) * 255)));
+        outData[i + 3] = alpha;
+
+        // De-spill: Neutralize green bounce light on edges
+        const avgOther = Math.round((r + b) / 2);
+        if (outData[i + 1] > avgOther) {
+          outData[i + 1] = avgOther;
+        }
+      } else {
+        // Subject foreground pixel: subtle de-spill if green bounce light is present
+        const avgOther = Math.round((r + b) / 2);
+        if (g > maxOther && greenDelta > 15) {
+          outData[i + 1] = Math.max(avgOther, Math.round(g * 0.88));
+        }
+      }
+    }
+
+    return await sharp(outData, {
+      raw: { width, height, channels: 4 },
+    })
+      .png()
+      .toBuffer();
+  }
+
+  /**
    * Intelligently ensure a host image is a transparent cutout.
    * If the input is already transparent, passes through untouched.
    * If the input has a solid background (black, dark gray, white, green screen):
@@ -441,12 +500,23 @@ export class ThumbnailComposerService {
         b: data[idx + 2],
       }));
 
+      // Check if top corners are green screen (studio lighting typically has green at top corners)
+      const isTopCornerGreen =
+        (cornerColors[0].g > 100 && cornerColors[0].g > cornerColors[0].r * 1.2 && cornerColors[0].g > cornerColors[0].b * 1.2) ||
+        (cornerColors[1].g > 100 && cornerColors[1].g > cornerColors[1].r * 1.2 && cornerColors[1].g > cornerColors[1].b * 1.2);
+
+      // Check if corners are green screen
+      const isGreenBg = isTopCornerGreen || cornerColors.every((c) => c.g > 130 && c.g > c.r * 1.2 && c.g > c.b * 1.2);
+
+      if (isGreenBg) {
+        this.logger.log(`[Auto-Cutout] Detected green screen background. Running high-fidelity chroma key with de-spill...`);
+        return await this.chromaKeyWithDeSpill(inputBuffer);
+      }
+
       // Check if corners are black / dark background (r < 45, g < 45, b < 45)
       const isDarkBg = cornerColors.every((c) => c.r < 45 && c.g < 45 && c.b < 45);
       // Check if corners are white background (r > 225, g > 225, b > 225)
       const isWhiteBg = cornerColors.every((c) => c.r > 225 && c.g > 225 && c.b > 225);
-      // Check if corners are green screen (g > 140 && g > r * 1.3 && g > b * 1.3)
-      const isGreenBg = cornerColors.every((c) => c.g > 140 && c.g > c.r * 1.3 && c.g > c.b * 1.3);
 
       if (isDarkBg) {
         this.logger.log(`[Auto-Cutout] Detected solid dark/black background. Keying out into transparent cutout...`);
@@ -492,25 +562,6 @@ export class ThumbnailComposerService {
           } else if (minBrightness > lowCut) {
             const alphaRatio = 1 - (minBrightness - lowCut) / (highCut - lowCut);
             outData[i + 3] = Math.round(alphaRatio * 255);
-          }
-        }
-
-        return await sharp(outData, {
-          raw: { width, height, channels: 4 },
-        })
-          .png()
-          .toBuffer();
-      }
-
-      if (isGreenBg) {
-        this.logger.log(`[Auto-Cutout] Detected green screen background. Keying out chroma-green into transparent cutout...`);
-        const outData = Buffer.from(data);
-        for (let i = 0; i < outData.length; i += 4) {
-          const r = outData[i];
-          const g = outData[i + 1];
-          const b = outData[i + 2];
-          if (g > 120 && g > r * 1.3 && g > b * 1.3) {
-            outData[i + 3] = 0;
           }
         }
 

@@ -180,8 +180,11 @@ class ApiClient {
     })
   }
 
-  async delete<T>(endpoint: string): Promise<T> {
-    return this.request<T>(endpoint, { method: 'DELETE' })
+  async delete<T>(endpoint: string, body?: unknown): Promise<T> {
+    return this.request<T>(endpoint, {
+      method: 'DELETE',
+      body: body ? JSON.stringify(body) : undefined,
+    })
   }
 
   // Auth
@@ -366,6 +369,47 @@ class ApiClient {
     },
   ) {
     return this.post<{ imageUrl: string; image?: any }>(`/api/threads/${threadId}/recompose-overlay`, data)
+  }
+
+  async previewCutout(
+    threadId: string,
+    imageBase64OrData: string | {
+      imageBase64: string
+      mode?: 'green_screen' | 'ai'
+      tolerance?: number
+      smoothness?: number
+    },
+    options?: {
+      mode?: 'green_screen' | 'ai'
+      tolerance?: number
+      smoothness?: number
+    },
+  ) {
+    const data = typeof imageBase64OrData === 'string'
+      ? { imageBase64: imageBase64OrData, ...options }
+      : imageBase64OrData
+    return this.post<{ previewUrl: string }>(`/api/threads/${threadId}/preview-cutout`, data)
+  }
+
+  async saveCustomHost(
+    threadId: string,
+    imageBase64OrData: string | {
+      imageBase64: string
+      filename?: string
+    },
+    filename?: string,
+  ) {
+    const data = typeof imageBase64OrData === 'string'
+      ? { imageBase64: imageBase64OrData, filename }
+      : imageBase64OrData
+    return this.post<{ url: string; filename: string }>(`/api/threads/${threadId}/save-custom-host`, data)
+  }
+
+  async deleteCustomHost(
+    threadId: string,
+    filename: string,
+  ) {
+    return this.delete<{ success: boolean }>(`/api/threads/${threadId}/custom-host`, { filename })
   }
 
   async suggestSubjects(

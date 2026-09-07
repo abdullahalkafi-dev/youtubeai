@@ -285,7 +285,7 @@ export function SubjectReferenceCards({
                 {/* Top Row: Photo + Name/Role + Remove */}
                 <div className="flex items-start gap-2.5">
                   {/* Photo Preview */}
-                  <div className="relative w-12 h-14 rounded-lg bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0 flex items-center justify-center">
+                  <div className="relative w-14 h-16 rounded-xl bg-gray-100 dark:bg-gray-900 border border-violet-200/50 dark:border-gray-700/80 overflow-hidden shrink-0 flex items-center justify-center shadow-xs">
                     {subject.imageUrl ? (
                       <img
                         src={formatAssetUrl(subject.imageUrl)}
@@ -293,7 +293,7 @@ export function SubjectReferenceCards({
                         className="w-full h-full object-cover"
                       />
                     ) : (
-                      <User className="w-5 h-5 text-gray-400" />
+                      <User className="w-6 h-6 text-gray-400" />
                     )}
 
                     {isUploadingThis && (
@@ -304,30 +304,30 @@ export function SubjectReferenceCards({
                   </div>
 
                   {/* Info */}
-                  <div className="flex-1 min-w-0 pr-4">
-                    <p className="text-xs font-semibold text-gray-900 dark:text-white truncate" title={subject.name}>
+                  <div className="flex-1 min-w-0 pr-4 space-y-1">
+                    <p className="text-xs font-bold text-gray-900 dark:text-white line-clamp-2 leading-tight" title={subject.name}>
                       {subject.name}
                     </p>
-                    <span className="inline-block mt-0.5 text-[9px] font-medium px-1.5 py-0.2 rounded-full bg-violet-100 dark:bg-violet-900/40 text-violet-700 dark:text-violet-300 truncate max-w-full">
-                      {subject.role || 'Key Subject'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-300 border border-violet-500/30 line-clamp-1">
+                        {subject.role || 'Key Subject'}
+                      </span>
 
-                    {/* Source tag */}
-                    <div className="mt-1 flex items-center gap-1">
+                      {/* Source tag */}
                       {subject.source === 'wikipedia' ? (
-                        <span className="text-[9px] font-mono text-blue-600 dark:text-blue-400 flex items-center gap-0.5">
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">
                           Wikipedia
                         </span>
                       ) : subject.source === 'upload' ? (
-                        <span className="text-[9px] font-mono text-purple-600 dark:text-purple-400">
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20">
                           Custom Upload
                         </span>
                       ) : subject.imageUrl ? (
-                        <span className="text-[9px] font-mono text-emerald-600 dark:text-emerald-400">
+                        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                           Web Search
                         </span>
                       ) : (
-                        <span className="text-[9px] text-amber-500 italic">No photo found</span>
+                        <span className="text-[9px] text-amber-400 italic">No photo found</span>
                       )}
                     </div>
                   </div>
@@ -336,7 +336,7 @@ export function SubjectReferenceCards({
                   <button
                     type="button"
                     onClick={() => handleRemoveSubject(subject.id)}
-                    className="absolute top-2 right-2 text-gray-400 hover:text-red-500 p-0.5 rounded transition"
+                    className="absolute top-2 right-2 text-gray-400 hover:text-red-400 p-0.5 rounded transition"
                     title="Remove subject"
                   >
                     <X className="w-3.5 h-3.5" />
@@ -371,31 +371,31 @@ export function SubjectReferenceCards({
                 )}
 
                 {/* Bottom Action Row */}
-                <div className="mt-2.5 pt-2 border-t border-gray-100 dark:border-gray-700/60 flex items-center justify-between text-[10px]">
+                <div className="mt-3 pt-2 border-t border-gray-100 dark:border-gray-800 flex items-center justify-between text-[10px]">
                   {/* Toggle Include */}
                   <button
                     type="button"
                     onClick={() => handleToggleSelect(subject.id)}
-                    className={`flex items-center gap-1 font-medium transition ${
+                    className={`flex items-center gap-1.5 font-medium transition ${
                       isSelected
-                        ? 'text-violet-600 dark:text-violet-400'
+                        ? 'text-violet-600 dark:text-violet-400 font-semibold'
                         : 'text-gray-400 hover:text-gray-600'
                     }`}
                   >
                     <div
-                      className={`w-3.5 h-3.5 rounded flex items-center justify-center border transition ${
+                      className={`w-4 h-4 rounded-md flex items-center justify-center border transition ${
                         isSelected
-                          ? 'bg-violet-600 border-violet-600 text-white'
+                          ? 'bg-violet-600 border-violet-600 text-white shadow-xs'
                           : 'border-gray-300 dark:border-gray-600'
                       }`}
                     >
-                      {isSelected && <Check className="w-2.5 h-2.5" />}
+                      {isSelected && <Check className="w-3 h-3 stroke-[2.5]" />}
                     </div>
                     <span>{isSelected ? 'Included' : 'Excluded'}</span>
                   </button>
 
                   {/* Photo Actions: Search Alternative / Upload */}
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     <button
                       type="button"
                       onClick={() =>
@@ -403,20 +403,20 @@ export function SubjectReferenceCards({
                           ? setSearchPopoverSubjectId(null)
                           : handleOpenSearch(subject)
                       }
-                      className="px-1.5 py-0.5 text-gray-500 hover:text-violet-600 dark:hover:text-violet-400 rounded hover:bg-violet-50 dark:hover:bg-violet-900/30 transition flex items-center gap-0.5"
+                      className="px-2 py-1 text-gray-400 hover:text-violet-300 rounded-md bg-gray-800/40 hover:bg-violet-500/20 border border-gray-700/60 hover:border-violet-500/40 transition flex items-center gap-1"
                       title="Search web for another photo"
                     >
-                      <Search className="w-2.5 h-2.5" />
+                      <Search className="w-3 h-3" />
                       <span>Search</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => handleTriggerUpload(subject.id)}
-                      className="px-1.5 py-0.5 text-gray-500 hover:text-violet-600 dark:hover:text-violet-400 rounded hover:bg-violet-50 dark:hover:bg-violet-900/30 transition flex items-center gap-0.5"
-                      title="Upload own photo file"
+                      className="px-2 py-1 text-gray-400 hover:text-purple-300 rounded-md bg-gray-800/40 hover:bg-purple-500/20 border border-gray-700/60 hover:border-purple-500/40 transition flex items-center gap-1"
+                      title="Upload custom portrait photo"
                     >
-                      <Upload className="w-2.5 h-2.5" />
+                      <Upload className="w-3 h-3" />
                       <span>Upload</span>
                     </button>
                   </div>

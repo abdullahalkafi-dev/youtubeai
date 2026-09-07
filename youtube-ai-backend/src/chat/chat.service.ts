@@ -1788,4 +1788,63 @@ export class ChatService {
     const imageUrl = await this.subjectReferenceService.searchSubjectPublicImage(query);
     return { name: query, imageUrl };
   }
+
+  async previewCutout(
+    threadId: string,
+    dto: { imageBase64: string; mode?: 'green_screen' | 'ai'; tolerance?: number; smoothness?: number },
+  ) {
+    if (!dto.imageBase64) throw new BadRequestException('No image provided');
+    const rawB64 = dto.imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(rawB64, 'base64');
+
+    const resultBuffer = await this.composerService.chromaKeyWithDeSpill(
+      buffer,
+      dto.tolerance ?? 0.25,
+      dto.smoothness ?? 0.1,
+    );
+
+    return { previewUrl: `data:image/png;base64,${resultBuffer.toString('base64')}` };
+  }
+
+  async saveCustomHost(
+    threadId: string,
+    dto: { imageBase64: string; filename?: string },
+  ) {
+    if (!dto.imageBase64) throw new BadRequestException('No image provided');
+    const rawB64 = dto.imageBase64.replace(/^data:image\/\w+;base64,/, '');
+    const buffer = Buffer.from(rawB64, 'base64');
+
+    const filename = dto.filename || `custom_host_${Date.now()}.png`;
+    let finalUrl: string;
+
+    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    if (isMinioReady) {
+      try {
+        finalUrl = await this.minioService.uploadThumbnail('system', filename, buffer);
+      } catch {
+        const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
+        if (!fs.existsSync(uniqueDir)) fs.mkdirSync(uniqueDir, { recursive: true });
+        fs.writeFileSync(path.join(uniqueDir, filename), buffer);
+        finalUrl = `/api/assets/unique-images/${filename}`;
+      }
+    } else {
+      const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
+      if (!fs.existsSync(uniqueDir)) fs.mkdirSync(uniqueDir, { recursive: true });
+      fs.writeFileSync(path.join(uniqueDir, filename), buffer);
+      finalUrl = `/api/assets/unique-images/${filename}`;
+    }
+
+    return { url: finalUrl, filename };
+  }
+
+  async deleteCustomHost(threadId: string, filename: string) {
+    if (!filename) return { success: true };
+    const cleanFilename = path.basename(filename);
+    const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
+    const filePath = path.join(uniqueDir, cleanFilename);
+    if (fs.existsSync(filePath)) {
+      try { fs.unlinkSync(filePath); } catch {}
+    }
+    return { success: true };
+  }
 }
