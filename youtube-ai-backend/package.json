@@ -40,6 +40,7 @@
     "class-transformer": "^0.5.1",
     "class-validator": "^0.15.1",
     "cookie-parser": "^1.4.7",
+    "express": "^4.21.2",
     "googleapis": "^173.0.0",
     "ioredis": "^5.11.1",
     "minio": "^8.0.7",
