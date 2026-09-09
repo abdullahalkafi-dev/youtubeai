@@ -34,6 +34,259 @@ function parseSentencesFromText(text: string): string[] {
   return matches.map((m) => m.trim()).filter(Boolean)
 }
 
+// ─── Smart Block-Grouping Body Renderer ─────────────────────────────────────
+// Groups consecutive `> ` blockquote lines into a single block with a gray
+// left border (the vertical line the client wants). Handles sub-section headers,
+// stage cues, jewel markers, and legal status headers.
+
+type BlockType = 'blockquote' | 'subheader' | 'cue' | 'jewel' | 'legalheader' | 'para'
+interface BodyBlock {
+  type: BlockType
+  lines: string[]
+}
+
+function groupBodyIntoBlocks(body: string): BodyBlock[] {
+  const rawLines = body.split('\n')
+  const blocks: BodyBlock[] = []
+  let currentQuoteLines: string[] = []
+
+  const flushQuote = () => {
+    if (currentQuoteLines.length > 0) {
+      blocks.push({ type: 'blockquote', lines: currentQuoteLines })
+      currentQuoteLines = []
+    }
+  }
+
+  for (const raw of rawLines) {
+    const line = raw.trimEnd()
+
+    // Blank line — flush any open blockquote, then skip
+    if (!line.trim()) {
+      flushQuote()
+      continue
+    }
+
+    const trimmed = line.trim()
+    // Remove accidental leading backslashes
+    const clean = trimmed.replace(/^\\+/, '')
+
+    // ── Stage cue: [BEAT] / [PAUSE]
+    if (/^\[(?:BEAT|PAUSE)\]/i.test(clean)) {
+      flushQuote()
+      blocks.push({ type: 'cue', lines: [clean] })
+      continue
+    }
+
+    // ── Jewel marker: 💎 JEWEL or 💎 FINAL JEWEL
+    if (/^💎/.test(clean)) {
+      flushQuote()
+      blocks.push({ type: 'jewel', lines: [clean] })
+      continue
+    }
+
+    // ── Legal status header: ### ON-SCREEN LEGAL STATUS
+    if (/^#{2,3}\s+ON-SCREEN/i.test(trimmed) || /^#{2,3}\s+LEGAL STATUS/i.test(trimmed)) {
+      flushQuote()
+      blocks.push({ type: 'legalheader', lines: [trimmed.replace(/^#+\s*/, '')] })
+      continue
+    }
+
+    // ── Sub-section header: **➤ A. TITLE** or ➤ A. TITLE
+    if (/^\*{0,2}➤/.test(trimmed) || /^\*{2}[A-Z]\.\s/.test(trimmed)) {
+      flushQuote()
+      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '')] })
+      continue
+    }
+
+    // ── Blockquote line: > text  OR just >
+    if (/^>\s*/.test(trimmed)) {
+      const content = trimmed.replace(/^>\s*/, '')
+      currentQuoteLines.push(content) // empty string for spacer `>`
+      continue
+    }
+
+    // ── Everything else → paragraph
+    flushQuote()
+    blocks.push({ type: 'para', lines: [trimmed] })
+  }
+
+  flushQuote()
+  return blocks
+}
+
+interface SectionBodyRendererProps {
+  body: string
+  sectionIdx: number
+  fontSize: number
+  isHighlightEnabled: boolean
+  activeSentenceId: string | null
+  sentenceRefs: React.MutableRefObject<Map<string, HTMLElement>>
+  handleSentenceClick: (id: string) => void
+}
+
+function SectionBodyRenderer({
+  body,
+  sectionIdx,
+  fontSize,
+  isHighlightEnabled,
+  activeSentenceId,
+  sentenceRefs,
+  handleSentenceClick,
+}: SectionBodyRendererProps) {
+  const blocks = groupBodyIntoBlocks(body)
+  let lineCounter = 0
+
+  return (
+    <div className="space-y-4 sm:space-y-5">
+      {blocks.map((block, bIdx) => {
+        const key = `sec-${sectionIdx}-b-${bIdx}`
+
+        // ── STAGE CUE pill ─────────────────────────────────────────────────
+        if (block.type === 'cue') {
+          return (
+            <div key={key} className="py-2 flex items-center justify-center">
+              <span className="px-3 sm:px-4 py-1 rounded-full text-[11px] sm:text-xs font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
+                {block.lines[0]}
+              </span>
+            </div>
+          )
+        }
+
+        // ── JEWEL badge ────────────────────────────────────────────────────
+        if (block.type === 'jewel') {
+          return (
+            <div key={key} className="flex items-center space-x-2 pt-2 pb-1">
+              <div className="flex-1 h-px bg-amber-500/30" />
+              <span className="text-amber-400 font-black text-xs sm:text-sm uppercase tracking-widest">
+                {block.lines[0]}
+              </span>
+              <div className="flex-1 h-px bg-amber-500/30" />
+            </div>
+          )
+        }
+
+        // ── LEGAL STATUS header ────────────────────────────────────────────
+        if (block.type === 'legalheader') {
+          return (
+            <div key={key} className="py-1 border-b border-zinc-700/60 mb-1">
+              <span
+                style={{ fontSize: `${Math.max(11, fontSize * 0.6)}px` }}
+                className="font-black uppercase tracking-[0.2em] text-zinc-500"
+              >
+                {block.lines[0]}
+              </span>
+            </div>
+          )
+        }
+
+        // ── SUB-SECTION header (➤ A. TITLE) ───────────────────────────────
+        if (block.type === 'subheader') {
+          const subId = `${key}-sub`
+          const isSubActive = isHighlightEnabled && activeSentenceId === subId
+          return (
+            <div
+              key={key}
+              ref={(el) => {
+                if (el) sentenceRefs.current.set(subId, el)
+                else sentenceRefs.current.delete(subId)
+              }}
+              onClick={(e) => {
+                e.stopPropagation()
+                handleSentenceClick(subId)
+              }}
+              style={{ fontSize: `${fontSize * 1.05}px`, lineHeight: '1.5' }}
+              className={`font-extrabold tracking-tight pt-2 cursor-pointer rounded-lg px-2 -mx-2 transition-all duration-200 ${
+                isSubActive
+                  ? 'text-amber-300 bg-amber-500/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 scale-[1.015] origin-left'
+                  : 'text-white hover:text-amber-200'
+              }`}
+            >
+              {block.lines[0]}
+            </div>
+          )
+        }
+
+        // ── BLOCKQUOTE group — the vertical gray line the client wants ─────
+        if (block.type === 'blockquote') {
+          return (
+            <div
+              key={key}
+              className="pl-4 sm:pl-5 border-l-[3px] border-zinc-600/70 space-y-2"
+            >
+              {block.lines.map((spokenLine, lIdx) => {
+                if (!spokenLine) {
+                  // Blank `>` = breath gap
+                  return <div key={lIdx} className="h-2" />
+                }
+                const lineId = `${key}-l-${lIdx}`
+                const isActive = isHighlightEnabled && activeSentenceId === lineId
+                return (
+                  <div
+                    key={lineId}
+                    ref={(el) => {
+                      if (el) sentenceRefs.current.set(lineId, el)
+                      else sentenceRefs.current.delete(lineId)
+                    }}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      handleSentenceClick(lineId)
+                    }}
+                    style={{ fontSize: `${fontSize}px`, lineHeight: '1.75' }}
+                    className={`cursor-pointer rounded-md transition-all duration-200 font-medium ${
+                      isActive
+                        ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-2 py-0.5 -mx-2 scale-[1.015] inline-block origin-left'
+                        : 'text-zinc-200 hover:text-white hover:bg-zinc-800/30'
+                    }`}
+                  >
+                    {spokenLine}
+                  </div>
+                )
+              })}
+            </div>
+          )
+        }
+
+        // ── PLAIN PARAGRAPH ────────────────────────────────────────────────
+        const sentences = parseSentencesFromText(block.lines[0])
+        return (
+          <div
+            key={key}
+            style={{ fontSize: `${fontSize}px`, lineHeight: '1.7' }}
+            className="font-medium text-zinc-400"
+          >
+            {sentences.map((sent, sIdx) => {
+              const sentenceId = `${key}-s-${sIdx}`
+              const isActive = isHighlightEnabled && activeSentenceId === sentenceId
+              return (
+                <span
+                  key={sentenceId}
+                  ref={(el) => {
+                    if (el) sentenceRefs.current.set(sentenceId, el)
+                    else sentenceRefs.current.delete(sentenceId)
+                  }}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleSentenceClick(sentenceId)
+                  }}
+                  className={`cursor-pointer rounded-md transition-all duration-200 ${
+                    isActive
+                      ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
+                      : 'text-zinc-300 hover:text-white hover:bg-zinc-800/40'
+                  }`}
+                >
+                  {sent}{' '}
+                </span>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export function FullscreenTeleprompter({
   isOpen,
   onClose,
@@ -571,86 +824,15 @@ export function FullscreenTeleprompter({
                   </div>
                 </div>
               ) : (
-                <div className="space-y-5 sm:space-y-6">
-                  {section.body.split('\n').map((line, lIdx) => {
-                    const trimmed = line.trim()
-                    if (!trimmed) return null
-
-                    // Strip any accidental leading backslashes (e.g. \[BEAT\] → [BEAT])
-                    const cueClean = trimmed.replace(/^\\+/,'')
-
-                    if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
-                      return (
-                        <div key={lIdx} className="py-2 flex items-center justify-center">
-                          <span className="px-3 sm:px-4 py-1 rounded-full text-[11px] sm:text-xs font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
-                            {cueClean}
-                          </span>
-                        </div>
-                      )
-                    }
-
-                    if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
-                      const bulletId = `sec-${idx}-bullet-${lIdx}`
-                      const isBulletActive = isHighlightEnabled && activeSentenceId === bulletId
-                      return (
-                        <div
-                          key={lIdx}
-                          ref={(el) => {
-                            if (el) sentenceRefs.current.set(bulletId, el)
-                            else sentenceRefs.current.delete(bulletId)
-                          }}
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            handleSentenceClick(bulletId)
-                          }}
-                          style={{ fontSize: `${fontSize * 1.05}px`, lineHeight: '1.5' }}
-                          className={`font-extrabold tracking-tight pt-2 cursor-pointer rounded-lg px-2 -mx-2 transition-all duration-200 ${
-                            isBulletActive
-                              ? 'text-amber-300 bg-amber-500/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 scale-[1.015] origin-left'
-                              : 'text-white hover:text-amber-200'
-                          }`}
-                        >
-                          {trimmed.replace(/\*\*/g, '')}
-                        </div>
-                      )
-                    }
-
-                    // Split standard paragraph into interactive sentences
-                    const sentences = parseSentencesFromText(trimmed)
-                    return (
-                      <div
-                        key={lIdx}
-                        style={{ fontSize: `${fontSize}px`, lineHeight: '1.7' }}
-                        className="font-medium text-zinc-300 pl-3 sm:pl-4 border-l-2 border-amber-500/30 transition-colors"
-                      >
-                        {sentences.map((sent, sIdx) => {
-                          const sentenceId = `sec-${idx}-p-${lIdx}-s-${sIdx}`
-                          const isActive = isHighlightEnabled && activeSentenceId === sentenceId
-                          return (
-                            <span
-                              key={sentenceId}
-                              ref={(el) => {
-                                if (el) sentenceRefs.current.set(sentenceId, el)
-                                else sentenceRefs.current.delete(sentenceId)
-                              }}
-                              onClick={(e) => {
-                                e.stopPropagation()
-                                handleSentenceClick(sentenceId)
-                              }}
-                              className={`cursor-pointer rounded-md transition-all duration-200 ${
-                                isActive
-                                  ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
-                                  : 'text-zinc-300 hover:text-white hover:bg-zinc-800/40'
-                              }`}
-                            >
-                              {sent}{' '}
-                            </span>
-                          )
-                        })}
-                      </div>
-                    )
-                  })}
-                </div>
+                <SectionBodyRenderer
+                  body={section.body}
+                  sectionIdx={idx}
+                  fontSize={fontSize}
+                  isHighlightEnabled={isHighlightEnabled}
+                  activeSentenceId={activeSentenceId}
+                  sentenceRefs={sentenceRefs}
+                  handleSentenceClick={handleSentenceClick}
+                />
               )}
             </div>
           ))}
