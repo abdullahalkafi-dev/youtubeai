@@ -94,6 +94,15 @@ export class Thread {
 
   @Prop({ type: [MessageSchema], default: [] })
   messages: Message[];
+
+  @Prop({ default: false })
+  isGenerating?: boolean;
+
+  @Prop()
+  generatingSkill?: string;
+
+  @Prop()
+  generationStartedAt?: Date;
 }
 
 export const ThreadSchema = SchemaFactory.createForClass(Thread);

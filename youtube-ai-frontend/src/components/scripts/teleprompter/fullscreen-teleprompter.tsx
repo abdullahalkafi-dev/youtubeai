@@ -76,8 +76,8 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
       continue
     }
 
-    // ── Skip source citation lines: ([source.com](url)) or lines starting with The DOJ / According to / etc.
-    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean)) {
+    // ── Skip source citation lines: ([source.com](url)), (AP, August 31, 2026...), or [1] footnotes
+    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean) || /^\([A-Z][^)]*20\d{2}/.test(clean)) {
       flushQuote()
       continue
     }

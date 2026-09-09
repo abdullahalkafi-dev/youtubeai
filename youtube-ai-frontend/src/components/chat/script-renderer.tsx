@@ -33,6 +33,76 @@ import { TeleprompterEditorModal } from '@/components/scripts/editor/teleprompte
 import { VersionHistoryModal } from '@/components/scripts/version-history-modal'
 import type { ScriptItem } from '@/types/script'
 
+interface PreviewBlock {
+  type: 'quote' | 'cue' | 'subheader' | 'para'
+  lines: string[]
+}
+
+function groupPreviewBlocks(body: string): PreviewBlock[] {
+  const rawLines = body.split('\n')
+  const blocks: PreviewBlock[] = []
+  let currentQuote: string[] = []
+
+  const flushQuote = () => {
+    if (currentQuote.length > 0) {
+      blocks.push({ type: 'quote', lines: currentQuote })
+      currentQuote = []
+    }
+  }
+
+  for (const raw of rawLines) {
+    const trimmed = raw.trim()
+    if (!trimmed) {
+      flushQuote()
+      continue
+    }
+
+    const clean = trimmed.replace(/^\\+/, '')
+
+    // Dividers
+    if (/^-{3,}$/.test(clean) || /^={3,}.*={3,}$/.test(clean)) {
+      flushQuote()
+      continue
+    }
+
+    // Citation lines: ([apnews.com]...), [1] footnotes, (AP, August 31, 2026...), (Reuters, 2024...)
+    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean) || /^\([A-Z][^)]*20\d{2}/.test(clean)) {
+      flushQuote()
+      continue
+    }
+
+    // Stage cues: [BEAT] / [PAUSE]
+    if (/^\[(?:BEAT|PAUSE)\]/i.test(clean)) {
+      flushQuote()
+      blocks.push({ type: 'cue', lines: [clean] })
+      continue
+    }
+
+    // Sub-section or bullet headers
+    if (/^\*{0,2}➤/.test(trimmed) || /^\*{2}[A-Z]\.\s/.test(trimmed) || trimmed.startsWith('•') || trimmed.startsWith('**•')) {
+      flushQuote()
+      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '')] })
+      continue
+    }
+
+    // Spoken blockquote lines
+    if (/^>\s*/.test(trimmed)) {
+      const content = trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')
+      if (content) {
+        currentQuote.push(content)
+      }
+      continue
+    }
+
+    // Fallback normal paragraph text
+    flushQuote()
+    blocks.push({ type: 'para', lines: [trimmed.replace(/\*\*/g, '')] })
+  }
+
+  flushQuote()
+  return blocks
+}
+
 interface ScriptRendererProps {
   content: string
   threadId?: string
@@ -342,39 +412,54 @@ export function ScriptRenderer({
                   <Diamond className="w-3.5 h-3.5" />
                   <span>💎 JEWEL LESSON</span>
                 </div>
-                <p>{section.body.replace(/^>\s*/gm, '').replace(/\*\*/g, '')}</p>
+                <p>
+                  {section.body
+                    .split('\n')
+                    .filter((l) => {
+                      const c = l.trim().replace(/^\\+/, '')
+                      return !(/^\(\[/.test(c) || /^\[\d+\]/.test(c) || /^\([A-Z][^)]*20\d{2}/.test(c))
+                    })
+                    .join('\n')
+                    .replace(/^>\s*/gm, '')
+                    .replace(/\*\*/g, '')}
+                </p>
               </div>
             ) : (
-              <div className="space-y-2 text-xs leading-relaxed">
-                {section.body.split('\n').map((line, lIdx) => {
-                  const trimmed = line.trim()
-                  if (!trimmed) return null
-
-                  // Strip any accidental leading backslashes
-                  const cueClean = trimmed.replace(/^\\+/,'')
-
-                  if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
+              <div className="space-y-2.5 text-xs leading-relaxed">
+                {groupPreviewBlocks(section.body).map((block, bIdx) => {
+                  if (block.type === 'cue') {
                     return (
-                      <span
-                        key={lIdx}
-                        className="inline-block my-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 dark:bg-zinc-800 text-amber-500"
-                      >
-                        {cueClean}
-                      </span>
+                      <div key={bIdx}>
+                        <span className="inline-block my-0.5 px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-zinc-100 dark:bg-zinc-800 text-amber-500">
+                          {block.lines[0]}
+                        </span>
+                      </div>
                     )
                   }
 
-                  if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
+                  if (block.type === 'subheader') {
                     return (
-                      <div key={lIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-1">
-                        {trimmed.replace(/\*\*/g, '')}
+                      <div key={bIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-1">
+                        {block.lines[0]}
+                      </div>
+                    )
+                  }
+
+                  if (block.type === 'quote') {
+                    return (
+                      <div key={bIdx} className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1.5">
+                        {block.lines.map((line, lIdx) => (
+                          <p key={lIdx}>{line}</p>
+                        ))}
                       </div>
                     )
                   }
 
                   return (
-                    <div key={lIdx} className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300">
-                      {trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')}
+                    <div key={bIdx} className="text-zinc-700 dark:text-zinc-300 space-y-1">
+                      {block.lines.map((line, lIdx) => (
+                        <p key={lIdx}>{line}</p>
+                      ))}
                     </div>
                   )
                 })}

@@ -68,6 +68,9 @@ export interface Thread {
   totalCompletionTokens: number
   totalCachedTokens: number
   messages: Message[]
+  isGenerating?: boolean
+  generatingSkill?: ThreadCategory | string
+  generationStartedAt?: string
   createdAt: string
   updatedAt: string
 }
@@ -86,6 +89,9 @@ export interface ThreadListItem {
   totalCompletionTokens: number
   totalCachedTokens: number
   messageCount: number
+  isGenerating?: boolean
+  generatingSkill?: ThreadCategory | string
+  generationStartedAt?: string
   createdAt: string
   updatedAt: string
 }

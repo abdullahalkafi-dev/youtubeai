@@ -51,6 +51,13 @@ export const selectThread = createAsyncThunk(
   },
 )
 
+export const refreshThreadSilent = createAsyncThunk(
+  'chat/refreshThreadSilent',
+  async (threadId: string) => {
+    return await api.getThread(threadId)
+  },
+)
+
 export const renameThread = createAsyncThunk(
   'chat/renameThread',
   async (params: { threadId: string; title: string }) => {
@@ -218,6 +225,21 @@ const chatSlice = createSlice({
         state.streamingContent = ''
         state.activeThread = action.payload
         state.activeThreadId = action.payload.id
+      })
+      .addCase(refreshThreadSilent.fulfilled, (state, action) => {
+        if (state.activeThreadId === action.payload.id) {
+          state.activeThread = action.payload
+          if (!action.payload.isGenerating) {
+            state.sending = false
+          }
+        }
+        const idx = state.threads.findIndex((t) => t.id === action.payload.id)
+        if (idx !== -1) {
+          state.threads[idx].isGenerating = action.payload.isGenerating
+          state.threads[idx].generatingSkill = action.payload.generatingSkill
+          state.threads[idx].generationStartedAt = action.payload.generationStartedAt
+          state.threads[idx].messageCount = action.payload.messages?.length || 0
+        }
       })
       .addCase(selectThread.rejected, (state, action) => {
         state.loading = false

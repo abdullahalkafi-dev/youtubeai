@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import {
-  setActiveThread, createThread, selectThread,
+  setActiveThread, createThread, selectThread, refreshThreadSilent,
   fetchThreads, optimisticAddUserMessage,
   appendStreamChunk, clearStreaming, finalizeStreamedMessage, removeLastUserMessage, renameThread,
   setSelectedSkill, enterDraftMode, deleteThread,
@@ -30,6 +30,70 @@ import { VoiceWaveform } from '@/components/chat/voice-waveform'
 import { HostCutoutModal } from '@/components/chat/host-cutout-modal'
 import type { ThreadCategory, ChatImage } from '@/types/chat'
 
+function PreStreamLoader({ category, initialElapsed = 0 }: { category?: ThreadCategory | string; initialElapsed?: number }) {
+  const [elapsed, setElapsed] = useState(initialElapsed)
+
+  useEffect(() => {
+    const start = Date.now() - (initialElapsed * 1000)
+    const interval = setInterval(() => {
+      setElapsed(Math.floor((Date.now() - start) / 1000))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [initialElapsed])
+
+  const getStatusText = () => {
+    switch (category) {
+      case 'script':
+        return 'Writing full teleprompter script…'
+      case 'thumbnail':
+        return 'Crafting thumbnail concepts…'
+      case 'title':
+        return 'Analyzing viral title formulas…'
+      case 'hook':
+        return 'Engineering high-retention hooks…'
+      case 'outline':
+        return 'Structuring video outline…'
+      case 'seo':
+        return 'Optimizing metadata and tags…'
+      default:
+        return 'Generating response…'
+    }
+  }
+
+  return (
+    <div className="flex items-start gap-3 mt-4 animate-in fade-in duration-300">
+      {/* Animated amber pulse ring around agent avatar */}
+      <div className="relative flex items-center justify-center shrink-0">
+        <div className="absolute inset-0 rounded-full bg-amber-400/40 dark:bg-amber-500/30 animate-ping" />
+        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shadow-md relative z-10 ring-2 ring-amber-400/50 ring-offset-2 ring-offset-white dark:ring-offset-gray-950">
+          <Sparkles className="w-4 h-4 text-white animate-pulse" />
+        </div>
+      </div>
+
+      <div className="bg-white dark:bg-gray-900 border border-amber-200/80 dark:border-amber-900/50 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm max-w-md w-full space-y-2.5">
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Loader2 className="w-3.5 h-3.5 text-amber-500 animate-spin" />
+            <span className="text-xs font-semibold text-gray-800 dark:text-gray-200">
+              {getStatusText()}
+            </span>
+          </div>
+          <span className="text-[11px] font-mono text-amber-600 dark:text-amber-400 font-medium">
+            {elapsed > 0 ? `Working… ${elapsed}s` : 'Working…'}
+          </span>
+        </div>
+        {/* Pulsing skeleton bar hinting at incoming content */}
+        <div className="space-y-1.5 pt-0.5">
+          <div className="h-2 bg-amber-100 dark:bg-amber-950/60 rounded-full overflow-hidden">
+            <div className="h-full bg-gradient-to-r from-amber-400 to-amber-500 rounded-full animate-pulse w-3/4" />
+          </div>
+          <div className="h-2 bg-zinc-100 dark:bg-zinc-800 rounded-full animate-pulse w-1/2" />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const dispatch = useAppDispatch()
   const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, isDraftThread, loading: threadsLoading } = useAppSelector(s => s.chat)
@@ -47,6 +111,8 @@ export default function ChatPage() {
   const [input, setInput] = useState('')
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [generatingConceptText, setGeneratingConceptText] = useState<string | null>(null)
+  const [isRefetchingImages, setIsRefetchingImages] = useState(false)
+  const [expectedImageCount, setExpectedImageCount] = useState(0)
   const [isRenaming, setIsRenaming] = useState(false)
   const [renameValue, setRenameValue] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
@@ -247,6 +313,51 @@ export default function ChatPage() {
     })
     return images
   }, [activeThread])
+
+  // Clear refetching state when images list reaches expected count or timeout fires
+  useEffect(() => {
+    if (isRefetchingImages) {
+      if (allImages.length >= expectedImageCount) {
+        setIsRefetchingImages(false)
+      } else {
+        const timer = setTimeout(() => {
+          setIsRefetchingImages(false)
+        }, 6000)
+        return () => clearTimeout(timer)
+      }
+    }
+  }, [allImages.length, expectedImageCount, isRefetchingImages])
+
+  // Recovery polling for background generation (after reload or tab switch)
+  const isThreadGenerating = Boolean(
+    activeThread?.isGenerating &&
+    !sending &&
+    !streamingContent &&
+    activeThread.generationStartedAt &&
+    Date.now() - new Date(activeThread.generationStartedAt).getTime() < 180000
+  )
+
+  useEffect(() => {
+    if (!isThreadGenerating || !activeThreadId) return
+
+    let attempts = 0
+    const maxAttempts = 30 // 30 * 3.5s = ~105s
+
+    const interval = setInterval(async () => {
+      attempts++
+      if (attempts >= maxAttempts) {
+        clearInterval(interval)
+        return
+      }
+      try {
+        await dispatch(refreshThreadSilent(activeThreadId)).unwrap()
+      } catch {
+        // Silent recovery check
+      }
+    }, 3500)
+
+    return () => clearInterval(interval)
+  }, [isThreadGenerating, activeThreadId, dispatch])
 
   const hasMessages = Boolean(activeThread && activeThread.messages && activeThread.messages.length > 0)
 
@@ -845,8 +956,12 @@ export default function ChatPage() {
                             onStartGenerate={(title) => {
                               setGalleryOpen(true)
                               setGeneratingConceptText(title)
+                              setExpectedImageCount(allImages.length + 1)
                             }}
-                            onFinishGenerate={() => setGeneratingConceptText(null)}
+                            onFinishGenerate={() => {
+                              setGeneratingConceptText(null)
+                              setIsRefetchingImages(true)
+                            }}
                             onEditImage={(url, mode, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition) =>
                               setIteratingImage({
                                 url,
@@ -927,20 +1042,16 @@ export default function ChatPage() {
               </div>
             )}
 
-            {/* Loading dots */}
-            {sending && !streamingContent && (
-              <div className="flex items-start gap-2.5 mt-4">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-indigo-400 to-indigo-600 flex items-center justify-center shrink-0 shadow-sm">
-                  <svg className="w-3.5 h-3.5 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg>
-                </div>
-                <div className="bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-2xl rounded-tl-md px-4 py-3 shadow-sm">
-                  <div className="flex gap-1">
-                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" />
-                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '.1s' }} />
-                    <div className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: '.2s' }} />
-                  </div>
-                </div>
-              </div>
+            {/* Rich pre-stream loading state or background generation recovery */}
+            {((sending && !streamingContent) || isThreadGenerating) && (
+              <PreStreamLoader
+                category={activeThread?.generatingSkill || currentSkill}
+                initialElapsed={
+                  isThreadGenerating && activeThread?.generationStartedAt
+                    ? Math.max(0, Math.floor((Date.now() - new Date(activeThread.generationStartedAt).getTime()) / 1000))
+                    : 0
+                }
+              />
             )}
 
             <div ref={messagesEndRef} />
@@ -957,27 +1068,27 @@ export default function ChatPage() {
                 <button onClick={() => setGalleryOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                {/* Skeleton Card during active image generation */}
-                {generatingConceptText && (
+                {/* Skeleton Card during active image generation or refetching */}
+                {(generatingConceptText || isRefetchingImages) && (
                   <div className="rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2.5 animate-pulse shadow-sm">
                     <div className="flex items-center justify-between">
                       <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-bold text-[10px]">
-                        {generatingConceptText}
+                        {generatingConceptText || 'Processing'}
                       </span>
                       <span className="text-[10px] text-violet-600 dark:text-violet-400 font-medium flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> Generating...
+                        <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> {isRefetchingImages ? 'Loading image...' : 'Generating...'}
                       </span>
                     </div>
                     <div className="aspect-video bg-violet-200/60 dark:bg-violet-900/40 rounded-md flex items-center justify-center">
                       <Sparkles className="w-6 h-6 text-violet-500 animate-bounce" />
                     </div>
                     <p className="text-[10px] text-violet-600 dark:text-violet-300 font-medium text-center">
-                      Creating 16:9 HD AI Thumbnail...
+                      {isRefetchingImages ? 'Adding to image gallery...' : 'Creating 16:9 HD AI Thumbnail...'}
                     </p>
                   </div>
                 )}
 
-                {allImages.length === 0 && !generatingConceptText ? (
+                {allImages.length === 0 && !generatingConceptText && !isRefetchingImages ? (
                   <div className="text-center py-8">
                     <Image className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
                     <p className="text-xs text-gray-400">No images generated yet</p>

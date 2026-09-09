@@ -105,6 +105,21 @@ export class ChatService {
   async findById(id: string) {
     const thread = await this.threadModel.findById(new Types.ObjectId(id)).lean();
     if (!thread) throw new NotFoundException(`Thread ${id} not found`);
+
+    // Self-healing: if thread was marked isGenerating but started > 3 mins ago, auto-clear zombie state
+    if ((thread as any).isGenerating && (thread as any).generationStartedAt) {
+      const elapsedMs = Date.now() - new Date((thread as any).generationStartedAt).getTime();
+      if (elapsedMs > 180000) {
+        await this.threadModel.findByIdAndUpdate(new Types.ObjectId(id), {
+          $set: { isGenerating: false },
+          $unset: { generatingSkill: 1, generationStartedAt: 1 },
+        });
+        (thread as any).isGenerating = false;
+        delete (thread as any).generatingSkill;
+        delete (thread as any).generationStartedAt;
+      }
+    }
+
     return leanDoc(thread);
   }
 
@@ -362,6 +377,15 @@ export class ChatService {
       ? detectedIntent
       : (dto.skill || detectedIntent || 'general');
 
+    // Mark thread as actively generating with skill and timestamp
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $set: {
+        isGenerating: true,
+        generatingSkill: resolvedSkill,
+        generationStartedAt: new Date(),
+      },
+    });
+
     const channel = await this.channelModel.findById(updatedThread.channelId).lean();
     const skill = this.skillRegistry.get(resolvedSkill);
     const skillContext = await skill.loadContext(updatedThread.channelId.toString(), updatedThread.videoId || undefined);
@@ -477,7 +501,14 @@ export class ChatService {
 
           const updateOps: any = {
             $push: { messages: assistantMessage },
-            $set: { updatedAt: new Date() },
+            $set: {
+              updatedAt: new Date(),
+              isGenerating: false,
+            },
+            $unset: {
+              generatingSkill: 1,
+              generationStartedAt: 1,
+            },
           };
           if (finalUsage) {
             updateOps.$inc = {
@@ -508,7 +539,17 @@ export class ChatService {
           });
         } catch (saveError: any) {
           this.logger.error(`Failed to persist stream message to DB: ${saveError.message}`);
+          await this.threadModel.findByIdAndUpdate(threadId, {
+            $set: { isGenerating: false },
+            $unset: { generatingSkill: 1, generationStartedAt: 1 },
+          });
         }
+      } else {
+        // Stream completed with empty content or aborted early
+        await this.threadModel.findByIdAndUpdate(threadId, {
+          $set: { isGenerating: false },
+          $unset: { generatingSkill: 1, generationStartedAt: 1 },
+        });
       }
     }
 
