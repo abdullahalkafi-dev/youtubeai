@@ -137,8 +137,6 @@ export function HostCutoutModal({
     }
   }, [isOpen, selectedHostImage, customHostUrl])
 
-  if (!isOpen) return null
-
   const hostPresets = [
     { id: 'host_1.png', label: 'Host #1', url: '/api/assets/unique-images/host_1.png' },
     { id: 'host_2.png', label: 'Host #2', url: '/api/assets/unique-images/host_2.png' },
@@ -265,6 +263,8 @@ export function HostCutoutModal({
     })
     onClose()
   }
+
+  if (!isOpen) return null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/75 backdrop-blur-md animate-in fade-in duration-200">
