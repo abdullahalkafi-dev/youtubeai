@@ -1838,11 +1838,8 @@ export class ChatService {
     const rawB64 = dto.imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(rawB64, 'base64');
 
-    const resultBuffer = await this.composerService.chromaKeyWithDeSpill(
-      buffer,
-      dto.tolerance ?? 0.25,
-      dto.smoothness ?? 0.1,
-    );
+    // Run automatic transparent cutout detection & keying (green screen, black, white, or PNG)
+    const resultBuffer = await this.composerService.ensureTransparentCutout(buffer);
 
     return { previewUrl: `data:image/png;base64,${resultBuffer.toString('base64')}` };
   }
@@ -1853,7 +1850,10 @@ export class ChatService {
   ) {
     if (!dto.imageBase64) throw new BadRequestException('No image provided');
     const rawB64 = dto.imageBase64.replace(/^data:image\/\w+;base64,/, '');
-    const buffer = Buffer.from(rawB64, 'base64');
+    const inputBuffer = Buffer.from(rawB64, 'base64');
+
+    // Automatically ensure transparent cutout in Node before saving to storage
+    const buffer = await this.composerService.ensureTransparentCutout(inputBuffer);
 
     const filename = dto.filename || `custom_host_${Date.now()}.png`;
     let finalUrl: string;

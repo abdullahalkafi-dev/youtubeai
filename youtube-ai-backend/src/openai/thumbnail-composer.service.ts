@@ -402,9 +402,11 @@ export class ThumbnailComposerService {
     if (channels !== 4) return inputBuffer;
 
     const outData = Buffer.from(data);
+    // Normalize tolerance if passed as percentage (e.g. 70 -> 0.70)
+    const normTol = tolerance > 1 ? Math.min(1.0, tolerance / 100) : Math.max(0.05, tolerance);
     // Green dominance delta threshold scaled by tolerance
-    const greenDomMin = 20 + Math.round(tolerance * 70); // ~37
-    const greenRatio = 1.12 + tolerance * 0.25;
+    const greenDomMin = 20 + Math.round(normTol * 70); // ~37
+    const greenRatio = 1.12 + normTol * 0.25;
 
     for (let i = 0; i < outData.length; i += 4) {
       const r = outData[i];
@@ -461,8 +463,9 @@ export class ThumbnailComposerService {
       const { width, height, channels } = info;
       if (channels !== 4 || width < 10 || height < 10) return inputBuffer;
 
-      // Sample border pixels to check if already transparent
+      // Sample border pixels to check if already transparent or green screen
       let transparentBorderPixels = 0;
+      let greenBorderPixels = 0;
       const sampleCoords: Array<[number, number]> = [];
       const stepX = Math.max(1, Math.floor(width / 10));
       const stepY = Math.max(1, Math.floor(height / 10));
@@ -478,6 +481,12 @@ export class ThumbnailComposerService {
         const idx = (y * width + x) * 4;
         if (data[idx + 3] < 50) {
           transparentBorderPixels++;
+        }
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        if (g > 70 && g > r * 1.15 && g > b * 1.15) {
+          greenBorderPixels++;
         }
       }
 
@@ -502,11 +511,14 @@ export class ThumbnailComposerService {
 
       // Check if top corners are green screen (studio lighting typically has green at top corners)
       const isTopCornerGreen =
-        (cornerColors[0].g > 100 && cornerColors[0].g > cornerColors[0].r * 1.2 && cornerColors[0].g > cornerColors[0].b * 1.2) ||
-        (cornerColors[1].g > 100 && cornerColors[1].g > cornerColors[1].r * 1.2 && cornerColors[1].g > cornerColors[1].b * 1.2);
+        (cornerColors[0].g > 80 && cornerColors[0].g > cornerColors[0].r * 1.15 && cornerColors[0].g > cornerColors[0].b * 1.15) ||
+        (cornerColors[1].g > 80 && cornerColors[1].g > cornerColors[1].r * 1.15 && cornerColors[1].g > cornerColors[1].b * 1.15);
 
-      // Check if corners are green screen
-      const isGreenBg = isTopCornerGreen || cornerColors.every((c) => c.g > 130 && c.g > c.r * 1.2 && c.g > c.b * 1.2);
+      // Check if corners or border are green screen
+      const isGreenBg =
+        isTopCornerGreen ||
+        greenBorderPixels > sampleCoords.length * 0.15 ||
+        cornerColors.every((c) => c.g > 90 && c.g > c.r * 1.15 && c.g > c.b * 1.15);
 
       if (isGreenBg) {
         this.logger.log(`[Auto-Cutout] Detected green screen background. Running high-fidelity chroma key with de-spill...`);

@@ -12,7 +12,6 @@ import {
   Sparkles,
   Loader2,
   Trash2,
-  Sliders,
   Crop as CropIcon,
   Eye,
   CheckCircle2,
@@ -116,11 +115,6 @@ export function HostCutoutModal({
   const [completedCrop, setCompletedCrop] = useState<PixelCrop>()
   const imgRef = useRef<HTMLImageElement>(null)
 
-  // Cutout Tuning state
-  const [isGreenScreen, setIsGreenScreen] = useState(true)
-  const [tolerance, setTolerance] = useState(70)
-  const [smoothness, setSmoothness] = useState(20)
-
   // Preview & Processing state
   const [isPreviewing, setIsPreviewing] = useState(false)
   const [previewCutoutUrl, setPreviewCutoutUrl] = useState<string | null>(null)
@@ -162,7 +156,6 @@ export function HostCutoutModal({
       reader.addEventListener('load', () => {
         setRawImageSrc(reader.result?.toString() || null)
         setPreviewCutoutUrl(null)
-        // Default crop from top of head (y: 0) to torso
         setCrop({
           unit: '%',
           x: 10,
@@ -175,7 +168,16 @@ export function HostCutoutModal({
     }
   }
 
-  const onImageLoad = () => {
+  const onImageLoad = (e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget
+    const initialCrop: PixelCrop = {
+      unit: 'px',
+      x: Math.round(width * 0.1),
+      y: 0,
+      width: Math.round(width * 0.8),
+      height: Math.round(height * 0.85),
+    }
+    setCompletedCrop(initialCrop)
     setCrop({
       unit: '%',
       x: 10,
@@ -185,36 +187,33 @@ export function HostCutoutModal({
     })
   }
 
-  const handleGeneratePreview = async () => {
-    if (!imgRef.current || !threadId) {
-      if (!threadId) toast.error('No active thread to process preview')
-      return
-    }
+  const generateAutoCutout = async (cropToUse?: PixelCrop) => {
+    if (!imgRef.current || !threadId) return
 
     setIsPreviewing(true)
     try {
-      const base64Cropped = getCroppedImgBase64(imgRef.current, completedCrop)
-      if (!base64Cropped) {
-        toast.error('Could not crop image. Please check selection.')
-        return
-      }
+      const base64Cropped = getCroppedImgBase64(imgRef.current, cropToUse || completedCrop)
+      if (!base64Cropped) return
 
-      const res = await api.previewCutout(threadId, base64Cropped, {
-        mode: isGreenScreen ? 'green_screen' : 'ai',
-        tolerance,
-        smoothness,
-      })
-
+      const res = await api.previewCutout(threadId, base64Cropped)
       if (res?.previewUrl) {
         setPreviewCutoutUrl(res.previewUrl)
-        toast.success('Cutout preview generated!')
       }
     } catch (err: any) {
-      toast.error(err.message || 'Failed to generate preview cutout')
+      toast.error(err.message || 'Failed to generate cutout')
     } finally {
       setIsPreviewing(false)
     }
   }
+
+  // Automatically trigger cutout generation when crop changes (debounced 350ms)
+  useEffect(() => {
+    if (!rawImageSrc || !imgRef.current || !threadId || !completedCrop?.width) return
+    const timer = setTimeout(() => {
+      generateAutoCutout(completedCrop)
+    }, 350)
+    return () => clearTimeout(timer)
+  }, [completedCrop, rawImageSrc, threadId])
 
   const handleSaveCutout = async () => {
     if (!threadId) return
@@ -280,11 +279,11 @@ export function HostCutoutModal({
               <h3 className="text-base font-bold text-gray-900 dark:text-white font-heading flex items-center gap-2">
                 Host Cutout & Avatar Studio
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-pink-50 dark:bg-pink-950/60 text-pink-600 dark:text-pink-400 font-semibold border border-pink-200 dark:border-pink-800/50">
-                  Pro Framing & Chroma Key
+                  Auto Background Removal
                 </span>
               </h3>
               <p className="text-xs text-gray-500 dark:text-gray-400">
-                Frame your portrait bust shot, remove green screen with soft feathering, or choose a preset host
+                Frame your portrait bust shot — background is removed automatically into a transparent cutout
               </p>
             </div>
           </div>
@@ -399,10 +398,10 @@ export function HostCutoutModal({
                     <Upload className="w-6 h-6" />
                   </div>
                   <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
-                    Upload Portrait or Green-Screen Selfie
+                    Upload Portrait or Green-Screen Photo
                   </h4>
                   <p className="text-xs text-gray-500 dark:text-gray-400 max-w-sm mt-1">
-                    Frame your head & shoulders, remove green spill, and see a transparent preview instantly with 0ms latency.
+                    Frame your head & shoulders — background is automatically removed into a transparent cutout.
                   </p>
                   <button
                     type="button"
@@ -416,11 +415,11 @@ export function HostCutoutModal({
               {/* Case 3: Interactive Cropper & Studio Workbench */}
               {rawImageSrc && (
                 <div className="space-y-5">
-                  <div className="flex items-center justify-between bg-blue-50/50 dark:bg-blue-950/20 p-3 rounded-xl border border-blue-200 dark:border-blue-900/40 text-xs text-blue-700 dark:text-blue-300">
+                  <div className="flex items-center justify-between bg-emerald-50/50 dark:bg-emerald-950/20 p-3 rounded-xl border border-emerald-200 dark:border-emerald-900/40 text-xs text-emerald-700 dark:text-emerald-300">
                     <div className="flex items-center gap-2">
-                      <Info className="w-4 h-4 shrink-0" />
+                      <Sparkles className="w-4 h-4 shrink-0 text-emerald-600" />
                       <span>
-                        <strong>Pro Tip:</strong> Drag the crop handles to frame your head and shoulders (bust shot). Cropping out waist and legs ensures sharp host positioning.
+                        <strong>Automatic Cutout:</strong> Drag the handles to frame your head & shoulders. The transparent cutout updates automatically!
                       </span>
                     </div>
                     <button
@@ -429,7 +428,7 @@ export function HostCutoutModal({
                         setRawImageSrc(null)
                         setPreviewCutoutUrl(null)
                       }}
-                      className="px-2 py-1 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded font-medium transition shrink-0"
+                      className="px-2.5 py-1 bg-white dark:bg-gray-800 border border-emerald-200 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 rounded-lg font-medium transition shrink-0"
                     >
                       Change Photo
                     </button>
@@ -441,7 +440,7 @@ export function HostCutoutModal({
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                           <CropIcon className="w-3.5 h-3.5 text-pink-500" />
-                          Step 1: Frame Your Head & Torso
+                          Step 1: Frame Head & Torso
                         </label>
                         <span className="text-[11px] text-gray-400">
                           {completedCrop ? `${Math.round(completedCrop.width)} × ${Math.round(completedCrop.height)} px` : 'Drag to frame'}
@@ -466,75 +465,9 @@ export function HostCutoutModal({
                         </ReactCrop>
                       </div>
 
-                      {/* Chroma Key Tuning Controls */}
-                      <div className="p-3.5 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/40 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <label className="text-xs font-semibold text-gray-800 dark:text-gray-200 flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={isGreenScreen}
-                              onChange={(e) => setIsGreenScreen(e.target.checked)}
-                              className="rounded text-pink-600 focus:ring-pink-500 w-3.5 h-3.5"
-                            />
-                            Chroma Key (Green Screen Removal)
-                          </label>
-                          <span className="text-[10px] font-mono text-gray-500">
-                            Tolerance: {tolerance} | Smooth: {smoothness}
-                          </span>
-                        </div>
-
-                        {isGreenScreen && (
-                          <div className="space-y-2 pt-1 border-t border-gray-200 dark:border-gray-700">
-                            <div>
-                              <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-                                <span>Keying Tolerance (Sensitivity)</span>
-                                <span>{tolerance}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={30}
-                                max={120}
-                                value={tolerance}
-                                onChange={(e) => setTolerance(Number(e.target.value))}
-                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-pink-600"
-                              />
-                            </div>
-
-                            <div>
-                              <div className="flex justify-between text-[11px] text-gray-500 mb-1">
-                                <span>Edge Smoothness & De-Spill</span>
-                                <span>{smoothness}</span>
-                              </div>
-                              <input
-                                type="range"
-                                min={5}
-                                max={50}
-                                value={smoothness}
-                                onChange={(e) => setSmoothness(Number(e.target.value))}
-                                className="w-full h-1.5 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-pink-600"
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        <button
-                          type="button"
-                          onClick={handleGeneratePreview}
-                          disabled={isPreviewing}
-                          className="w-full py-2 px-3 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-xs font-semibold transition flex items-center justify-center gap-2 shadow-sm"
-                        >
-                          {isPreviewing ? (
-                            <>
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                              Keying & Rendering Cutout...
-                            </>
-                          ) : (
-                            <>
-                              <Eye className="w-3.5 h-3.5" />
-                              Generate Transparent Preview
-                            </>
-                          )}
-                        </button>
+                      <div className="p-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/40 text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-2">
+                        <Info className="w-4 h-4 shrink-0 text-pink-500" />
+                        <span>Green screen or solid backgrounds are automatically keyed out with smooth feathering and de-spill.</span>
                       </div>
                     </div>
 
@@ -543,29 +476,50 @@ export function HostCutoutModal({
                       <div className="flex items-center justify-between">
                         <label className="text-xs font-bold text-gray-800 dark:text-gray-200 flex items-center gap-1.5">
                           <Eye className="w-3.5 h-3.5 text-emerald-500" />
-                          Step 2: Transparent Cutout Preview
+                          Step 2: Transparent Cutout Result
                         </label>
-                        {previewCutoutUrl && (
-                          <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
-                            <CheckCircle2 className="w-3 h-3" /> Preview Ready
+                        {isPreviewing ? (
+                          <span className="text-[10px] text-pink-600 font-semibold flex items-center gap-1 animate-pulse">
+                            <Loader2 className="w-3 h-3 animate-spin" /> Removing Background...
                           </span>
-                        )}
+                        ) : previewCutoutUrl ? (
+                          <span className="text-[10px] text-emerald-600 font-semibold flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" /> Cutout Ready
+                          </span>
+                        ) : null}
                       </div>
 
                       <div className="min-h-[380px] max-h-[500px] h-full rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[size:10px_10px] flex items-center justify-center p-4 relative shadow-inner">
-                        {previewCutoutUrl ? (
-                          <img
-                            src={previewCutoutUrl}
-                            alt="Cutout Preview"
-                            className="max-h-full max-w-full object-contain filter drop-shadow-lg"
-                          />
+                        {isPreviewing && !previewCutoutUrl ? (
+                          <div className="text-center p-6 space-y-3 text-gray-400">
+                            <Loader2 className="w-8 h-8 mx-auto text-pink-600 animate-spin" />
+                            <p className="text-xs font-semibold text-gray-700 dark:text-gray-200">
+                              Removing background automatically...
+                            </p>
+                            <p className="text-[11px] text-gray-400">
+                              Chroma keying green screen with feathered anti-aliasing
+                            </p>
+                          </div>
+                        ) : previewCutoutUrl ? (
+                          <div className="relative w-full h-full flex items-center justify-center">
+                            <img
+                              src={previewCutoutUrl}
+                              alt="Cutout Preview"
+                              className="max-h-full max-w-full object-contain filter drop-shadow-lg"
+                            />
+                            {isPreviewing && (
+                              <div className="absolute inset-0 bg-black/20 backdrop-blur-[1px] rounded-xl flex items-center justify-center">
+                                <div className="bg-black/70 text-white text-xs px-3 py-1.5 rounded-lg flex items-center gap-2 shadow">
+                                  <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-400" />
+                                  Updating cutout...
+                                </div>
+                              </div>
+                            )}
+                          </div>
                         ) : (
                           <div className="text-center p-6 space-y-2 text-gray-400">
-                            <Sliders className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 animate-pulse" />
-                            <p className="text-xs font-medium">Click "Generate Transparent Preview" on the left</p>
-                            <p className="text-[11px] text-gray-400">
-                              Preview is computed in-memory (0 disk/MinIO pollution) until you approve.
-                            </p>
+                            <Loader2 className="w-8 h-8 mx-auto text-gray-300 dark:text-gray-600 animate-spin" />
+                            <p className="text-xs font-medium">Generating transparent cutout...</p>
                           </div>
                         )}
                       </div>
