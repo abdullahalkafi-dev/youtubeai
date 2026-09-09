@@ -70,6 +70,18 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
     // Remove accidental leading backslashes
     const clean = trimmed.replace(/^\\+/, '')
 
+    // ── Skip horizontal rules --- and === ... === section dividers
+    if (/^-{3,}$/.test(clean) || /^={3,}.*={3,}$/.test(clean)) {
+      flushQuote()
+      continue
+    }
+
+    // ── Skip source citation lines: ([source.com](url)) or lines starting with The DOJ / According to / etc.
+    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean)) {
+      flushQuote()
+      continue
+    }
+
     // ── Stage cue: [BEAT] / [PAUSE]
     if (/^\[(?:BEAT|PAUSE)\]/i.test(clean)) {
       flushQuote()
@@ -134,18 +146,17 @@ function SectionBodyRenderer({
   handleSentenceClick,
 }: SectionBodyRendererProps) {
   const blocks = groupBodyIntoBlocks(body)
-  let lineCounter = 0
 
   return (
-    <div className="space-y-4 sm:space-y-5">
+    <div className="space-y-3">
       {blocks.map((block, bIdx) => {
         const key = `sec-${sectionIdx}-b-${bIdx}`
 
         // ── STAGE CUE pill ─────────────────────────────────────────────────
         if (block.type === 'cue') {
           return (
-            <div key={key} className="py-2 flex items-center justify-center">
-              <span className="px-3 sm:px-4 py-1 rounded-full text-[11px] sm:text-xs font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
+            <div key={key} className="py-1.5 flex items-center justify-center">
+              <span className="px-3 py-0.5 rounded-full text-[11px] font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
                 {block.lines[0]}
               </span>
             </div>
@@ -155,9 +166,9 @@ function SectionBodyRenderer({
         // ── JEWEL badge ────────────────────────────────────────────────────
         if (block.type === 'jewel') {
           return (
-            <div key={key} className="flex items-center space-x-2 pt-2 pb-1">
+            <div key={key} className="flex items-center space-x-2 pt-1 pb-0.5">
               <div className="flex-1 h-px bg-amber-500/30" />
-              <span className="text-amber-400 font-black text-xs sm:text-sm uppercase tracking-widest">
+              <span className="text-amber-400 font-black text-[11px] sm:text-xs uppercase tracking-widest">
                 {block.lines[0]}
               </span>
               <div className="flex-1 h-px bg-amber-500/30" />
@@ -211,12 +222,12 @@ function SectionBodyRenderer({
           return (
             <div
               key={key}
-              className="pl-4 sm:pl-5 border-l-[3px] border-zinc-600/70 space-y-2"
+              className="pl-4 sm:pl-5 border-l-[3px] border-zinc-600/70 space-y-1"
             >
               {block.lines.map((spokenLine, lIdx) => {
                 if (!spokenLine) {
                   // Blank `>` = breath gap
-                  return <div key={lIdx} className="h-2" />
+                  return <div key={lIdx} className="h-1" />
                 }
                 const lineId = `${key}-l-${lIdx}`
                 const isActive = isHighlightEnabled && activeSentenceId === lineId
@@ -231,7 +242,7 @@ function SectionBodyRenderer({
                       e.stopPropagation()
                       handleSentenceClick(lineId)
                     }}
-                    style={{ fontSize: `${fontSize}px`, lineHeight: '1.75' }}
+                    style={{ fontSize: `${fontSize}px`, lineHeight: '1.6' }}
                     className={`cursor-pointer rounded-md transition-all duration-200 font-medium ${
                       isActive
                         ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-2 py-0.5 -mx-2 scale-[1.015] inline-block origin-left'
@@ -301,7 +312,7 @@ export function FullscreenTeleprompter({
 
   const [isPlaying, setIsPlaying] = useState(false)
   const [wpm, setWpm] = useState(140)
-  const [fontSize, setFontSize] = useState(26) // Responsive default
+  const [fontSize, setFontSize] = useState(20) // Responsive default
   const [columnWidth, setColumnWidth] = useState<'narrow' | 'medium' | 'wide'>('medium')
   const [progress, setProgress] = useState(0)
   const [showControls, setShowControls] = useState(true)
@@ -737,10 +748,10 @@ export function FullscreenTeleprompter({
       <div
         ref={scrollContainerRef}
         onScroll={handleContainerScroll}
-        className="flex-1 overflow-y-auto px-4 sm:px-6 py-20 sm:py-28 lg:py-32 flex justify-center no-scrollbar relative"
+        className="flex-1 overflow-y-auto px-4 sm:px-6 py-16 sm:py-20 flex justify-center no-scrollbar relative"
         style={{ scrollBehavior: isPlaying ? 'auto' : 'smooth' }}
       >
-        <div className={`w-full ${widthClasses} transition-all duration-300 space-y-8 sm:space-y-12`}>
+        <div className={`w-full ${widthClasses} transition-all duration-300 space-y-6 sm:space-y-8`}>
           {/* Eyeline Indicator Guide Line (Clean laser line, NO text collision in center on small/half screens) */}
           <div className="fixed top-[40%] left-0 right-0 pointer-events-none z-10 flex items-center">
             <div className="w-4 h-4 text-amber-400/50 -ml-0.5">
@@ -775,13 +786,13 @@ export function FullscreenTeleprompter({
               ref={(el) => {
                 sectionRefs.current[idx] = el
               }}
-              className="space-y-5 pt-3"
+              className="space-y-3 pt-2"
             >
               {section.header && (
-                <div className="py-1.5 border-b border-zinc-800/80">
+                <div className="py-1 border-b border-zinc-800/80">
                   <h2
-                    style={{ fontSize: `${Math.max(14, fontSize * 0.75)}px` }}
-                    className="font-bold text-zinc-400 uppercase tracking-wider"
+                    style={{ fontSize: `${Math.max(16, fontSize * 1.05)}px` }}
+                    className="font-extrabold text-zinc-200 uppercase tracking-wide"
                   >
                     {section.header}
                   </h2>
