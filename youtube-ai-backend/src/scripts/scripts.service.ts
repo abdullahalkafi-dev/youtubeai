@@ -562,19 +562,28 @@ Transform the following raw, unstructured text into a professional teleprompter 
 
 FORMATTING RULES:
 1. Main Episode Title: # SCRIPT TITLE: [TOPIC HEADLINE]
-2. Numbered Section Titles: ## 1. SECTION TITLE
-3. Sub-sections: **➤ A. — SUB-SECTION TITLE**
-4. Lead thoughts: **• Main lead thought sentence**
-5. Spoken lines: Staggered blockquotes with one punchy, natural breath per line (4-10 words):
-   > Line one.
+2. Legal Status Header: ### ON-SCREEN LEGAL STATUS followed by blockquoted status lines:
+   ### ON-SCREEN LEGAL STATUS
+   > PERSON — STATUS
    >
-   > Line two.
-6. Stage cues: Insert [BEAT] for pauses and [PAUSE] for dramatic scene changes.
-7. Jewels: ### 💎 JEWEL followed by bold moral lesson and spoken takeaways.
-8. 10 Viral Questions: # 10 VIRAL QUESTIONS followed by numbered bold questions and blockquote probes.
-9. Final Jewel: ### 💎 FINAL JEWEL
+   > PERSON — STATUS
+3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
+4. Sub-sections: **➤ A. SUB-SECTION TITLE** (bold)
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. One breath per line, 4-10 words:
+   > Spoken line one.
+   >
+   > Spoken line two.
+   Empty spacing lines also use > (just the prefix with no text).
+6. Stage cues: Insert [BEAT] for pauses and [PAUSE] for dramatic changes (NO backslashes, NOT blockquotes)
+7. Jewels: 💎 JEWEL on its own line, then blockquoted moral lesson:
+   💎 JEWEL
+   > Moral lesson line.
+8. 10 Viral Questions: ## **1. QUESTION?** with **➤ A. MY ANSWER** subsection and blockquoted answer, each question ends with its own 💎 JEWEL
+9. Final Jewel: 💎 FINAL JEWEL then blockquoted final lesson
 
 CRITICAL: Preserve all original facts, names, and narrative points. Do not invent false legal claims.
+CRITICAL: Every single spoken delivery line MUST start with "> " blockquote prefix. This is non-negotiable for teleprompter rendering.
+CRITICAL: NEVER output backslashes. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown above.
 
 RAW TEXT:
 ${dto.rawText}`;
@@ -586,11 +595,15 @@ ${dto.rawText}`;
       maxCompletionTokens: 16384,
     });
 
-    const stats = calculateStats(formatted);
-    const resolvedTitle = isGenericTitle(dto.title) ? extractTopicTitle(formatted, dto.title) : (dto.title || 'YouTube Video Script');
+    // Sanitize: strip accidental backslashes before [ ] . * _ to prevent \[BEAT\], 1\., etc.
+    const sanitized = formatted
+      .replace(/\\([\[\]\.\*\_])/g, '$1');
+
+    const stats = calculateStats(sanitized);
+    const resolvedTitle = isGenericTitle(dto.title) ? extractTopicTitle(sanitized, dto.title) : (dto.title || 'YouTube Video Script');
     return {
       title: resolvedTitle,
-      content: formatted,
+      content: sanitized,
       wordCount: stats.wordCount,
       estimatedDurationMinutes: stats.estimatedDurationMinutes,
     };

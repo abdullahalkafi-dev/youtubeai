@@ -576,11 +576,14 @@ export function FullscreenTeleprompter({
                     const trimmed = line.trim()
                     if (!trimmed) return null
 
-                    if (trimmed.startsWith('[BEAT]') || trimmed.startsWith('[PAUSE]')) {
+                    // Strip any accidental leading backslashes (e.g. \[BEAT\] → [BEAT])
+                    const cueClean = trimmed.replace(/^\\+/,'')
+
+                    if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
                       return (
                         <div key={lIdx} className="py-2 flex items-center justify-center">
                           <span className="px-3 sm:px-4 py-1 rounded-full text-[11px] sm:text-xs font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
-                            {trimmed}
+                            {cueClean}
                           </span>
                         </div>
                       )

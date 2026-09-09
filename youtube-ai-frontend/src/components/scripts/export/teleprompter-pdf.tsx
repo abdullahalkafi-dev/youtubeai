@@ -195,10 +195,13 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                   const trimmed = line.trim()
                   if (!trimmed) return null
 
-                  if (trimmed.startsWith('[BEAT]') || trimmed.startsWith('[PAUSE]')) {
+                  // Strip any accidental leading backslashes
+                  const cueClean = trimmed.replace(/^\\+/,'')
+
+                  if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
                     return (
                       <Text key={lIdx} style={styles.cueBadge} wrap={false}>
-                        {trimmed}
+                        {cueClean}
                       </Text>
                     )
                   }

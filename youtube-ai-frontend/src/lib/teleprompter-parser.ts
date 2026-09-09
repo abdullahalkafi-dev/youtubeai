@@ -17,7 +17,7 @@ export function calculateTeleprompterStats(content: string): TeleprompterStats {
   for (const sec of sections) {
     const cleanBody = sec.body
       .replace(/^#+\s+.*/gm, '')
-      .replace(/\[BEAT\]|\[PAUSE\]/gi, '')
+      .replace(/\\?\[BEAT\]|\\?\[PAUSE\]/gi, '')
       .replace(/💎\s*JEWEL/gi, '')
       .trim();
     totalWords += cleanBody.split(/\s+/).filter(Boolean).length;
@@ -25,7 +25,7 @@ export function calculateTeleprompterStats(content: string): TeleprompterStats {
   if (totalWords === 0) {
     const clean = content
       .replace(/^#+\s+.*/gm, '')
-      .replace(/\[BEAT\]|\[PAUSE\]/gi, '')
+      .replace(/\\?\[BEAT\]|\\?\[PAUSE\]/gi, '')
       .replace(/💎\s*JEWEL/gi, '')
       .trim();
     totalWords = clean.split(/\s+/).filter(Boolean).length;

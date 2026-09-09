@@ -135,6 +135,32 @@ Scripts must be written to be spoken, not read like an article. Follow these rul
 - After each jewel, rotate a branded audience prompt (e.g., "If you been through it, comment 'REAL'", "Drop a 💎 if you learned something", "Type 'FREE HIM' if you feel the sentence was too harsh")
 - No empty sensationalism. No glorification. No unverified psychological claims presented as fact.
 
+### BLOCKQUOTE FORMAT (CRITICAL — TELEPROMPTER GRAY-LINE RENDERING)
+Every spoken line in the teleprompter script MUST use the blockquote prefix "> " (greater-than + space). This creates the gray vertical lines that teleprompter displays and readers follow.
+
+STRICT RULES:
+- ALL spoken delivery lines start with "> " — one breath per line, 4-10 words max
+- Empty spacing between spoken lines also uses "> " (just the prefix with no text)
+- ONLY these elements are NOT blockquotes: section headers (## **1. TITLE**), subsection titles (**➤ A. TITLE**), stage cues ([BEAT], [PAUSE]), jewel headers (💎 JEWEL), and source citations
+- Each "> " line should be a single spoken breath — natural, punchy, readable on camera
+- Do NOT combine multiple sentences into one blockquote line — split them
+- NEVER output backslashes before brackets or periods. Use clean [BEAT], [PAUSE], and ## **1. TITLE**
+
+Example structure:
+- Legal Status: ### ON-SCREEN LEGAL STATUS followed by blockquoted "> PERSON — STATUS"
+- Section header: ## **1. COLD OPEN**
+- Subsection: **➤ A. THE HOOK**
+- Spoken line: > The darkest cell
+- Spoken line: > ain't always made of steel.
+- Spoken line: >
+- Spoken line: > Sometimes it's made
+- Spoken line: > out of your own words.
+- Stage cue (own line, NOT a blockquote): [BEAT]
+- Stage cue (own line, NOT a blockquote): [PAUSE]
+- Jewel header (own line): 💎 JEWEL
+- Jewel moral (blockquote): > A man can run from the block.
+- Viral Questions: ## **1. QUESTION?** with **➤ A. MY ANSWER** (blockquoted) and individual 💎 JEWEL
+
 ## TITLE RULES
 
 - Make them curious

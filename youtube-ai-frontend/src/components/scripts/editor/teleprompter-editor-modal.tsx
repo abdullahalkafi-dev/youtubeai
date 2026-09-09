@@ -367,13 +367,16 @@ export function TeleprompterEditorModal({
                         const trimmed = line.trim()
                         if (!trimmed) return null
 
-                        if (trimmed.startsWith('[BEAT]') || trimmed.startsWith('[PAUSE]')) {
+                        // Strip any accidental leading backslashes
+                        const cueClean = trimmed.replace(/^\\+/,'')
+
+                        if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
                           return (
                             <span
                               key={lIdx}
                               className="inline-block my-1 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-zinc-200 dark:bg-zinc-800 text-amber-500"
                             >
-                              {trimmed}
+                              {cueClean}
                             </span>
                           )
                         }

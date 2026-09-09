@@ -229,7 +229,7 @@ export default function ChatPage() {
           prompt += `${idx + 1}. ${sec.title || sec.name || ''} (${sec.timing || ''}): ${sec.points?.join(', ') || ''}\n`
         })
       }
-      prompt += `\nPlease write the full spoken teleprompter script targeting 9 to 14 minutes.`
+      prompt += `\nPlease write the full spoken teleprompter script targeting 9 to 14 minutes. Use > blockquote prefix on ALL spoken lines for teleprompter rendering.`
       setInput(prompt)
     }
 

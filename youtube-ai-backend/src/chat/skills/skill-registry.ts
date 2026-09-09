@@ -53,7 +53,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. ALL spoken lines MUST use > blockquote prefix for teleprompter gray-line rendering. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -275,44 +275,256 @@ C. [2-4 words]
 
 ### 8. FULL TELEPROMPTER SCRIPT
 CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
-Format Section 8 strictly as a spoken-cadence teleprompter script:
+
+BLOCKQUOTE RULE: EVERY spoken line MUST start with "> " (blockquote prefix). Empty spacing lines also use "> ". This creates teleprompter gray lines. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
+
+NEVER output backslashes before brackets or periods. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown.
+
+Format Section 8 strictly as follows:
 
 <!-- SCRIPT_START -->
 # SCRIPT TITLE: [Specific Topic / Case Headline]
 
-# [EPISODE TITLE]
+### ON-SCREEN LEGAL STATUS
 
-## 1. COLD OPEN [0:00 - 0:45]
-[Teleprompter lines with **• Lead**, > Spoken breaths, [BEAT]]
-
-## 2. WHAT HAPPENED [0:45 - 2:30]
-[Teleprompter lines with verified facts + parenthetical citations e.g. (AP, 2025)]
-
-## 3. UNIQUE MECCA BREAKDOWN [2:30 - 6:30]
-[Teleprompter lines with street code translation & prison psychology]
-
-## 4. THE HUMAN COST [6:30 - 8:30]
-[Teleprompter lines — Mother, family, lost years]
-
-## 5. THE YOUTH WARNING [8:30 - 10:30]
-[Teleprompter lines — Direct warning to young viewers]
-
-### 💎 JEWEL
-**[Moral lesson]**
-> [Spoken takeaway]
+> PERSON — STATUS
+>
+> PERSON — STATUS
 
 ---
 
-# 10 VIRAL QUESTIONS [10:30 - 12:00]
-**1. [QUESTION]?**
-> [Spoken probe]
+## **1. COLD OPEN**
 
-### 💎 FINAL JEWEL
-**[Concluding wisdom]**
+**➤ A. THE HOOK**
+
+> The darkest cell
+> ain't always made of steel.
+>
+> Sometimes it's made
+> out of your own words.
+>
+> "I had to do it."
+>
+> "They left me for dead."
+
+[BEAT]
+
+**➤ B. THE REAL QUESTION**
+
+> But the question is…
+>
+> How you still standing
+> on business…
+>
+> When you crossed over
+> to the people
+> you said you would never need?
+
+[PAUSE]
+
+> Today, we talking about
+> Kacey "OTF Jam" Hester.
+
+💎 JEWEL
+
+> A man can run from the block.
+>
+> Run from his crew.
+>
+> Run from his past.
+>
+> But he cannot run
+> from the story
+> he has to tell himself at night.
+
+---
+
+## **2. THE IMMEDIATE STAKES**
+
+**➤ A. SEPARATE THE FACTS FROM THE RUMORS**
+
+> Let's separate the facts
+> from the internet rumors.
+>
+> REPORTED FACT:
+>
+> The federal government alleges
+> Durk Banks, known as Lil Durk,
+> was involved
+> in a murder-for-hire plot.
+
+**➤ B. THE COOPERATING WITNESS**
+
+> REPORTED FACT:
+>
+> Kacey Hester, known as OTF Jam,
+> reportedly testified
+> as a cooperating witness.
+
+💎 JEWEL
+
+> Federal pressure
+> doesn't only test your case.
+>
+> It tests every identity
+> you ever used
+> to impress people.
+
+---
+
+## **3. THE GUN CASE: WHEN THE DOOR OPENED**
+
+**➤ A. THE SMALL DOOR**
+
+> Now here's where
+> the pressure gets dark.
+>
+> Jam reportedly said
+> his cooperation began
+> after a 2023 arrest.
+
+**➤ B. HOW FEDERAL PRESSURE STARTS**
+
+> That's how
+> federal pressure works.
+>
+> It might start
+> with a traffic stop.
+>
+> A gun.
+>
+> A phone.
+
+### CURIOSITY RESET
+
+> If somebody is completely comfortable
+> with cooperating…
+>
+> Why do they need
+> so many reasons
+> to explain it?
+
+💎 JEWEL
+
+> The first arrest
+> may be small.
+>
+> But when your life
+> is built around secrets…
+>
+> One small arrest
+> can unlock
+> a lifetime of consequences.
+
+---
+
+[Continue pattern for sections 4-7...]
+
+---
+
+## **8. FINAL WORD: YOU CAN'T HAVE BOTH IDENTITIES**
+
+**➤ A. THE LEGAL REALITY**
+
+> Let me close it
+> like this.
+>
+> OTF Jam
+> may have his reasons.
+
+**➤ B. THE BIGGER LESSON**
+
+> But the psychological lesson
+> is bigger than the verdict.
+>
+> When somebody builds
+> their identity…
+>
+> On never crossing
+> a certain line…
+
+💎 FINAL JEWEL
+
+> Don't build your life
+> around a code…
+>
+> That disappears
+> when your freedom
+> is on the line.
+
+Subscribe to **Unique Mecca Audio.**
+
+---
+
+## 10 VIRAL COMMUNITY QUESTIONS
+
+## **1. CAN A MAN COOPERATE AND STILL CALL HIMSELF SOLID?**
+
+**➤ A. MY ANSWER**
+
+> He can stand
+> on his decision.
+>
+> But the street audience
+> may never call it
+> the same thing.
+
+💎 JEWEL
+
+> Can survival
+> and street loyalty
+> exist inside the same decision?
+
+---
+
+## **2. IS SAVING YOURSELF FROM PRISON SELFISH — OR HUMAN?**
+
+**➤ A. MY ANSWER**
+
+> Fear of losing
+> your life to prison
+> is human.
+>
+> But the consequences
+> still belong to the choices
+> that created the situation.
+
+💎 JEWEL
+
+> Does fear excuse the decision,
+> or does it only explain it?
+
+---
+
+## **3. DOES BETRAYAL GIVE SOMEBODY AN EXCUSE TO COOPERATE?**
+
+**➤ A. MY ANSWER**
+
+> Betrayal may explain
+> how somebody feels.
+>
+> But it does not erase
+> the contradiction.
+
+💎 JEWEL
+
+> When somebody betrays you,
+> does that release you
+> from every promise you made?
+
+---
+
+[Continue same pattern for questions 4-10...]
 <!-- SCRIPT_END -->
 
-End each section with **💎 JEWEL:** [moral lesson]
-After each jewel, rotate a branded audience prompt.
+Key format elements:
+- Section headers: ## **1. TITLE** (bold)
+- Subsections: **➤ A. TITLE** (bold)
+- All spoken lines: > blockquote prefix
+- Stage cues: [BEAT] and [PAUSE] (NO backslashes, NOT blockquotes)
+- Jewels: 💎 JEWEL on own line, then blockquoted moral
+- Legal Status: ### ON-SCREEN LEGAL STATUS header + blockquoted lines
+- Empty spacing: > (blockquote prefix with no text)
 
 ### 9. YOUTUBE DESCRIPTION
 Search preview snippet + 3-5 paragraph deep breakdown + bullet takeaways + host bio + CTAs + official social links + legal disclaimer + trailing #hashtags.
