@@ -173,7 +173,7 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
         {/* Sections */}
         {sections.map((section, idx) => (
           <View key={idx} style={styles.sectionContainer} wrap={true}>
-            {section.header && (
+            {section.header && !section.isJewel && (
               <Text style={styles.sectionHeader} wrap={false}>{section.header}</Text>
             )}
 
@@ -206,10 +206,10 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                     )
                   }
 
-                  if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
+                  if (/^(?:\*{0,2}➤\s*|\*{0,2}[A-Z]\.\s+|•\s*|\*\*•\s*)/.test(trimmed)) {
                     return (
                       <Text key={lIdx} style={styles.leadThought} wrap={false}>
-                        {trimmed.replace(/\*\*/g, '')}
+                        {trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, '')}
                       </Text>
                     )
                   }

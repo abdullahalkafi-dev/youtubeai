@@ -568,18 +568,22 @@ FORMATTING RULES:
    >
    > PERSON — STATUS
 3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
-4. Sub-sections: **➤ A. SUB-SECTION TITLE** (bold)
-5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. One breath per line, 4-10 words:
-   > Spoken line one.
+4. Sub-sections: **A. SUB-SECTION TITLE** (bold, no arrows)
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Write each line as a FULL spoken sentence or natural clause (one breath per line). Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
+   > Full spoken sentence or natural clause here.
    >
-   > Spoken line two.
+   > Next complete spoken thought.
    Empty spacing lines also use > (just the prefix with no text).
-6. Stage cues: Insert [BEAT] for pauses and [PAUSE] for dramatic changes (NO backslashes, NOT blockquotes)
-7. Jewels: 💎 JEWEL on its own line, then blockquoted moral lesson:
-   💎 JEWEL
-   > Moral lesson line.
-8. 10 Viral Questions: ## **1. QUESTION?** with **➤ A. MY ANSWER** subsection and blockquoted answer, each question ends with its own 💎 JEWEL
-9. Final Jewel: 💎 FINAL JEWEL then blockquoted final lesson
+6. Stage cues: [BEAT] and [PAUSE] on their own lines, NO rails, NO backslashes
+7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question:
+   ### **JEWEL**
+   > Principle sentence.
+   >
+   > Consequence sentence.
+   >
+   > Direct audience question ending in '?'
+8. 10 Viral Questions: ## **1. QUESTION?** with **A. MY ANSWER** subsection and blockquoted answer, each question ends with its own ### **JEWEL**
+9. Final Jewel: ### **JEWEL** (or ### **FINAL JEWEL**) then blockquoted final lesson ending in a direct question
 
 CRITICAL: Preserve all original facts, names, and narrative points. Do not invent false legal claims.
 CRITICAL: Every single spoken delivery line MUST start with "> " blockquote prefix. This is non-negotiable for teleprompter rendering.

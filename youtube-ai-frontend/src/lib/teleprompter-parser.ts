@@ -148,7 +148,7 @@ export function parseScriptSections(content: string): ParsedScriptSection[] {
     if (headerMatch) {
       let rawHeader = headerMatch[1].trim();
       const header = rawHeader
-        .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
+        .replace(/^[\*\#\"\'💎\s]+|[\*\#\"\'💎\s]+$/g, '')
         .replace(/\*\*/g, '')
         .trim();
 

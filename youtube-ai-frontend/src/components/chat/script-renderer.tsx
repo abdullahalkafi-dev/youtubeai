@@ -78,10 +78,10 @@ function groupPreviewBlocks(body: string): PreviewBlock[] {
       continue
     }
 
-    // Sub-section or bullet headers
-    if (/^\*{0,2}➤/.test(trimmed) || /^\*{2}[A-Z]\.\s/.test(trimmed) || trimmed.startsWith('•') || trimmed.startsWith('**•')) {
+    // Sub-section or bullet headers: **A. TITLE**, **➤ A. TITLE**, bare A. TITLE, • lead
+    if (/^\*{0,2}➤\s*/.test(trimmed) || /^\*{0,2}[A-Z]\.\s+/.test(trimmed) || trimmed.startsWith('•') || trimmed.startsWith('**•')) {
       flushQuote()
-      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '')] })
+      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, '')] })
       continue
     }
 
@@ -400,7 +400,7 @@ export function ScriptRenderer({
       <div className="p-5 space-y-5 max-h-[600px] overflow-y-auto">
         {sections.map((section, idx) => (
           <div key={idx} className="space-y-3">
-            {section.header && (
+            {section.header && !section.isJewel && (
               <h4 className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider pb-1 border-b border-zinc-100 dark:border-zinc-800">
                 {section.header}
               </h4>
@@ -412,17 +412,31 @@ export function ScriptRenderer({
                   <Diamond className="w-3.5 h-3.5" />
                   <span>💎 JEWEL LESSON</span>
                 </div>
-                <p>
+                <div className="space-y-1">
                   {section.body
                     .split('\n')
                     .filter((l) => {
                       const c = l.trim().replace(/^\\+/, '')
                       return !(/^\(\[/.test(c) || /^\[\d+\]/.test(c) || /^\([A-Z][^)]*20\d{2}/.test(c))
                     })
-                    .join('\n')
-                    .replace(/^>\s*/gm, '')
-                    .replace(/\*\*/g, '')}
-                </p>
+                    .map((l, lIdx) => {
+                      const clean = l.replace(/^>\s*/, '').replace(/\*\*/g, '').trim()
+                      if (!clean) return null
+                      const isQuestion = clean.endsWith('?')
+                      return (
+                        <p
+                          key={lIdx}
+                          className={
+                            isQuestion
+                              ? 'text-amber-500 font-bold'
+                              : undefined
+                          }
+                        >
+                          {clean}
+                        </p>
+                      )
+                    })}
+                </div>
               </div>
             ) : (
               <div className="space-y-2.5 text-xs leading-relaxed">

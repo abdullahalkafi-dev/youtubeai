@@ -53,7 +53,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure with timestamps, section headers, and 💎 JEWEL at end of each section. ALL spoken lines MUST use > blockquote prefix for teleprompter gray-line rendering. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Follow the 6-part script structure. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. Spoken lines: full spoken sentences behind > rail. Every section ends with ### **JEWEL** following: Principle -> Consequence -> Direct Question ending in '?'. Cues: [BEAT] and [PAUSE] stand alone with no rail. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -276,7 +276,7 @@ C. [2-4 words]
 ### 8. FULL TELEPROMPTER SCRIPT
 CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
 
-BLOCKQUOTE RULE: EVERY spoken line MUST start with "> " (blockquote prefix). Empty spacing lines also use "> ". This creates teleprompter gray lines. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
+BLOCKQUOTE RULE: EVERY spoken line MUST start with "> " (blockquote prefix). Empty spacing lines also use "> ". Write full spoken sentences or natural clauses per line — do NOT chop lines into 2-8 word fragments. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
 
 NEVER output backslashes before brackets or periods. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown.
 
@@ -295,101 +295,76 @@ Format Section 8 strictly as follows:
 
 ## **1. COLD OPEN**
 
-**➤ A. THE HOOK**
+**A. THE HOOK**
 
-> The darkest cell
-> ain't always made of steel.
+> Three car seats are still sitting in that house.
+> Empty.
 >
-> Sometimes it's made
-> out of your own words.
->
-> "I had to do it."
->
-> "They left me for dead."
+> A mother admits she killed all three of her kids —
+> and twelve strangers still couldn't agree on what to call it.
 
 [BEAT]
 
-**➤ B. THE REAL QUESTION**
+**B. THE UNANSWERED QUESTION**
 
-> But the question is…
+> The question isn't whether she did it. She did.
 >
-> How you still standing
-> on business…
->
-> When you crossed over
-> to the people
-> you said you would never need?
+> The real question is this —
+> when does a mind stop belonging to the person living inside it?
 
 [PAUSE]
 
-> Today, we talking about
-> Kacey "OTF Jam" Hester.
+> Today, we breaking down what the cameras never showed.
 
-💎 JEWEL
+### **JEWEL**
 
-> A man can run from the block.
+> Pain may explain how somebody reached the road.
 >
-> Run from his crew.
+> But pain does not erase where that road ended.
 >
-> Run from his past.
->
-> But he cannot run
-> from the story
-> he has to tell himself at night.
+> Can we recognize somebody's pain without erasing their responsibility?
 
 ---
 
 ## **2. THE IMMEDIATE STAKES**
 
-**➤ A. SEPARATE THE FACTS FROM THE RUMORS**
+**A. SEPARATE THE FACTS FROM THE RUMORS**
 
-> Let's separate the facts
-> from the internet rumors.
+> Let's separate the facts from the internet rumors.
 >
 > REPORTED FACT:
 >
-> The federal government alleges
-> Durk Banks, known as Lil Durk,
-> was involved
-> in a murder-for-hire plot.
+> The federal government alleges Durk Banks, known as Lil Durk, was involved in a murder-for-hire plot.
 
-**➤ B. THE COOPERATING WITNESS**
+**B. THE COOPERATING WITNESS**
 
 > REPORTED FACT:
 >
-> Kacey Hester, known as OTF Jam,
-> reportedly testified
-> as a cooperating witness.
+> Kacey Hester, known as OTF Jam, reportedly testified as a cooperating witness.
 
-💎 JEWEL
+### **JEWEL**
 
-> Federal pressure
-> doesn't only test your case.
+> Federal pressure doesn't only test your case.
 >
-> It tests every identity
-> you ever used
-> to impress people.
+> It tests every identity you ever used to impress people.
+>
+> Who are you when the only person who can save you is the one you called a rat?
 
 ---
 
 ## **3. THE GUN CASE: WHEN THE DOOR OPENED**
 
-**➤ A. THE SMALL DOOR**
+**A. THE SMALL DOOR**
 
-> Now here's where
-> the pressure gets dark.
+> Now here's where the pressure gets dark.
 >
-> Jam reportedly said
-> his cooperation began
-> after a 2023 arrest.
+> Jam reportedly said his cooperation began after a 2023 arrest.
 
-**➤ B. HOW FEDERAL PRESSURE STARTS**
+**B. HOW FEDERAL PRESSURE STARTS**
 
-> That's how
-> federal pressure works.
+> That's how federal pressure works.
 >
-> It might start
-> with a traffic stop.
+> It might start with a traffic stop.
 >
 > A gun.
 >
@@ -397,24 +372,16 @@ Format Section 8 strictly as follows:
 
 ### CURIOSITY RESET
 
-> If somebody is completely comfortable
-> with cooperating…
->
-> Why do they need
-> so many reasons
-> to explain it?
+> If somebody is completely comfortable with cooperating…
+> why do they need so many reasons to explain it?
 
-💎 JEWEL
+### **JEWEL**
 
-> The first arrest
-> may be small.
+> The first arrest may be small.
 >
-> But when your life
-> is built around secrets…
+> But when your life is built around secrets, one small arrest can unlock a lifetime of consequences.
 >
-> One small arrest
-> can unlock
-> a lifetime of consequences.
+> What secret are you still carrying that the feds could use against you?
 
 ---
 
@@ -424,33 +391,25 @@ Format Section 8 strictly as follows:
 
 ## **8. FINAL WORD: YOU CAN'T HAVE BOTH IDENTITIES**
 
-**➤ A. THE LEGAL REALITY**
+**A. THE LEGAL REALITY**
 
-> Let me close it
-> like this.
+> Let me close it like this.
 >
-> OTF Jam
-> may have his reasons.
+> OTF Jam may have his reasons.
 
-**➤ B. THE BIGGER LESSON**
+**B. THE BIGGER LESSON**
 
-> But the psychological lesson
-> is bigger than the verdict.
+> But the psychological lesson is bigger than the verdict.
 >
-> When somebody builds
-> their identity…
->
-> On never crossing
-> a certain line…
+> When somebody builds their identity on never crossing a certain line…
 
-💎 FINAL JEWEL
+### **JEWEL**
 
-> Don't build your life
-> around a code…
+> Don't build your life around a code that disappears when your freedom is on the line.
 >
-> That disappears
-> when your freedom
-> is on the line.
+> The code was never protecting you — it was performing for the people watching.
+>
+> Are you living by a real principle, or are you just performing one?
 
 Subscribe to **Unique Mecca Audio.**
 
@@ -460,57 +419,43 @@ Subscribe to **Unique Mecca Audio.**
 
 ## **1. CAN A MAN COOPERATE AND STILL CALL HIMSELF SOLID?**
 
-**➤ A. MY ANSWER**
+**A. MY ANSWER**
 
-> He can stand
-> on his decision.
+> He can stand on his decision.
 >
-> But the street audience
-> may never call it
-> the same thing.
+> But the street audience may never call it the same thing.
 
-💎 JEWEL
+### **JEWEL**
 
-> Can survival
-> and street loyalty
-> exist inside the same decision?
+> Can survival and street loyalty exist inside the same decision?
 
 ---
 
 ## **2. IS SAVING YOURSELF FROM PRISON SELFISH — OR HUMAN?**
 
-**➤ A. MY ANSWER**
+**A. MY ANSWER**
 
-> Fear of losing
-> your life to prison
-> is human.
+> Fear of losing your life to prison is human.
 >
-> But the consequences
-> still belong to the choices
-> that created the situation.
+> But the consequences still belong to the choices that created the situation.
 
-💎 JEWEL
+### **JEWEL**
 
-> Does fear excuse the decision,
-> or does it only explain it?
+> Does fear excuse the decision, or does it only explain it?
 
 ---
 
 ## **3. DOES BETRAYAL GIVE SOMEBODY AN EXCUSE TO COOPERATE?**
 
-**➤ A. MY ANSWER**
+**A. MY ANSWER**
 
-> Betrayal may explain
-> how somebody feels.
+> Betrayal may explain how somebody feels.
 >
-> But it does not erase
-> the contradiction.
+> But it does not erase the contradiction.
 
-💎 JEWEL
+### **JEWEL**
 
-> When somebody betrays you,
-> does that release you
-> from every promise you made?
+> When somebody betrays you, does that release you from every promise you made?
 
 ---
 
@@ -519,10 +464,10 @@ Subscribe to **Unique Mecca Audio.**
 
 Key format elements:
 - Section headers: ## **1. TITLE** (bold)
-- Subsections: **➤ A. TITLE** (bold)
-- All spoken lines: > blockquote prefix
-- Stage cues: [BEAT] and [PAUSE] (NO backslashes, NOT blockquotes)
-- Jewels: 💎 JEWEL on own line, then blockquoted moral
+- Subsections: **A. TITLE** (bold, no arrows)
+- All spoken lines: > blockquote prefix (full sentences/clauses, no 2-8 word fragments)
+- Stage cues: [BEAT] and [PAUSE] on their own line (NO backslashes, NOT blockquotes)
+- Jewels: ### **JEWEL** on own line, followed by blockquoted Principle -> Consequence -> Question?
 - Legal Status: ### ON-SCREEN LEGAL STATUS header + blockquoted lines
 - Empty spacing: > (blockquote prefix with no text)
 
@@ -578,8 +523,8 @@ IMPORTANT RULES:
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
 - Label the legal status of any case (Arrested, Charged, Indictmented, Convicted, Sentenced, etc.)
 - Use "allegedly" and "reportedly" for unconfirmed claims
-- Write for teleprompter: short lines, natural contractions, 8-15 beats per section
-- Every section ends with a 💎 JEWEL moral lesson
+- Write for teleprompter: full spoken sentences or natural clauses per line behind '> ' rail, natural contractions, paced with commas and em dashes, no choppy 2-8 word fragments
+- Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?')
 - After each jewel, include a rotating branded audience prompt
 - For global viewers, explain American legal terms in street language when they appear
 - Never present psychological interpretation as confirmed fact

@@ -89,8 +89,9 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
       continue
     }
 
-    // ── Jewel marker: 💎 JEWEL or 💎 FINAL JEWEL
-    if (/^💎/.test(clean)) {
+    // ── Jewel marker: 💎 JEWEL, 💎 FINAL JEWEL, or bare JEWEL / JEWEL LESSON
+    // Require end-of-line (optional colon) so words like JEWELS/JEWELRY never false-positive.
+    if (/^(?:#{2,3}\s*)?(?:\*{0,2})?(?:💎\s*(?:FINAL\s+)?JEWEL|JEWEL(?:\s*LESSON)?)(?:\*{0,2}):?\s*$/i.test(clean)) {
       flushQuote()
       blocks.push({ type: 'jewel', lines: [clean] })
       continue
@@ -103,10 +104,10 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
       continue
     }
 
-    // ── Sub-section header: **➤ A. TITLE** or ➤ A. TITLE
-    if (/^\*{0,2}➤/.test(trimmed) || /^\*{2}[A-Z]\.\s/.test(trimmed)) {
+    // ── Sub-section header: **A. TITLE**, **➤ A. TITLE**, or bare A. TITLE
+    if (/^\*{0,2}➤\s*/.test(trimmed) || /^\*{0,2}[A-Z]\.\s+/.test(trimmed)) {
       flushQuote()
-      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '')] })
+      blocks.push({ type: 'subheader', lines: [trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, '')] })
       continue
     }
 
@@ -788,7 +789,7 @@ export function FullscreenTeleprompter({
               }}
               className="space-y-3 pt-2"
             >
-              {section.header && (
+              {section.header && !section.isJewel && (
                 <div className="py-1 border-b border-zinc-800/80">
                   <h2
                     style={{ fontSize: `${Math.max(16, fontSize * 1.05)}px` }}

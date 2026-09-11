@@ -268,7 +268,7 @@ export function TeleprompterEditorModal({
             </span>
             <button
               type="button"
-              onClick={() => insertText('## SECTION TITLE')}
+              onClick={() => insertText('## **1. SECTION TITLE**')}
               className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold flex items-center space-x-1"
             >
               <Plus className="w-3 h-3" />
@@ -276,19 +276,19 @@ export function TeleprompterEditorModal({
             </button>
             <button
               type="button"
-              onClick={() => insertText('**• Lead thought sentence here.**')}
+              onClick={() => insertText('**A. SUB-SECTION TITLE**')}
               className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold flex items-center space-x-1"
             >
               <Plus className="w-3 h-3" />
-              <span>• Lead Thought</span>
+              <span>Divider</span>
             </button>
             <button
               type="button"
-              onClick={() => insertText('> Single-breath phrase.\n>\n> Next punchy breath.')}
+              onClick={() => insertText('> Full spoken sentence or natural clause here.\n>\n> Next complete spoken thought.')}
               className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 hover:bg-zinc-200 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 font-semibold flex items-center space-x-1"
             >
               <Plus className="w-3 h-3" />
-              <span>Spoken Breath Lines</span>
+              <span>Breath Line</span>
             </button>
             <button
               type="button"
@@ -308,7 +308,7 @@ export function TeleprompterEditorModal({
             </button>
             <button
               type="button"
-              onClick={() => insertText('### 💎 JEWEL\n**Moral lesson sentence.**\n>\n> Spoken takeaway.')}
+              onClick={() => insertText('### **JEWEL**\n\n> State the principle clearly in one breath.\n>\n> Connect it directly to the real-world consequence.\n>\n> Can we recognize the pain without erasing accountability?')}
               className="px-2.5 py-1 rounded-lg bg-amber-500/10 text-amber-500 hover:bg-amber-500/20 font-bold flex items-center space-x-1"
             >
               <span>💎 Jewel Card</span>
@@ -350,7 +350,7 @@ export function TeleprompterEditorModal({
             <div className="space-y-6 max-w-3xl mx-auto p-6 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800">
               {sections.map((section, idx) => (
                 <div key={idx} className="space-y-4">
-                  {section.header && (
+                  {section.header && !section.isJewel && (
                     <h3 className="text-sm font-black text-amber-500 uppercase tracking-wider pb-1 border-b border-zinc-200 dark:border-zinc-800">
                       {section.header}
                     </h3>
@@ -381,10 +381,10 @@ export function TeleprompterEditorModal({
                           )
                         }
 
-                        if (trimmed.startsWith('•') || trimmed.startsWith('**•') || trimmed.startsWith('**➤')) {
+                        if (/^(?:\*{0,2}➤\s*|\*{0,2}[A-Z]\.\s+|•\s*|\*\*•\s*)/.test(trimmed)) {
                           return (
                             <div key={lIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-2">
-                              {trimmed.replace(/\*\*/g, '')}
+                              {trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, '')}
                             </div>
                           )
                         }

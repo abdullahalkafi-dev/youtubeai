@@ -41,7 +41,7 @@ export function AddScriptModal({
   // Auto-detect format on paste/change
   const handleContentChange = (val: string) => {
     setContent(val)
-    if (val.includes('## ') && val.includes('> ') && (val.includes('[BEAT]') || val.includes('💎 JEWEL'))) {
+    if (val.includes('## ') && val.includes('> ') && (val.includes('[BEAT]') || val.includes('[PAUSE]') || /JEWEL/i.test(val))) {
       setFormatType('teleprompter_beat')
     } else if (val.includes('# ') || val.includes('## ')) {
       setFormatType('standard_markdown')
