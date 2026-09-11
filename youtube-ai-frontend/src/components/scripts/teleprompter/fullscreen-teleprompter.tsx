@@ -811,32 +811,38 @@ export function FullscreenTeleprompter({
                   <div className="flex items-center space-x-2 text-amber-400 font-black tracking-widest text-xs sm:text-sm uppercase">
                     <span>💎 JEWEL LESSON</span>
                   </div>
+                  {/* Stack each `>` line on its own row (Claude-style). Do not join into one paragraph. */}
                   <div
                     style={{ fontSize: `${fontSize}px`, lineHeight: '1.65' }}
-                    className="font-bold text-amber-200"
+                    className="font-bold text-amber-200 space-y-1.5"
                   >
-                    {parseSentencesFromText(section.body).map((sent, sIdx) => {
-                      const sentenceId = `sec-${idx}-jewel-${sIdx}`
-                      const isActive = isHighlightEnabled && activeSentenceId === sentenceId
+                    {section.body.split('\n').map((rawLine, lIdx) => {
+                      const clean = rawLine
+                        .replace(/^>\s*/, '')
+                        .replace(/\*\*/g, '')
+                        .trim()
+                      if (!clean) return null
+                      const lineId = `sec-${idx}-jewel-${lIdx}`
+                      const isActive = isHighlightEnabled && activeSentenceId === lineId
                       return (
-                        <span
-                          key={sentenceId}
+                        <div
+                          key={lineId}
                           ref={(el) => {
-                            if (el) sentenceRefs.current.set(sentenceId, el)
-                            else sentenceRefs.current.delete(sentenceId)
+                            if (el) sentenceRefs.current.set(lineId, el)
+                            else sentenceRefs.current.delete(lineId)
                           }}
                           onClick={(e) => {
                             e.stopPropagation()
-                            handleSentenceClick(sentenceId)
+                            handleSentenceClick(lineId)
                           }}
                           className={`cursor-pointer rounded-md transition-all duration-200 ${
                             isActive
-                              ? 'text-amber-200 font-black bg-amber-400/25 shadow-[0_0_25px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
+                              ? 'text-amber-200 font-black bg-amber-400/25 shadow-[0_0_25px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60 px-2 py-0.5 -mx-2 scale-[1.015] origin-left'
                               : 'text-amber-300/85 hover:text-amber-100 hover:bg-amber-500/10'
                           }`}
                         >
-                          {sent}{' '}
-                        </span>
+                          {clean}
+                        </div>
                       )
                     })}
                   </div>

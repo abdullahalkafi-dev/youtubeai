@@ -359,42 +359,105 @@ export function TeleprompterEditorModal({
                   {section.isJewel ? (
                     <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/40 text-amber-600 dark:text-amber-300 font-medium text-xs space-y-2">
                       <span className="font-bold text-amber-500 uppercase">💎 JEWEL LESSON</span>
-                      <p>{section.body.replace(/^>\s*/gm, '').replace(/\*\*/g, '')}</p>
+                      <div className="space-y-1.5">
+                        {section.body.split('\n').map((rawLine, lIdx) => {
+                          const clean = rawLine
+                            .replace(/^>\s*/, '')
+                            .replace(/\*\*/g, '')
+                            .trim()
+                          if (!clean) return null
+                          return <p key={lIdx}>{clean}</p>
+                        })}
+                      </div>
                     </div>
                   ) : (
                     <div className="space-y-2 text-xs leading-relaxed">
-                      {section.body.split('\n').map((line, lIdx) => {
-                        const trimmed = line.trim()
-                        if (!trimmed) return null
-
-                        // Strip any accidental leading backslashes
-                        const cueClean = trimmed.replace(/^\\+/,'')
-
-                        if (cueClean.startsWith('[BEAT]') || cueClean.startsWith('[PAUSE]')) {
-                          return (
-                            <span
-                              key={lIdx}
-                              className="inline-block my-1 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-zinc-200 dark:bg-zinc-800 text-amber-500"
-                            >
-                              {cueClean}
-                            </span>
-                          )
+                      {(() => {
+                        // Group consecutive `>` lines into one rail (Claude-style stacked lines).
+                        type PreviewRow =
+                          | { kind: 'cue' | 'subheader' | 'para'; text: string }
+                          | { kind: 'rail'; lines: string[] }
+                        const rows: PreviewRow[] = []
+                        let rail: string[] = []
+                        const flushRail = () => {
+                          if (rail.length) {
+                            rows.push({ kind: 'rail', lines: rail })
+                            rail = []
+                          }
                         }
+                        for (const raw of section.body.split('\n')) {
+                          const trimmed = raw.trim()
+                          if (!trimmed) {
+                            flushRail()
+                            continue
+                          }
+                          const cueClean = trimmed.replace(/^\\+/, '')
+                          if (/^\[(?:BEAT|PAUSE)\]/i.test(cueClean)) {
+                            flushRail()
+                            rows.push({ kind: 'cue', text: cueClean })
+                            continue
+                          }
+                          if (/^(?:\*{0,2}➤\s*|\*{0,2}[A-Z]\.\s+|•\s*|\*\*•\s*)/.test(trimmed)) {
+                            flushRail()
+                            rows.push({
+                              kind: 'subheader',
+                              text: trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, ''),
+                            })
+                            continue
+                          }
+                          if (/^>\s*$/.test(trimmed)) {
+                            flushRail()
+                            continue
+                          }
+                          if (/^>\s*/.test(trimmed)) {
+                            rail.push(trimmed.replace(/^>\s*/, '').replace(/\*\*/g, ''))
+                            continue
+                          }
+                          flushRail()
+                          rows.push({
+                            kind: 'para',
+                            text: trimmed.replace(/\*\*/g, ''),
+                          })
+                        }
+                        flushRail()
 
-                        if (/^(?:\*{0,2}➤\s*|\*{0,2}[A-Z]\.\s+|•\s*|\*\*•\s*)/.test(trimmed)) {
+                        return rows.map((row, rIdx) => {
+                          if (row.kind === 'cue') {
+                            return (
+                              <span
+                                key={rIdx}
+                                className="inline-block my-1 px-3 py-1 rounded-full text-[10px] font-mono font-bold bg-zinc-200 dark:bg-zinc-800 text-amber-500"
+                              >
+                                {row.text}
+                              </span>
+                            )
+                          }
+                          if (row.kind === 'subheader') {
+                            return (
+                              <div key={rIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-2">
+                                {row.text}
+                              </div>
+                            )
+                          }
+                          if (row.kind === 'rail') {
+                            return (
+                              <div
+                                key={rIdx}
+                                className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1"
+                              >
+                                {row.lines.map((line, lIdx) => (
+                                  <div key={lIdx}>{line}</div>
+                                ))}
+                              </div>
+                            )
+                          }
                           return (
-                            <div key={lIdx} className="font-bold text-zinc-900 dark:text-zinc-100 pt-2">
-                              {trimmed.replace(/\*\*/g, '').replace(/^➤\s*/, '')}
+                            <div key={rIdx} className="text-zinc-700 dark:text-zinc-300">
+                              {row.text}
                             </div>
                           )
-                        }
-
-                        return (
-                          <div key={lIdx} className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300">
-                            {trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')}
-                          </div>
-                        )
-                      })}
+                        })
+                      })()}
                     </div>
                   )}
                 </div>

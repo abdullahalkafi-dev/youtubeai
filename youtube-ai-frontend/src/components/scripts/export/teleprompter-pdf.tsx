@@ -185,9 +185,21 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                   </Svg>
                   <Text style={styles.jewelHeader}>JEWEL TAKEAWAY</Text>
                 </View>
-                <Text style={styles.jewelText}>
-                  {section.body.replace(/^>\s*/gm, '').replace(/\*\*/g, '').replace(/💎\s*/g, '')}
-                </Text>
+                <View>
+                  {section.body.split('\n').map((rawLine, lIdx) => {
+                    const clean = rawLine
+                      .replace(/^>\s*/, '')
+                      .replace(/\*\*/g, '')
+                      .replace(/💎\s*/g, '')
+                      .trim()
+                    if (!clean) return null
+                    return (
+                      <Text key={lIdx} style={styles.jewelText}>
+                        {clean}
+                      </Text>
+                    )
+                  })}
+                </View>
               </View>
             ) : (
               <View wrap={true}>
