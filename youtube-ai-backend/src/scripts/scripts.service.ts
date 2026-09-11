@@ -560,6 +560,12 @@ export class ScriptsService {
     const prompt = `You are an expert teleprompter script formatter for YouTube criminal psychology and storytelling videos.
 Transform the following raw, unstructured text into a professional teleprompter script using strict spoken cadence rules.
 
+SPOKEN VOICE (CRITICAL):
+- Write like an OG on the couch teaching the class — NOT a news recap or true-crime documentary narrator.
+- Hooks open on a SCENE or IMAGE. BAN openers like "Let's separate the facts from the internet circus", "Thirty years of rumors, documentaries...", "Now sit with that for a minute" (use [BEAT] instead).
+- Each major section MUST include at least one PUNCH LINE: a short hard clause (3-12 words). Examples: "Empty." / "It belongs to the record." / "You don't go to prison alone."
+- Mix long setup lines with 1 short punch line. Do not write 6+ long lecture sentences with no punch.
+
 FORMATTING RULES:
 1. Main Episode Title: # SCRIPT TITLE: [TOPIC HEADLINE]
 2. Legal Status Header: ### ON-SCREEN LEGAL STATUS followed by blockquoted status lines:
@@ -569,26 +575,26 @@ FORMATTING RULES:
    > PERSON — STATUS
 3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
 4. Sub-sections: **A. SUB-SECTION TITLE** (bold, no arrows)
-5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Write each line as a FULL spoken sentence or natural clause. Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
-   A breath block is 1 to 4 CONSECUTIVE "> " lines with NO "> " empty line between them:
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Full spoken sentences or natural clauses. Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
+   A breath block is 2 to 6 CONSECUTIVE "> " lines with NO empty "> " between them:
    > Full spoken sentence or natural clause here.
    > Next complete spoken thought in the same breath.
+   > Punch line lands here.
    Between breath blocks use a TRUE blank line (no ">") or a [BEAT]/[PAUSE] cue. Do NOT put a "> " empty spacer after every sentence.
 6. Stage cues (CUE DISCIPLINE — mandatory):
    - [BEAT] = shorter hold BEFORE a reveal, pivot, hard line, contrast, or emphasis
    - [PAUSE] = full stop AFTER a major question, hard fact, contrast, emotional truth, or jewel
    - Place each cue on its own line, NO rails, NO backslashes
+   - Place a cue after a punch line or question — not only after a long wall of text
    - Use sparingly (not after every sentence) but NEVER leave a major section without at least one cue
    - Target 2 to 4 cues per major section. After every jewel question, add [PAUSE]
-7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question, then [PAUSE]:
+7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question (consecutive lines, NO empty "> "), then [PAUSE]:
    ### **JEWEL**
    > Principle sentence.
-   >
    > Consequence sentence.
-   >
    > Direct audience question ending in '?'
    [PAUSE]
-   Engagement CTAs (comment prompts) go BEFORE ### **JEWEL** or AFTER the next --- divider. NEVER inside the jewel body.
+   Engagement CTAs go BEFORE ### **JEWEL**. NEVER inside the jewel body.
 8. 10 Viral Questions: ## **1. QUESTION?** with **A. MY ANSWER** subsection, [BEAT], then ### **JEWEL** ending in a question + [PAUSE]
 9. Final Jewel: ### **JEWEL** (or ### **FINAL JEWEL**) then blockquoted final lesson ending in a direct question + [PAUSE]
 
@@ -596,6 +602,7 @@ CRITICAL: Preserve all original facts, names, and narrative points. Do not inven
 CRITICAL: Every single spoken delivery line MUST start with "> " blockquote prefix. This is non-negotiable for teleprompter rendering.
 CRITICAL: NEVER output backslashes. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown above.
 CRITICAL: Insert [BEAT]/[PAUSE] into the raw text at natural performance points — do not output a script with almost no cues.
+CRITICAL: Rewrite lecture/documentary tone into Unique's spoken voice with punch lines.
 
 RAW TEXT:
 ${dto.rawText}`;
