@@ -569,25 +569,33 @@ FORMATTING RULES:
    > PERSON — STATUS
 3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
 4. Sub-sections: **A. SUB-SECTION TITLE** (bold, no arrows)
-5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Write each line as a FULL spoken sentence or natural clause (one breath per line). Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Write each line as a FULL spoken sentence or natural clause. Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
+   A breath block is 1 to 4 CONSECUTIVE "> " lines with NO "> " empty line between them:
    > Full spoken sentence or natural clause here.
-   >
-   > Next complete spoken thought.
-   Empty spacing lines also use > (just the prefix with no text).
-6. Stage cues: [BEAT] and [PAUSE] on their own lines, NO rails, NO backslashes
-7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question:
+   > Next complete spoken thought in the same breath.
+   Between breath blocks use a TRUE blank line (no ">") or a [BEAT]/[PAUSE] cue. Do NOT put a "> " empty spacer after every sentence.
+6. Stage cues (CUE DISCIPLINE — mandatory):
+   - [BEAT] = shorter hold BEFORE a reveal, pivot, hard line, contrast, or emphasis
+   - [PAUSE] = full stop AFTER a major question, hard fact, contrast, emotional truth, or jewel
+   - Place each cue on its own line, NO rails, NO backslashes
+   - Use sparingly (not after every sentence) but NEVER leave a major section without at least one cue
+   - Target 2 to 4 cues per major section. After every jewel question, add [PAUSE]
+7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question, then [PAUSE]:
    ### **JEWEL**
    > Principle sentence.
    >
    > Consequence sentence.
    >
    > Direct audience question ending in '?'
-8. 10 Viral Questions: ## **1. QUESTION?** with **A. MY ANSWER** subsection and blockquoted answer, each question ends with its own ### **JEWEL**
-9. Final Jewel: ### **JEWEL** (or ### **FINAL JEWEL**) then blockquoted final lesson ending in a direct question
+   [PAUSE]
+   Engagement CTAs (comment prompts) go BEFORE ### **JEWEL** or AFTER the next --- divider. NEVER inside the jewel body.
+8. 10 Viral Questions: ## **1. QUESTION?** with **A. MY ANSWER** subsection, [BEAT], then ### **JEWEL** ending in a question + [PAUSE]
+9. Final Jewel: ### **JEWEL** (or ### **FINAL JEWEL**) then blockquoted final lesson ending in a direct question + [PAUSE]
 
 CRITICAL: Preserve all original facts, names, and narrative points. Do not invent false legal claims.
 CRITICAL: Every single spoken delivery line MUST start with "> " blockquote prefix. This is non-negotiable for teleprompter rendering.
 CRITICAL: NEVER output backslashes. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown above.
+CRITICAL: Insert [BEAT]/[PAUSE] into the raw text at natural performance points — do not output a script with almost no cues.
 
 RAW TEXT:
 ${dto.rawText}`;

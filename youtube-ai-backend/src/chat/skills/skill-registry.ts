@@ -53,7 +53,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. Spoken lines: full spoken sentences behind > rail. Every section ends with ### **JEWEL** following: Principle -> Consequence -> Direct Question ending in '?'. Cues: [BEAT] and [PAUSE] stand alone with no rail. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Follow the 6-part script structure. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. Spoken lines: full spoken sentences behind > rail in 1-4 line breath blocks (no "> " spacer between every sentence). Every section ends with ### **JEWEL** following: Principle -> Consequence -> Direct Question ending in '?', then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after major questions/facts/jewels — 2-4 cues per major section, never leave a section cue-less. CTAs never inside jewel. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -276,7 +276,15 @@ C. [2-4 words]
 ### 8. FULL TELEPROMPTER SCRIPT
 CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
 
-BLOCKQUOTE RULE: EVERY spoken line MUST start with "> " (blockquote prefix). Empty spacing lines also use "> ". Write full spoken sentences or natural clauses per line — do NOT chop lines into 2-8 word fragments. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
+BLOCKQUOTE RULE: EVERY spoken line MUST start with "> " (blockquote prefix). Write full spoken sentences or natural clauses per line — do NOT chop lines into 2-8 word fragments. A breath block is 1 to 4 consecutive "> " lines with NO "> " empty line between them. Between breath blocks use a true blank line or a [BEAT]/[PAUSE] cue. Do NOT put a "> " empty spacer after every sentence. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
+
+CUE DISCIPLINE (CRITICAL):
+- [PAUSE] = full stop after a major question, hard fact, contrast, emotional truth, or jewel. Put on its own line, no rail.
+- [BEAT] = shorter hold before a reveal, pivot, hard line, contrast, or emphasis. Put on its own line, no rail.
+- Use cues sparingly (not after every sentence) but NEVER leave a major section without at least one cue.
+- Target 2 to 4 cues per major section. After every direct jewel question, add [PAUSE].
+- Every section 1 through 8 MUST have 2 to 4 cues. Never leave any section without cues.
+- Engagement CTAs (comment prompts) must NEVER sit inside ### **JEWEL**. Put the CTA as a spoken line BEFORE ### **JEWEL**, or AFTER the next ## section header. Never after ### **JEWEL** and before the next ---.
 
 NEVER output backslashes before brackets or periods. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown.
 
@@ -299,22 +307,25 @@ Format Section 8 strictly as follows:
 
 > Three car seats are still sitting in that house.
 > Empty.
->
+
+[BEAT]
+
 > A mother admits she killed all three of her kids —
 > and twelve strangers still couldn't agree on what to call it.
 
-[BEAT]
+[PAUSE]
 
 **B. THE UNANSWERED QUESTION**
 
 > The question isn't whether she did it. She did.
->
 > The real question is this —
 > when does a mind stop belonging to the person living inside it?
 
 [PAUSE]
 
 > Today, we breaking down what the cameras never showed.
+
+> If you understand the lesson already, comment "WORDS MATTER."
 
 ### **JEWEL**
 
@@ -324,6 +335,8 @@ Format Section 8 strictly as follows:
 >
 > Can we recognize somebody's pain without erasing their responsibility?
 
+[PAUSE]
+
 ---
 
 ## **2. THE IMMEDIATE STAKES**
@@ -331,16 +344,19 @@ Format Section 8 strictly as follows:
 **A. SEPARATE THE FACTS FROM THE RUMORS**
 
 > Let's separate the facts from the internet rumors.
->
 > REPORTED FACT:
->
 > The federal government alleges Durk Banks, known as Lil Durk, was involved in a murder-for-hire plot.
+
+[BEAT]
 
 **B. THE COOPERATING WITNESS**
 
 > REPORTED FACT:
->
 > Kacey Hester, known as OTF Jam, reportedly testified as a cooperating witness.
+
+[PAUSE]
+
+> Drop a 💎 if you know the courtroom and the street speak two different languages.
 
 ### **JEWEL**
 
@@ -350,6 +366,8 @@ Format Section 8 strictly as follows:
 >
 > Who are you when the only person who can save you is the one you called a rat?
 
+[PAUSE]
+
 ---
 
 ## **3. THE GUN CASE: WHEN THE DOOR OPENED**
@@ -357,23 +375,27 @@ Format Section 8 strictly as follows:
 **A. THE SMALL DOOR**
 
 > Now here's where the pressure gets dark.
->
 > Jam reportedly said his cooperation began after a 2023 arrest.
+
+[BEAT]
 
 **B. HOW FEDERAL PRESSURE STARTS**
 
 > That's how federal pressure works.
->
 > It might start with a traffic stop.
->
 > A gun.
->
 > A phone.
+
+[PAUSE]
 
 ### CURIOSITY RESET
 
 > If somebody is completely comfortable with cooperating…
 > why do they need so many reasons to explain it?
+
+[PAUSE]
+
+> Comment "SILENCE IS POWER" if you know everybody doesn't deserve your whole story.
 
 ### **JEWEL**
 
@@ -383,25 +405,135 @@ Format Section 8 strictly as follows:
 >
 > What secret are you still carrying that the feds could use against you?
 
----
-
-[Continue pattern for sections 4-7...]
+[PAUSE]
 
 ---
 
-## **8. FINAL WORD: YOU CAN'T HAVE BOTH IDENTITIES**
+## **4. THE PSYCHOLOGICAL CELL**
+
+**A. UNIQUE'S ANALYSIS**
+
+> Now let me translate that in prison language.
+> The first lie men tell themselves is "I got it under control."
+
+[BEAT]
+
+> The second lie is "Nobody is listening."
+> Somebody is always listening.
+
+[PAUSE]
+
+**B. THE SMART MAN TRAP**
+
+> A man thinks because he survived this long, he understands every angle.
+> He thinks he can say just enough without making himself vulnerable.
+
+[BEAT]
+
+> But a courtroom is built to slow that dance down.
+> A prosecutor can play it again.
+> A jury can ask one question: "Why did he say that?"
+
+[PAUSE]
+
+> If you ever learned that lesson the hard way, comment "REAL."
+
+### **JEWEL**
+
+> Ego talks loud when it feels safe.
+>
+> Regret talks loudest when safety is gone.
+>
+> Are you speaking from wisdom, or because your ego needs an audience?
+
+[PAUSE]
+
+---
+
+## **5. THE SENTENCE STARTS BEFORE THE JUDGE SPEAKS**
+
+**A. LEGAL REALITY**
+
+> Reports say he faces possible life in prison.
+> The final sentence has not been announced as of today.
+
+[BEAT]
+
+**B. UNIQUE'S ANALYSIS**
+
+> I am not talking about the legal sentence.
+> The judge decides that.
+> I am talking about the psychological sentence.
+
+[PAUSE]
+
+> Prison does not begin at the gate.
+> It begins when the lawyer stops saying "We got a chance" and starts saying "We have to prepare."
+
+[BEAT]
+
+> Type "CONSEQUENCES" if you know nothing stays hidden forever.
+
+### **JEWEL**
+
+> The judge gives the official sentence.
+>
+> But consequences start collecting long before court is over.
+>
+> What decision in your life is already charging interest?
+
+[PAUSE]
+
+---
+
+## **6. MOTHERS GOT SENTENCED TOO**
+
+**A. THE VICTIM'S FAMILY**
+
+> A victim's family does not get to scroll past the pain.
+> They carry it through birthdays, holidays, and every headline that reopens the wound.
+
+[PAUSE]
+
+**B. THE DEFENDANT'S FAMILY**
+
+> You don't go to prison alone.
+> Your people do time in pieces.
+
+[BEAT]
+
+> Comment "FAMILY SENTENCE" if people need to stop pretending prison only affects one person.
+
+### **JEWEL**
+
+> One violent decision can punish more than one family.
+>
+> One reckless moment can create decades of empty chairs.
+>
+> Who pays when a man chooses pride over peace?
+
+[PAUSE]
+
+---
+
+## **7. FINAL WORD: YOU CAN'T OUTTALK CONSEQUENCES**
 
 **A. THE LEGAL REALITY**
 
 > Let me close it like this.
->
 > OTF Jam may have his reasons.
+
+[BEAT]
 
 **B. THE BIGGER LESSON**
 
 > But the psychological lesson is bigger than the verdict.
->
 > When somebody builds their identity on never crossing a certain line…
+
+[PAUSE]
+
+> Subscribe to **Unique Mecca Audio.**
+> Share this with somebody who needs clarity before consequences teach them the hard way.
 
 ### **JEWEL**
 
@@ -411,7 +543,7 @@ Format Section 8 strictly as follows:
 >
 > Are you living by a real principle, or are you just performing one?
 
-Subscribe to **Unique Mecca Audio.**
+[PAUSE]
 
 ---
 
@@ -422,12 +554,15 @@ Subscribe to **Unique Mecca Audio.**
 **A. MY ANSWER**
 
 > He can stand on his decision.
->
 > But the street audience may never call it the same thing.
+
+[BEAT]
 
 ### **JEWEL**
 
 > Can survival and street loyalty exist inside the same decision?
+
+[PAUSE]
 
 ---
 
@@ -436,12 +571,15 @@ Subscribe to **Unique Mecca Audio.**
 **A. MY ANSWER**
 
 > Fear of losing your life to prison is human.
->
 > But the consequences still belong to the choices that created the situation.
+
+[BEAT]
 
 ### **JEWEL**
 
 > Does fear excuse the decision, or does it only explain it?
+
+[PAUSE]
 
 ---
 
@@ -450,26 +588,32 @@ Subscribe to **Unique Mecca Audio.**
 **A. MY ANSWER**
 
 > Betrayal may explain how somebody feels.
->
 > But it does not erase the contradiction.
+
+[BEAT]
 
 ### **JEWEL**
 
 > When somebody betrays you, does that release you from every promise you made?
 
+[PAUSE]
+
 ---
 
-[Continue same pattern for questions 4-10...]
+[Continue same pattern for questions 4-10 — answer, [BEAT], jewel question, [PAUSE]...]
 <!-- SCRIPT_END -->
 
 Key format elements:
 - Section headers: ## **1. TITLE** (bold)
 - Subsections: **A. TITLE** (bold, no arrows)
 - All spoken lines: > blockquote prefix (full sentences/clauses, no 2-8 word fragments)
-- Stage cues: [BEAT] and [PAUSE] on their own line (NO backslashes, NOT blockquotes)
-- Jewels: ### **JEWEL** on own line, followed by blockquoted Principle -> Consequence -> Question?
+- Breath blocks: 1 to 4 consecutive "> " lines; NO "> " spacer between every sentence
+- Between breath blocks: true blank line OR [BEAT]/[PAUSE] on its own line
+- Stage cues: [BEAT] and [PAUSE] on their own line (NO backslashes, NOT blockquotes). 2-4 per major section minimum.
+- Jewels: ### **JEWEL** on own line, Principle -> Consequence -> Question?, then [PAUSE]
+- CTAs: spoken line BEFORE ### **JEWEL** — NEVER after ### **JEWEL** and before next ## section (that lands inside the jewel card)
 - Legal Status: ### ON-SCREEN LEGAL STATUS header + blockquoted lines
-- Empty spacing: > (blockquote prefix with no text)
+- Between breath blocks: true blank line or [BEAT]/[PAUSE] (not "> " after every sentence)
 
 ### 9. YOUTUBE DESCRIPTION
 Search preview snippet + 3-5 paragraph deep breakdown + bullet takeaways + host bio + CTAs + official social links + legal disclaimer + trailing #hashtags.
@@ -523,9 +667,9 @@ IMPORTANT RULES:
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
 - Label the legal status of any case (Arrested, Charged, Indictmented, Convicted, Sentenced, etc.)
 - Use "allegedly" and "reportedly" for unconfirmed claims
-- Write for teleprompter: full spoken sentences or natural clauses per line behind '> ' rail, natural contractions, paced with commas and em dashes, no choppy 2-8 word fragments
-- Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?')
-- After each jewel, include a rotating branded audience prompt
+- Write for teleprompter: full spoken sentences or natural clauses per line behind '> ' rail, natural contractions, paced with commas and em dashes, no choppy 2-8 word fragments. Breath blocks are 1-4 consecutive "> " lines — no "> " spacer between every sentence. Use [BEAT] before reveals/pivots and [PAUSE] after major questions/facts/jewels. Target 2-4 cues per major section. Never put CTAs inside ### **JEWEL**.
+- Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') followed by [PAUSE]
+- Place engagement CTAs (comment prompts) as a spoken line BEFORE ### **JEWEL**. Never after ### **JEWEL**.
 - For global viewers, explain American legal terms in street language when they appear
 - Never present psychological interpretation as confirmed fact
 

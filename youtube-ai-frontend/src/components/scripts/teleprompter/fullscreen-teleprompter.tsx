@@ -112,9 +112,15 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
     }
 
     // ── Blockquote line: > text  OR just >
+    if (/^>\s*$/.test(trimmed)) {
+      // Lone `>` = breath spacer — close the rail so consecutive `>` spacers
+      // cannot merge into one continuous multi-line gray wall.
+      flushQuote()
+      continue
+    }
     if (/^>\s*/.test(trimmed)) {
       const content = trimmed.replace(/^>\s*/, '')
-      currentQuoteLines.push(content) // empty string for spacer `>`
+      currentQuoteLines.push(content)
       continue
     }
 

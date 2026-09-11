@@ -86,6 +86,12 @@ function groupPreviewBlocks(body: string): PreviewBlock[] {
     }
 
     // Spoken blockquote lines
+    if (/^>\s*$/.test(trimmed)) {
+      // Lone `>` = breath spacer — close the rail so legacy `>` spacers
+      // cannot merge into one continuous multi-line gray wall.
+      flushQuote()
+      continue
+    }
     if (/^>\s*/.test(trimmed)) {
       const content = trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')
       if (content) {
