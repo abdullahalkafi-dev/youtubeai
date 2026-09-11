@@ -177,6 +177,8 @@ STRICT RULES:
 - ALL spoken delivery lines start with "> ". Do NOT limit lines to 2-8 words. Write full spoken sentences or clauses per line. Only start a new line where a speaker would naturally pause for breath.
 - A breath block is 2 to 6 consecutive "> " lines. Related sentences in the same breath stay on consecutive "> " lines with NO "> " empty line between them.
 - Between breath blocks use a true blank line (no ">") or a [BEAT]/[PAUSE] cue on its own line. Do NOT use "> " empty spacer after every sentence.
+- BREATH-BLOCK GAP RULE: NEVER leave a blank line between two spoken "> " groups without [PAUSE] or [BEAT]. Pattern: block → cue → next block. Long Unique's Analysis sections need 2+ cues at internal breaks.
+- NEVER put source citations on camera. Do not speak "Source: AP..." lines. Put sources in a separate Sources section after the script.
 - ONLY these elements are NOT blockquotes: section headers (## **1. TITLE**), subsection titles (**A. TITLE**), stage cues ([BEAT], [PAUSE]), jewel headers (### **JEWEL**), and source citations
 - Allow full natural sentences and compound clauses per line — do not break lines into unnatural fragments.
 - NEVER output backslashes before brackets or periods. Use clean [BEAT], [PAUSE], and ## **1. TITLE**

@@ -26,6 +26,7 @@ import {
   parseScriptSections,
   extractCleanTeleprompterText,
   extractScriptTitle,
+  isSourceCitationLine,
 } from '@/lib/teleprompter-parser'
 import { downloadTeleprompterPdf } from '@/components/scripts/export/teleprompter-pdf'
 import { FullscreenTeleprompter } from '@/components/scripts/teleprompter/fullscreen-teleprompter'
@@ -65,8 +66,8 @@ function groupPreviewBlocks(body: string): PreviewBlock[] {
       continue
     }
 
-    // Citation lines: ([apnews.com]...), [1] footnotes, (AP, August 31, 2026...), (Reuters, 2024...)
-    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean) || /^\([A-Z][^)]*20\d{2}/.test(clean)) {
+    // Citation / source lines (not spoken)
+    if (isSourceCitationLine(clean)) {
       flushQuote()
       continue
     }
@@ -421,10 +422,7 @@ export function ScriptRenderer({
                 <div className="space-y-1">
                   {section.body
                     .split('\n')
-                    .filter((l) => {
-                      const c = l.trim().replace(/^\\+/, '')
-                      return !(/^\(\[/.test(c) || /^\[\d+\]/.test(c) || /^\([A-Z][^)]*20\d{2}/.test(c))
-                    })
+                    .filter((l) => !isSourceCitationLine(l))
                     .map((l, lIdx) => {
                       const clean = l.replace(/^>\s*/, '').replace(/\*\*/g, '').trim()
                       if (!clean) return null

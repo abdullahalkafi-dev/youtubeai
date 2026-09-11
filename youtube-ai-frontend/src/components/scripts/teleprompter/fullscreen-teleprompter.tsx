@@ -14,7 +14,7 @@ import {
   Plus,
   Highlighter,
 } from 'lucide-react'
-import { parseScriptSections, calculateTeleprompterStats } from '@/lib/teleprompter-parser'
+import { parseScriptSections, calculateTeleprompterStats, isSourceCitationLine } from '@/lib/teleprompter-parser'
 
 interface FullscreenTeleprompterProps {
   isOpen: boolean
@@ -76,8 +76,8 @@ function groupBodyIntoBlocks(body: string): BodyBlock[] {
       continue
     }
 
-    // ── Skip source citation lines: ([source.com](url)), (AP, August 31, 2026...), or [1] footnotes
-    if (/^\(\[/.test(clean) || /^\[\d+\]/.test(clean) || /^\([A-Z][^)]*20\d{2}/.test(clean)) {
+    // ── Skip source citation lines (not spoken) — Source: AP..., ([url]), footnotes
+    if (isSourceCitationLine(clean)) {
       flushQuote()
       continue
     }

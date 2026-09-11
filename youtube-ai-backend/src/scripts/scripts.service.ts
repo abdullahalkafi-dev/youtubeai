@@ -581,6 +581,8 @@ FORMATTING RULES:
    > Next complete spoken thought in the same breath.
    > Punch line lands here.
    Between breath blocks use a TRUE blank line (no ">") or a [BEAT]/[PAUSE] cue. Do NOT put a "> " empty spacer after every sentence.
+   BREATH-BLOCK GAP RULE: NEVER leave a blank line between two spoken "> " groups without [PAUSE] or [BEAT]. Pattern: block → cue → next block.
+   Do NOT include "Source:" citation lines inside spoken sections — strip them or move to a Sources note after the script.
 6. Stage cues (CUE DISCIPLINE — mandatory):
    - [BEAT] = shorter hold BEFORE a reveal, pivot, hard line, contrast, or emphasis
    - [PAUSE] = full stop AFTER a major question, hard fact, contrast, emotional truth, or jewel

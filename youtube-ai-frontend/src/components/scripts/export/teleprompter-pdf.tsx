@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Font, Svg, Polygon, pdf } from '@react-pdf/renderer'
-import { parseScriptSections } from '@/lib/teleprompter-parser'
+import { parseScriptSections, isSourceCitationLine } from '@/lib/teleprompter-parser'
 
 const styles = StyleSheet.create({
   page: {
@@ -187,6 +187,7 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                 </View>
                 <View>
                   {section.body.split('\n').map((rawLine, lIdx) => {
+                    if (isSourceCitationLine(rawLine)) return null
                     const clean = rawLine
                       .replace(/^>\s*/, '')
                       .replace(/\*\*/g, '')
@@ -206,6 +207,8 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                 {section.body.split('\n').map((line, lIdx) => {
                   const trimmed = line.trim()
                   if (!trimmed) return null
+
+                  if (isSourceCitationLine(trimmed)) return null
 
                   // Strip any accidental leading backslashes
                   const cueClean = trimmed.replace(/^\\+/,'')

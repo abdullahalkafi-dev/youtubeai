@@ -3,6 +3,28 @@
  * Ensures 100% fidelity across visual editing cycles.
  */
 
+/**
+ * Non-spoken citation / source metadata. Hidden from teleprompter, chat card,
+ * editor preview, PDF talent copy, and clean copy — kept in stored script content.
+ */
+export function isSourceCitationLine(raw: string): boolean {
+  if (!raw || typeof raw !== 'string') return false
+  const clean = raw.trim().replace(/^\\+/, '')
+  if (!clean) return false
+  // "Source:" / "Sources:" prose citation (spoken or not)
+  if (/^sources?\s*:/i.test(clean)) return true
+  // ([domain](url)), [1] footnotes, (AP, August 31, 2026...)
+  if (/^\(\[/.test(clean)) return true
+  if (/^\[\d+\]/.test(clean)) return true
+  if (/^\([A-Z][^)]*20\d{2}/.test(clean)) return true
+  // Line that is only a markdown link or bare URL
+  if (/^\[[^\]]+\]\(https?:\/\/[^\)]+\)\s*$/i.test(clean)) return true
+  if (/^https?:\/\/\S+$/i.test(clean)) return true
+  // Source: ... ([domain](url)) — whole line is citation
+  if (/^sources?\s*:.*\(\[https?:/i.test(clean)) return true
+  return false
+}
+
 export interface TeleprompterStats {
   wordCount: number;
   estimatedDurationMinutes: number;
@@ -214,6 +236,9 @@ export function extractCleanTeleprompterText(content: string): string {
     .map(sec => {
       const head = sec.header ? `\n\n=== ${sec.header.toUpperCase()} ===\n` : '';
       const cleanBody = sec.body
+        .split('\n')
+        .filter((line) => !isSourceCitationLine(line))
+        .join('\n')
         .replace(/^>\s*/gm, '')
         .replace(/\*\*/g, '')
         .replace(/^•\s*/gm, '• ')

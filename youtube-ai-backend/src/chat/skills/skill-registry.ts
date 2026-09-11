@@ -308,6 +308,14 @@ RIGHT (required — spoken, punch line, no empty > inside the breath):
 
 BLOCKQUOTE RULE: EVERY spoken line MUST start with "> ". Write full spoken sentences or natural clauses — do NOT chop into 2–8 word poetry. A breath block is 2 to 6 consecutive "> " lines with NO empty "> " between them. Between breath blocks use a true blank line or a [BEAT]/[PAUSE] cue. NEVER put an empty "> " after every sentence. Only section headers, subsection titles, stage cues, and jewel headers are NOT blockquotes.
 
+BREATH-BLOCK GAP RULE (CRITICAL):
+- NEVER leave a blank line between two spoken "> " groups without a cue.
+- Pattern: breath block → [PAUSE] or [BEAT] → next breath block.
+- Use [PAUSE] after a hard thought, contrast, list of punches, or emotional turn.
+- Use [BEAT] before a reveal or short pivot.
+- Unique's Analysis / long breakdowns need 2+ cues at internal breaks.
+- Hide source lines from the spoken script if present — do not read citations on camera. Prefer putting sources in a separate Sources section after the script, not inside breath blocks.
+
 CUE DISCIPLINE (CRITICAL):
 - [PAUSE] = full stop after a major question, hard fact, contrast, emotional truth, or jewel. Own line, no rail.
 - [BEAT] = shorter hold before a reveal, pivot, hard line, contrast, or emphasis. Own line, no rail.
@@ -354,7 +362,6 @@ Format Section 8 strictly as follows:
 [PAUSE]
 
 > I did twenty-six years finding out what that silence costs.
-
 > If you understand the lesson already, comment "WORDS MATTER."
 
 ### **JEWEL**
@@ -377,20 +384,30 @@ Format Section 8 strictly as follows:
 
 [BEAT]
 
-**B. THE COOPERATING WITNESS**
+**B. UNIQUE'S ANALYSIS**
 
-> He reportedly testified as a cooperating witness.
-> The block hears a story.
-> The prosecutor hears a roadmap.
+> The street hears history one way.
+> The courtroom hears it another way.
 
 [PAUSE]
 
-> Drop a 💎 if you know the courtroom don't care about street popularity.
+> The street says, "Who was there?"
+> The courtroom says, "What can be proven?"
+
+[BEAT]
+
+> Fame doesn't walk into court with you.
+> Reputation doesn't sit in the jury box.
+> All that old talk gets stripped down to dates, statements, and receipts.
+
+[PAUSE]
+
+> Put a 💎 in the comments if you know the courtroom don't care how popular your story was outside.
 
 ### **JEWEL**
 
-> The streets may make you famous.
-> But the courtroom can make you accountable.
+> The streets may celebrate the story.
+> But the courtroom studies the proof.
 > Which one are you preparing your life for?
 
 [PAUSE]

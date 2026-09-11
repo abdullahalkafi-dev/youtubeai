@@ -17,7 +17,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import api from '@/lib/api'
-import { calculateTeleprompterStats, parseScriptSections } from '@/lib/teleprompter-parser'
+import { calculateTeleprompterStats, parseScriptSections, isSourceCitationLine } from '@/lib/teleprompter-parser'
 import type { ScriptItem } from '@/types/script'
 
 interface TeleprompterEditorModalProps {
@@ -361,6 +361,7 @@ export function TeleprompterEditorModal({
                       <span className="font-bold text-amber-500 uppercase">💎 JEWEL LESSON</span>
                       <div className="space-y-1.5">
                         {section.body.split('\n').map((rawLine, lIdx) => {
+                          if (isSourceCitationLine(rawLine)) return null
                           const clean = rawLine
                             .replace(/^>\s*/, '')
                             .replace(/\*\*/g, '')
@@ -388,6 +389,10 @@ export function TeleprompterEditorModal({
                         for (const raw of section.body.split('\n')) {
                           const trimmed = raw.trim()
                           if (!trimmed) {
+                            flushRail()
+                            continue
+                          }
+                          if (isSourceCitationLine(trimmed)) {
                             flushRail()
                             continue
                           }
