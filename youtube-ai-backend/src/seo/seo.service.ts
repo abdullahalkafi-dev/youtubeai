@@ -275,15 +275,31 @@ export class SeoService {
         }
       } catch { /* optional */ }
 
-      // RAG: Get approved SEO patterns for similar videos
+      // RAG: Get approved SEO patterns for similar videos (filter out current video to prevent self-copy loops)
       let approvedPatterns = '';
       try {
-        const similarSeo = await this.chromaService.query('seo_suggestions', video.youtubeTitle || video.title, 5, { status: 'approved' });
-        if (similarSeo.length > 0) {
+        const similarSeo = await this.chromaService.query('seo_suggestions', video.youtubeTitle || video.title, 6, { status: 'approved' });
+        const otherVideosSeo = similarSeo.filter(r => r.metadata?.videoId !== video._id.toString());
+        if (otherVideosSeo.length > 0) {
           approvedPatterns = '\n\nAPPROVED SEO PATTERNS (from similar videos — study these):\n' +
-            similarSeo.map(r => `- "${r.metadata.title}" (approved)`).join('\n');
+            otherVideosSeo.slice(0, 5).map(r => `- "${r.metadata.title}" (approved)`).join('\n');
         }
       } catch { /* RAG optional */ }
+
+      const isRegenerate = Boolean(video.currentSeo || video.seoStatus === 'approved');
+      const existingSeo = isRegenerate && video.currentSeo ? {
+        title: video.currentSeo.title,
+        tags: video.currentSeo.tags || video.tags || [],
+      } : undefined;
+
+      const isBatch = dto.source === 'batch' || dto.source === 'auto_cron_batch' || dto.source === 'manual_ui_batch';
+      const selectedModel = dto.model || (isBatch
+        ? this.openaiService.getSeoBatchModel()
+        : this.openaiService.getSeoManualModel());
+
+      const validSource = dto.source && ['auto_cron_batch', 'manual_ui_batch', 'dashboard_single_video'].includes(dto.source)
+        ? dto.source
+        : (isBatch ? 'auto_cron_batch' : 'dashboard_single_video');
 
       const cleanInputTitle = (video.youtubeTitle || video.title).replace(/^copy\s+of\s+/i, '').trim();
       const result = await this.openaiService.generateSeo({
@@ -298,6 +314,8 @@ export class SeoService {
         liveSearchSuggestions,
         relatedSeriesVideos,
         customInstructions: dto.customInstructions,
+        model: selectedModel,
+        existingSeo,
       });
 
       const cleanTitle = (result.title || '')
@@ -323,7 +341,7 @@ export class SeoService {
         hashtags: result.hashtags,
         showType: video.showType || undefined,
         tone: 'dark_direct',
-        source: 'dashboard_single_video',
+        source: validSource,
       });
 
       await this.videoModel.findByIdAndUpdate(dto.videoId, {

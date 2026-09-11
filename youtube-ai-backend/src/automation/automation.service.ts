@@ -593,10 +593,11 @@ export class AutomationService implements OnApplicationBootstrap {
 
       const startTime = Date.now();
       try {
-        // Generate SEO with OpenAI Engine
+        // Generate SEO with OpenAI Engine (Luna model for batch efficiency)
         const suggestion = await this.seoService.generateSeo({
           videoId: item.videoId.toString(),
           customInstructions,
+          source: (batch.source as any) || 'auto_cron_batch',
         });
 
         // Stage in DB

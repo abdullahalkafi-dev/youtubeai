@@ -76,6 +76,7 @@ export class QueueProcessor {
           watchTimeHours: video.avgWatchTime ? video.avgWatchTime / 3600 : undefined,
           publishedDaysAgo: video.publishedAt ? Math.round((Date.now() - video.publishedAt.getTime()) / (1000 * 60 * 60 * 24)) : undefined,
         },
+        model: this.openaiService.getSeoBatchModel(),
       });
 
       const { usage: _usage, ...seoData } = result;

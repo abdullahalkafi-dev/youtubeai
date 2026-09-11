@@ -7,7 +7,7 @@
  *   and related series videos.
  */
 
-export const SEO_PROMPT_VERSION = 'v3.6';
+export const SEO_PROMPT_VERSION = 'v3.7';
 
 /**
  * Static system prompt — stable prefix for OpenAI caching.
@@ -20,11 +20,14 @@ CHANNEL IDENTITY:
 - Handle: @uniquemeccaaudionyc
 - Niche: Criminal psychology professor perspective & courtroom breakdown
 - Voice: Dark, direct, street-wise, professorial, authoritative
-- Host: Wainsworth "Unique" Hall (former federal inmate of 26 years)
+- Host: Unique (former federal inmate of 26 years)
 - Mission: Prevention, accountability, growth through hard legal and prison realities
 
+STRICT PRIVACY / NEGATIVE BRANDING RULE:
+- NEVER mention, write, or include "Wainsworth", "Wainsworth Hall", or "Hall" in any title, description, tags, hashtags, bio, or content under ANY circumstances. The host and channel brand is exclusively "Unique Mecca Audio" or "Unique".
+
 STRICT TITLE RULES (SPECIFIC STORY HOOK & HIGH CTR):
-- MUST be under 65 characters so it never truncates on mobile screens.
+- MUST be under 65 characters so it never truncates on mobile screens (YouTube platform limit is 100 chars).
 - DO NOT prepend generic formulaic prefixes like "Brutal Truth:", "Dark Secret:", "Shocking Reality:", "Truth:". They lower CTR and look AI-generated.
 - DO NOT append generic ending suffixes like "Explained", "Breakdown", "Detailed Analysis".
 - DO NOT output generic subtitles like "What They Didn't Show You in Court" or "The Truth About..." without including the specific story hook word (e.g. Money, Sweat Equity, Death Row, Scandal, Secret, Trap).
@@ -38,12 +41,12 @@ STRICT TITLE RULES (SPECIFIC STORY HOOK & HIGH CTR):
 - FORBIDDEN CHARACTERS: NEVER include '<' or '>' angle brackets in title or description.
 
 STRICT TAG RULES (350-450 CHARS TOTAL / HIGH-INTENT PHRASES):
-- Produce between 350 to 450 total combined characters across 15 to 20 targeted tags (Do NOT exceed 480 characters).
+- Produce between 350 to 450 total combined characters across 15 to 20 targeted tags (Strict YouTube platform limit is 500 total characters including delimiters. Do NOT exceed 480 characters).
 - PRIORITIZE SEARCH INTENT & MISSPELLINGS:
-  1. Exact Topic Entities & Misspellings (3-4 tags): exact names, case names, and common user misspellings/variations (e.g. "pooh shiestie", "big30").
-  2. High-Intent Long-Tail Queries (5-6 tags): phrases real searchers type (e.g. "pooh shiesty federal case update", "pooh shiesty release date", "federal prison reality").
-  3. Targeted Niche Keywords (4-5 tags): "hip hop true crime", "courtroom strategy", "criminal psychology", "federal indictment update".
-  4. Brand & Host Authority (3-4 tags): "unique mecca audio", "unique mecca audio nyc", "wainsworth hall".
+  1. Exact Topic Entities & Misspellings (3-4 tags): exact subject names, case names, and common user misspellings/variations (e.g. "pooh shiestie", "big30").
+  2. High-Intent Long-Tail Queries (5-6 tags): phrases real searchers type for this specific topic (e.g. "[subject] federal case update", "[subject] prison release date", "federal prison reality").
+  3. Targeted Niche & Legal Keywords (4-5 tags): dynamic case-relevant terms tailored to the video's actual story (e.g. courtroom strategy, plea agreement breakdown, criminal psychology, trial testimony, federal indictment update). DO NOT repeat the same generic list for every video.
+  4. Brand Authority (2-3 tags): "unique mecca audio", "unique mecca audio nyc", "mecca audio". (NEVER use any private personal names).
 - BAN GENERIC PADDING: Do NOT output standalone generic words like "video", "news", or "story" unless combined with a specific subject.
 
 STRICT DESCRIPTION FORMAT (10-PART MASTER BLUEPRINT / 2,500-4,200 CHARS TOTAL):
@@ -62,7 +65,7 @@ The description MUST include ALL of the following sections in exact order:
    • 🌟 Youth Warning & Redemption: [1-sentence moral takeaway from video]
 
 4. Host Bio & Credibility Block:
-   Hosted by Wainsworth “Unique” Hall — former federal inmate of 26 years — bringing unfiltered prison survival insights, street code, crime & justice commentary, and a mission to uplift youth by turning lived hardship into positive awareness.
+   Hosted by Unique — former federal inmate of 26 years (Unique Mecca Audio) — bringing unfiltered prison survival insights, street code, crime & justice commentary, and a mission to uplift youth by turning lived hardship into positive awareness.
 
 5. Real Timestamps & Chapters (ONLY IF SPOKEN TRANSCRIPT ANCHORS ARE PROVIDED):
    Generate a clean, high-retention chapter list with EXACTLY 5 to 15 entries depending on video length (5-8 for <10 min, 8-12 for 10-25 min, 12-15 for 25+ min):
@@ -124,6 +127,10 @@ export function buildSeoPrompt(params: {
     publishedDaysAgo?: number;
     youtubeId?: string;
   }>;
+  existingSeo?: {
+    title: string;
+    tags?: string[];
+  };
 }): { system: string; user: string } {
   const userParts: string[] = [];
 
@@ -139,6 +146,22 @@ export function buildSeoPrompt(params: {
   }
   if (params.showType) {
     userParts.push(`Show Type: ${params.showType}`);
+  }
+
+  // Existing SEO context for regeneration & refresh
+  if (params.existingSeo) {
+    userParts.push('');
+    userParts.push(`REGENERATION & METADATA REFRESH MODE:`);
+    userParts.push(`This video already has approved/existing SEO in production:`);
+    userParts.push(`- Current Title: "${params.existingSeo.title}"`);
+    if (params.existingSeo.tags && params.existingSeo.tags.length > 0) {
+      userParts.push(`- Current Tags: [${params.existingSeo.tags.join(', ')}]`);
+    }
+    userParts.push('');
+    userParts.push(`REGENERATION DIRECTIVES:`);
+    userParts.push(`1. TITLE (100% NEW HOOK): Generate a BRAND NEW title with a completely different story hook or curiosity angle (switch angles: e.g., from Money hook to Scandal/Secret, Curiosity Question, or Hidden Aspect). Keep high-CTR and under 65 chars. DO NOT return the current title.`);
+    userParts.push(`2. TAGS (DYNAMIC REFRESH — 50-75% NEW): Retain only core branding ("unique mecca audio") and primary subject entity (3-5 tags max). Dynamically replace 10 to 15 tags with fresh alternative search queries, co-searched topic entities, related legal terms, and misspellings. Do NOT copy the existing tag list.`);
+    userParts.push(`3. DESCRIPTION (POLISHED & RESTRUCTURED): Follow the 10-Part blueprint, but re-word and restructure the narrative body with fresh prose, update takeaways, and incorporate any new series links or transcript milestones.`);
   }
 
   // Real Spoken Transcript Timestamps
@@ -234,8 +257,8 @@ export function buildSeoPrompt(params: {
   userParts.push('');
   userParts.push(`SUMMARY EXECUTION CHECKLIST:`);
   userParts.push(`- Title: Under 65 chars. Must pair Subject Name WITH the specific unique story hook (Money, Sweat Equity, Scandal, etc.). NO generic "What They Didn't Show You".`);
-  userParts.push(`- Description: 10-Part Master Blueprint (Search preview + 3-5 paragraph deep breakdown + Bullet Takeaways + Host Bio + Timestamps + Series + CTAs + Official Social Links + Disclaimer + Trailing Hashtags).`);
-  userParts.push(`- Tags: MUST generate 15-20 tags totaling 350-450 chars, including exact entities + common misspellings + long-tail search queries + host branding ("wainsworth hall", "unique mecca audio"). NO generic filler.`);
+  userParts.push(`- Description: 10-Part Master Blueprint (Search preview + 3-5 paragraph deep breakdown + Bullet Takeaways + Host Bio + Timestamps + Series + CTAs + Official Social Links + Disclaimer + Trailing Hashtags). Total length 2,500-4,200 chars.`);
+  userParts.push(`- Tags: MUST generate 15-20 tags totaling 350-450 chars (do NOT exceed 480 chars, YouTube hard limit is 500 chars), including exact entities + common misspellings + long-tail search queries + host branding ("unique mecca audio", "unique mecca audio nyc"). NEVER include private personal names ("Wainsworth" / "Hall"). NO generic filler.`);
 
   return { system: SEO_SYSTEM_PROMPT, user: userParts.join('\n') };
 }

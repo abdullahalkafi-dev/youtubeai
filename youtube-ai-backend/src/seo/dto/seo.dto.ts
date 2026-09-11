@@ -8,4 +8,12 @@ export class GenerateSeoDto {
   @IsString()
   @MaxLength(5000)
   customInstructions?: string;
+
+  @IsOptional()
+  @IsString()
+  model?: string;
+
+  @IsOptional()
+  @IsString()
+  source?: string;
 }

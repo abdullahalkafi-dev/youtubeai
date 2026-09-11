@@ -58,6 +58,8 @@ export class OpenAIService {
   private readonly model: string;
   private readonly fastModel: string;
   private readonly trendsModel: string;
+  private readonly seoManualModel: string;
+  private readonly seoBatchModel: string;
   private readonly logger = new Logger(OpenAIService.name);
   private readonly cacheAlertThreshold = 70; // Alert if cache hit rate < 70%
 
@@ -76,6 +78,16 @@ export class OpenAIService {
     this.model = configService.get<string>('OPENAI_MODEL', 'gpt-5.6-terra');
     this.fastModel = configService.get<string>('OPENAI_FAST_MODEL', 'gpt-5.6-luna');
     this.trendsModel = configService.get<string>('OPENAI_TRENDS_MODEL', 'gpt-5.6-terra');
+    this.seoManualModel = configService.get<string>('OPENAI_SEO_MANUAL_MODEL', this.model);
+    this.seoBatchModel = configService.get<string>('OPENAI_SEO_BATCH_MODEL', this.fastModel);
+  }
+
+  getSeoManualModel(): string {
+    return this.seoManualModel;
+  }
+
+  getSeoBatchModel(): string {
+    return this.seoBatchModel;
   }
 
   private isReasoningModel(model?: string): boolean {
@@ -176,6 +188,11 @@ export class OpenAIService {
     }>;
     transcriptAnchors?: string;
     customInstructions?: string;
+    model?: string;
+    existingSeo?: {
+      title: string;
+      tags?: string[];
+    };
   }): Promise<{
     title: string;
     description: string;
@@ -195,26 +212,29 @@ export class OpenAIService {
       videoPerformance: params.videoPerformance,
       liveSearchSuggestions: params.liveSearchSuggestions,
       relatedSeriesVideos: params.relatedSeriesVideos,
+      existingSeo: params.existingSeo,
     });
 
     const userMessage = params.customInstructions
       ? `${user}\n\nAdditional instructions from user: ${params.customInstructions}`
       : user;
 
+    const selectedModel = params.model || this.seoManualModel;
+
     const req = this.buildCompletionParams({
-      model: this.model,
+      model: selectedModel,
       messages: [
         { role: 'system', content: system },
         { role: 'user', content: userMessage },
       ],
       response_format: { type: 'json_object' as const },
       temperature: 0.7,
-      max_completion_tokens: 4096,
+      max_completion_tokens: 5000,
     });
 
     const response = await retryWithBackoff(
       () => this.client.chat.completions.create(req),
-      { operationName: 'OpenAI SEO Generation' },
+      { operationName: `OpenAI SEO Generation (${selectedModel})` },
     );
 
     const content = response.choices[0]?.message?.content || '{}';
@@ -233,11 +253,61 @@ export class OpenAIService {
         throw new Error(`OpenAI returned incomplete JSON (missing title or description). finish_reason: ${response.choices[0]?.finish_reason}`);
       }
 
+      // 1. YouTube Title Compliance (Under 65 chars ideal, hard cap 100, strip quotes/markdown/<>)
+      let cleanTitle = (parsed.title || '')
+        .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/[<>]/g, '')
+        .trim();
+      if (cleanTitle.length > 100) {
+        cleanTitle = cleanTitle.substring(0, 97).trim() + '...';
+      }
+
+      // 2. YouTube Tags Compliance (500 cumulative chars hard cap; enforce <= 480 chars total with delimiters)
+      const rawTags = (parsed.tags || []).map(t =>
+        typeof t === 'string'
+          ? t.trim().replace(/[#@\n\r]/g, '').replace(/[<>]/g, '').substring(0, 40).trim()
+          : ''
+      ).filter(t => t.length > 0);
+
+      const seenTags = new Set<string>();
+      const deduplicatedTags: string[] = [];
+      for (const t of rawTags) {
+        const lower = t.toLowerCase();
+        if (!seenTags.has(lower)) {
+          seenTags.add(lower);
+          deduplicatedTags.push(t);
+        }
+      }
+
+      let cumulativeLength = 0;
+      const compliantTags: string[] = [];
+      for (const tag of deduplicatedTags) {
+        const delimiterCost = compliantTags.length > 0 ? 1 : 0;
+        if (cumulativeLength + tag.length + delimiterCost <= 480) {
+          compliantTags.push(tag);
+          cumulativeLength += tag.length + delimiterCost;
+        }
+      }
+
+      // 3. YouTube Description Compliance (Hard limit 5,000 chars; clamp <= 4,800 chars)
+      let cleanDescription = (parsed.description || '').replace(/[<>]/g, '').trim();
+      if (cleanDescription.length > 4800) {
+        cleanDescription = cleanDescription.substring(0, 4800).replace(/\n[^\n]*$/, '').trim();
+      }
+
+      // 4. YouTube Hashtags Compliance (Ensure '#' prefix, limit to 8)
+      const cleanHashtags = (parsed.hashtags || []).map(h =>
+        typeof h === 'string'
+          ? (h.startsWith('#') ? h.trim() : `#${h.trim()}`).replace(/[#\s]/g, (match, offset) => offset === 0 ? '#' : '')
+          : ''
+      ).filter(h => h.length > 1).slice(0, 8);
+
       return {
-        title: parsed.title,
-        description: parsed.description,
-        tags: parsed.tags || [],
-        hashtags: parsed.hashtags || [],
+        title: cleanTitle,
+        description: cleanDescription,
+        tags: compliantTags,
+        hashtags: cleanHashtags,
         usage,
       };
     } catch (parseError: any) {
