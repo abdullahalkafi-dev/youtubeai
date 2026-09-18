@@ -132,7 +132,9 @@ export class CommentsController {
   async postReply(@Param('videoId') videoId: string, @Body() body: { parentId: string; text: string }) {
     const ctx = await this.getVideoContext(videoId);
     if (ctx.demoMode) return { success: true, mock: true, commentId: `mock_${Date.now()}` };
-    return this.commentsService.postReply(videoId, body.parentId, body.text, ctx.channelId, ctx.accessToken!);
+    return this.commentsService.postReply(videoId, body.parentId, body.text, ctx.channelId, ctx.accessToken!, {
+      source: 'manual',
+    });
   }
 
   private async getVideoContext(videoId: string) {

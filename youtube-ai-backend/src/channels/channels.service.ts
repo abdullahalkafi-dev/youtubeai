@@ -16,6 +16,7 @@ import { YouTubeService } from '../youtube/youtube.service';
 import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
 import { QuotaService } from '../quota/quota.service';
 import { ChromaService } from '../chroma/chroma.service';
+import { AutoReplyPolicyService } from '../videos/auto-reply-policy.service';
 import {
   CreateChannelDto,
   UpdateSeoSettingsDto,
@@ -46,6 +47,7 @@ export class ChannelsService {
     private readonly youtubeAnalyticsService: YoutubeAnalyticsService,
     private readonly quotaService: QuotaService,
     private readonly chromaService: ChromaService,
+    private readonly autoReplyPolicy: AutoReplyPolicyService,
   ) {}
 
   async findAllByUser(userId: string): Promise<any[]> {
@@ -203,6 +205,14 @@ export class ChannelsService {
     const BATCH_SIZE = 50;
     const CONCURRENCY = 5;
     const videoBulkOps: any[] = [];
+    /** Genuine new public uploads / privacy→public promotions for auto-comment list */
+    const autoReplyCandidates: Array<{
+      _id: string;
+      youtubeId: string;
+      title: string;
+      publishedAt?: Date;
+      privacyStatus?: string;
+    }> = [];
 
     const batches: string[][] = [];
     for (let i = 0; i < allVideoIds.length; i += BATCH_SIZE) {
@@ -267,6 +277,23 @@ export class ChannelsService {
                   $set.youtubeTitle = ytVideo.title;
                   $set.youtubeDescription = ytVideo.description;
                   $set.youtubeTags = ytVideo.tags;
+
+                  // Private/unlisted → public promotion: eligible for auto-comment auto-add
+                  const wasPublic = String(existing.privacyStatus || '').toLowerCase() === 'public';
+                  const isNowPublic = String(ytVideo.privacyStatus || '').toLowerCase() === 'public';
+                  if (!wasPublic && isNowPublic && !existing.autoReplyEnabled) {
+                    autoReplyCandidates.push({
+                      _id: existing._id.toString(),
+                      youtubeId: existing.youtubeId,
+                      title: ytVideo.title || existing.title,
+                      publishedAt: existing.publishedAt
+                        ? new Date(existing.publishedAt)
+                        : ytVideo.publishedAt
+                          ? new Date(ytVideo.publishedAt)
+                          : undefined,
+                      privacyStatus: ytVideo.privacyStatus,
+                    });
+                  }
 
                   const hasChanges = Object.keys($set).length > 0 || Object.keys($unset).length > 0;
                   if (hasChanges) {
@@ -360,6 +387,17 @@ export class ChannelsService {
                     newValue: 'created',
                     action: 'created',
                   });
+
+                  // Track created videos for auto-comment auto-add (filtered after sync)
+                  autoReplyCandidates.push({
+                    _id: created._id.toString(),
+                    youtubeId: created.youtubeId,
+                    title: created.title,
+                    publishedAt: created.publishedAt
+                      ? new Date(created.publishedAt)
+                      : undefined,
+                    privacyStatus: created.privacyStatus,
+                  });
                 }
               } catch (error: any) {
                 errors.push(`Failed to save video ${ytVideo.videoId}: ${error.message}`);
@@ -375,6 +413,62 @@ export class ChannelsService {
     if (videoBulkOps.length > 0) {
       await this.videoModel.bulkWrite(videoBulkOps);
       this.logger.log(`Step 7: Synced ${videoBulkOps.length} existing video updates via bulkWrite`);
+    }
+
+    // Step 7b: Auto-comment list — auto-add genuine new public uploads / promotions.
+    // Skips first-sync backfills and large historical imports. Eviction = oldest YouTube publishedAt.
+    try {
+      const createdCandidates = autoReplyCandidates.filter((c) => {
+        // created this run (not already enabled privacy promotions are mixed in; both are valid)
+        return Boolean(c.youtubeId);
+      });
+
+      const promotions = createdCandidates.filter((c) => {
+        // promotions already filtered when pushed; created videos need age/public filters
+        return existingByYoutubeId.has(c.youtubeId);
+      });
+
+      const brandNew = createdCandidates.filter((c) => !existingByYoutubeId.has(c.youtubeId));
+
+      const brandNewEligible = this.autoReplyPolicy.filterGenuineNewUploads(brandNew);
+      const shouldAutoAddNew =
+        this.autoReplyPolicy.shouldAutoAddCreatedVideos({
+          isFirstSync,
+          newCount: brandNewEligible.length,
+        }) && brandNewEligible.length > 0;
+
+      const toAdd = [
+        ...(shouldAutoAddNew ? brandNewEligible : []),
+        // Privacy→public promotions are intentional product behavior (not bulk backfill)
+        ...promotions.filter((p) => String(p.privacyStatus || '').toLowerCase() === 'public'),
+      ];
+
+      if (toAdd.length > 0) {
+        const result = await this.autoReplyPolicy.autoAddPublicUploads(id, toAdd);
+        this.logger.log(
+          `Auto-comment auto-add: +${result.added.length}, evicted ${result.evicted.length}, skipped non-public ${result.skippedNonPublic}`,
+        );
+        if (result.evicted.length) {
+          for (const e of result.evicted) {
+            changes.push({
+              videoId: e.videoId,
+              youtubeId: e.youtubeId,
+              field: 'autoReplyEnabled',
+              oldValue: 'true',
+              newValue: 'false',
+              action: 'updated',
+            });
+          }
+        }
+      } else if (!isFirstSync && brandNew.length > 0 && !shouldAutoAddNew) {
+        this.logger.log(
+          `Auto-comment auto-add skipped this sync (${brandNew.length} new videos; treated as backfill or non-recent)`,
+        );
+      }
+    } catch (autoReplyErr: any) {
+      this.logger.warn(
+        `Auto-comment auto-add failed during sync (sync continues): ${autoReplyErr?.message || autoReplyErr}`,
+      );
     }
 
     // Step 8: Fetch analytics

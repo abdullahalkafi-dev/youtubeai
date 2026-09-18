@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { VideosService } from './videos.service';
+import { AutoReplyPolicyService } from './auto-reply-policy.service';
 import { VideosController } from './videos.controller';
 import { Video, VideoSchema } from '../mongo/schemas/video.schema';
 import { SeoVersion, SeoVersionSchema } from '../mongo/schemas/seo-version.schema';
@@ -23,7 +24,7 @@ import { QuotaModule } from '../quota/quota.module';
     QuotaModule,
   ],
   controllers: [VideosController],
-  providers: [VideosService],
-  exports: [VideosService],
+  providers: [VideosService, AutoReplyPolicyService],
+  exports: [VideosService, AutoReplyPolicyService],
 })
 export class VideosModule {}

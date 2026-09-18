@@ -355,7 +355,17 @@ Do not include markdown codeblocks or extra text.`;
     return null;
   }
 
-  async postReply(videoId: string, parentId: string, text: string, channelId: string, accessToken: string) {
+  async postReply(
+    videoId: string,
+    parentId: string,
+    text: string,
+    channelId: string,
+    accessToken: string,
+    options?: { source?: 'auto' | 'manual' },
+  ) {
+    // 'auto' = AI auto-reply pipeline. 'manual' = creator UI reply.
+    // Only manual replies may stamp batch items as Creator Manual Response.
+    const source = options?.source === 'auto' ? 'auto' : 'manual';
     const result = await this.youtubeService.insertCommentReply(accessToken, parentId, text);
     if (!result.mock) {
       await this.quotaService.logCall({
@@ -366,35 +376,49 @@ Do not include markdown codeblocks or extra text.`;
       });
     }
 
-    // Reconcile any comment batch item for parentId: if it was skipped, mark it as handled_manually
-    try {
-      const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
-      await this.batchModel.updateMany(
-        {
-          channelId: cId,
-          type: 'comment_reply',
-          'items.commentId': parentId,
-        },
-        {
-          $set: {
-            'items.$[elem].status': 'handled_manually',
-            'items.$[elem].manualReplyText': text,
-            'items.$[elem].processedAt': new Date(),
+    if (source === 'manual') {
+      // Reconcile batch items only for true creator/manual replies
+      try {
+        const cId = Types.ObjectId.isValid(channelId) ? new Types.ObjectId(channelId) : channelId;
+        await this.batchModel.updateMany(
+          {
+            channelId: cId,
+            type: 'comment_reply',
+            'items.commentId': parentId,
           },
-        },
-        {
-          arrayFilters: [{ 'elem.commentId': parentId }],
-        },
-      );
+          {
+            $set: {
+              'items.$[elem].status': 'handled_manually',
+              'items.$[elem].manualReplyText': text,
+              'items.$[elem].processedAt': new Date(),
+            },
+          },
+          {
+            arrayFilters: [{ 'elem.commentId': parentId }],
+          },
+        );
 
-      await this.videoModel.findOneAndUpdate(
-        { youtubeId: videoId },
-        {
-          $addToSet: { repliedCommentIds: parentId },
-        },
-      );
-    } catch (reconcileErr: any) {
-      this.logger.warn(`Failed to reconcile batch status on manual reply: ${reconcileErr.message}`);
+        await this.videoModel.findOneAndUpdate(
+          { youtubeId: videoId },
+          {
+            $addToSet: { repliedCommentIds: parentId },
+          },
+        );
+      } catch (reconcileErr: any) {
+        this.logger.warn(`Failed to reconcile batch status on manual reply: ${reconcileErr.message}`);
+      }
+    } else {
+      // AI auto-reply: mark comment as replied. Do NOT write manualReplyText / handled_manually.
+      try {
+        await this.videoModel.findOneAndUpdate(
+          { youtubeId: videoId },
+          {
+            $addToSet: { repliedCommentIds: parentId },
+          },
+        );
+      } catch (reconcileErr: any) {
+        this.logger.warn(`Failed to mark repliedCommentIds on auto reply: ${reconcileErr.message}`);
+      }
     }
 
     return result;
@@ -625,11 +649,15 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
 
         // Push reply to YouTube
         try {
-          await this.postReply(video.youtubeId, comment.id, aiRes.replyText!, channelId, accessToken);
+          await this.postReply(video.youtubeId, comment.id, aiRes.replyText!, channelId, accessToken, {
+            source: 'auto',
+          });
           batchDoc.items[batchItemIndex].status = 'completed';
           batchDoc.items[batchItemIndex].generatedReply = aiRes.replyText;
           batchDoc.items[batchItemIndex].tone = aiRes.tone;
           batchDoc.items[batchItemIndex].processedAt = new Date();
+          // Defensive: never leave a manual label on an AI-completed item
+          (batchDoc.items[batchItemIndex] as any).manualReplyText = undefined;
           newlyRepliedIds.push(comment.id);
           successfulCount++;
           batchDoc.quotaUnitsUsed += QUOTA_COST_COMMENT_INSERT;

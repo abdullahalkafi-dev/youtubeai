@@ -514,8 +514,10 @@ export function CommentAutomationTab() {
                                 </div>
                               )}
 
-                              {/* Creator Manual Reply Callout */}
-                              {item.manualReplyText && (
+                              {/* Creator Manual Reply — only true manual replies (status handled_manually).
+                                  Hide polluted manualReplyText on completed AI items.
+                                  If creator manually replies after AI, both boxes can show. */}
+                              {item.manualReplyText && item.status === 'handled_manually' && (
                                 <div className="ml-8 mt-2 p-3 rounded-lg bg-indigo-50/80 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
                                   <div className="flex items-center gap-1.5 mb-1 text-[11px] font-bold text-indigo-700 dark:text-indigo-300">
                                     <User className="w-3.5 h-3.5" />

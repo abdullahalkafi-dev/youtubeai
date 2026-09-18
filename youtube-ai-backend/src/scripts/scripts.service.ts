@@ -13,6 +13,7 @@ import { Script, ScriptDocument } from '../mongo/schemas/script.schema';
 import { ScriptVersion, ScriptVersionDocument } from '../mongo/schemas/script-version.schema';
 import { Thread, ThreadDocument } from '../mongo/schemas/thread.schema';
 import { CreateScriptDto, SaveScriptDto, ScriptQueryDto, BeautifyScriptDto } from './dto/script.dto';
+import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES, BEAUTIFY_SPOKEN_RULES } from '../openai/prompts/script-cadence';
 import { ChromaService } from '../chroma/chroma.service';
 import { OpenAIService } from '../openai/openai.service';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -560,11 +561,11 @@ export class ScriptsService {
     const prompt = `You are an expert teleprompter script formatter for YouTube criminal psychology and storytelling videos.
 Transform the following raw, unstructured text into a professional teleprompter script using strict spoken cadence rules.
 
-SPOKEN VOICE (CRITICAL):
-- Write like an OG on the couch teaching the class — NOT a news recap or true-crime documentary narrator.
-- Hooks open on a SCENE or IMAGE. BAN openers like "Let's separate the facts from the internet circus", "Thirty years of rumors, documentaries...", "Now sit with that for a minute" (use [BEAT] instead).
-- Each major section MUST include at least one PUNCH LINE: a short hard clause (3-12 words). Examples: "Empty." / "It belongs to the record." / "You don't go to prison alone."
-- Mix long setup lines with 1 short punch line. Do not write 6+ long lecture sentences with no punch.
+${BEAUTIFY_SPOKEN_RULES}
+
+${SPOKEN_LINE_CONTRACT}
+
+${GOLD_SPOKEN_EXAMPLES}
 
 FORMATTING RULES:
 1. Main Episode Title: # SCRIPT TITLE: [TOPIC HEADLINE]
@@ -575,10 +576,10 @@ FORMATTING RULES:
    > PERSON — STATUS
 3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
 4. Sub-sections: **A. SUB-SECTION TITLE** (bold, no arrows)
-5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Full spoken sentences or natural clauses. Use commas, em dashes (—), and ellipses (...) inside the line for pacing. Do NOT break lines into choppy 2-8 word fragments.
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Keep breath blocks (2–6 consecutive "> " lines = one gray rail group). Inside the block, use short speakable lines (target 5–10 words, max ~12). Do NOT isolate every sentence with its own cue. Do NOT write 20–30 word essay rails.
    A breath block is 2 to 6 CONSECUTIVE "> " lines with NO empty "> " between them:
-   > Full spoken sentence or natural clause here.
-   > Next complete spoken thought in the same breath.
+   > Short spoken thought here.
+   > Next short thought in the same breath.
    > Punch line lands here.
    Between breath blocks use a TRUE blank line (no ">") or a [BEAT]/[PAUSE] cue. Do NOT put a "> " empty spacer after every sentence.
    BREATH-BLOCK GAP RULE: NEVER leave a blank line between two spoken "> " groups without [PAUSE] or [BEAT]. Pattern: block → cue → next block.
@@ -587,16 +588,16 @@ FORMATTING RULES:
    - [BEAT] = shorter hold BEFORE a reveal, pivot, hard line, contrast, or emphasis
    - [PAUSE] = full stop AFTER a major question, hard fact, contrast, emotional truth, or jewel
    - Place each cue on its own line, NO rails, NO backslashes
-   - Place a cue after a punch line or question — not only after a long wall of text
+   - Place a cue after a breath block / punch line or question — not after every sentence
    - Use sparingly (not after every sentence) but NEVER leave a major section without at least one cue
    - Target 2 to 4 cues per major section. After every jewel question, add [PAUSE]
-7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question (consecutive lines, NO empty "> "), then [PAUSE]:
+7. Jewels: ### **JEWEL** on its own line, followed by blockquoted Principle -> Consequence -> Direct Question (consecutive short rails, NO empty "> "), then [PAUSE]:
    ### **JEWEL**
    > Principle sentence.
    > Consequence sentence.
    > Direct audience question ending in '?'
    [PAUSE]
-   Engagement CTAs go BEFORE ### **JEWEL**. NEVER inside the jewel body.
+   Engagement CTAs go BEFORE ### **JEWEL** as short rails. NEVER inside the jewel body.
 8. 10 Viral Questions: ## **1. QUESTION?** with **A. MY ANSWER** subsection, [BEAT], then ### **JEWEL** ending in a question + [PAUSE]
 9. Final Jewel: ### **JEWEL** (or ### **FINAL JEWEL**) then blockquoted final lesson ending in a direct question + [PAUSE]
 
@@ -604,7 +605,8 @@ CRITICAL: Preserve all original facts, names, and narrative points. Do not inven
 CRITICAL: Every single spoken delivery line MUST start with "> " blockquote prefix. This is non-negotiable for teleprompter rendering.
 CRITICAL: NEVER output backslashes. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown above.
 CRITICAL: Insert [BEAT]/[PAUSE] into the raw text at natural performance points — do not output a script with almost no cues.
-CRITICAL: Rewrite lecture/documentary tone into Unique's spoken voice with punch lines.
+CRITICAL: Rewrite lecture/documentary tone into Unique's spoken voice with short breathable rails inside breath blocks.
+CRITICAL: Style stays dynamic per section — do not force parallel "If he..." lists everywhere.
 
 RAW TEXT:
 ${dto.rawText}`;

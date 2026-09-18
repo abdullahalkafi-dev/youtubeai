@@ -10,7 +10,7 @@ import { MinioService } from '../minio/minio.service';
 import { QuotaService } from '../quota/quota.service';
 import { VideoQueryDto, UpdateVideoDto } from './dto/video-query.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
-import { MAX_ACTIVE_COMMENT_VIDEOS } from '../automation/automation.constants';
+import { AutoReplyPolicyService } from './auto-reply-policy.service';
 import { ConfigService } from '@nestjs/config';
 import { RedisService } from '../redis/redis.service';
 
@@ -28,6 +28,7 @@ export class VideosService {
     private readonly quotaService: QuotaService,
     private readonly configService: ConfigService,
     private readonly redisService: RedisService,
+    private readonly autoReplyPolicy: AutoReplyPolicyService,
   ) {}
 
   async findAll(channelId: string, query: VideoQueryDto) {
@@ -442,26 +443,32 @@ export class VideosService {
     if (!video) throw new NotFoundException(`Video ${videoId} not found`);
 
     if (autoReplyEnabled) {
-      const activeCount = await this.videoModel.countDocuments({
-        channelId: video.channelId,
-        autoReplyEnabled: true,
-        _id: { $ne: video._id },
-        deletedFromYoutube: { $ne: true },
-      });
-      if (activeCount >= MAX_ACTIVE_COMMENT_VIDEOS) {
-        throw new BadRequestException(
-          `Maximum ${MAX_ACTIVE_COMMENT_VIDEOS} active auto-reply videos reached. Please disable another video first.`,
-        );
+      // Membership policy: enable requested video; if over cap, evict oldest YouTube publishedAt.
+      const enableResult = await this.autoReplyPolicy.enableWithEviction(
+        video.channelId,
+        video._id,
+      );
+      if (!enableResult) {
+        throw new BadRequestException(`Unable to enable auto-reply for video ${videoId}`);
       }
+
+      const updated = await this.videoModel.findById(video._id).lean();
+      return {
+        ...leanDoc(updated),
+        autoReplyReplaced: enableResult.evicted,
+      };
     }
 
     const updated = await this.videoModel.findByIdAndUpdate(
       video._id,
-      { $set: { autoReplyEnabled } },
+      { $set: { autoReplyEnabled: false } },
       { new: true },
     ).lean();
 
-    return leanDoc(updated);
+    return {
+      ...leanDoc(updated),
+      autoReplyReplaced: [],
+    };
   }
 
   async invalidateVideoTimelineCache(videoId: string): Promise<void> {
