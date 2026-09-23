@@ -284,6 +284,7 @@ export class YouTubeService {
     return {
       replies: (response.data.items || []).map(i => ({
         id: i.id || '',
+        parentId: i.snippet?.parentId || parentId,
         authorName: i.snippet?.authorDisplayName || '',
         authorAvatar: i.snippet?.authorProfileImageUrl || null,
         authorChannelId: i.snippet?.authorChannelId?.value || '',
@@ -293,6 +294,34 @@ export class YouTubeService {
       })),
       nextPageToken: response.data.nextPageToken || undefined,
     };
+  }
+
+  /** Paginate all replies under a parent (top-level or nested). Caps pages for safety. */
+  async listAllCommentReplies(
+    accessToken: string,
+    parentId: string,
+    maxTotal = 100,
+  ): Promise<Array<{
+    id: string;
+    parentId: string;
+    authorName: string;
+    authorAvatar: string | null;
+    authorChannelId: string;
+    text: string;
+    likeCount: number;
+    publishedAt: string;
+  }>> {
+    const all: any[] = [];
+    let pageToken: string | undefined;
+    let pages = 0;
+    while (pages < 5 && all.length < maxTotal) {
+      const batch = await this.getCommentReplies(accessToken, parentId, pageToken, 50);
+      all.push(...(batch.replies || []));
+      pageToken = batch.nextPageToken;
+      pages++;
+      if (!pageToken) break;
+    }
+    return all.slice(0, maxTotal);
   }
 
   async insertCommentReply(accessToken: string, parentId: string, text: string) {

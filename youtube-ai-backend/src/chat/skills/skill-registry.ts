@@ -194,58 +194,33 @@ ${generalFormat}`,
           youtubeId: v.youtubeId || '',
         }));
 
-        // Load channel analytics (cheap API) — what people watch, how they find it, who they are
+        // Load channel analytics once (C5) — single Analytics bundle, no duplicate fan-out
         try {
           const channel = await this.channelModel.findById(channelId).lean();
           if (channel?.youtubeChannelId && channel?.userId) {
-            const endDate = new Date().toISOString().split('T')[0];
-            const startDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
-
-            let trafficSources: Array<{ source: string; views: number; watchMinutes: number; subsGained: number }> = [];
-            let topVideos: Array<{ videoId: string; title: string; views: number; watchMinutes: number; retentionPercent: number; revenue: number }> = [];
-            try {
-              [trafficSources, topVideos] = await Promise.all([
-                this.analyticsService.getTrafficSources(channel.userId.toString(), channel.youtubeChannelId, startDate, endDate),
-                this.analyticsService.getTopVideosByWatchTime(channel.userId.toString(), channel.youtubeChannelId, startDate, endDate, 8),
-              ]);
-            } catch { /* analytics optional */ }
-
-            const totalViews = trafficSources.reduce((sum, t) => sum + (t.views || 0), 0);
-            const totalWatchMinutes = trafficSources.reduce((sum, t) => sum + (t.watchMinutes || 0), 0);
-            const totalRevenue = topVideos.reduce((sum, v) => sum + (v.revenue || 0), 0);
-            const avgRetention = topVideos.length > 0
-              ? Math.round(topVideos.reduce((sum, v) => sum + (v.retentionPercent || 0), 0) / topVideos.length)
-              : 0;
-
+            const bundle = await this.performanceContext.buildChannelPerformanceContext(
+              channel.userId.toString(),
+              channelId.toString(),
+              30,
+            );
+            const s = bundle.summary;
             base.channelAnalytics = {
-              views: totalViews,
-              watchTimeHours: Math.round(totalWatchMinutes / 60),
-              revenue: Math.round(totalRevenue * 100) / 100,
-              retentionPercent: avgRetention,
-              trafficSources: trafficSources.slice(0, 8).map(t => ({ source: t.source, views: t.views })),
+              views: s?.views || 0,
+              watchTimeHours: s?.watchTimeHours || 0,
+              revenue: s?.revenue || 0,
+              retentionPercent: s?.retentionPercent || 0,
+              trafficSources: bundle.trafficSources || [],
+              rawBundle: bundle.text,
             };
-
-            if (topVideos.length > 0) {
-              base.topVideos = topVideos.map(v => ({
+            if (bundle.topVideos?.length) {
+              base.topVideos = bundle.topVideos.map((v) => ({
                 title: v.title,
-                viewCount: v.views,
+                viewCount: v.viewCount,
                 watchMinutes: v.watchMinutes,
                 retentionPercent: v.retentionPercent,
                 tags: [],
               }));
             }
-
-            // Fuller Analytics bundle (search terms + audience) — cheap calls, big strategy win
-            try {
-              const bundle = await this.performanceContext.buildChannelPerformanceContext(
-                channel.userId.toString(),
-                channelId.toString(),
-                30,
-              );
-              if (bundle.ok) {
-                base.channelAnalytics.rawBundle = bundle.text;
-              }
-            } catch { /* optional */ }
           }
         } catch (error) {
           this.logger.warn(`Failed to load analytics for context: ${error.message}`);

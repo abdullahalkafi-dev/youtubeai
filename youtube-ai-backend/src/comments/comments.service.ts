@@ -560,7 +560,16 @@ ${JSON.stringify(
     const fallbackResults = [];
     for (const c of comments) {
       try {
-        const replies = await this.generateReplies(c.text, videoTitle, channelName, '', videoDescription);
+        const contextHint = c.parentText
+          ? `Thread parent (${c.parentAuthorName || 'viewer'}): ${String(c.parentText).slice(0, 200)}\nReply to this nested comment`
+          : undefined;
+        const replies = await this.generateReplies(
+          contextHint ? `${contextHint}\n${c.text}` : c.text,
+          videoTitle,
+          channelName,
+          '',
+          videoDescription,
+        );
         fallbackResults.push({
           commentId: c.commentId,
           action: 'reply' as const,
@@ -646,10 +655,63 @@ ${JSON.stringify(
     };
 
     const targets: AutoTarget[] = [];
+    const seenTargetIds = new Set<string>();
+
+    /** Walk one parent and collect @channel mention children (incl. one deeper reply-to-reply level). */
+    const collectMentionDescendants = async (
+      parentId: string,
+      depth: number,
+      parentAuthorName: string,
+      parentText: string,
+      seedChildren?: any[],
+    ) => {
+      // depth 1 = children of top-level; depth 2 = reply-to-reply. Stop after that.
+      if (depth > 2) return;
+
+      let children: any[] = seedChildren || [];
+      const needFetch = !seedChildren || seedChildren.length === 0 || depth > 1;
+      if (needFetch) {
+        try {
+          children = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 80);
+        } catch (loadErr: any) {
+          this.logger.warn(`Failed to load replies under ${parentId}: ${loadErr.message}`);
+          children = seedChildren || [];
+        }
+      }
+
+      for (const child of children) {
+        if (!child?.id || seenTargetIds.has(child.id) || repliedSet.has(child.id)) continue;
+        if (this.isCreatorAuthored(child, channel)) continue;
+
+        // Recurse one level deeper so @mentions under other replies are not missed
+        if (depth === 1) {
+          await collectMentionDescendants(
+            child.id,
+            depth + 1,
+            child.authorName || 'Viewer',
+            child.text || '',
+          );
+        }
+
+        if (!this.mentionsThisChannel(child.text, channel)) continue;
+
+        seenTargetIds.add(child.id);
+        targets.push({
+          commentId: child.id,
+          authorName: child.authorName || 'Viewer',
+          text: child.text || '',
+          kind: 'mention_reply',
+          parentCommentId: parentId,
+          parentAuthorName,
+          parentText,
+        });
+      }
+    };
 
     for (const thread of threadsRes.comments) {
       const topIsCreator = this.isCreatorAuthored(thread, channel);
-      if (!repliedSet.has(thread.id) && !thread.hasCreatorReplied && !topIsCreator) {
+      if (!repliedSet.has(thread.id) && !thread.hasCreatorReplied && !topIsCreator && !seenTargetIds.has(thread.id)) {
+        seenTargetIds.add(thread.id);
         targets.push({
           commentId: thread.id,
           authorName: thread.authorName || 'Viewer',
@@ -658,38 +720,16 @@ ${JSON.stringify(
         });
       }
 
-      // Nested: only auto-reply when the viewer @-mentions THIS channel
-      let nested = thread.replies || [];
-      if ((thread.replyCount || 0) > nested.length) {
-        try {
-          const full = await this.youtubeService.getCommentReplies(
-            accessToken,
-            thread.id,
-            undefined,
-            50,
-          );
-          if (full?.replies?.length) nested = full.replies;
-        } catch (loadErr: any) {
-          this.logger.warn(`Failed to load full replies for ${thread.id}: ${loadErr.message}`);
-        }
-      }
-
-      for (const reply of nested) {
-        if (!reply?.id || repliedSet.has(reply.id)) continue;
-        if (this.isCreatorAuthored(reply, channel)) continue;
-        // User-to-user @mentions are ignored — only channel mentions are auto-answered
-        if (!this.mentionsThisChannel(reply.text, channel)) continue;
-
-        targets.push({
-          commentId: reply.id,
-          authorName: reply.authorName || 'Viewer',
-          text: reply.text || '',
-          kind: 'mention_reply',
-          parentCommentId: thread.id,
-          parentAuthorName: thread.authorName || 'Viewer',
-          parentText: thread.text || '',
-        });
-      }
+      const seed = thread.replies || [];
+      const hasAllEmbedded = (thread.replyCount || 0) > 0 && seed.length >= (thread.replyCount || 0);
+      // Nested + deep nested: only @mentions of THIS channel
+      await collectMentionDescendants(
+        thread.id,
+        1,
+        thread.authorName || 'Viewer',
+        thread.text || '',
+        hasAllEmbedded ? seed : seed.length ? seed : undefined,
+      );
     }
 
     if (targets.length === 0) {
@@ -734,6 +774,8 @@ ${JSON.stringify(
     let skippedCount = 0;
     let failedCount = 0;
     const newlyRepliedIds: string[] = [];
+    /** Skipped (spam) + already-settled ids — never re-queue on the next cron (C1). */
+    const settledIds: string[] = [];
 
     // Process in chunks of up to 10 comments
     for (let offset = 0; offset < targetComments.length; offset += COMMENT_CHUNK_SIZE) {
@@ -764,11 +806,30 @@ ${JSON.stringify(
           batchDoc.items[batchItemIndex].skipReason = aiRes?.skipReason || 'Spam/bot comment';
           batchDoc.items[batchItemIndex].processedAt = new Date();
           skippedCount++;
+          // Settle forever — do not rebuild a batch for the same spam every 5 minutes
+          settledIds.push(comment.commentId);
           continue;
         }
 
         // Push reply to YouTube (parentId = top-level id OR nested mention comment id)
         try {
+          // C8: if Unique already answered this nested comment in Studio, don't double-post
+          if (comment.kind === 'mention_reply') {
+            try {
+              const existing = await this.youtubeService.listAllCommentReplies(accessToken!, comment.commentId, 20);
+              if (existing.some((r) => this.isCreatorAuthored(r, channel))) {
+                batchDoc.items[batchItemIndex].status = 'skipped_spam';
+                batchDoc.items[batchItemIndex].skipReason = 'Creator already replied on YouTube';
+                batchDoc.items[batchItemIndex].processedAt = new Date();
+                skippedCount++;
+                settledIds.push(comment.commentId);
+                continue;
+              }
+            } catch {
+              /* if we cannot check, proceed carefully */
+            }
+          }
+
           await this.postReply(video.youtubeId, comment.commentId, aiRes.replyText!, channelId, accessToken, {
             source: 'auto',
           });
@@ -790,6 +851,7 @@ ${JSON.stringify(
           batchDoc.items[batchItemIndex].error = pushErr.message;
           batchDoc.items[batchItemIndex].processedAt = new Date();
           failedCount++;
+          // Failures stay retryable (not added to settledIds)
         }
       }
     }
@@ -802,9 +864,10 @@ ${JSON.stringify(
     batchDoc.completedAt = new Date();
     await batchDoc.save();
 
-    // Atomically update Video document
+    // Record successful replies AND settled skips so cron does not loop (C1)
+    const allProcessedIds = [...new Set([...newlyRepliedIds, ...settledIds])];
     await this.videoModel.findByIdAndUpdate(video._id, {
-      $addToSet: { repliedCommentIds: { $each: newlyRepliedIds } },
+      $addToSet: { repliedCommentIds: { $each: allProcessedIds } },
       $inc: { autoReplyTotalCount: newlyRepliedIds.length },
       $set: { autoReplyLastRanAt: new Date() },
     });
