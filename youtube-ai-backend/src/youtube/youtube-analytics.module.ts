@@ -1,11 +1,12 @@
 import { Module } from '@nestjs/common';
-import { YoutubeAnalyticsService } from './youtube-analytics.service';
 import { YouTubeModule } from './youtube.module';
-import { QuotaModule } from '../quota/quota.module';
 
+/**
+ * Backward-compatible module — real providers live in YouTubeModule
+ * (YoutubeAnalyticsService + PerformanceContextService).
+ */
 @Module({
-  imports: [YouTubeModule, QuotaModule],
-  providers: [YoutubeAnalyticsService],
-  exports: [YoutubeAnalyticsService],
+  imports: [YouTubeModule],
+  exports: [YouTubeModule],
 })
 export class YoutubeAnalyticsModule {}

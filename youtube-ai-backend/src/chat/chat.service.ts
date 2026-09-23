@@ -15,6 +15,7 @@ import { ThumbnailComposerService } from '../openai/thumbnail-composer.service';
 import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
+import { PerformanceContextService } from '../youtube/performance-context.service';
 import { SkillRegistry } from './skills/skill-registry';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -41,6 +42,7 @@ export class ChatService {
     private readonly minioService: MinioService,
     private readonly chromaService: ChromaService,
     private readonly skillRegistry: SkillRegistry,
+    private readonly performanceContext: PerformanceContextService,
     @Inject(forwardRef(() => TrendsService))
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
@@ -233,6 +235,27 @@ export class ChatService {
     // RAG context
     const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
 
+    // On-demand performance lookup (Analytics + local catalog) when asked about views / this video
+    let performanceLookup = '';
+    try {
+      const q = cleanUserPrompt || dto.content;
+      if (PerformanceContextService.isPerformanceQuery(q)) {
+        const uid = channel?.userId?.toString();
+        const cid = updatedThread.channelId.toString();
+        if (uid) {
+          const lookup = await this.performanceContext.buildVideoPerformanceLookup(
+            uid,
+            cid,
+            q,
+            updatedThread.videoId || undefined,
+          );
+          if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+        }
+      }
+    } catch (perfErr: any) {
+      this.logger.warn(`Performance lookup skipped: ${perfErr?.message || perfErr}`);
+    }
+
     // Build conversation history (last N messages)
     const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
     let contextMessages = allMessages;
@@ -254,7 +277,7 @@ export class ChatService {
     const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
-    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
+    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
 
     // Detect if research is needed
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
@@ -393,11 +416,26 @@ export class ChatService {
     // RAG context
     const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
 
+    // On-demand performance lookup for stream path
+    let performanceLookup = '';
+    try {
+      const q = dto.content;
+      if (PerformanceContextService.isPerformanceQuery(q) && channel?.userId) {
+        const lookup = await this.performanceContext.buildVideoPerformanceLookup(
+          channel.userId.toString(),
+          updatedThread.channelId.toString(),
+          q,
+          updatedThread.videoId || undefined,
+        );
+        if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+      }
+    } catch { /* optional */ }
+
     // Build STATIC system prompt (byte-identical across requests for caching)
     const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
-    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
+    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
 
     // Build conversation history (last N messages)
     const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));

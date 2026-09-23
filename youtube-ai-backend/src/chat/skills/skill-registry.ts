@@ -9,6 +9,7 @@ import { SeoSuggestion, SeoSuggestionDocument } from '../../mongo/schemas/seo-su
 import { CompetitorChannel, CompetitorChannelDocument } from '../../mongo/schemas/competitor-channel.schema';
 import { ChromaService } from '../../chroma/chroma.service';
 import { YoutubeAnalyticsService } from '../../youtube/youtube-analytics.service';
+import { PerformanceContextService } from '../../youtube/performance-context.service';
 import { buildCompactChannelContext } from '../../openai/prompts/context';
 import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES } from '../../openai/prompts/script-cadence';
 
@@ -25,6 +26,7 @@ export class SkillRegistry {
     @InjectModel(CompetitorChannel.name) private readonly competitorModel: Model<CompetitorChannelDocument>,
     private readonly chromaService: ChromaService,
     private readonly analyticsService: YoutubeAnalyticsService,
+    private readonly performanceContext: PerformanceContextService,
   ) {
     this.registerDefaults();
   }
@@ -152,11 +154,13 @@ When discussing ANY real-world person, criminal case, or video topic:
   - YouTube video link/card: [YouTube Video: Video Title](https://www.youtube.com/watch?v=ID) or [![Video Title](thumbnail_url)](https://www.youtube.com/watch?v=ID)
   - Direct citations to reputable news sources (Court TV, Law & Crime, AP News, local reporting)
 
-When the user asks about channel performance, strategy, what to post, or content planning:
-- Reference the CHANNEL ANALYTICS data above (views, retention, traffic sources)
-- Reference the COMPETITOR data above (what they're posting, gaps)
-- Reference the VIDEOS GETTING SEARCH TRAFFIC above (old videos worth re-optimizing)
-- Reference the TRENDING TOPICS above (with freshness label and detailed summary)
+When the user asks about channel performance, strategy, what to post, content planning, or "what my audience watches / likes":
+- You ARE connected to YouTube Analytics for this channel when YOUTUBE ANALYTICS appears below.
+- NEVER say you cannot see private YouTube Studio / "what viewers are watching" data as a refusal. Use CHANNEL ANALYTICS / YOUTUBE ANALYTICS / TOP PERFORMING VIDEOS / EXISTING VIDEOS.
+- One short honesty line is OK only if needed: you do not have per-viewer history or Studio "other videos they watched" on other channels — then answer with the data you DO have.
+- Reference top watched videos (watch time + retention), traffic sources, search terms, and audience demos when present.
+- Reference the COMPETITOR data, VIDEOS GETTING SEARCH TRAFFIC, and TRENDING TOPICS when relevant.
+- Respect user constraints (e.g. avoid redundant Lil Durk unless asked) using EXISTING VIDEOS + performance ranking.
 - Only use what's relevant to the question — don't dump all data unprompted
 
 When the user asks about a specific topic, person, or case (like "tell me about [person]" or "write a script about [topic]"):
@@ -190,7 +194,7 @@ ${generalFormat}`,
           youtubeId: v.youtubeId || '',
         }));
 
-        // Load channel analytics in parallel if channel is valid
+        // Load channel analytics (cheap API) — what people watch, how they find it, who they are
         try {
           const channel = await this.channelModel.findById(channelId).lean();
           if (channel?.youtubeChannelId && channel?.userId) {
@@ -202,7 +206,7 @@ ${generalFormat}`,
             try {
               [trafficSources, topVideos] = await Promise.all([
                 this.analyticsService.getTrafficSources(channel.userId.toString(), channel.youtubeChannelId, startDate, endDate),
-                this.analyticsService.getTopVideosByWatchTime(channel.userId.toString(), channel.youtubeChannelId, startDate, endDate, 5),
+                this.analyticsService.getTopVideosByWatchTime(channel.userId.toString(), channel.youtubeChannelId, startDate, endDate, 8),
               ]);
             } catch { /* analytics optional */ }
 
@@ -218,12 +222,30 @@ ${generalFormat}`,
               watchTimeHours: Math.round(totalWatchMinutes / 60),
               revenue: Math.round(totalRevenue * 100) / 100,
               retentionPercent: avgRetention,
-              trafficSources: trafficSources.slice(0, 5).map(t => ({ source: t.source, views: t.views })),
+              trafficSources: trafficSources.slice(0, 8).map(t => ({ source: t.source, views: t.views })),
             };
 
             if (topVideos.length > 0) {
-              base.topVideos = topVideos.map(v => ({ title: v.title, viewCount: v.views, tags: [] }));
+              base.topVideos = topVideos.map(v => ({
+                title: v.title,
+                viewCount: v.views,
+                watchMinutes: v.watchMinutes,
+                retentionPercent: v.retentionPercent,
+                tags: [],
+              }));
             }
+
+            // Fuller Analytics bundle (search terms + audience) — cheap calls, big strategy win
+            try {
+              const bundle = await this.performanceContext.buildChannelPerformanceContext(
+                channel.userId.toString(),
+                channelId.toString(),
+                30,
+              );
+              if (bundle.ok) {
+                base.channelAnalytics.rawBundle = bundle.text;
+              }
+            } catch { /* optional */ }
           }
         } catch (error) {
           this.logger.warn(`Failed to load analytics for context: ${error.message}`);
@@ -1171,10 +1193,14 @@ ${imageFormat}`,
     }
     if (context.channelAnalytics) {
       const a = context.channelAnalytics;
-      const trafficStr = a.trafficSources.length > 0
-        ? a.trafficSources.map(t => `${t.source}: ${t.views.toLocaleString()}`).join(', ')
-        : 'No data yet';
-      parts.push(`CHANNEL ANALYTICS (Last 30 days):\nViews: ${a.views.toLocaleString()} | Watch Time: ${a.watchTimeHours} hrs | Revenue: $${a.revenue}\nTraffic Sources: ${trafficStr}`);
+      if (a.rawBundle) {
+        parts.push(a.rawBundle);
+      } else {
+        const trafficStr = a.trafficSources.length > 0
+          ? a.trafficSources.map(t => `${t.source}: ${t.views.toLocaleString()}`).join(', ')
+          : 'No data yet';
+        parts.push(`CHANNEL ANALYTICS (Last 30 days):\nViews: ${a.views.toLocaleString()} | Watch Time: ${a.watchTimeHours} hrs | Revenue: $${a.revenue}\nTraffic Sources: ${trafficStr}`);
+      }
     }
     if (context.competitorSummary && context.competitorSummary.length > 0) {
       parts.push(`COMPETITORS:\n${context.competitorSummary.map(c => `- ${c.title} (${c.subscriberCount.toLocaleString()} subs)${c.recentUploads.length > 0 ? `, latest: "${c.recentUploads[0].title}"` : ''}`).join('\n')}`);
@@ -1183,7 +1209,11 @@ ${imageFormat}`,
       parts.push(`VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map(v => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`);
     }
     if (context.topVideos && context.topVideos.length > 0) {
-      parts.push(`TOP PERFORMING VIDEOS:\n${context.topVideos.map((v: any, i: number) => `${i + 1}. "${v.title}" — ${v.viewCount.toLocaleString()} views`).join('\n')}`);
+      parts.push(`TOP PERFORMING VIDEOS (what the audience watches most):\n${context.topVideos.map((v: any, i: number) => {
+        const mins = v.watchMinutes != null ? ` | ${Math.round(v.watchMinutes).toLocaleString()} watch min` : '';
+        const ret = v.retentionPercent != null ? ` | ${Math.round(v.retentionPercent)}% avg viewed` : '';
+        return `${i + 1}. "${v.title}" — ${v.viewCount.toLocaleString()} views${mins}${ret}`;
+      }).join('\n')}`);
     }
     if (context.approvedSeoPatterns) {
       parts.push(`APPROVED SEO PATTERNS:\n${context.approvedSeoPatterns}`);

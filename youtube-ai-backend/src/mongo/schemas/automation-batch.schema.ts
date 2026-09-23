@@ -42,6 +42,16 @@ export class AutomationBatchItem {
   @Prop()
   commentText?: string;
 
+  /** 'top' = top-level comment, 'mention_reply' = nested @channel mention */
+  @Prop({ enum: ['top', 'mention_reply'] })
+  commentDepth?: string;
+
+  @Prop()
+  parentCommentId?: string;
+
+  @Prop()
+  parentCommentText?: string;
+
   @Prop()
   generatedReply?: string;
 

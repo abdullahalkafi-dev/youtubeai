@@ -462,4 +462,153 @@ export class YoutubeAnalyticsService {
       return [];
     }
   }
+
+  /** Top YouTube search terms that send traffic (cheap Analytics query). */
+  async getTopSearchTerms(
+    userId: string,
+    youtubeChannelId: string,
+    startDate: string,
+    endDate: string,
+    maxResults = 8,
+  ): Promise<Array<{ term: string; views: number; watchMinutes: number }>> {
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    try {
+      const response = await retryWithBackoff(
+        () =>
+          youtubeAnalytics.reports.query({
+            auth: oauth2Client,
+            ids: `channel==${youtubeChannelId}`,
+            startDate,
+            endDate,
+            metrics: 'views,estimatedMinutesWatched',
+            dimensions: 'insightTrafficSourceDetail',
+            filters: 'insightTrafficSourceType==YT_SEARCH',
+            sort: '-views',
+            maxResults,
+          }),
+        { operationName: 'YouTube Analytics Search Terms' },
+      );
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (search-terms)',
+        success: true,
+      });
+      return (response.data.rows || []).map((row) => ({
+        term: String(row[0] || ''),
+        views: (row[1] as number) || 0,
+        watchMinutes: (row[2] as number) || 0,
+      }));
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch search terms: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (search-terms)',
+        success: false,
+        errorMessage: error.message,
+      });
+      return [];
+    }
+  }
+
+  /** Age + gender + top countries + subscribed split — who is watching. */
+  async getAudienceBreakdown(
+    userId: string,
+    youtubeChannelId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<{
+    ageGroups: Array<{ group: string; views: number }>;
+    genders: Array<{ gender: string; views: number }>;
+    countries: Array<{ country: string; views: number; watchMinutes: number }>;
+    subscribed: Array<{ status: string; views: number; watchMinutes: number }>;
+  }> {
+    const result = {
+      ageGroups: [] as Array<{ group: string; views: number }>,
+      genders: [] as Array<{ gender: string; views: number }>,
+      countries: [] as Array<{ country: string; views: number; watchMinutes: number }>,
+      subscribed: [] as Array<{ status: string; views: number; watchMinutes: number }>,
+    };
+
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    const run = async (label: string, params: Record<string, any>) => {
+      try {
+        const response = await retryWithBackoff(
+          () =>
+            youtubeAnalytics.reports.query({
+              auth: oauth2Client,
+              ids: `channel==${youtubeChannelId}`,
+              startDate,
+              endDate,
+              ...params,
+            }),
+          { operationName: `YouTube Analytics ${label}` },
+        );
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: `analytics.reports.query (${label})`,
+          success: true,
+        });
+        return response.data.rows || [];
+      } catch (error: any) {
+        this.logger.warn(`Failed to fetch ${label}: ${error.message}`);
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: `analytics.reports.query (${label})`,
+          success: false,
+          errorMessage: error.message,
+        });
+        return [];
+      }
+    };
+
+    const ageRows = await run('audience-age', {
+      metrics: 'views',
+      dimensions: 'ageGroup',
+      sort: '-views',
+      maxResults: 10,
+    });
+    result.ageGroups = ageRows.map((r) => ({ group: String(r[0] || ''), views: (r[1] as number) || 0 }));
+
+    const genderRows = await run('audience-gender', {
+      metrics: 'views',
+      dimensions: 'gender',
+      sort: '-views',
+      maxResults: 5,
+    });
+    result.genders = genderRows.map((r) => ({ gender: String(r[0] || ''), views: (r[1] as number) || 0 }));
+
+    const countryRows = await run('audience-country', {
+      metrics: 'views,estimatedMinutesWatched',
+      dimensions: 'country',
+      sort: '-views',
+      maxResults: 6,
+    });
+    result.countries = countryRows.map((r) => ({
+      country: String(r[0] || ''),
+      views: (r[1] as number) || 0,
+      watchMinutes: (r[2] as number) || 0,
+    }));
+
+    const subRows = await run('audience-subscribed', {
+      metrics: 'views,estimatedMinutesWatched',
+      dimensions: 'subscribedStatus',
+      sort: '-views',
+      maxResults: 5,
+    });
+    result.subscribed = subRows.map((r) => ({
+      status: String(r[0] || ''),
+      views: (r[1] as number) || 0,
+      watchMinutes: (r[2] as number) || 0,
+    }));
+
+    return result;
+  }
 }

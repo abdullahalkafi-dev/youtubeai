@@ -500,6 +500,11 @@ export function CommentAutomationTab() {
                               <p className="text-xs text-gray-700 dark:text-gray-300 pl-8 leading-relaxed italic">
                                 &quot;{item.commentText}&quot;
                               </p>
+                              {item.commentDepth === 'mention_reply' && item.parentCommentText && (
+                                <p className="text-[10px] text-gray-400 pl-8 leading-relaxed">
+                                  ↳ reply to thread: &quot;{String(item.parentCommentText).slice(0, 120)}&quot;
+                                </p>
+                              )}
 
                               {/* AI Reply Callout */}
                               {item.generatedReply && (

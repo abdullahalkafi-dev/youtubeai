@@ -12,6 +12,7 @@ export interface SkillContext {
     revenue: number;
     retentionPercent: number;
     trafficSources: Array<{ source: string; views: number }>;
+    rawBundle?: string;
   };
   competitorSummary?: Array<{
     title: string;

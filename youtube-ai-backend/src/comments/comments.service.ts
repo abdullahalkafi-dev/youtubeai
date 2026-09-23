@@ -425,10 +425,53 @@ Do not include markdown codeblocks or extra text.`;
   }
 
   /**
+   * True when the comment @-mentions THIS channel (not other users).
+   * Matches @handle / +handle / youtube.com/@handle.
+   */
+  private mentionsThisChannel(
+    text: string | undefined,
+    channel: { name?: string; handle?: string; youtubeChannelId?: string },
+  ): boolean {
+    const lower = String(text || '').toLowerCase();
+    if (!lower) return false;
+
+    const handle = String(channel.handle || '').toLowerCase().replace(/^[@+]/, '').trim();
+    const needles = new Set<string>();
+    if (handle) needles.add(handle);
+    // Brand handle used in production comments
+    needles.add('uniquemeccaaudionyc');
+
+    for (const n of needles) {
+      if (!n) continue;
+      if (lower.includes(`@${n}`)) return true;
+      if (lower.includes(`+${n}`)) return true;
+      if (lower.includes(`youtube.com/@${n}`)) return true;
+    }
+    return false;
+  }
+
+  private isCreatorAuthored(
+    comment: { authorChannelId?: string; authorName?: string },
+    channel: { youtubeChannelId?: string; name?: string },
+  ): boolean {
+    if (channel.youtubeChannelId && comment.authorChannelId === channel.youtubeChannelId) return true;
+    if (channel.name && comment.authorName?.trim().toLowerCase() === channel.name.trim().toLowerCase()) return true;
+    return false;
+  }
+
+  /**
    * Generates batch replies for up to 10 comments in 1 OpenAI call with spam defense.
+   * Supports nested mention-replies via optional parent thread context.
    */
   async generateBatchReplies(
-    comments: Array<{ commentId: string; authorName: string; text: string }>,
+    comments: Array<{
+      commentId: string;
+      authorName: string;
+      text: string;
+      parentAuthorName?: string;
+      parentText?: string;
+      kind?: 'top' | 'mention_reply';
+    }>,
     videoTitle: string,
     channelName: string,
     videoDescription?: string,
@@ -451,6 +494,12 @@ CORE PERSONA & VOICE:
 - Every reply MUST conclude with a natural, conversational counter-question on the topic to provoke the viewer to reply back and boost YouTube algorithm engagement.
 - Tone Variety: Adaptively select one of: "Street-Wise and Provocative", "Thoughtful and Balanced", "Witty", "Appreciative and Reflective", "General", "Thankful".
 
+THREAD CONTEXT RULES (CRITICAL):
+- kind "top" = reply to the top-level viewer comment.
+- kind "mention_reply" = the viewer @-mentioned the channel inside a nested reply. ALWAYS answer THAT person and THAT question.
+- When parentText / parentAuthorName are provided, use them so the reply is not generic. Reference the thread naturally (not like reading a script).
+- Do not lecture the parent commenter unless the nested comment asked about them. Address the author of the comment being replied to.
+
 SPAM & BOT FILTERING RULES:
 - REAL VIEWERS (ALWAYS REPLY): Comments containing only emojis (e.g. "💜💜💜", "🔥🔥🔥", "💯", "👑", "🙏🙏", "❤️"), short slang, compliments, or single-word reactions ("Salute", "Facts", "Real talk", "Fire") are 100% REAL VIEWERS showing love and support. You MUST set "action": "reply" (select "Thankful", "Appreciative and Reflective", or "Street-Wise" tone) and craft a warm, appreciative reply with an engaging counter-question!
 - TRUE SPAM (ONLY SKIP THESE): Skip ONLY obvious scams and spam: promotional URLs/links (e.g. "http://", ".com", ".io"), WhatsApp/Telegram contact spam (e.g. "contact Mr. XYZ on WhatsApp"), crypto investment scams, or generic repetitive link drops. Set "action": "skip" and "skipReason": "Promotional spam / scam".
@@ -469,10 +518,21 @@ Respond with ONLY a valid JSON array of objects matching each input comment:
 ]`;
 
     const userMessage = `Video Title: "${videoTitle}"
-Video Summary: "${(videoDescription || '').slice(0, 400)}"
+Video Summary: "${(videoDescription || '').slice(0, 500)}"
 
 Viewer Comments to Process:
-${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.authorName, text: c.text })), null, 2)}`;
+${JSON.stringify(
+  comments.map((c) => ({
+    commentId: c.commentId,
+    kind: c.kind || 'top',
+    author: c.authorName,
+    text: c.text,
+    parentAuthor: c.parentAuthorName,
+    parentText: c.parentText ? String(c.parentText).slice(0, 280) : undefined,
+  })),
+  null,
+  2,
+)}`;
 
     try {
       const raw = await this.openaiService.chatFast({
@@ -574,11 +634,65 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
     }
 
     const repliedSet = new Set(video.repliedCommentIds || []);
-    const unresponded = threadsRes.comments.filter(
-      (t) => !t.hasCreatorReplied && !repliedSet.has(t.id),
-    );
 
-    if (unresponded.length === 0) {
+    type AutoTarget = {
+      commentId: string;
+      authorName: string;
+      text: string;
+      kind: 'top' | 'mention_reply';
+      parentCommentId?: string;
+      parentAuthorName?: string;
+      parentText?: string;
+    };
+
+    const targets: AutoTarget[] = [];
+
+    for (const thread of threadsRes.comments) {
+      const topIsCreator = this.isCreatorAuthored(thread, channel);
+      if (!repliedSet.has(thread.id) && !thread.hasCreatorReplied && !topIsCreator) {
+        targets.push({
+          commentId: thread.id,
+          authorName: thread.authorName || 'Viewer',
+          text: thread.text || '',
+          kind: 'top',
+        });
+      }
+
+      // Nested: only auto-reply when the viewer @-mentions THIS channel
+      let nested = thread.replies || [];
+      if ((thread.replyCount || 0) > nested.length) {
+        try {
+          const full = await this.youtubeService.getCommentReplies(
+            accessToken,
+            thread.id,
+            undefined,
+            50,
+          );
+          if (full?.replies?.length) nested = full.replies;
+        } catch (loadErr: any) {
+          this.logger.warn(`Failed to load full replies for ${thread.id}: ${loadErr.message}`);
+        }
+      }
+
+      for (const reply of nested) {
+        if (!reply?.id || repliedSet.has(reply.id)) continue;
+        if (this.isCreatorAuthored(reply, channel)) continue;
+        // User-to-user @mentions are ignored — only channel mentions are auto-answered
+        if (!this.mentionsThisChannel(reply.text, channel)) continue;
+
+        targets.push({
+          commentId: reply.id,
+          authorName: reply.authorName || 'Viewer',
+          text: reply.text || '',
+          kind: 'mention_reply',
+          parentCommentId: thread.id,
+          parentAuthorName: thread.authorName || 'Viewer',
+          parentText: thread.text || '',
+        });
+      }
+    }
+
+    if (targets.length === 0) {
       await this.videoModel.findByIdAndUpdate(video._id, {
         $set: { autoReplyLastRanAt: new Date() },
       });
@@ -586,7 +700,7 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
     }
 
     // Cap total comments by remaining daily quota
-    const targetComments = unresponded.slice(0, remainingDailyCap);
+    const targetComments = targets.slice(0, remainingDailyCap);
 
     // Create 1 unified AutomationBatch document for this video run
     const batchDoc = await this.batchModel.create({
@@ -605,9 +719,12 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
         videoId: video._id,
         youtubeId: video.youtubeId,
         originalTitle: video.title,
-        commentId: t.id,
+        commentId: t.commentId,
         authorName: t.authorName || 'Viewer',
         commentText: t.text || '',
+        parentCommentId: t.parentCommentId,
+        parentCommentText: t.parentText,
+        commentDepth: t.kind,
         status: 'queued',
         batchLockTimestamp: new Date(),
       })),
@@ -622,9 +739,12 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
     for (let offset = 0; offset < targetComments.length; offset += COMMENT_CHUNK_SIZE) {
       const chunk = targetComments.slice(offset, offset + COMMENT_CHUNK_SIZE);
       const commentsForAi = chunk.map((c) => ({
-        commentId: c.id,
+        commentId: c.commentId,
         authorName: c.authorName || 'Viewer',
         text: c.text || '',
+        kind: c.kind,
+        parentAuthorName: c.parentAuthorName,
+        parentText: c.parentText,
       }));
 
       const aiReplies = await this.generateBatchReplies(
@@ -637,7 +757,7 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
       for (let i = 0; i < chunk.length; i++) {
         const comment = chunk[i];
         const batchItemIndex = offset + i;
-        const aiRes = aiReplies.find((r) => r.commentId === comment.id);
+        const aiRes = aiReplies.find((r) => r.commentId === comment.commentId);
 
         if (!aiRes || aiRes.action === 'skip') {
           batchDoc.items[batchItemIndex].status = 'skipped_spam';
@@ -647,9 +767,9 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
           continue;
         }
 
-        // Push reply to YouTube
+        // Push reply to YouTube (parentId = top-level id OR nested mention comment id)
         try {
-          await this.postReply(video.youtubeId, comment.id, aiRes.replyText!, channelId, accessToken, {
+          await this.postReply(video.youtubeId, comment.commentId, aiRes.replyText!, channelId, accessToken, {
             source: 'auto',
           });
           batchDoc.items[batchItemIndex].status = 'completed';
@@ -658,14 +778,14 @@ ${JSON.stringify(comments.map((c) => ({ commentId: c.commentId, author: c.author
           batchDoc.items[batchItemIndex].processedAt = new Date();
           // Defensive: never leave a manual label on an AI-completed item
           (batchDoc.items[batchItemIndex] as any).manualReplyText = undefined;
-          newlyRepliedIds.push(comment.id);
+          newlyRepliedIds.push(comment.commentId);
           successfulCount++;
           batchDoc.quotaUnitsUsed += QUOTA_COST_COMMENT_INSERT;
 
           // 3-second safety gap
           await new Promise((resolve) => setTimeout(resolve, COMMENT_PUSH_SAFETY_GAP_MS));
         } catch (pushErr: any) {
-          this.logger.error(`Failed to post auto-reply to comment ${comment.id} on video ${video.youtubeId}: ${pushErr.message}`);
+          this.logger.error(`Failed to post auto-reply to comment ${comment.commentId} on video ${video.youtubeId}: ${pushErr.message}`);
           batchDoc.items[batchItemIndex].status = 'failed';
           batchDoc.items[batchItemIndex].error = pushErr.message;
           batchDoc.items[batchItemIndex].processedAt = new Date();
