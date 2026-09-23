@@ -296,11 +296,11 @@ export class YouTubeService {
     };
   }
 
-  /** Paginate all replies under a parent (top-level or nested). Caps pages for safety. */
+  /** Paginate replies under a parent. Hard-capped to protect YouTube Data API quota. */
   async listAllCommentReplies(
     accessToken: string,
     parentId: string,
-    maxTotal = 100,
+    maxTotal = 40,
   ): Promise<Array<{
     id: string;
     parentId: string;
@@ -313,13 +313,13 @@ export class YouTubeService {
   }>> {
     const all: any[] = [];
     let pageToken: string | undefined;
-    let pages = 0;
-    while (pages < 5 && all.length < maxTotal) {
-      const batch = await this.getCommentReplies(accessToken, parentId, pageToken, 50);
+    // Max 2 pages × 20 = 40 rows — never N+1 storm the API
+    while (all.length < maxTotal) {
+      const batch = await this.getCommentReplies(accessToken, parentId, pageToken, 20);
       all.push(...(batch.replies || []));
       pageToken = batch.nextPageToken;
-      pages++;
-      if (!pageToken) break;
+      if (!pageToken || all.length >= maxTotal) break;
+      if (all.length >= 20) break; // second page only if first was full
     }
     return all.slice(0, maxTotal);
   }

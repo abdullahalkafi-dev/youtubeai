@@ -621,8 +621,8 @@ ${JSON.stringify(
       return { processedCount: 0, skippedCount: 0, failedCount: 0 };
     }
 
-    // Invalidate stale cache to guarantee fetching fresh comments directly from YouTube API
-    await this.cache.invalidate(video.youtubeId);
+    // Do NOT wipe Redis cache every cron tick — that forces full commentThreads.list every 5 min.
+    // Use cache (1h TTL). Cache is refreshed when we post (invalidate at end of a successful run).
 
     // Fetch top-level comments with order: 'time' (newest first)
     const threadsRes = await this.getComments(
@@ -656,8 +656,19 @@ ${JSON.stringify(
 
     const targets: AutoTarget[] = [];
     const seenTargetIds = new Set<string>();
+    /** Hard budget: max comments.list calls for nested crawl this run (quota guard) */
+    let nestedListBudget = 4;
+    let quotaStalled = false;
 
-    /** Walk one parent and collect @channel mention children (incl. one deeper reply-to-reply level). */
+    const isQuotaError = (err: any) =>
+      /quota/i.test(String(err?.message || err || ''));
+
+    /**
+     * Collect @channel mention children.
+     * Quota-safe: prefer embedded seed replies; at most `nestedListBudget` extra list calls.
+     * Depth-2 fetch ONLY when the child does not already mention us (look for grandchild mentions)
+     * and only while budget remains. Never fan out per-child without a budget.
+     */
     const collectMentionDescendants = async (
       parentId: string,
       depth: number,
@@ -665,15 +676,29 @@ ${JSON.stringify(
       parentText: string,
       seedChildren?: any[],
     ) => {
-      // depth 1 = children of top-level; depth 2 = reply-to-reply. Stop after that.
-      if (depth > 2) return;
+      if (quotaStalled || depth > 2) return;
 
       let children: any[] = seedChildren || [];
-      const needFetch = !seedChildren || seedChildren.length === 0 || depth > 1;
-      if (needFetch) {
+      const shouldList =
+        depth > 1 ||
+        !seedChildren ||
+        seedChildren.length === 0;
+
+      if (shouldList && nestedListBudget > 0) {
+        nestedListBudget--;
         try {
-          children = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 80);
+          children = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 40);
+          await this.quotaService.logCall({
+            channelId,
+            endpoint: 'comments.list (auto-mention)',
+            quotaCost: 1,
+            relatedId: parentId,
+          });
         } catch (loadErr: any) {
+          if (isQuotaError(loadErr)) {
+            quotaStalled = true;
+            this.quotaService.markDataApiExhaustedToday('comments.list');
+          }
           this.logger.warn(`Failed to load replies under ${parentId}: ${loadErr.message}`);
           children = seedChildren || [];
         }
@@ -683,8 +708,11 @@ ${JSON.stringify(
         if (!child?.id || seenTargetIds.has(child.id) || repliedSet.has(child.id)) continue;
         if (this.isCreatorAuthored(child, channel)) continue;
 
-        // Recurse one level deeper so @mentions under other replies are not missed
-        if (depth === 1) {
+        const childMentionsChannel = this.mentionsThisChannel(child.text, channel);
+
+        // One extra level only if this child is NOT the mention (grandchild might @us)
+        // and we still have list budget — never N+1 per reply.
+        if (depth === 1 && !childMentionsChannel && nestedListBudget > 0 && !quotaStalled) {
           await collectMentionDescendants(
             child.id,
             depth + 1,
@@ -693,7 +721,7 @@ ${JSON.stringify(
           );
         }
 
-        if (!this.mentionsThisChannel(child.text, channel)) continue;
+        if (!childMentionsChannel) continue;
 
         seenTargetIds.add(child.id);
         targets.push({
@@ -709,6 +737,7 @@ ${JSON.stringify(
     };
 
     for (const thread of threadsRes.comments) {
+      if (quotaStalled) break;
       const topIsCreator = this.isCreatorAuthored(thread, channel);
       if (!repliedSet.has(thread.id) && !thread.hasCreatorReplied && !topIsCreator && !seenTargetIds.has(thread.id)) {
         seenTargetIds.add(thread.id);
@@ -721,15 +750,22 @@ ${JSON.stringify(
       }
 
       const seed = thread.replies || [];
-      const hasAllEmbedded = (thread.replyCount || 0) > 0 && seed.length >= (thread.replyCount || 0);
-      // Nested + deep nested: only @mentions of THIS channel
+      const hasAllEmbedded =
+        (thread.replyCount || 0) > 0 && seed.length >= (thread.replyCount || 0);
       await collectMentionDescendants(
         thread.id,
         1,
         thread.authorName || 'Viewer',
         thread.text || '',
-        hasAllEmbedded ? seed : seed.length ? seed : undefined,
+        hasAllEmbedded || seed.length > 0 ? seed : undefined,
       );
+    }
+
+    if (quotaStalled) {
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
     }
 
     if (targets.length === 0) {
@@ -813,23 +849,6 @@ ${JSON.stringify(
 
         // Push reply to YouTube (parentId = top-level id OR nested mention comment id)
         try {
-          // C8: if Unique already answered this nested comment in Studio, don't double-post
-          if (comment.kind === 'mention_reply') {
-            try {
-              const existing = await this.youtubeService.listAllCommentReplies(accessToken!, comment.commentId, 20);
-              if (existing.some((r) => this.isCreatorAuthored(r, channel))) {
-                batchDoc.items[batchItemIndex].status = 'skipped_spam';
-                batchDoc.items[batchItemIndex].skipReason = 'Creator already replied on YouTube';
-                batchDoc.items[batchItemIndex].processedAt = new Date();
-                skippedCount++;
-                settledIds.push(comment.commentId);
-                continue;
-              }
-            } catch {
-              /* if we cannot check, proceed carefully */
-            }
-          }
-
           await this.postReply(video.youtubeId, comment.commentId, aiRes.replyText!, channelId, accessToken, {
             source: 'auto',
           });
@@ -837,7 +856,6 @@ ${JSON.stringify(
           batchDoc.items[batchItemIndex].generatedReply = aiRes.replyText;
           batchDoc.items[batchItemIndex].tone = aiRes.tone;
           batchDoc.items[batchItemIndex].processedAt = new Date();
-          // Defensive: never leave a manual label on an AI-completed item
           (batchDoc.items[batchItemIndex] as any).manualReplyText = undefined;
           newlyRepliedIds.push(comment.commentId);
           successfulCount++;
@@ -851,9 +869,23 @@ ${JSON.stringify(
           batchDoc.items[batchItemIndex].error = pushErr.message;
           batchDoc.items[batchItemIndex].processedAt = new Date();
           failedCount++;
-          // Failures stay retryable (not added to settledIds)
+          // Settle failures too — do not rebuild a batch every 5 minutes for the same comment
+          settledIds.push(comment.commentId);
+          if (/quota/i.test(String(pushErr?.message || ''))) {
+            this.quotaService.markDataApiExhaustedToday('comments.insert');
+            await this.quotaService.logCall({
+              channelId,
+              endpoint: 'comments.insert',
+              quotaCost: QUOTA_COST_COMMENT_INSERT,
+              success: false,
+              errorMessage: pushErr.message,
+            });
+            break; // stop remaining inserts this run
+          }
         }
       }
+
+      if (this.quotaService.isDataApiExhausted()) break;
     }
 
     // Finalize AutomationBatch

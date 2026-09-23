@@ -114,14 +114,20 @@ export class AutomationScheduler {
   }
 
   /**
-   * Autonomous 5-minute round-robin comment auto-reply cron.
-   * If 1 video active: processes every 10 min (cooldown check).
-   * If 2-5 videos active: rotates 1 video per 5-minute tick.
+   * Autonomous comment auto-reply cron (every 15 minutes — quota-safe pacing).
+   * If 1 video active: processes every 15 min.
+   * If 2-5 videos active: rotates 1 video per tick.
+   * Pauses for the rest of the PT day if Google reports Data API quota exceeded.
    */
-  @Cron('*/5 * * * *')
+  @Cron('*/15 * * * *')
   async handleAutoCommentRepliesCron() {
     if (this.isProcessingCommentCron) {
       this.logger.debug('Comment auto-reply cron tick skipped — previous execution still in progress.');
+      return;
+    }
+
+    if (this.quotaService.isDataApiExhausted()) {
+      this.logger.warn('Comment auto-reply cron skipped — YouTube Data API quota exhausted for today.');
       return;
     }
 
@@ -137,6 +143,7 @@ export class AutomationScheduler {
           this.logger.warn(
             `Channel ${channel.name} reached quota ceiling (${dailyQuota.used}/${dailyQuota.limit} units). Skipping comment auto-reply.`,
           );
+          this.quotaService.markDataApiExhaustedToday('hard-cap');
           continue;
         }
 
@@ -184,9 +191,17 @@ export class AutomationScheduler {
           channelId,
           remainingDailyCap,
         );
+
+        if (this.quotaService.isDataApiExhausted()) {
+          this.logger.warn('Stopping comment auto-reply for the rest of the tick — Data API quota exhausted.');
+          break;
+        }
       }
     } catch (err: any) {
       this.logger.error(`Error in handleAutoCommentRepliesCron: ${err.message}`, err.stack);
+      if (/quota/i.test(String(err?.message || ''))) {
+        this.quotaService.markDataApiExhaustedToday('cron');
+      }
     } finally {
       this.isProcessingCommentCron = false;
     }

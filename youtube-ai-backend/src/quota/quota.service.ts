@@ -16,19 +16,37 @@ export class QuotaExceededException extends Error {
 export class QuotaService {
   private readonly logger = new Logger(QuotaService.name);
   private readonly YOUTUBE_DAILY_LIMIT = 10000;
+  /** After Google says quota exceeded — pause Data API work until next PT midnight */
+  private dataApiExhaustedUntil: Date | null = null;
 
   constructor(
     @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
   ) {}
+
+  markDataApiExhaustedToday(reason?: string): void {
+    const until = new Date(this.getPTMidnight().getTime() + 24 * 60 * 60 * 1000);
+    if (!this.dataApiExhaustedUntil || this.dataApiExhaustedUntil.getTime() < until.getTime()) {
+      this.dataApiExhaustedUntil = until;
+    }
+    this.logger.warn(`YouTube Data API quota exhausted — pausing Data API jobs until ${until.toISOString()}${reason ? ` (${reason})` : ''}`);
+  }
+
+  isDataApiExhausted(): boolean {
+    return Boolean(this.dataApiExhaustedUntil) && Date.now() < this.dataApiExhaustedUntil!.getTime();
+  }
 
   /**
    * Pre-check: verify quota is available before making a YouTube API call.
    * Throws QuotaExceededException if over limit.
    */
   async checkQuota(channelId: string, endpoint: string, cost: number): Promise<void> {
+    if (this.isDataApiExhausted()) {
+      throw new QuotaExceededException(this.YOUTUBE_DAILY_LIMIT, this.YOUTUBE_DAILY_LIMIT, endpoint, cost);
+    }
     const { used } = await this.getDailyUsage(channelId);
     if (used + cost > this.YOUTUBE_DAILY_LIMIT) {
       this.logger.warn(`Quota check failed: ${used}/${this.YOUTUBE_DAILY_LIMIT} used, ${endpoint} needs ${cost}`);
+      this.markDataApiExhaustedToday('pre-check');
       throw new QuotaExceededException(used, this.YOUTUBE_DAILY_LIMIT, endpoint, cost);
     }
   }
@@ -42,6 +60,9 @@ export class QuotaService {
     errorMessage?: string;
     apiType?: 'youtube_data' | 'youtube_analytics';
   }): Promise<void> {
+    if (params.errorMessage && /quota/i.test(params.errorMessage)) {
+      this.markDataApiExhaustedToday(params.endpoint);
+    }
     try {
       const model = this.channelModel.db.model('ApiQuotaLog') as any;
       let targetChannelId: any = undefined;
