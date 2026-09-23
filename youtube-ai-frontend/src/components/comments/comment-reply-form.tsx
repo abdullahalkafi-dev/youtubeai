@@ -13,6 +13,7 @@ import {
   MicOff,
   Check,
   X,
+  Reply,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
@@ -49,6 +50,10 @@ interface CommentReplyFormProps {
   commentText: string
   onClose: () => void
   autoGenerate?: boolean
+  /** Shown in header so the user knows WHO this reply targets (esp. nested) */
+  replyingToName?: string
+  /** Short quote of the comment being answered */
+  replyPreview?: string
 }
 
 export function CommentReplyForm({
@@ -57,6 +62,8 @@ export function CommentReplyForm({
   commentText,
   onClose,
   autoGenerate = true,
+  replyingToName,
+  replyPreview,
 }: CommentReplyFormProps) {
   const dispatch = useAppDispatch()
   const { replyLoading, generatedReplies } = useAppSelector((s) => s.comments)
@@ -211,6 +218,23 @@ export function CommentReplyForm({
           : 'bg-gray-50 dark:bg-gray-800/80 border-gray-200 dark:border-gray-700/80',
       )}
     >
+      {/* Target: who we are answering (critical for nested threads) */}
+      {replyingToName && (
+        <div className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-indigo-50/60 dark:bg-indigo-950/30 border border-indigo-100 dark:border-indigo-900/50">
+          <Reply className="w-3.5 h-3.5 text-indigo-500 mt-0.5 shrink-0" />
+          <div className="min-w-0">
+            <p className="text-[11px] font-semibold text-indigo-800 dark:text-indigo-200">
+              Replying to {replyingToName}
+            </p>
+            {replyPreview && (
+              <p className="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2 italic">
+                “{replyPreview}”
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* 10-Tone AI Suggestions Panel */}
       <div className="bg-white dark:bg-gray-900 rounded-xl border border-gray-200 dark:border-gray-800 overflow-hidden shadow-sm">
         <div className="px-3.5 py-2.5 bg-gray-50/80 dark:bg-gray-800/60 border-b border-gray-200 dark:border-gray-800 flex items-center justify-between">

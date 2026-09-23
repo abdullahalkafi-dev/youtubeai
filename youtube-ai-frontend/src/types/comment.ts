@@ -27,6 +27,8 @@ export interface Comment {
   replyCount: number
   publishedAt: string
   isCreatorReply?: boolean
+  /** Immediate parent display name when this is a nested reply */
+  replyingToName?: string
 }
 
 export interface CommentThread {

@@ -21,6 +21,12 @@ interface CommentItemProps {
   isReply?: boolean
   hasCreatorReplied?: boolean
   isCreatorReply?: boolean
+  /** Display name of the person this row is answering (nested) */
+  replyingToName?: string
+  /** Top-level author of the thread (for form targeting clarity) */
+  threadRootAuthorName?: string
+  /** Disable reply controls on our own creator rows */
+  canReply?: boolean
 }
 
 export function CommentItem({
@@ -36,6 +42,9 @@ export function CommentItem({
   isReply = false,
   hasCreatorReplied = false,
   isCreatorReply = false,
+  replyingToName,
+  threadRootAuthorName,
+  canReply = true,
 }: CommentItemProps) {
   const [showReplyForm, setShowReplyForm] = useState(false)
   const [showReplies, setShowReplies] = useState(false)
@@ -47,12 +56,21 @@ export function CommentItem({
     .slice(0, 2)
     .toUpperCase()
 
+  // Creator's own comment: no AI/Reply (would reply to ourselves)
+  const allowReplyControls = canReply && !isCreatorReply
+
+  const plainText = String(text || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  const preview = plainText.length > 140 ? `${plainText.slice(0, 140)}…` : plainText
+
   return (
     <div
       className={cn(
         'group p-3 rounded-xl transition border',
         isReply
-          ? 'ml-8 mt-2 bg-gray-50/70 dark:bg-gray-800/40 border-gray-150 dark:border-gray-800/80'
+          ? 'ml-6 sm:ml-8 mt-2 bg-gray-50/70 dark:bg-gray-800/40 border-gray-150 dark:border-gray-800/80'
           : hasCreatorReplied
           ? 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 hover:border-gray-300 dark:hover:border-gray-700'
           : 'bg-amber-50/20 dark:bg-amber-950/10 border-amber-200/50 dark:border-amber-900/30 hover:border-amber-300 dark:hover:border-amber-800',
@@ -71,19 +89,19 @@ export function CommentItem({
         {/* Content */}
         <div className="flex-1 min-w-0">
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-semibold text-gray-900 dark:text-white flex items-center gap-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="text-xs font-semibold text-gray-900 dark:text-white flex items-center gap-1.5 truncate">
                 {authorName}
                 {isCreatorReply && (
-                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-600 text-white shadow-xs">
+                  <span className="text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-indigo-600 text-white shadow-xs shrink-0">
                     Creator
                   </span>
                 )}
               </span>
-              <span className="text-[10px] text-gray-400">{formatDate(publishedAt)}</span>
+              <span className="text-[10px] text-gray-400 shrink-0">{formatDate(publishedAt)}</span>
             </div>
 
-            {/* Responded vs Unresponded Status Badge for Top-level comments */}
+            {/* Status badge — top-level only (thread answered or not) */}
             {!isReply && (
               <div>
                 {hasCreatorReplied ? (
@@ -101,6 +119,12 @@ export function CommentItem({
             )}
           </div>
 
+          {isReply && replyingToName && (
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              replying to {replyingToName}
+            </p>
+          )}
+
           <p
             className="text-xs text-gray-700 dark:text-gray-200 mt-1 leading-relaxed"
             dangerouslySetInnerHTML={{
@@ -111,8 +135,8 @@ export function CommentItem({
             }}
           />
 
-          {/* Action Bar */}
-          <div className="flex items-center gap-3 mt-2.5">
+          {/* Action Bar — same on top-level AND nested viewer comments */}
+          <div className="flex items-center gap-3 mt-2.5 flex-wrap">
             <span
               className="flex items-center gap-1 text-[11px] text-gray-400 select-none cursor-default"
               title={likeCount > 0 ? `${likeCount} ${likeCount === 1 ? 'like' : 'likes'} on YouTube` : '0 likes on YouTube'}
@@ -121,24 +145,24 @@ export function CommentItem({
               {likeCount > 0 && <span>{likeCount}</span>}
             </span>
 
-            {!isReply && (
-              <button
-                onClick={() => setShowReplyForm(!showReplyForm)}
-                className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition px-2 py-0.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
-              >
-                <Sparkles className="w-3 h-3" />
-                {showReplyForm ? 'Close AI Reply' : 'AI Reply'}
-              </button>
-            )}
+            {allowReplyControls && (
+              <>
+                <button
+                  onClick={() => setShowReplyForm(!showReplyForm)}
+                  className="flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition px-2 py-0.5 rounded-md hover:bg-indigo-50 dark:hover:bg-indigo-950/40"
+                >
+                  <Sparkles className="w-3 h-3" />
+                  {showReplyForm ? 'Close AI Reply' : 'AI Reply'}
+                </button>
 
-            {!isReply && (
-              <button
-                onClick={() => setShowReplyForm(!showReplyForm)}
-                className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
-              >
-                <Reply className="w-3 h-3" />
-                Reply
-              </button>
+                <button
+                  onClick={() => setShowReplyForm(!showReplyForm)}
+                  className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition"
+                >
+                  <Reply className="w-3 h-3" />
+                  Reply
+                </button>
+              </>
             )}
 
             {!isReply && replyCount > 0 && (
@@ -147,12 +171,12 @@ export function CommentItem({
                 className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-indigo-500 transition font-medium"
               >
                 <MessageSquare className="w-3 h-3" />
-                {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+                {showReplies ? 'Hide' : ''} {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
               </button>
             )}
           </div>
 
-          {/* Reply Form with 5-Tone Generator */}
+          {/* Reply form — parentId is ALWAYS this row's id (top or nested) */}
           {showReplyForm && (
             <CommentReplyForm
               videoId={videoId}
@@ -160,6 +184,8 @@ export function CommentItem({
               commentText={text}
               onClose={() => setShowReplyForm(false)}
               autoGenerate={true}
+              replyingToName={authorName}
+              replyPreview={preview}
             />
           )}
         </div>
@@ -182,6 +208,9 @@ export function CommentItem({
               videoId={videoId}
               isReply
               isCreatorReply={reply.isCreatorReply}
+              replyingToName={reply.replyingToName || authorName || threadRootAuthorName}
+              threadRootAuthorName={threadRootAuthorName || authorName}
+              canReply={canReply}
             />
           ))}
         </div>

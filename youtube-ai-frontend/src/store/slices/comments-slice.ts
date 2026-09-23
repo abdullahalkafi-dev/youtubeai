@@ -192,23 +192,33 @@ const commentsSlice = createSlice({
       .addCase(postReply.fulfilled, (state, action) => {
         const { parentId, text } = action.meta.arg
         const payload = action.payload as { commentId?: string; authorName?: string; mock?: boolean }
-        const thread = state.threads.find((t) => t.id === parentId || t.replies.some((r) => r.id === parentId))
-        if (thread) {
-          thread.replies.push({
-            id: payload.commentId || `temp_${Date.now()}`,
-            youtubeCommentId: '',
-            parentId,
-            authorName: payload.authorName || 'You (Creator)',
-            authorAvatar: null,
-            text,
-            likeCount: 0,
-            replyCount: 0,
-            publishedAt: new Date().toISOString(),
-            isCreatorReply: true,
-          })
-          thread.replyCount++
-          thread.hasCreatorReplied = true
-        }
+        const newId = payload.commentId || `temp_${Date.now()}`
+
+        // Find thread if parentId is the top-level id OR a nested reply id
+        const thread = state.threads.find(
+          (t) => t.id === parentId || t.replies.some((r) => r.id === parentId),
+        )
+        if (!thread) return
+
+        // Avoid duplicate optimistic rows if the same comment id already exists
+        if (thread.replies.some((r) => r.id === newId)) return
+
+        const parentReply = thread.replies.find((r) => r.id === parentId)
+        thread.replies.push({
+          id: newId,
+          youtubeCommentId: payload.commentId || '',
+          parentId,
+          authorName: payload.authorName || 'You (Creator)',
+          authorAvatar: null,
+          text,
+          likeCount: 0,
+          replyCount: 0,
+          publishedAt: new Date().toISOString(),
+          isCreatorReply: true,
+          replyingToName: parentReply?.authorName,
+        })
+        thread.replyCount = (thread.replyCount || 0) + 1
+        thread.hasCreatorReplied = true
       })
   },
 })
