@@ -39,7 +39,13 @@ interface MessageRendererProps {
 }
 
 function resolveTopicHeadline(content: string, videoTitle?: string, threadTitle?: string): string {
-  if (videoTitle && !/^(?:today'?s\s+video\s+topic\s+ideas|new\s+thread|video\s+topic\s+ideas)$/i.test(videoTitle.trim())) {
+  // Prefer real video title from performance lookup / autopsy (not the chat thread name)
+  const lookupTitle = content.match(/(?:VIDEO PERFORMANCE LOOKUP|VIDEO AUTOPSY)[^\n]*\n(?:[^\n]*\n){0,4}?Title:\s*"([^"]+)"/i)
+    || content.match(/##\s*VIDEO AUTOPSY\s*[—-]\s*"([^"]+)"/i);
+  if (lookupTitle?.[1]?.trim() && !/^youtube video /i.test(lookupTitle[1].trim())) {
+    return lookupTitle[1].trim();
+  }
+  if (videoTitle && !/^(?:today'?s\s+video\s+topic\s+ideas|new\s+thread|video\s+topic\s+ideas|analyze video performance.*|new thread)$/i.test(videoTitle.trim())) {
     return videoTitle.trim();
   }
   const scriptTitleMatch = content.match(/^(?:#+\s*)SCRIPT TITLE:\s*([^\n\r]+)/im);

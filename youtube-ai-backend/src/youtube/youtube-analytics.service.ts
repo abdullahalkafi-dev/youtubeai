@@ -693,10 +693,12 @@ export class YoutubeAnalyticsService {
       });
 
       const row = response.data.rows?.[0];
+      const views = (row?.[0] as number) || 0;
+      const impressions = (row?.[1] as number) || 0;
       return {
-        views: (row?.[0] as number) || 0,
-        impressions: (row?.[1] as number) || 0,
-        impressionsClickThroughRate: this.normalizeCtr(row?.[2]),
+        views,
+        impressions,
+        impressionsClickThroughRate: this.normalizeCtr(row?.[2], impressions > 0 ? views / impressions : 0),
         averageViewPercentage: (row?.[3] as number) || 0,
         estimatedMinutesWatched: (row?.[4] as number) || 0,
       };
@@ -708,13 +710,42 @@ export class YoutubeAnalyticsService {
         success: false,
         errorMessage: error.message,
       });
-      return {
-        views: 0,
-        impressions: 0,
-        impressionsClickThroughRate: 0,
-        averageViewPercentage: 0,
-        estimatedMinutesWatched: 0,
-      };
+      // Fallback: core metrics only (CTR metric may be unsupported)
+      try {
+        const fallback = await retryWithBackoff(
+          () =>
+            youtubeAnalytics.reports.query({
+              auth: oauth2Client,
+              ids: `channel==${youtubeChannelId}`,
+              startDate,
+              endDate,
+              metrics: 'views,estimatedMinutesWatched,averageViewPercentage',
+            }),
+          { operationName: 'YouTube Analytics Packaging Baseline Fallback' },
+        );
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: 'analytics.reports.query (packaging-baseline-fallback)',
+          success: true,
+        });
+        const row = fallback.data.rows?.[0];
+        return {
+          views: (row?.[0] as number) || 0,
+          impressions: 0,
+          impressionsClickThroughRate: 0,
+          averageViewPercentage: (row?.[2] as number) || 0,
+          estimatedMinutesWatched: (row?.[1] as number) || 0,
+        };
+      } catch (fallbackErr: any) {
+        this.logger.warn(`Packaging baseline fallback failed: ${fallbackErr?.message || fallbackErr}`);
+        return {
+          views: 0,
+          impressions: 0,
+          impressionsClickThroughRate: 0,
+          averageViewPercentage: 0,
+          estimatedMinutesWatched: 0,
+        };
+      }
     }
   }
 
@@ -743,7 +774,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched,estimatedRevenue',
+              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched',
             dimensions: 'video',
             sort: '-views',
             maxResults,
@@ -779,7 +810,7 @@ export class YoutubeAnalyticsService {
           ctr: this.normalizeCtr(row[3], impressions > 0 ? ((row[1] as number) || 0) / impressions : 0),
           averageViewPercentage: (row[4] as number) || 0,
           estimatedMinutesWatched: (row[5] as number) || 0,
-          estimatedRevenue: (row[6] as number) || 0,
+          estimatedRevenue: 0,
         };
       });
     } catch (error: any) {
@@ -790,7 +821,49 @@ export class YoutubeAnalyticsService {
         success: false,
         errorMessage: error.message,
       });
-      return [];
+      // Fallback without impressions/CTR
+      try {
+        const fb = await retryWithBackoff(
+          () =>
+            youtubeAnalytics.reports.query({
+              auth: oauth2Client,
+              ids: `channel==${youtubeChannelId}`,
+              startDate,
+              endDate,
+              metrics: 'views,estimatedMinutesWatched,averageViewPercentage',
+              dimensions: 'video',
+              sort: '-views',
+              maxResults,
+            }),
+          { operationName: 'YouTube Analytics Packaging Rows Fallback' },
+        );
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: 'analytics.reports.query (packaging-rows-fallback)',
+          success: true,
+        });
+        const fbRows = fb.data.rows || [];
+        if (!fbRows.length) return [];
+        const videoIds = fbRows.map((r) => r[0] as string);
+        const titleMap = new Map<string, string>();
+        try {
+          const details = await this.youtubeService.getVideoDetails(accessToken, videoIds);
+          for (const d of details) titleMap.set(d.videoId, d.title);
+        } catch { /* titles optional */ }
+        return fbRows.map((row) => ({
+          videoId: row[0] as string,
+          title: titleMap.get(row[0] as string) || `Video ${row[0]}`,
+          views: (row[1] as number) || 0,
+          impressions: 0,
+          ctr: 0,
+          averageViewPercentage: (row[3] as number) || 0,
+          estimatedMinutesWatched: (row[2] as number) || 0,
+          estimatedRevenue: 0,
+        }));
+      } catch (fbErr: any) {
+        this.logger.warn(`Packaging rows fallback failed: ${fbErr?.message || fbErr}`);
+        return [];
+      }
     }
   }
 
@@ -852,7 +925,42 @@ export class YoutubeAnalyticsService {
         success: false,
         errorMessage: error.message,
       });
-      return null;
+      try {
+        const fb = await retryWithBackoff(
+          () =>
+            youtubeAnalytics.reports.query({
+              auth: oauth2Client,
+              ids: `channel==${youtubeChannelId}`,
+              startDate,
+              endDate,
+              metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
+              dimensions: 'video',
+              filters: `video==${youtubeVideoId}`,
+            }),
+          { operationName: 'YouTube Analytics Video Packaging Fallback' },
+        );
+        const rows = fb.data.rows;
+        if (!rows || rows.length === 0) return null;
+        await this.quotaService.logAnalyticsCall({
+          channelId: youtubeChannelId,
+          endpoint: 'analytics.reports.query (video-packaging-fallback)',
+          relatedId: youtubeVideoId,
+          success: true,
+        });
+        return {
+          videoId: rows[0][0] as string,
+          views: (rows[0][1] as number) || 0,
+          estimatedMinutesWatched: (rows[0][2] as number) || 0,
+          averageViewDuration: (rows[0][3] as number) || 0,
+          averageViewPercentage: (rows[0][4] as number) || 0,
+          estimatedRevenue: (rows[0][5] as number) || 0,
+          impressions: 0,
+          impressionsClickThroughRate: 0,
+        };
+      } catch (fbErr: any) {
+        this.logger.warn(`Video packaging fallback failed for ${youtubeVideoId}: ${fbErr?.message || fbErr}`);
+        return null;
+      }
     }
   }
 }

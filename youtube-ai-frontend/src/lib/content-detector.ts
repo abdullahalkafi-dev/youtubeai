@@ -112,16 +112,32 @@ function extractSources(content: string): Array<{ title: string; url: string }> 
 }
 
 function extractSection(content: string, header: string): string {
-  const regex = new RegExp(`## ${header}\\s*\\n([\\s\\S]*?)(?=\\n## |$)`, 'i')
+  // Anchor at line start so "### TITLE" does not match inside "### DESCRIPTION" via ## Title
+  const regex = new RegExp(`^#{1,3}\\s*${header}\\b[^\\n]*\\n([\\s\\S]*?)(?=^#{1,3}\\s+|$)`, 'im')
   const match = content.match(regex)
-  return match?.[1]?.trim() || ''
+  let body = match?.[1]?.trim() || ''
+  // For titles: keep only the recommended/clean line, not the whole kit
+  if (header.toLowerCase() === 'title' && body.length > 120) {
+    const rec = body.match(/\*\*Recommended:?\*\*\s*\n+\s*(.+)/i) || body.match(/^\s*(?:\*\*)?Recommended:?(?:\*\*)?\s*\n+\s*(.+)/im)
+    if (rec?.[1]) {
+      body = rec[1].replace(/^["'\s]+|["'\s]+$/g, '').replace(/\*\*/g, '').trim()
+    } else {
+      const first = body.split('\n').map((l) => l.trim()).find((l) => l && !/^[-*#]/.test(l) && !/^(B\.|C\.|Why |Alternates)/i.test(l))
+      if (first) body = first.replace(/^["'\s]+|["'\s]+$/g, '').replace(/\*\*/g, '').trim()
+    }
+  }
+  return body
 }
 
 function parseSeoContent(content: string): SeoContent | null {
-  let title = extractSection(content, 'Title')
-  const description = extractSection(content, 'Description')
-  const tagsRaw = extractSection(content, 'Tags')
-  const hashtagsRaw = extractSection(content, 'Hashtags')
+  // Prefer REPACKAGE KIT section when present (tighter headers)
+  const kitMatch = content.match(/##\s*REPACKAGE KIT[\s\S]*$/i)
+  const scope = kitMatch?.[0] || content
+
+  let title = extractSection(scope, 'Title')
+  const description = extractSection(scope, 'Description')
+  const tagsRaw = extractSection(scope, 'Tags')
+  const hashtagsRaw = extractSection(scope, 'Hashtags')
 
   if (!title && !description) return null
 
@@ -130,11 +146,24 @@ function parseSeoContent(content: string): SeoContent | null {
     .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
     .replace(/\*\*/g, '')
     .trim()
+    .split('\n')[0]
+    .trim()
 
-  const tags = tagsRaw ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean) : []
-  const hashtags = hashtagsRaw ? hashtagsRaw.split(/[\s,]+/).map(h => h.replace(/^#/, '').trim()).filter(Boolean) : []
+  // Description: drop COPY BUNDLE / APPLY / THUMBNAILS bleed
+  let desc = description
+    .replace(/###\s*COPY BUNDLE[\s\S]*$/i, '')
+    .replace(/###\s*APPLY ORDER[\s\S]*$/i, '')
+    .replace(/###\s*THUMBNAILS[\s\S]*$/i, '')
+    .trim()
 
-  return { title, description, tags, hashtags }
+  const tags = tagsRaw
+    ? tagsRaw.split('\n')[0].split(',').map((t) => t.trim()).filter(Boolean)
+    : []
+  const hashtags = hashtagsRaw
+    ? hashtagsRaw.split(/[\s,]+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean)
+    : []
+
+  return { title, description: desc, tags, hashtags }
 }
 
 function parseThumbnailContent(content: string): ThumbnailConcept[] | null {
@@ -446,7 +475,7 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
   }
 
   // 4. SEO Section (e.g. ## SEO Package or ## Title + ## Description + ## Tags)
-  const SEO_HEADER_REGEX = /(?:^|\n)(#{1,3}\s*(?:\d+\.\s*)?(?:SEO\s*(?:PACKAGE|METADATA|OPTIMIZATION|SUGGESTIONS?)|METADATA\s*PACKAGE)\b[^\n]*|(?=#{1,3}\s*Title\b[\s\S]*?#{1,3}\s*Description\b))/i
+  const SEO_HEADER_REGEX = /(?:^|\n)(#{1,3}\s*(?:\d+\.\s*)?(?:SEO\s*(?:PACKAGE|METADATA|OPTIMIZATION|SUGGESTIONS?)|METADATA\s*PACKAGE|REPACKAGE\s+KIT)\b[^\n]*|(?=#{1,3}\s*Title\b[\s\S]*?#{1,3}\s*Description\b))/i
   const seoHeaderMatch = SEO_HEADER_REGEX.exec(textContent)
   if (seoHeaderMatch && seoHeaderMatch.index !== undefined) {
     const matchedStr = seoHeaderMatch[0]
@@ -454,7 +483,7 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     const afterHeader = textContent.slice(headerStart)
     const firstLineEnd = afterHeader.indexOf('\n')
     const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
-    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b)[^\n]+)/i
+    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b|Recommended\b|Alternates\b|APPLY\b|COPY\b|THUMBNAILS\b)[^\n]+)/i
     const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
     const sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
       ? firstLineEnd + nextSectionMatch.index

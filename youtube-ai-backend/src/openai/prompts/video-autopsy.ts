@@ -15,6 +15,8 @@ export const VIDEO_AUTOPSY_SYSTEM_PROMPT = `You are the Unique Mecca Audio Perfo
 3. NEVER invent CTR, impressions, or view counts.
 4. NO generic coaching (no "post consistently", no "improve your content quality", no edit-length/facecam structure advice).
 5. Output TWO blocks in order: (1) VIDEO AUTOPSY (2) REPACKAGE KIT.
+6. VIDEO IDENTITY (CRITICAL): If VIDEO PERFORMANCE LOOKUP is present, the ONLY valid video is that Title + YouTube ID. Do not write about any other person, case, or video. If that title is "YouTube video XXXXXXXXXXX", say the lookup id and keep the autopsy numeric — do not invent a case name.
+7. Title block: output ONE recommended title line only under ### TITLE (then **Alternates:** as B/C). Never dump the description into the title field.
 
 ## VERDICT (pick exactly one primary)
 - **packaging** — CTR clearly below channel baseline while retention is ok → Title + thumbnail first
@@ -55,7 +57,7 @@ Copy-paste into YouTube Studio. Target CTR: at least the channel baseline shown 
 
 ### TITLE
 **Recommended:**
-[one title]
+[exactly one title line — under 65 chars]
 
 **Alternates:**
 B. [title]

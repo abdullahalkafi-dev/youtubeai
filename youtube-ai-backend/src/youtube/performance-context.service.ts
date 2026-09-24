@@ -177,11 +177,21 @@ export class PerformanceContextService {
     const q = String(query || '');
     if (!q.trim()) return null;
 
-    // Explicit YouTube id (11 chars) in the message
-    const idMatch = q.match(/(?:v=|youtu\.be\/|\/videos\/)([A-Za-z0-9_-]{11})/);
+    // Explicit YouTube id (11 chars) — ALWAYS win over fuzzy title match
+    const idMatch = q.match(/(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)([A-Za-z0-9_-]{11})/);
     if (idMatch && idMatch[1]) {
-      const byYt = await this.videoModel.findOne({ channelId: cId, youtubeId: idMatch[1] }).lean();
+      const ytId = idMatch[1];
+      const byYt = await this.videoModel.findOne({ channelId: cId, youtubeId: ytId }).lean();
       if (byYt) return { video: byYt, score: 100 };
+      // Not in catalog — still lock to this id (never fuzzy-match another title)
+      return {
+        video: {
+          youtubeId: ytId,
+          title: `YouTube video ${ytId}`,
+          viewCount: undefined,
+        },
+        score: 100,
+      };
     }
 
     const quoted = q.match(/"([^"]{4,120})"/);
@@ -243,9 +253,12 @@ export class PerformanceContextService {
         video = await this.videoModel.findById(videoId).lean();
       }
 
-      // Strong title/id match in the question wins over the thread's default video (C3)
+      // Explicit URL id always wins (C3) — never fuzzy-match when a link is present
       const matched = await this.findVideoFromQuery(channelId, query);
-      if (matched && matched.score >= 6) {
+      const hasUrlId = /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)[A-Za-z0-9_-]{11}/.test(
+        query || '',
+      );
+      if (matched && (hasUrlId || matched.score >= 6)) {
         video = matched.video;
       } else if (!video?.youtubeId && matched) {
         video = matched.video;
@@ -273,7 +286,12 @@ export class PerformanceContextService {
       lines.push('VIDEO PERFORMANCE LOOKUP (YouTube Analytics API + local catalog)');
       lines.push(`Title: "${video.title}"`);
       lines.push(`YouTube ID: ${video.youtubeId}`);
-      if (matched && matched.score >= 6) {
+      lines.push(
+        'CRITICAL: Use THIS exact title and YouTube ID only. Never invent another video title. Never analyze a different person/case than this title.',
+      );
+      if (hasUrlId) {
+        lines.push('(Locked to the YouTube link in the user message.)');
+      } else if (matched && matched.score >= 6) {
         lines.push('(Matched from your question wording — if you meant a different video, say the exact title.)');
       } else if (videoId) {
         lines.push('(Using the video attached to this chat thread.)');
