@@ -17,6 +17,8 @@ export interface PerformanceBundleText {
   }>;
   trafficSources?: Array<{ source: string; views: number }>;
   summary?: { views: number; watchTimeHours: number; revenue: number; retentionPercent: number };
+  /** When set, chat should run Autopsy + Repackage Kit format. */
+  mode?: 'autopsy';
 }
 
 /**
@@ -257,7 +259,7 @@ export class PerformanceContextService {
       const { startDate, endDate } = this.dateWindow(28);
 
       const [life, window28, traffic] = await Promise.all([
-        this.analytics.getSingleVideoAnalytics(uid, ytChannelId, video.youtubeId).catch(() => null),
+        this.analytics.getVideoPackagingMetrics(uid, ytChannelId, video.youtubeId).catch(() => null),
         this.analytics
           .getTopVideosByWatchTime(uid, ytChannelId, startDate, endDate, 50)
           .then((rows) => rows.find((r) => r.videoId === video.youtubeId) || null)
@@ -282,8 +284,16 @@ export class PerformanceContextService {
       if (video.retentionPercent) lines.push(`Retention (synced %): ${video.retentionPercent}`);
 
       if (life) {
+        const ctrStr =
+          life.impressionsClickThroughRate != null && life.impressionsClickThroughRate > 0
+            ? ` | CTR ${life.impressionsClickThroughRate.toFixed(1)}%`
+            : ' | CTR n/a';
+        const impStr =
+          life.impressions != null && life.impressions > 0
+            ? ` | ${Math.round(life.impressions).toLocaleString()} impressions`
+            : '';
         lines.push(
-          `Lifetime analytics: ${life.views.toLocaleString()} views | ${Math.round(life.estimatedMinutesWatched).toLocaleString()} watch min | ${Math.round(life.averageViewPercentage)}% avg viewed | ~$${(life.estimatedRevenue || 0).toFixed(2)}`,
+          `Lifetime analytics: ${life.views.toLocaleString()} views${impStr}${ctrStr} | ${Math.round(life.estimatedMinutesWatched).toLocaleString()} watch min | ${Math.round(life.averageViewPercentage)}% avg viewed | ~$${(life.estimatedRevenue || 0).toFixed(2)}`,
         );
       }
       if (window28) {
@@ -291,6 +301,61 @@ export class PerformanceContextService {
           `Last 28 days: ${window28.views.toLocaleString()} views | ${Math.round(window28.watchMinutes).toLocaleString()} watch min | ${Math.round(window28.retentionPercent)}% avg viewed`,
         );
       }
+
+      // Packaging baseline + peer set (for autopsy / repackage)
+      try {
+        const { startDate: baseStart, endDate: baseEnd } = this.dateWindow(28);
+        const [baseline, packagingRows] = await Promise.all([
+          this.analytics.getChannelPackagingBaseline(uid, ytChannelId, baseStart, baseEnd),
+          this.analytics.getVideoPackagingRows(uid, ytChannelId, baseStart, baseEnd, 25),
+        ]);
+        if (baseline.impressionsClickThroughRate > 0 || baseline.views > 0) {
+          lines.push('');
+          lines.push(
+            `CHANNEL BASELINE (28d): median target CTR ${baseline.impressionsClickThroughRate.toFixed(1)}% | avg ${Math.round(baseline.averageViewPercentage)}% viewed | ${baseline.impressions.toLocaleString()} impressions | ${baseline.views.toLocaleString()} views`,
+          );
+        }
+        const peers = packagingRows
+          .filter((r) => r.videoId !== video.youtubeId && r.views > 0)
+          .slice(0, 3);
+        if (peers.length) {
+          lines.push('SIBLING / RECENT VIDEOS (28d window — compare packaging + retention):');
+          peers.forEach((r, i) => {
+            lines.push(
+              `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | imp ${Math.round(r.impressions).toLocaleString()} | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed`,
+            );
+          });
+        }
+        const selfRow = packagingRows.find((r) => r.videoId === video.youtubeId);
+        if (selfRow) {
+          lines.push(
+            `THIS VIDEO (28d window): ${selfRow.views.toLocaleString()} views | imp ${Math.round(selfRow.impressions).toLocaleString()} | CTR ${selfRow.ctr.toFixed(1)}% | ${Math.round(selfRow.averageViewPercentage)}% viewed`,
+          );
+          const ctrDelta = selfRow.ctr - baseline.impressionsClickThroughRate;
+          if (baseline.impressionsClickThroughRate > 0) {
+            lines.push(
+              `CTR vs baseline: ${ctrDelta >= 0 ? '+' : ''}${ctrDelta.toFixed(1)} pts (${ctrDelta < -0.5 ? 'BELOW baseline — packaging is a lever' : ctrDelta > 0.5 ? 'above baseline' : 'near baseline'})`,
+            );
+          }
+          // Persist packaging fields on catalog (non-blocking)
+          this.videoModel
+            .updateOne(
+              { _id: video._id },
+              {
+                $set: {
+                  ctr: selfRow.ctr,
+                  impressions: Math.round(selfRow.impressions),
+                  retentionPercent: Math.round(selfRow.averageViewPercentage),
+                  lastAnalyticsSync: new Date(),
+                },
+              },
+            )
+            .catch(() => {});
+        }
+      } catch (pkgErr: any) {
+        this.logger.warn(`Packaging context skipped: ${pkgErr?.message || pkgErr}`);
+      }
+
       if (traffic.length) {
         lines.push('Channel traffic mix (context, last 28d): ' + traffic.slice(0, 5).map((t) => `${t.source} ${t.views}`).join(', '));
       }
@@ -298,21 +363,178 @@ export class PerformanceContextService {
         lines.push('No Analytics rows for this video in the queried windows — use catalog stats and say the range is empty.');
       }
       lines.push('Use these numbers to answer “what is this video getting” — do not say you cannot see analytics.');
+      lines.push('If asked why this video failed or for a repackage, output the VIDEO AUTOPSY + REPACKAGE KIT format (metrics first, paste-ready SEO + thumbs). Never ask the user for Studio screenshots.');
 
-      return { text: lines.join('\n'), ok: true };
+      return { text: lines.join('\n'), ok: true, mode: 'autopsy' };
     } catch (err: any) {
       this.logger.warn(`Video performance lookup failed: ${err?.message || err}`);
       return null;
     }
   }
 
-  /** Heuristic: does this chat message want performance/analytics data? (narrow — C4) */
+  /**
+   * Channel Health Bundle: 28d vs prior 28d + traffic shift + winners/misses.
+   * For "why less views / what will work" diagnosis.
+   */
+  async buildChannelHealthBundle(
+    userId: string,
+    channelId: string,
+  ): Promise<PerformanceBundleText> {
+    try {
+      const channel = await this.channelModel.findById(channelId).lean();
+      if (!channel?.youtubeChannelId || !channel.userId) {
+        return { text: 'CHANNEL HEALTH: unavailable (channel not linked).', ok: false };
+      }
+      const uid = channel.userId.toString();
+      const ytChannelId = channel.youtubeChannelId;
+
+      const end = new Date();
+      const mid = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+      const start = new Date(Date.now() - 56 * 24 * 60 * 60 * 1000);
+      const fmt = (d: Date) => d.toISOString().split('T')[0];
+      const [curStart, curEnd, prevStart, prevEnd] = [fmt(mid), fmt(end), fmt(start), fmt(mid)];
+
+      const [cur, prev, curTraffic, prevTraffic, rows, searchTerms] = await Promise.all([
+        this.analytics.getChannelPackagingBaseline(uid, ytChannelId, curStart, curEnd),
+        this.analytics.getChannelPackagingBaseline(uid, ytChannelId, prevStart, prevEnd),
+        this.analytics.getTrafficSources(uid, ytChannelId, curStart, curEnd),
+        this.analytics.getTrafficSources(uid, ytChannelId, prevStart, prevEnd),
+        this.analytics.getVideoPackagingRows(uid, ytChannelId, curStart, curEnd, 20),
+        this.analytics.getTopSearchTerms(uid, ytChannelId, curStart, curEnd, 8),
+      ]);
+
+      const pct = (a: number, b: number) =>
+        b === 0 ? (a > 0 ? 100 : 0) : Math.round(((a - b) / b) * 100);
+
+      const lines: string[] = [];
+      lines.push('CHANNEL HEALTH BUNDLE (last 28d vs prior 28d)');
+      lines.push(
+        `WINDOWS: current ${curStart} → ${curEnd} | prior ${prevStart} → ${prevEnd}`,
+      );
+      lines.push('');
+      lines.push('| Metric | Prior 28d | Last 28d | Δ |');
+      lines.push('|---|---:|---:|---:|');
+      lines.push(
+        `| Views | ${prev.views.toLocaleString()} | ${cur.views.toLocaleString()} | ${pct(cur.views, prev.views)}% |`,
+      );
+      lines.push(
+        `| Impressions | ${Math.round(prev.impressions).toLocaleString()} | ${Math.round(cur.impressions).toLocaleString()} | ${pct(cur.impressions, prev.impressions)}% |`,
+      );
+      lines.push(
+        `| CTR | ${prev.impressionsClickThroughRate.toFixed(1)}% | ${cur.impressionsClickThroughRate.toFixed(1)}% | ${(cur.impressionsClickThroughRate - prev.impressionsClickThroughRate).toFixed(1)} pts |`,
+      );
+      lines.push(
+        `| Avg % viewed | ${Math.round(prev.averageViewPercentage)}% | ${Math.round(cur.averageViewPercentage)}% | ${(cur.averageViewPercentage - prev.averageViewPercentage).toFixed(0)} pts |`,
+      );
+      lines.push(
+        `| Watch min | ${Math.round(prev.estimatedMinutesWatched).toLocaleString()} | ${Math.round(cur.estimatedMinutesWatched).toLocaleString()} | ${pct(cur.estimatedMinutesWatched, prev.estimatedMinutesWatched)}% |`,
+      );
+
+      // Traffic shift (sources that moved)
+      const prevMap = new Map(prevTraffic.map((t) => [t.source, t.views]));
+      lines.push('');
+      lines.push('TRAFFIC SHIFT (only sources with meaningful move):');
+      const moves: string[] = [];
+      for (const t of curTraffic) {
+        const before = prevMap.get(t.source) || 0;
+        const d = pct(t.views, before);
+        if (Math.abs(d) >= 10 || (before === 0 && t.views > 100)) {
+          moves.push(`- ${t.source}: ${before.toLocaleString()} → ${t.views.toLocaleString()} (${d}%)`);
+        }
+      }
+      for (const [source, before] of prevMap) {
+        if (!curTraffic.find((t) => t.source === source) && before > 100) {
+          moves.push(`- ${source}: ${before.toLocaleString()} → 0 (−100%)`);
+        }
+      }
+      lines.push(moves.length ? moves.join('\n') : '(no source moved ≥10%)');
+
+      if (rows.length) {
+        const byCtr = [...rows].sort((a, b) => b.ctr - a.ctr);
+        lines.push('');
+        lines.push('TOP PERFORMERS (28d by views):');
+        rows.slice(0, 3).forEach((r, i) => {
+          lines.push(
+            `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed | imp ${Math.round(r.impressions).toLocaleString()}`,
+          );
+        });
+        lines.push('BOTTOM / LOW CTR (repackage candidates):');
+        const low = [...rows]
+          .filter((r) => r.views > 0)
+          .sort((a, b) => a.ctr - b.ctr)
+          .slice(0, 3);
+        low.forEach((r, i) => {
+          lines.push(
+            `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed`,
+          );
+        });
+        lines.push(`Highest CTR reference: "${byCtr[0]?.title}" at ${byCtr[0]?.ctr.toFixed(1)}%`);
+      }
+
+      if (searchTerms.length) {
+        lines.push('');
+        lines.push('TOP SEARCH TERMS (28d):');
+        lines.push(searchTerms.map((s) => `- "${s.term}" (${s.views.toLocaleString()})`).join('\n'));
+      }
+
+      lines.push('');
+      lines.push(
+        'DIAGNOSIS RULES: Pick ONE primary cause: A reach/impressions · B packaging/CTR · C retention · D topic fatigue · E fewer uploads · F traffic mix shift. Evidence must cite the Δ table. Recommendations must be packaging/topic/search/SEO actions only (no edit-structure coaching). End with a 7-day plan and 14d success metrics. Never ask for Studio screenshots.',
+      );
+
+      return {
+        text: lines.join('\n'),
+        ok: true,
+        summary: {
+          views: cur.views,
+          watchTimeHours: Math.round(cur.estimatedMinutesWatched / 60),
+          revenue: 0,
+          retentionPercent: Math.round(cur.averageViewPercentage),
+        },
+      };
+    } catch (err: any) {
+      this.logger.warn(`Channel health bundle failed: ${err?.message || err}`);
+      return {
+        text: 'CHANNEL HEALTH: temporarily unavailable. Say data is limited; still answer with catalog + trends. Never pretend Studio access.',
+        ok: false,
+      };
+    }
+  }
+
+  /** Heuristic: does this chat message want performance/analytics data? */
   static isPerformanceQuery(message: string): boolean {
-    const lower = String(message || '').toLowerCase();
-    // Must look like a performance/analytics question, not any message containing "views"/"what my"
-    if (/\b(how (is|are|was|did) (this|that|my|the|our) (video|videos|upload|content)|what (is|are|was) (this|that|my|the|our) (video|videos) (getting|doing|perform)|getting views|view count|watch time|watchtime|retention|audience retention|search terms?|traffic source|ctr|impressions|youtube analytics|channel analytics|video performance|performance (of|for|on)|what (videos?|content) (do|does) (my|the) (channel|audience)|what my (channel|audience|videos?|content))\b/i.test(lower)) {
+    const lower = String(message || '');
+    if (
+      /\b(how (is|are|was|did) (this|that|my|the|our) (video|videos|upload|content)|what (is|are|was) (this|that|my|the|our) (video|videos) (getting|doing|perform)|getting views|view count|watch time|watchtime|retention|audience retention|search terms?|traffic source|\bctr\b|click[-\s]?through|impressions|youtube analytics|channel analytics|video performance|performance (of|for|on)|what (videos?|content) (do|does) (my|the) (channel|audience)|what my (channel|audience|videos?|content)|why (this|that|my|the) (video|upload|content).{0,40}(bad|badly|fail|failed|flop|low|under)|not doing (good|well)|isn'?t doing (good|well)|low (views|ctr|impressions|click)|didn'?t do (good|well)|compared to (the |my )?(other|rest)|repackage|autopsy|video audit|why did (this|that|my))\b/i.test(lower)
+    ) {
       return true;
     }
+    // Pasted YouTube link + failure/performance language nearby
+    if (/(?:youtu\.be\/|v=|\/videos\/)[A-Za-z0-9_-]{11}/.test(lower)) {
+      if (/\b(why|bad|badly|fail|low|views|ctr|click|impressions|analytics|doing|performance|fix|repackage|improve)\b/i.test(lower)) {
+        return true;
+      }
+    }
     return false;
+  }
+
+  /** True when the user is asking why a specific video failed (autopsy + kit). */
+  static isVideoAutopsyQuery(message: string): boolean {
+    const lower = String(message || '');
+    const hasVideoRef =
+      /(?:youtu\.be\/|watch\?v=|\/videos\/)[A-Za-z0-9_-]{11}/.test(lower) ||
+      /\b(this|that|my|the)\s+(video|upload)\b/i.test(lower);
+    const hasFailure =
+      /\b(bad|badly|fail|failed|flop|low|underperform|not doing|isn'?t doing|didn'?t do|worse|why|ctr|click[-\s]?through|repackage|fix this|improve this|do better)\b/i.test(lower);
+    return hasVideoRef && hasFailure;
+  }
+
+  /** True for channel-level "why less views / what will work" diagnosis. */
+  static isChannelDiagnosisQuery(message: string): boolean {
+    const lower = String(message || '');
+    if (/(?:youtu\.be\/|watch\?v=)[A-Za-z0-9_-]{11}/.test(lower)) return false;
+    return /\b((why|how).{0,30}(less|fewer|down|drop|dropped|flat|low).{0,20}(views|view|traffic|impressions)|views? (are |is )?(down|dropped|flat|low|falling)|channel (is |was )?(down|flat|dying|slow)|what (is |will )?work|what'?s working|fix my channel|audit (my |the )?channel|channel (audit|diagnosis|health)|not getting views)\b/i.test(
+      lower,
+    );
   }
 }

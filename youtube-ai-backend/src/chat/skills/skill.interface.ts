@@ -32,6 +32,9 @@ export interface SkillContext {
     viewCount: number;
     youtubeId: string;
   }>;
+  /** Autopsy vs channel diagnosis (from PerformanceContextService). */
+  analysisMode?: 'autopsy' | 'diagnosis';
+  performanceLookup?: string;
 }
 
 export interface ChatSkill {

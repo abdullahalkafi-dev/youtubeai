@@ -1000,6 +1000,61 @@ ${thumbnailFormat}`,
       getTemperature: () => 0.7,
     });
 
+    // Analysis skill — Video Autopsy + Repackage Kit / Channel Diagnosis
+    const analysisFormat = `## OUTPUT CONTRACT
+
+Follow the system prompt exactly. Two modes:
+
+**A. Video Autopsy + Repackage Kit** (when a specific video is failing):
+1. ## VIDEO AUTOPSY — with verdict, metrics table, siblings, what died
+2. ## REPACKAGE KIT — Title / Description / Tags / Hashtags / Thumbnails / Apply order / COPY BUNDLE
+Paste-ready. Target CTR = channel baseline from context.
+
+**B. Channel Diagnosis** (why less views / what will work):
+1. Verdict (primary cause A–F)
+2. Numbers tables from CHANNEL HEALTH BUNDLE
+3. What broke (ranked)
+4. What will work (data + 14d metric)
+5. 7-day plan + next actions
+
+Never ask for Studio screenshots. Never invent metrics.`;
+
+    this.register({
+      name: 'Performance Analyst',
+      category: 'analysis',
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are the Unique Mecca Audio Performance Analyst. Diagnose with real numbers and ship paste-ready fixes.\n\n${analysisFormat}`,
+      loadContext: async (channelId, videoId) => {
+        const base = await this.loadBaseContext(channelId, videoId);
+        try {
+          const channel = await this.channelModel.findById(channelId).lean();
+          if (channel?.youtubeChannelId && channel?.userId) {
+            const uid = channel.userId.toString();
+            const bundle = await this.performanceContext.buildChannelPerformanceContext(
+              uid,
+              channelId.toString(),
+              30,
+            );
+            const s = bundle.summary;
+            base.channelAnalytics = {
+              views: s?.views || 0,
+              watchTimeHours: s?.watchTimeHours || 0,
+              revenue: s?.revenue || 0,
+              retentionPercent: s?.retentionPercent || 0,
+              trafficSources: bundle.trafficSources || [],
+              rawBundle: bundle.text,
+            };
+          }
+        } catch (error: any) {
+          this.logger.warn(`Analysis loadContext analytics failed: ${error.message}`);
+        }
+        return base;
+      },
+      getFormatInstructions: () => analysisFormat,
+      getTemperature: () => 0.4,
+    });
+
     // Scene image skill — 16:9 cinematic b-roll/background generation
     const imageFormat = `Format 3 scene concepts in this exact structure:
 
@@ -1112,6 +1167,15 @@ ${imageFormat}`,
     if (/\b(ideas?|score.*ideas?|rate.*ideas?|evaluate|greenlight|pass)\b/i.test(lower)) return 'ideas';
 
     if (/\b(outlines?|structure|organize|plan.*video|hooks?|angles?)\b/i.test(lower)) return 'outline';
+
+    // Performance analysis — video autopsy / channel diagnosis / repackage
+    if (
+      /\b(autopsy|repackage|re-package|why (this|that|my).{0,20}(video|upload).{0,30}(bad|fail|low)|not doing (good|well)|isn'?t doing (good|well)|click[-\s]?through|ctr|impressions|audit (my |the )?channel|channel (diagnosis|health|audit)|views? (are |is )?(down|dropped|flat|falling)|less views|fewer views|what (is |will )?work(ing)?)\b/i.test(
+        lower,
+      )
+    ) {
+      return 'analysis';
+    }
 
     return 'general';
   }

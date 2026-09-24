@@ -331,6 +331,7 @@ export class OpenAIService {
     systemPromptOverride?: string;
     dynamicContext?: string;
     temperature?: number;
+    maxCompletionTokens?: number;
   }): Promise<{
     content: string;
     usage?: TokenUsage;
@@ -370,7 +371,7 @@ export class OpenAIService {
       model: this.model,
       messages: finalMessages,
       temperature: params.temperature ?? 0.7,
-      max_completion_tokens: 4096,
+      max_completion_tokens: params.maxCompletionTokens ?? 4096,
     });
 
     const response = await retryWithBackoff(
@@ -692,6 +693,7 @@ export class OpenAIService {
     systemPromptOverride?: string;
     dynamicContext?: string;
     temperature?: number;
+    maxCompletionTokens?: number;
   }): AsyncGenerator<{ chunk: string; usage?: TokenUsage }> {
     let messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }>;
 
@@ -727,7 +729,7 @@ export class OpenAIService {
       model: this.model,
       messages: finalMessages,
       temperature: params.temperature ?? 0.7,
-      max_completion_tokens: 4096,
+      max_completion_tokens: params.maxCompletionTokens ?? 4096,
       stream: true,
       stream_options: { include_usage: true },
     });

@@ -14,6 +14,30 @@ export interface VideoAnalytics {
   averageViewDuration: number;
   averageViewPercentage: number;
   estimatedRevenue: number;
+  impressions?: number;
+  /** Click-through rate as 0–100 (e.g. 5.2 = 5.2%). */
+  impressionsClickThroughRate?: number;
+}
+
+export interface ChannelPackagingBaseline {
+  views: number;
+  impressions: number;
+  /** 0–100 */
+  impressionsClickThroughRate: number;
+  averageViewPercentage: number;
+  estimatedMinutesWatched: number;
+}
+
+export interface VideoPackagingRow {
+  videoId: string;
+  title: string;
+  views: number;
+  impressions: number;
+  /** 0–100 */
+  ctr: number;
+  averageViewPercentage: number;
+  estimatedMinutesWatched: number;
+  estimatedRevenue: number;
 }
 
 @Injectable()
@@ -41,7 +65,7 @@ export class YoutubeAnalyticsService {
         const startTime = Date.now();
         const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
           auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate, endDate,
-          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
+          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
           dimensions: 'video', sort: '-views', maxResults: MAX_RESULTS_PER_PAGE, startIndex,
         }), { operationName: 'YouTube Analytics Query' });
 
@@ -61,6 +85,8 @@ export class YoutubeAnalyticsService {
             videoId: row[0] as string, views: (row[1] as number) || 0,
             estimatedMinutesWatched: (row[2] as number) || 0, averageViewDuration: (row[3] as number) || 0,
             averageViewPercentage: (row[4] as number) || 0, estimatedRevenue: (row[5] as number) || 0,
+            impressions: (row[6] as number) || 0,
+            impressionsClickThroughRate: this.normalizeCtr(row[6], row[7]),
           });
         }
         if (rows.length < MAX_RESULTS_PER_PAGE || startIndex + MAX_RESULTS_PER_PAGE > 200) break;
@@ -88,7 +114,7 @@ export class YoutubeAnalyticsService {
     try {
       const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
         auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate: '2005-01-01', endDate: new Date().toISOString().split('T')[0],
-        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
+        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
         dimensions: 'video', filters: `video==${youtubeVideoId}`,
       }), { operationName: 'YouTube Analytics Single Video' });
 
@@ -102,7 +128,16 @@ export class YoutubeAnalyticsService {
         success: true,
       });
 
-      return { videoId: rows[0][0] as string, views: (rows[0][1] as number) || 0, estimatedMinutesWatched: (rows[0][2] as number) || 0, averageViewDuration: (rows[0][3] as number) || 0, averageViewPercentage: (rows[0][4] as number) || 0, estimatedRevenue: (rows[0][5] as number) || 0 };
+      return {
+        videoId: rows[0][0] as string,
+        views: (rows[0][1] as number) || 0,
+        estimatedMinutesWatched: (rows[0][2] as number) || 0,
+        averageViewDuration: (rows[0][3] as number) || 0,
+        averageViewPercentage: (rows[0][4] as number) || 0,
+        estimatedRevenue: (rows[0][5] as number) || 0,
+        impressions: (rows[0][6] as number) || 0,
+        impressionsClickThroughRate: this.normalizeCtr(rows[0][6], rows[0][7]),
+      };
     } catch (error) { 
       this.logger.error(`Failed to fetch analytics: ${error.message}`); 
       await this.quotaService.logAnalyticsCall({
@@ -610,5 +645,214 @@ export class YoutubeAnalyticsService {
     }));
 
     return result;
+  }
+
+  /** Normalize CTR API value (0–1 or already %) to 0–100. */
+  private normalizeCtr(...values: Array<number | undefined>): number {
+    for (const v of values) {
+      if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+        return v <= 1 ? Math.round(v * 10000) / 100 : Math.round(v * 100) / 100;
+      }
+    }
+    return 0;
+  }
+
+  /**
+   * Channel packaging baseline over a date window (impressions + CTR + retention).
+   * Cheap Analytics query — use for "is this video below baseline?".
+   */
+  async getChannelPackagingBaseline(
+    userId: string,
+    youtubeChannelId: string,
+    startDate: string,
+    endDate: string,
+  ): Promise<ChannelPackagingBaseline> {
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    try {
+      const response = await retryWithBackoff(
+        () =>
+          youtubeAnalytics.reports.query({
+            auth: oauth2Client,
+            ids: `channel==${youtubeChannelId}`,
+            startDate,
+            endDate,
+            metrics:
+              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched',
+          }),
+        { operationName: 'YouTube Analytics Packaging Baseline' },
+      );
+
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (packaging-baseline)',
+        success: true,
+      });
+
+      const row = response.data.rows?.[0];
+      return {
+        views: (row?.[0] as number) || 0,
+        impressions: (row?.[1] as number) || 0,
+        impressionsClickThroughRate: this.normalizeCtr(row?.[2]),
+        averageViewPercentage: (row?.[3] as number) || 0,
+        estimatedMinutesWatched: (row?.[4] as number) || 0,
+      };
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch packaging baseline: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (packaging-baseline)',
+        success: false,
+        errorMessage: error.message,
+      });
+      return {
+        views: 0,
+        impressions: 0,
+        impressionsClickThroughRate: 0,
+        averageViewPercentage: 0,
+        estimatedMinutesWatched: 0,
+      };
+    }
+  }
+
+  /**
+   * Per-video packaging rows (views, impressions, CTR, retention) sorted by views.
+   * Used for winners/misses and peer compare. Titles filled via Data API when possible.
+   */
+  async getVideoPackagingRows(
+    userId: string,
+    youtubeChannelId: string,
+    startDate: string,
+    endDate: string,
+    maxResults = 30,
+  ): Promise<VideoPackagingRow[]> {
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    try {
+      const response = await retryWithBackoff(
+        () =>
+          youtubeAnalytics.reports.query({
+            auth: oauth2Client,
+            ids: `channel==${youtubeChannelId}`,
+            startDate,
+            endDate,
+            metrics:
+              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched,estimatedRevenue',
+            dimensions: 'video',
+            sort: '-views',
+            maxResults,
+          }),
+        { operationName: 'YouTube Analytics Packaging Rows' },
+      );
+
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (packaging-rows)',
+        success: true,
+      });
+
+      const rows = response.data.rows || [];
+      if (rows.length === 0) return [];
+
+      const videoIds = rows.map((r) => r[0] as string);
+      const titleMap = new Map<string, string>();
+      try {
+        const details = await this.youtubeService.getVideoDetails(accessToken, videoIds);
+        for (const d of details) titleMap.set(d.videoId, d.title);
+      } catch (err: any) {
+        this.logger.warn(`Packaging row titles failed: ${err?.message || err}`);
+      }
+
+      return rows.map((row) => {
+        const impressions = (row[2] as number) || 0;
+        return {
+          videoId: row[0] as string,
+          title: titleMap.get(row[0] as string) || `Video ${row[0]}`,
+          views: (row[1] as number) || 0,
+          impressions,
+          ctr: this.normalizeCtr(row[3], impressions > 0 ? ((row[1] as number) || 0) / impressions : 0),
+          averageViewPercentage: (row[4] as number) || 0,
+          estimatedMinutesWatched: (row[5] as number) || 0,
+          estimatedRevenue: (row[6] as number) || 0,
+        };
+      });
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch packaging rows: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (packaging-rows)',
+        success: false,
+        errorMessage: error.message,
+      });
+      return [];
+    }
+  }
+
+  /** Single-video packaging metrics in a date window (defaults lifetime-ish caller-supplied). */
+  async getVideoPackagingMetrics(
+    userId: string,
+    youtubeChannelId: string,
+    youtubeVideoId: string,
+    startDate = '2005-01-01',
+    endDate = new Date().toISOString().split('T')[0],
+  ): Promise<VideoAnalytics | null> {
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+
+    try {
+      const response = await retryWithBackoff(
+        () =>
+          youtubeAnalytics.reports.query({
+            auth: oauth2Client,
+            ids: `channel==${youtubeChannelId}`,
+            startDate,
+            endDate,
+            metrics:
+              'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
+            dimensions: 'video',
+            filters: `video==${youtubeVideoId}`,
+          }),
+        { operationName: 'YouTube Analytics Video Packaging' },
+      );
+
+      const rows = response.data.rows;
+      if (!rows || rows.length === 0) return null;
+
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (video-packaging)',
+        relatedId: youtubeVideoId,
+        success: true,
+      });
+
+      return {
+        videoId: rows[0][0] as string,
+        views: (rows[0][1] as number) || 0,
+        estimatedMinutesWatched: (rows[0][2] as number) || 0,
+        averageViewDuration: (rows[0][3] as number) || 0,
+        averageViewPercentage: (rows[0][4] as number) || 0,
+        estimatedRevenue: (rows[0][5] as number) || 0,
+        impressions: (rows[0][6] as number) || 0,
+        impressionsClickThroughRate: this.normalizeCtr(rows[0][6], rows[0][7]),
+      };
+    } catch (error: any) {
+      this.logger.warn(`Failed to fetch video packaging for ${youtubeVideoId}: ${error.message}`);
+      await this.quotaService.logAnalyticsCall({
+        channelId: youtubeChannelId,
+        endpoint: 'analytics.reports.query (video-packaging)',
+        relatedId: youtubeVideoId,
+        success: false,
+        errorMessage: error.message,
+      });
+      return null;
+    }
   }
 }

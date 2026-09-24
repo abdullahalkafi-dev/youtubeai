@@ -16,6 +16,10 @@ import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { PerformanceContextService } from '../youtube/performance-context.service';
+import {
+  VIDEO_AUTOPSY_SYSTEM_PROMPT,
+  CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
+} from '../openai/prompts/video-autopsy';
 import { SkillRegistry } from './skills/skill-registry';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -237,20 +241,24 @@ export class ChatService {
 
     // On-demand performance lookup (Analytics + local catalog) when asked about views / this video
     let performanceLookup = '';
+    let analysisMode: 'autopsy' | 'diagnosis' | undefined;
     try {
       const q = cleanUserPrompt || dto.content;
-      if (PerformanceContextService.isPerformanceQuery(q)) {
-        const uid = channel?.userId?.toString();
-        const cid = updatedThread.channelId.toString();
-        if (uid) {
-          const lookup = await this.performanceContext.buildVideoPerformanceLookup(
-            uid,
-            cid,
-            q,
-            updatedThread.videoId || undefined,
-          );
-          if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
-        }
+      const uid = channel?.userId?.toString();
+      const cid = updatedThread.channelId.toString();
+      if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
+        analysisMode = 'diagnosis';
+        const health = await this.performanceContext.buildChannelHealthBundle(uid, cid);
+        if (health?.text) performanceLookup = '\n\n' + health.text;
+      } else if (uid && (PerformanceContextService.isVideoAutopsyQuery(q) || PerformanceContextService.isPerformanceQuery(q))) {
+        if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
+        const lookup = await this.performanceContext.buildVideoPerformanceLookup(
+          uid,
+          cid,
+          q,
+          updatedThread.videoId || undefined,
+        );
+        if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
       }
     } catch (perfErr: any) {
       this.logger.warn(`Performance lookup skipped: ${perfErr?.message || perfErr}`);
@@ -274,13 +282,22 @@ export class ChatService {
     }
 
     // Build STATIC system prompt (byte-identical across requests for caching)
-    const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+    let systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+    if (analysisMode === 'autopsy') {
+      systemPrompt = VIDEO_AUTOPSY_SYSTEM_PROMPT;
+    } else if (analysisMode === 'diagnosis') {
+      systemPrompt = CHANNEL_DIAGNOSIS_SYSTEM_PROMPT;
+    }
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
 
     // Detect if research is needed
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+    // Autopsy/diagnosis are metrics-first — skip web search noise
+    if (analysisMode || resolvedSkill === 'analysis') {
+      needsResearch = false;
+    }
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
     if (!this.areTrendsFresh(skillContext.trendingTopics)) {
@@ -317,6 +334,10 @@ export class ChatService {
         systemPromptOverride: systemPrompt,
         dynamicContext,
         temperature: skill.getTemperature?.() ?? 0.7,
+        maxCompletionTokens:
+          analysisMode === 'autopsy' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
+            ? 8192
+            : 4096,
       });
     }
 
@@ -418,12 +439,20 @@ export class ChatService {
 
     // On-demand performance lookup for stream path
     let performanceLookup = '';
+    let analysisMode: 'autopsy' | 'diagnosis' | undefined;
     try {
       const q = dto.content;
-      if (PerformanceContextService.isPerformanceQuery(q) && channel?.userId) {
+      const uid = channel?.userId?.toString();
+      const cid = updatedThread.channelId.toString();
+      if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
+        analysisMode = 'diagnosis';
+        const health = await this.performanceContext.buildChannelHealthBundle(uid, cid);
+        if (health?.text) performanceLookup = '\n\n' + health.text;
+      } else if (uid && (PerformanceContextService.isVideoAutopsyQuery(q) || PerformanceContextService.isPerformanceQuery(q))) {
+        if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
         const lookup = await this.performanceContext.buildVideoPerformanceLookup(
-          channel.userId.toString(),
-          updatedThread.channelId.toString(),
+          uid,
+          cid,
           q,
           updatedThread.videoId || undefined,
         );
@@ -432,7 +461,12 @@ export class ChatService {
     } catch { /* optional */ }
 
     // Build STATIC system prompt (byte-identical across requests for caching)
-    const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+    let systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
+    if (analysisMode === 'autopsy') {
+      systemPrompt = VIDEO_AUTOPSY_SYSTEM_PROMPT;
+    } else if (analysisMode === 'diagnosis') {
+      systemPrompt = CHANNEL_DIAGNOSIS_SYSTEM_PROMPT;
+    }
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
@@ -464,6 +498,9 @@ export class ChatService {
 
     // Detect if research is needed
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+    if (analysisMode || resolvedSkill === 'analysis') {
+      needsResearch = false;
+    }
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
     if (!this.areTrendsFresh(skillContext.trendingTopics)) {
@@ -510,6 +547,10 @@ export class ChatService {
             systemPromptOverride: systemPrompt,
             dynamicContext,
             temperature: skill.getTemperature?.() ?? 0.7,
+            maxCompletionTokens:
+              analysisMode === 'autopsy' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
+                ? 8192
+                : 4096,
           })) {
             if (chunk.chunk) {
               fullContent += chunk.chunk;
@@ -924,6 +965,9 @@ export class ChatService {
    * Triggers for: outline/script/trends/thumbnail/ideas skills, legal/crime keywords, and research-oriented questions.
    */
   private detectNeedsResearch(message: string, category?: string): boolean {
+    // Performance analysis is metrics-first — never force web search
+    if (category === 'analysis') return false;
+
     // Trends, outline, script, thumbnail, ideas, and competitor skills always benefit from current web research
     if (
       category === 'outline' ||

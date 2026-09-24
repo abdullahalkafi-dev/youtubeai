@@ -41,3 +41,9 @@ export {
   buildThumbnailPrompt,
   THUMBNAIL_PROMPT_VERSION,
 } from './thumbnails';
+export {
+  VIDEO_AUTOPSY_SYSTEM_PROMPT,
+  CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
+  buildVideoAutopsyUserPrompt,
+  VIDEO_AUTOPSY_PROMPT_VERSION,
+} from './video-autopsy';

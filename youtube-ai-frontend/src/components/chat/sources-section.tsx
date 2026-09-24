@@ -1,6 +1,7 @@
 'use client'
 
-import { ExternalLink, Globe } from 'lucide-react'
+import { useState } from 'react'
+import { ExternalLink, ChevronDown, ChevronRight } from 'lucide-react'
 
 interface Source {
   title: string
@@ -29,16 +30,24 @@ function getFaviconUrl(url: string): string {
 }
 
 export function SourcesSection({ sources }: SourcesSectionProps) {
+  const [expanded, setExpanded] = useState(false)
   if (!sources || sources.length === 0) return null
+
+  const visible = expanded ? sources : sources.slice(0, 5)
 
   return (
     <div className="mt-4 pt-3 border-t border-gray-100 dark:border-gray-700/50">
-      <p className="text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2.5 flex items-center gap-1.5">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-1.5 text-xs font-semibold text-gray-500 dark:text-gray-400 mb-2.5 hover:text-indigo-600 dark:hover:text-indigo-300 transition"
+      >
         <ExternalLink className="w-3 h-3" />
         Sources ({sources.length})
-      </p>
+        {expanded ? <ChevronDown className="w-3.5 h-3.5 ml-auto" /> : <ChevronRight className="w-3.5 h-3.5 ml-auto" />}
+      </button>
       <div className="space-y-1.5">
-        {sources.slice(0, 5).map((source, idx) => (
+        {visible.map((source, idx) => (
           <a
             key={idx}
             href={source.url}
@@ -62,10 +71,14 @@ export function SourcesSection({ sources }: SourcesSectionProps) {
             </span>
           </a>
         ))}
-        {sources.length > 5 && (
-          <p className="text-[10px] text-gray-400 pl-2">
-            +{sources.length - 5} more sources
-          </p>
+        {!expanded && sources.length > 5 && (
+          <button
+            type="button"
+            onClick={() => setExpanded(true)}
+            className="text-[11px] text-indigo-600 dark:text-indigo-400 pl-2 hover:underline"
+          >
+            Show {sources.length - 5} more sources
+          </button>
         )}
       </div>
     </div>
