@@ -10,7 +10,6 @@ import { TrendsCard } from './trends-card'
 import { OutlineCard } from './outline-card'
 import { MarkdownRenderer } from './markdown-renderer'
 import { SourcesSection } from './sources-section'
-import { RepackageKitSection } from './repackage-kit-section'
 import { formatAssetUrl } from '@/lib/api'
 import { Wand2, ExternalLink } from 'lucide-react'
 
@@ -268,7 +267,6 @@ export function MessageRenderer({
       ) : (
         <>
           <MarkdownRenderer content={parsed.raw} />
-          <RepackageKitSection content={parsed.raw} />
           {messageImages && messageImages.length > 0 && (
             <div className="mt-3 space-y-3">
               {messageImages.map((img: any, idx: number) => (

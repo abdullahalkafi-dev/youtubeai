@@ -161,6 +161,8 @@ export class VideosService {
         avgWatchTime: analytics.averageViewDuration,
         retentionPercent: analytics.averageViewPercentage,
         estimatedRevenue: analytics.estimatedRevenue,
+        impressions: analytics.impressions,
+        ctr: analytics.impressionsClickThroughRate,
         lastAnalyticsSync: new Date(),
       },
     }, { new: true }).lean();

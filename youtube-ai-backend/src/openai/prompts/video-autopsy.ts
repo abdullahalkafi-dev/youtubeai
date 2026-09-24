@@ -113,17 +113,9 @@ BAN standalone filler words. NEVER include private names (Wainsworth / Hall).
 <!-- THUMBNAILS_END -->
 
 ### APPLY ORDER
-1. [Title + which concept] 
-2. [Description + tags]
+1. [Title + which concept]
+2. [Description + tags] — the SEO sections above ARE the paste package (Title / Description / Tags / Hashtags). Do NOT add a separate COPY BUNDLE.
 3. Re-check CTR in 72h. Target: ≥ [baseline]%. If still below, switch concept.
-
-### COPY BUNDLE
-In a single fenced block, output:
-TITLE: ...
-DESCRIPTION: ...
-TAGS: ...
-HASHTAGS: ...
-(so the creator can copy everything at once)
 
 ## TITLE STYLE
 - Under 65 chars when possible (hard 70)

@@ -1007,7 +1007,7 @@ Follow the system prompt exactly. Two modes:
 
 **A. Video Autopsy + Repackage Kit** (when a specific video is failing):
 1. ## VIDEO AUTOPSY — with verdict, metrics table, siblings, what died
-2. ## REPACKAGE KIT — Title / Description / Tags / Hashtags / Thumbnails / Apply order / COPY BUNDLE
+2. ## REPACKAGE KIT — Title / Description / Tags / Hashtags / Thumbnails / Apply order (no COPY BUNDLE; SeoCard is the package)
 Paste-ready. Target CTR = channel baseline from context.
 
 **B. Channel Diagnosis** (why less views / what will work):

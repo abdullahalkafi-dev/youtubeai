@@ -65,7 +65,7 @@ export class YoutubeAnalyticsService {
         const startTime = Date.now();
         const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
           auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate, endDate,
-          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
+          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
           dimensions: 'video', sort: '-views', maxResults: MAX_RESULTS_PER_PAGE, startIndex,
         }), { operationName: 'YouTube Analytics Query' });
 
@@ -114,7 +114,7 @@ export class YoutubeAnalyticsService {
     try {
       const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
         auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate: '2005-01-01', endDate: new Date().toISOString().split('T')[0],
-        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
+        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
         dimensions: 'video', filters: `video==${youtubeVideoId}`,
       }), { operationName: 'YouTube Analytics Single Video' });
 
@@ -604,21 +604,9 @@ export class YoutubeAnalyticsService {
       }
     };
 
-    const ageRows = await run('audience-age', {
-      metrics: 'views',
-      dimensions: 'ageGroup',
-      sort: '-views',
-      maxResults: 10,
-    });
-    result.ageGroups = ageRows.map((r) => ({ group: String(r[0] || ''), views: (r[1] as number) || 0 }));
-
-    const genderRows = await run('audience-gender', {
-      metrics: 'views',
-      dimensions: 'gender',
-      sort: '-views',
-      maxResults: 5,
-    });
-    result.genders = genderRows.map((r) => ({ gender: String(r[0] || ''), views: (r[1] as number) || 0 }));
+    // ageGroup/gender reports are not supported for this channel (API: "query is not supported")
+    result.ageGroups = [];
+    result.genders = [];
 
     const countryRows = await run('audience-country', {
       metrics: 'views,estimatedMinutesWatched',
@@ -681,7 +669,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched',
+              'views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewPercentage,estimatedMinutesWatched',
           }),
         { operationName: 'YouTube Analytics Packaging Baseline' },
       );
@@ -774,7 +762,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,impressions,impressionsClickThroughRate,averageViewPercentage,estimatedMinutesWatched',
+              'views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewPercentage,estimatedMinutesWatched',
             dimensions: 'video',
             sort: '-views',
             maxResults,
@@ -889,7 +877,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,impressions,impressionsClickThroughRate',
+              'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
             dimensions: 'video',
             filters: `video==${youtubeVideoId}`,
           }),

@@ -143,11 +143,13 @@ function parseSeoContent(content: string): SeoContent | null {
 
   // Sanitize title from markdown formatting like **Title** or "Title"
   title = title
-    .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
     .replace(/\*\*/g, '')
     .trim()
-    .split('\n')[0]
-    .trim()
+  const titleLines = title.split('\n').map((l) => l.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()).filter(Boolean)
+  // Skip labels like "Recommended:" / "Alternates:" — take the actual title line
+  title = titleLines.find((l) => !/^(recommended|alternates?|why (this|the) title|title)\s*:?$/i.test(l)) || titleLines[0] || ''
+  title = title.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()
+  if (title.length > 70) title = title.split('\n')[0].slice(0, 70)
 
   // Description: drop COPY BUNDLE / APPLY / THUMBNAILS bleed
   let desc = description
@@ -483,11 +485,16 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     const afterHeader = textContent.slice(headerStart)
     const firstLineEnd = afterHeader.indexOf('\n')
     const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
-    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b|Recommended\b|Alternates\b|APPLY\b|COPY\b|THUMBNAILS\b)[^\n]+)/i
+    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b|Recommended\b|Alternates\b|APPLY\b|COPY\b|THUMBNAILS\b|Concept\b)[^\n]+)/i
     const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
-    const sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
+    // Stop SEO block before thumbnail delimiters so ThumbnailCard can own that range
+    const thumbCut = afterHeader.search(/<!--\s*THUMBNAILS_START\s*-->/i)
+    let sectionLength = nextSectionMatch && nextSectionMatch.index !== undefined
       ? firstLineEnd + nextSectionMatch.index
       : afterHeader.length
+    if (thumbCut >= 0 && thumbCut < sectionLength) {
+      sectionLength = thumbCut
+    }
     const seoSectionText = afterHeader.slice(0, sectionLength).trim()
     const seo = parseSeoContent(seoSectionText)
     if (seo) {
