@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { YouTubeService } from './youtube.service';
 import { YoutubeAnalyticsService } from './youtube-analytics.service';
+import { YoutubeReportingService } from './youtube-reporting.service';
 import { PerformanceContextService } from './performance-context.service';
 import { YouTubeSuggestionsService } from './youtube-suggestions.service';
 import { YouTubeTranscriptService } from './youtube-transcript.service';
@@ -22,6 +23,7 @@ import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
   providers: [
     YouTubeService,
     YoutubeAnalyticsService,
+    YoutubeReportingService,
     PerformanceContextService,
     YouTubeSuggestionsService,
     YouTubeTranscriptService,
@@ -29,6 +31,7 @@ import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
   exports: [
     YouTubeService,
     YoutubeAnalyticsService,
+    YoutubeReportingService,
     PerformanceContextService,
     YouTubeSuggestionsService,
     YouTubeTranscriptService,

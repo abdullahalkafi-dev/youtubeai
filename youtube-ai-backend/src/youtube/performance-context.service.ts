@@ -5,6 +5,7 @@ import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
 import { YouTubeService } from '../youtube/youtube.service';
+import { YoutubeReportingService } from '../youtube/youtube-reporting.service';
 
 export interface PerformanceBundleText {
   text: string;
@@ -33,6 +34,7 @@ export class PerformanceContextService {
   constructor(
     private readonly analytics: YoutubeAnalyticsService,
     private readonly youtubeService: YouTubeService,
+    private readonly reporting: YoutubeReportingService,
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
     @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
   ) {}
@@ -515,10 +517,43 @@ export class PerformanceContextService {
       // Packaging baseline + peer set (for autopsy / repackage)
       try {
         const { startDate: baseStart, endDate: baseEnd } = this.dateWindow(28);
-        const [baseline, packagingRows] = await Promise.all([
+        const [baseline, packagingRows, reachRows] = await Promise.all([
           this.analytics.getChannelPackagingBaseline(uid, ytChannelId, baseStart, baseEnd),
           this.analytics.getVideoPackagingRows(uid, ytChannelId, baseStart, baseEnd, 25),
+          this.reporting.getReachMetrics(uid).catch(() => [] as Array<{ videoId: string; impressions: number; ctr: number }>),
         ]);
+        // Overlay real CTR/impressions from Reporting API Reach (only official source)
+        if (reachRows.length) {
+          const reachMap = new Map(reachRows.map((r) => [r.videoId, r]));
+          for (const row of packagingRows) {
+            const r = reachMap.get(row.videoId);
+            if (r) {
+              row.impressions = r.impressions;
+              row.ctr = r.ctr;
+            }
+          }
+          const selfReach = reachMap.get(video.youtubeId);
+          if (selfReach) {
+            life && ((life as any).impressions = selfReach.impressions);
+            life && ((life as any).impressionsClickThroughRate = selfReach.ctr);
+          }
+          // Channel baseline CTR = total clicks proxy = mean of video CTRs weighted — use simple avg of positive CTRs
+          const positive = reachRows.filter((r) => r.ctr > 0);
+          if (positive.length && baseline.impressionsClickThroughRate <= 0) {
+            baseline.impressionsClickThroughRate =
+              Math.round((positive.reduce((s, r) => s + r.ctr, 0) / positive.length) * 100) / 100;
+            let impSum = 0;
+            for (const r of reachRows) impSum += Number(r.impressions) || 0;
+            baseline.impressions = impSum;
+          }
+          lines.push(
+            'CTR source: YouTube Reporting API Reach (channel_reach_basic_a1) — thumbnail impressions + CTR.',
+          );
+        } else {
+          lines.push(
+            'CTR: unavailable via Analytics API (unsupported). Reporting Reach job may still be filling (can lag 24–48h after first setup).',
+          );
+        }
         if (baseline.impressionsClickThroughRate > 0 || baseline.views > 0) {
           lines.push('');
           const ctrLabel =

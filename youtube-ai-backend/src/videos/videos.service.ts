@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { SeoVersion, SeoVersionDocument } from '../mongo/schemas/seo-version.schema';
 import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
+import { YoutubeReportingService } from '../youtube/youtube-reporting.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { MinioService } from '../minio/minio.service';
@@ -22,6 +23,7 @@ export class VideosService {
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
     @InjectModel(SeoVersion.name) private readonly seoVersionModel: Model<SeoVersionDocument>,
     private readonly youtubeAnalyticsService: YoutubeAnalyticsService,
+    private readonly youtubeReportingService: YoutubeReportingService,
     private readonly youtubeService: YouTubeService,
     private readonly chromaService: ChromaService,
     private readonly minioService: MinioService,
@@ -156,13 +158,25 @@ export class VideosService {
     const analytics = await this.youtubeAnalyticsService.getSingleVideoAnalytics(userId, channel.youtubeChannelId, video.youtubeId);
     if (!analytics) return null;
 
+    // Thumbnail CTR lives only in Reporting API reach reports
+    let impressions = analytics.impressions || 0;
+    let ctr = analytics.impressionsClickThroughRate || 0;
+    try {
+      const reach = await this.youtubeReportingService.getReachMetrics(userId, [video.youtubeId]);
+      const r = reach.find((x) => x.videoId === video.youtubeId);
+      if (r) {
+        impressions = r.impressions || impressions;
+        ctr = r.ctr || ctr;
+      }
+    } catch { /* reach optional */ }
+
     const updated = await this.videoModel.findByIdAndUpdate(new Types.ObjectId(videoId), {
       $set: {
         avgWatchTime: analytics.averageViewDuration,
         retentionPercent: analytics.averageViewPercentage,
         estimatedRevenue: analytics.estimatedRevenue,
-        impressions: analytics.impressions,
-        ctr: analytics.impressionsClickThroughRate,
+        impressions,
+        ctr,
         lastAnalyticsSync: new Date(),
       },
     }, { new: true }).lean();

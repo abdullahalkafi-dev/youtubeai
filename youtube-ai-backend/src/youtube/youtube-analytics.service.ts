@@ -65,7 +65,7 @@ export class YoutubeAnalyticsService {
         const startTime = Date.now();
         const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
           auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate, endDate,
-          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
+          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
           dimensions: 'video', sort: '-views', maxResults: MAX_RESULTS_PER_PAGE, startIndex,
         }), { operationName: 'YouTube Analytics Query' });
 
@@ -85,8 +85,6 @@ export class YoutubeAnalyticsService {
             videoId: row[0] as string, views: (row[1] as number) || 0,
             estimatedMinutesWatched: (row[2] as number) || 0, averageViewDuration: (row[3] as number) || 0,
             averageViewPercentage: (row[4] as number) || 0, estimatedRevenue: (row[5] as number) || 0,
-            impressions: (row[6] as number) || 0,
-            impressionsClickThroughRate: this.normalizeCtr(row[6], row[7]),
           });
         }
         if (rows.length < MAX_RESULTS_PER_PAGE || startIndex + MAX_RESULTS_PER_PAGE > 200) break;
@@ -114,7 +112,7 @@ export class YoutubeAnalyticsService {
     try {
       const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
         auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate: '2005-01-01', endDate: new Date().toISOString().split('T')[0],
-        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
+        metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
         dimensions: 'video', filters: `video==${youtubeVideoId}`,
       }), { operationName: 'YouTube Analytics Single Video' });
 
@@ -135,8 +133,6 @@ export class YoutubeAnalyticsService {
         averageViewDuration: (rows[0][3] as number) || 0,
         averageViewPercentage: (rows[0][4] as number) || 0,
         estimatedRevenue: (rows[0][5] as number) || 0,
-        impressions: (rows[0][6] as number) || 0,
-        impressionsClickThroughRate: this.normalizeCtr(rows[0][6], rows[0][7]),
       };
     } catch (error) { 
       this.logger.error(`Failed to fetch analytics: ${error.message}`); 
@@ -669,7 +665,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewPercentage,estimatedMinutesWatched',
+              'views,averageViewPercentage,estimatedMinutesWatched',
           }),
         { operationName: 'YouTube Analytics Packaging Baseline' },
       );
@@ -681,14 +677,12 @@ export class YoutubeAnalyticsService {
       });
 
       const row = response.data.rows?.[0];
-      const views = (row?.[0] as number) || 0;
-      const impressions = (row?.[1] as number) || 0;
       return {
-        views,
-        impressions,
-        impressionsClickThroughRate: this.normalizeCtr(row?.[2], impressions > 0 ? views / impressions : 0),
-        averageViewPercentage: (row?.[3] as number) || 0,
-        estimatedMinutesWatched: (row?.[4] as number) || 0,
+        views: (row?.[0] as number) || 0,
+        impressions: 0,
+        impressionsClickThroughRate: 0,
+        averageViewPercentage: (row?.[1] as number) || 0,
+        estimatedMinutesWatched: (row?.[2] as number) || 0,
       };
     } catch (error: any) {
       this.logger.warn(`Failed to fetch packaging baseline: ${error.message}`);
@@ -762,7 +756,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,videoThumbnailImpressions,videoThumbnailImpressionsClickRate,averageViewPercentage,estimatedMinutesWatched',
+              'views,estimatedMinutesWatched,averageViewPercentage',
             dimensions: 'video',
             sort: '-views',
             maxResults,
@@ -788,19 +782,16 @@ export class YoutubeAnalyticsService {
         this.logger.warn(`Packaging row titles failed: ${err?.message || err}`);
       }
 
-      return rows.map((row) => {
-        const impressions = (row[2] as number) || 0;
-        return {
-          videoId: row[0] as string,
-          title: titleMap.get(row[0] as string) || `Video ${row[0]}`,
-          views: (row[1] as number) || 0,
-          impressions,
-          ctr: this.normalizeCtr(row[3], impressions > 0 ? ((row[1] as number) || 0) / impressions : 0),
-          averageViewPercentage: (row[4] as number) || 0,
-          estimatedMinutesWatched: (row[5] as number) || 0,
-          estimatedRevenue: 0,
-        };
-      });
+      return rows.map((row) => ({
+        videoId: row[0] as string,
+        title: titleMap.get(row[0] as string) || `Video ${row[0]}`,
+        views: (row[1] as number) || 0,
+        impressions: 0,
+        ctr: 0,
+        estimatedMinutesWatched: (row[2] as number) || 0,
+        averageViewPercentage: (row[3] as number) || 0,
+        estimatedRevenue: 0,
+      }));
     } catch (error: any) {
       this.logger.warn(`Failed to fetch packaging rows: ${error.message}`);
       await this.quotaService.logAnalyticsCall({
@@ -877,7 +868,7 @@ export class YoutubeAnalyticsService {
             startDate,
             endDate,
             metrics:
-              'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue,videoThumbnailImpressions,videoThumbnailImpressionsClickRate',
+              'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
             dimensions: 'video',
             filters: `video==${youtubeVideoId}`,
           }),
@@ -901,8 +892,8 @@ export class YoutubeAnalyticsService {
         averageViewDuration: (rows[0][3] as number) || 0,
         averageViewPercentage: (rows[0][4] as number) || 0,
         estimatedRevenue: (rows[0][5] as number) || 0,
-        impressions: (rows[0][6] as number) || 0,
-        impressionsClickThroughRate: this.normalizeCtr(rows[0][6], rows[0][7]),
+        impressions: 0,
+        impressionsClickThroughRate: 0,
       };
     } catch (error: any) {
       this.logger.warn(`Failed to fetch video packaging for ${youtubeVideoId}: ${error.message}`);
