@@ -19,6 +19,7 @@ import { PerformanceContextService } from '../youtube/performance-context.servic
 import {
   VIDEO_AUTOPSY_SYSTEM_PROMPT,
   CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
+  PUBLIC_VIDEO_SYSTEM_PROMPT,
 } from '../openai/prompts/video-autopsy';
 import { SkillRegistry } from './skills/skill-registry';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
@@ -241,7 +242,7 @@ export class ChatService {
 
     // On-demand performance lookup (Analytics + local catalog) when asked about views / this video
     let performanceLookup = '';
-    let analysisMode: 'autopsy' | 'diagnosis' | undefined;
+    let analysisMode: 'autopsy' | 'diagnosis' | 'public' | undefined;
     try {
       const q = cleanUserPrompt || dto.content;
       const uid = channel?.userId?.toString();
@@ -251,7 +252,6 @@ export class ChatService {
         const health = await this.performanceContext.buildChannelHealthBundle(uid, cid);
         if (health?.text) performanceLookup = '\n\n' + health.text;
       } else if (uid && (PerformanceContextService.isVideoAutopsyQuery(q) || PerformanceContextService.isPerformanceQuery(q))) {
-        if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
         const lookup = await this.performanceContext.buildVideoPerformanceLookup(
           uid,
           cid,
@@ -259,6 +259,8 @@ export class ChatService {
           updatedThread.videoId || undefined,
         );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+        if (lookup?.mode === 'public') analysisMode = 'public';
+        else if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
       }
     } catch (perfErr: any) {
       this.logger.warn(`Performance lookup skipped: ${perfErr?.message || perfErr}`);
@@ -285,6 +287,8 @@ export class ChatService {
     let systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
     if (analysisMode === 'autopsy') {
       systemPrompt = VIDEO_AUTOPSY_SYSTEM_PROMPT;
+    } else if (analysisMode === 'public') {
+      systemPrompt = PUBLIC_VIDEO_SYSTEM_PROMPT;
     } else if (analysisMode === 'diagnosis') {
       systemPrompt = CHANNEL_DIAGNOSIS_SYSTEM_PROMPT;
     }
@@ -335,7 +339,7 @@ export class ChatService {
         dynamicContext,
         temperature: skill.getTemperature?.() ?? 0.7,
         maxCompletionTokens:
-          analysisMode === 'autopsy' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
+          analysisMode === 'autopsy' || analysisMode === 'public' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
             ? 8192
             : 4096,
       });
@@ -439,7 +443,7 @@ export class ChatService {
 
     // On-demand performance lookup for stream path
     let performanceLookup = '';
-    let analysisMode: 'autopsy' | 'diagnosis' | undefined;
+    let analysisMode: 'autopsy' | 'diagnosis' | 'public' | undefined;
     try {
       const q = dto.content;
       const uid = channel?.userId?.toString();
@@ -457,6 +461,8 @@ export class ChatService {
           updatedThread.videoId || undefined,
         );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+        if (lookup?.mode === 'public') analysisMode = 'public';
+        else if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
       }
     } catch { /* optional */ }
 
@@ -464,6 +470,8 @@ export class ChatService {
     let systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
     if (analysisMode === 'autopsy') {
       systemPrompt = VIDEO_AUTOPSY_SYSTEM_PROMPT;
+    } else if (analysisMode === 'public') {
+      systemPrompt = PUBLIC_VIDEO_SYSTEM_PROMPT;
     } else if (analysisMode === 'diagnosis') {
       systemPrompt = CHANNEL_DIAGNOSIS_SYSTEM_PROMPT;
     }
@@ -548,7 +556,7 @@ export class ChatService {
             dynamicContext,
             temperature: skill.getTemperature?.() ?? 0.7,
             maxCompletionTokens:
-              analysisMode === 'autopsy' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
+              analysisMode === 'autopsy' || analysisMode === 'public' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
                 ? 8192
                 : 4096,
           })) {

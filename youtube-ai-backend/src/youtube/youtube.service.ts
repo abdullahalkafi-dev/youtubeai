@@ -229,6 +229,8 @@ export class YouTubeService {
             license: item.status?.license || 'youtube', defaultLanguage: item.snippet?.defaultLanguage || '',
             defaultAudioLanguage: item.snippet?.defaultAudioLanguage || '', liveBroadcastContent: item.snippet?.liveBroadcastContent || 'none',
             projection: item.contentDetails?.projection || 'rectangular',
+            channelId: item.snippet?.channelId || '',
+            channelTitle: item.snippet?.channelTitle || '',
           });
         }
       } catch (error) {
