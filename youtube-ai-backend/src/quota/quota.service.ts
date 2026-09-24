@@ -5,10 +5,23 @@ import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
 
 export class QuotaExceededException extends Error {
   public readonly reason = 'quotaExceeded';
+  /** Which wall tripped: full Data API 10k vs comments-only sub-budget. */
+  public readonly scope: 'data_api' | 'comments_budget' | 'analytics';
 
-  constructor(used: number, limit: number, endpoint: string, cost: number) {
-    super(`YouTube API quota exceeded: ${used}/${limit} used. Cannot call ${endpoint} (cost: ${cost}).`);
+  constructor(
+    used: number,
+    limit: number,
+    endpoint: string,
+    cost: number,
+    scope: 'data_api' | 'comments_budget' | 'analytics' = 'data_api',
+  ) {
+    super(
+      scope === 'comments_budget'
+        ? `Comments daily budget exceeded: ${used}/${limit} used. Cannot call ${endpoint} (cost: ${cost}). Resets at midnight Pacific Time.`
+        : `YouTube API quota exceeded: ${used}/${limit} used. Cannot call ${endpoint} (cost: ${cost}).`,
+    );
     this.name = 'QuotaExceededException';
+    this.scope = scope;
   }
 }
 
@@ -16,8 +29,14 @@ export class QuotaExceededException extends Error {
 export class QuotaService {
   private readonly logger = new Logger(QuotaService.name);
   private readonly YOUTUBE_DAILY_LIMIT = 10000;
+  private readonly COMMENTS_DAILY_BUDGET = parseInt(
+    process.env.COMMENTS_DAILY_QUOTA_BUDGET || '4500',
+    10,
+  );
   /** After Google says quota exceeded — pause Data API work until next PT midnight */
   private dataApiExhaustedUntil: Date | null = null;
+  /** Comments-only sub-budget wall — does not stop SEO/trends/sync. */
+  private commentsBudgetExhaustedUntil: Date | null = null;
 
   constructor(
     @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
@@ -28,11 +47,31 @@ export class QuotaService {
     if (!this.dataApiExhaustedUntil || this.dataApiExhaustedUntil.getTime() < until.getTime()) {
       this.dataApiExhaustedUntil = until;
     }
+    // Full Data API wall also stops comments (they share Google's 10k).
+    this.markCommentsBudgetExhaustedToday(reason || 'data-api');
     this.logger.warn(`YouTube Data API quota exhausted — pausing Data API jobs until ${until.toISOString()}${reason ? ` (${reason})` : ''}`);
   }
 
   isDataApiExhausted(): boolean {
     return Boolean(this.dataApiExhaustedUntil) && Date.now() < this.dataApiExhaustedUntil!.getTime();
+  }
+
+  markCommentsBudgetExhaustedToday(reason?: string): void {
+    const until = new Date(this.getPTMidnight().getTime() + 24 * 60 * 60 * 1000);
+    if (!this.commentsBudgetExhaustedUntil || this.commentsBudgetExhaustedUntil.getTime() < until.getTime()) {
+      this.commentsBudgetExhaustedUntil = until;
+    }
+    this.logger.warn(
+      `Comments daily budget exhausted — pausing comment list/insert until ${until.toISOString()}${reason ? ` (${reason})` : ''}`,
+    );
+  }
+
+  isCommentsBudgetExhausted(): boolean {
+    return Boolean(this.commentsBudgetExhaustedUntil) && Date.now() < this.commentsBudgetExhaustedUntil!.getTime();
+  }
+
+  private isCommentEndpoint(endpoint: string): boolean {
+    return /comment/i.test(String(endpoint || ''));
   }
 
   /**
@@ -41,13 +80,44 @@ export class QuotaService {
    */
   async checkQuota(channelId: string, endpoint: string, cost: number): Promise<void> {
     if (this.isDataApiExhausted()) {
-      throw new QuotaExceededException(this.YOUTUBE_DAILY_LIMIT, this.YOUTUBE_DAILY_LIMIT, endpoint, cost);
+      throw new QuotaExceededException(this.YOUTUBE_DAILY_LIMIT, this.YOUTUBE_DAILY_LIMIT, endpoint, cost, 'data_api');
+    }
+    if (this.isCommentEndpoint(endpoint)) {
+      await this.checkCommentsBudget(channelId, endpoint, cost);
+      return;
     }
     const { used } = await this.getDailyUsage(channelId);
     if (used + cost > this.YOUTUBE_DAILY_LIMIT) {
       this.logger.warn(`Quota check failed: ${used}/${this.YOUTUBE_DAILY_LIMIT} used, ${endpoint} needs ${cost}`);
       this.markDataApiExhaustedToday('pre-check');
-      throw new QuotaExceededException(used, this.YOUTUBE_DAILY_LIMIT, endpoint, cost);
+      throw new QuotaExceededException(used, this.YOUTUBE_DAILY_LIMIT, endpoint, cost, 'data_api');
+    }
+  }
+
+  /**
+   * Comments-only sub-budget (default 4500/day). Stops comment list+insert without
+   * pausing SEO/trends/sync. Also respects the global Data API wall.
+   */
+  async checkCommentsBudget(channelId: string, endpoint: string, cost: number): Promise<void> {
+    if (this.isDataApiExhausted()) {
+      throw new QuotaExceededException(this.YOUTUBE_DAILY_LIMIT, this.YOUTUBE_DAILY_LIMIT, endpoint, cost, 'data_api');
+    }
+    if (this.isCommentsBudgetExhausted()) {
+      throw new QuotaExceededException(
+        this.COMMENTS_DAILY_BUDGET,
+        this.COMMENTS_DAILY_BUDGET,
+        endpoint,
+        cost,
+        'comments_budget',
+      );
+    }
+    const { used } = await this.getCommentsDailyUsage(channelId);
+    if (used + cost > this.COMMENTS_DAILY_BUDGET) {
+      this.logger.warn(
+        `Comments budget check failed: ${used}/${this.COMMENTS_DAILY_BUDGET} used, ${endpoint} needs ${cost}`,
+      );
+      this.markCommentsBudgetExhaustedToday('pre-check');
+      throw new QuotaExceededException(used, this.COMMENTS_DAILY_BUDGET, endpoint, cost, 'comments_budget');
     }
   }
 
@@ -61,7 +131,13 @@ export class QuotaService {
     apiType?: 'youtube_data' | 'youtube_analytics';
   }): Promise<void> {
     if (params.errorMessage && /quota/i.test(params.errorMessage)) {
-      this.markDataApiExhaustedToday(params.endpoint);
+      // Google's wall is global. Comments-only budget messages also say "quota" —
+      // only trip the full Data API pause for non-comment endpoints or real Google errors.
+      if (this.isCommentEndpoint(params.endpoint) && /comments daily budget/i.test(params.errorMessage)) {
+        this.markCommentsBudgetExhaustedToday(params.endpoint);
+      } else {
+        this.markDataApiExhaustedToday(params.endpoint);
+      }
     }
     try {
       const model = this.channelModel.db.model('ApiQuotaLog') as any;
@@ -156,6 +232,37 @@ export class QuotaService {
     }
 
     return { used, limit: this.YOUTUBE_DAILY_LIMIT, breakdown: breakdownMap };
+  }
+
+  /** Sum of comment-related Data API units today (list + insert). */
+  async getCommentsDailyUsage(channelId: string) {
+    const ptMidnight = this.getPTMidnight();
+    const model = this.channelModel.db.model('ApiQuotaLog') as any;
+    const isObjId = Types.ObjectId.isValid(channelId);
+    const cId = isObjId ? new Types.ObjectId(channelId) : null;
+    const channelMatch = cId
+      ? { $or: [{ channelId: cId }, { channelId }] }
+      : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
+
+    const breakdown = await model.aggregate([
+      {
+        $match: {
+          ...channelMatch,
+          calledAt: { $gte: ptMidnight },
+          apiType: { $ne: 'youtube_analytics' },
+          endpoint: /comment/i,
+        },
+      },
+      { $group: { _id: '$endpoint', total: { $sum: '$quotaCost' } } },
+    ]);
+
+    const used = breakdown.reduce((sum: number, b: any) => sum + (b.total || 0), 0);
+    const breakdownMap: Record<string, number> = {};
+    for (const b of breakdown) {
+      breakdownMap[b._id] = b.total || 0;
+    }
+
+    return { used, limit: this.COMMENTS_DAILY_BUDGET, breakdown: breakdownMap };
   }
 
   async getAnalyticsDailyUsage(channelId: string) {

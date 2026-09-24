@@ -293,6 +293,7 @@ export class AutomationService implements OnApplicationBootstrap {
 
     const totalLifetimeReplies = totalLifetimeRepliesResult[0]?.total || 0;
     const todayCount = todayBatchesAggregation[0]?.totalReplies || 0;
+    const commentsBudget = await this.quotaService.getCommentsDailyUsage(channelId);
 
     return {
       dailyCommentCap: DEFAULT_COMMENT_DAILY_CAP,
@@ -305,6 +306,10 @@ export class AutomationService implements OnApplicationBootstrap {
       totalBatches,
       scheduleInterval: '5 minutes (Round-Robin)',
       channelName: channel?.name || 'Channel',
+      commentsQuotaUsed: commentsBudget.used,
+      commentsQuotaLimit: commentsBudget.limit,
+      commentsQuotaRemaining: Math.max(0, commentsBudget.limit - commentsBudget.used),
+      commentsBudgetExhausted: this.quotaService.isCommentsBudgetExhausted(),
     };
   }
 

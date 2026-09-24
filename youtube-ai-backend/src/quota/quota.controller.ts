@@ -10,7 +10,23 @@ export class QuotaController {
 
   @Get()
   async getDailyUsage(@Param('channelId') channelId: string) {
-    return this.quotaService.getDailyUsage(channelId);
+    const data = await this.quotaService.getDailyUsage(channelId);
+    const comments = await this.quotaService.getCommentsDailyUsage(channelId);
+    return {
+      ...data,
+      comments,
+      commentsBudgetExhausted: this.quotaService.isCommentsBudgetExhausted(),
+      dataApiExhausted: this.quotaService.isDataApiExhausted(),
+    };
+  }
+
+  @Get('comments')
+  async getCommentsUsage(@Param('channelId') channelId: string) {
+    const comments = await this.quotaService.getCommentsDailyUsage(channelId);
+    return {
+      ...comments,
+      exhausted: this.quotaService.isCommentsBudgetExhausted(),
+    };
   }
 
   @Get('analytics')

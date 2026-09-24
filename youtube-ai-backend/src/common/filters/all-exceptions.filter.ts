@@ -49,7 +49,8 @@ export class AllExceptionsFilter implements ExceptionFilter {
       lowerExMsg.includes('quotaexceeded') ||
       lowerExMsg.includes('quota exceeded') ||
       lowerExMsg.includes('dailylimitexceeded') ||
-      lowerExMsg.includes('exceeded your quota');
+      lowerExMsg.includes('exceeded your quota') ||
+      lowerExMsg.includes('comments daily budget');
 
     // Check for YouTube OAuth Token Expiration / Missing Grant
     const isOAuthExpired =
@@ -65,8 +66,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
       status = HttpStatus.TOO_MANY_REQUESTS;
       errorCode = 'QUOTA_EXCEEDED';
       errorName = 'QuotaExceededException';
-      message = 'YouTube API daily quota limit reached. Quota resets at midnight Pacific Time (PT).';
-      rawErrorResponse = { error: errorCode, message };
+      message =
+        exceptionAny?.scope === 'comments_budget' || /comments daily budget/i.test(exMessage)
+          ? 'Comments daily budget is done for today (max 4,500 YouTube units). Auto + manual comment posts resume after midnight Pacific Time. SEO and trends are unaffected.'
+          : 'YouTube API daily quota limit reached. Quota resets at midnight Pacific Time (PT).';
+      rawErrorResponse = { error: errorCode, message, scope: exceptionAny?.scope };
     } else if (isOAuthExpired) {
       status = HttpStatus.UNAUTHORIZED;
       errorCode = 'OAUTH_REFRESH_FAILED';

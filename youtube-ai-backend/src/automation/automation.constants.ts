@@ -23,4 +23,9 @@ export const MAX_ACTIVE_COMMENT_VIDEOS = 5;
 export const COMMENT_CHUNK_SIZE = 10;
 export const COMMENT_PUSH_SAFETY_GAP_MS = 3000; // 3-second pacing between comment replies
 export const QUOTA_COST_COMMENT_INSERT = 50;
+/** Hard sub-budget for all comment list+insert units/day (protects SEO/trends inside the 10k). */
+export const COMMENTS_DAILY_QUOTA_BUDGET = parseInt(
+  process.env.COMMENTS_DAILY_QUOTA_BUDGET || '4500',
+  10,
+);
 

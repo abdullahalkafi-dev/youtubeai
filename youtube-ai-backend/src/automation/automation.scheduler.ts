@@ -147,6 +147,20 @@ export class AutomationScheduler {
           continue;
         }
 
+        // 1b. Comments sub-budget (default 4500) — keep SEO/trends alive
+        if (this.quotaService.isCommentsBudgetExhausted()) {
+          this.logger.warn(`Channel ${channel.name}: comments daily budget exhausted. Skipping comment auto-reply.`);
+          continue;
+        }
+        const commentsBudget = await this.quotaService.getCommentsDailyUsage(channelId);
+        if (commentsBudget.used >= commentsBudget.limit) {
+          this.logger.warn(
+            `Channel ${channel.name} reached comments budget (${commentsBudget.used}/${commentsBudget.limit}). Skipping comment auto-reply.`,
+          );
+          this.quotaService.markCommentsBudgetExhaustedToday('hard-cap');
+          continue;
+        }
+
         // 2. Check today's comments quota count (PT midnight reset)
         const commentStats = await this.automationService.getCommentStats(channelId);
         if (commentStats.todayAutoRepliesCount >= DEFAULT_COMMENT_DAILY_CAP) {
@@ -192,15 +206,19 @@ export class AutomationScheduler {
           remainingDailyCap,
         );
 
-        if (this.quotaService.isDataApiExhausted()) {
-          this.logger.warn('Stopping comment auto-reply for the rest of the tick — Data API quota exhausted.');
+        if (this.quotaService.isDataApiExhausted() || this.quotaService.isCommentsBudgetExhausted()) {
+          this.logger.warn('Stopping comment auto-reply for the rest of the tick — quota/comments budget exhausted.');
           break;
         }
       }
     } catch (err: any) {
       this.logger.error(`Error in handleAutoCommentRepliesCron: ${err.message}`, err.stack);
       if (/quota/i.test(String(err?.message || ''))) {
-        this.quotaService.markDataApiExhaustedToday('cron');
+        if (err?.scope === 'comments_budget' || /comments daily budget/i.test(String(err?.message || ''))) {
+          this.quotaService.markCommentsBudgetExhaustedToday('cron');
+        } else {
+          this.quotaService.markDataApiExhaustedToday('cron');
+        }
       }
     } finally {
       this.isProcessingCommentCron = false;

@@ -14,9 +14,20 @@ import {
   DEFAULT_COMMENT_DAILY_CAP,
   QUOTA_COST_COMMENT_INSERT,
 } from '../automation/automation.constants';
+import { QuotaExceededException } from '../quota/quota.service';
 
 const QUOTA_COST_COMMENT_THREADS = 2;
 const QUOTA_COST_COMMENT_REPLIES = 2;
+
+function isBudgetOrQuotaStop(err: any): boolean {
+  if (err instanceof QuotaExceededException) return true;
+  if (err?.name === 'QuotaExceededException' || err?.reason === 'quotaExceeded') return true;
+  return /quota|comments daily budget/i.test(String(err?.message || err || ''));
+}
+
+function isCommentsBudgetOnly(err: any): boolean {
+  return err?.scope === 'comments_budget' || /comments daily budget/i.test(String(err?.message || ''));
+}
 
 export type ReplyTone =
   | 'General'
@@ -94,6 +105,7 @@ export class CommentsService {
       }
     }
 
+    await this.quotaService.checkCommentsBudget(channelId, 'commentThreads.list', QUOTA_COST_COMMENT_THREADS);
     const result = await this.youtubeService.getCommentThreads(accessToken, videoId, pageToken, 100, order);
     if (result.commentsDisabled) {
       await this.cache.setMeta(videoId, { totalCount: 0, commentsDisabled: true });
@@ -132,6 +144,7 @@ export class CommentsService {
       }
     }
 
+    await this.quotaService.checkCommentsBudget(channelId, 'comments.list', QUOTA_COST_COMMENT_REPLIES);
     const result = await this.youtubeService.getCommentReplies(accessToken, commentId, pageToken);
     if (!pageToken) await this.cache.setReplies(videoId, commentId, result.replies);
     await this.quotaService.logCall({ channelId, endpoint: 'comments.list', quotaCost: QUOTA_COST_COMMENT_REPLIES, relatedId: commentId });
@@ -155,6 +168,7 @@ export class CommentsService {
     channelName?: string,
   ) {
     await this.cache.invalidate(videoId);
+    await this.quotaService.checkCommentsBudget(channelId, 'commentThreads.list', QUOTA_COST_COMMENT_THREADS);
     const result = await this.youtubeService.getCommentThreads(accessToken, videoId, undefined, 100, order);
     if (result.commentsDisabled) {
       await this.cache.setMeta(videoId, { totalCount: 0, commentsDisabled: true });
@@ -366,6 +380,7 @@ Do not include markdown codeblocks or extra text.`;
     // 'auto' = AI auto-reply pipeline. 'manual' = creator UI reply.
     // Only manual replies may stamp batch items as Creator Manual Response.
     const source = options?.source === 'auto' ? 'auto' : 'manual';
+    await this.quotaService.checkCommentsBudget(channelId, 'comments.insert', QUOTA_COST_COMMENT_INSERT);
     const result = await this.youtubeService.insertCommentReply(accessToken, parentId, text);
     if (!result.mock) {
       await this.quotaService.logCall({
@@ -610,6 +625,23 @@ ${JSON.stringify(
       return { processedCount: 0, skippedCount: 0, failedCount: 0 };
     }
 
+    if (this.quotaService.isDataApiExhausted() || this.quotaService.isCommentsBudgetExhausted()) {
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
+    try {
+      await this.quotaService.checkCommentsBudget(channelId, 'commentThreads.list', QUOTA_COST_COMMENT_THREADS);
+    } catch (budgetErr: any) {
+      this.logger.warn(`Skipping auto-reply for video ${video.youtubeId}: ${budgetErr.message}`);
+      await this.videoModel.findByIdAndUpdate(video._id, {
+        $set: { autoReplyLastRanAt: new Date() },
+      });
+      return { processedCount: 0, skippedCount: 0, failedCount: 0 };
+    }
+
     let accessToken: string | null = null;
     try {
       accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
@@ -660,9 +692,6 @@ ${JSON.stringify(
     let nestedListBudget = 4;
     let quotaStalled = false;
 
-    const isQuotaError = (err: any) =>
-      /quota/i.test(String(err?.message || err || ''));
-
     /**
      * Collect @channel mention children.
      * Quota-safe: prefer embedded seed replies; at most `nestedListBudget` extra list calls.
@@ -687,6 +716,7 @@ ${JSON.stringify(
       if (shouldList && nestedListBudget > 0) {
         nestedListBudget--;
         try {
+          await this.quotaService.checkCommentsBudget(channelId, 'comments.list (auto-mention)', 1);
           children = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 40);
           await this.quotaService.logCall({
             channelId,
@@ -695,9 +725,13 @@ ${JSON.stringify(
             relatedId: parentId,
           });
         } catch (loadErr: any) {
-          if (isQuotaError(loadErr)) {
+          if (isBudgetOrQuotaStop(loadErr)) {
             quotaStalled = true;
-            this.quotaService.markDataApiExhaustedToday('comments.list');
+            if (isCommentsBudgetOnly(loadErr)) {
+              this.quotaService.markCommentsBudgetExhaustedToday('comments.list');
+            } else {
+              this.quotaService.markDataApiExhaustedToday('comments.list');
+            }
           }
           this.logger.warn(`Failed to load replies under ${parentId}: ${loadErr.message}`);
           children = seedChildren || [];
@@ -869,23 +903,31 @@ ${JSON.stringify(
           batchDoc.items[batchItemIndex].error = pushErr.message;
           batchDoc.items[batchItemIndex].processedAt = new Date();
           failedCount++;
-          // Settle failures too — do not rebuild a batch every 5 minutes for the same comment
-          settledIds.push(comment.commentId);
-          if (/quota/i.test(String(pushErr?.message || ''))) {
-            this.quotaService.markDataApiExhaustedToday('comments.insert');
-            await this.quotaService.logCall({
-              channelId,
-              endpoint: 'comments.insert',
-              quotaCost: QUOTA_COST_COMMENT_INSERT,
-              success: false,
-              errorMessage: pushErr.message,
-            });
-            break; // stop remaining inserts this run
+
+          if (isBudgetOrQuotaStop(pushErr)) {
+            // Daily wall — leave remaining comments for the next PT day. Do NOT settle
+            // into repliedCommentIds (that would drop the reply forever).
+            if (isCommentsBudgetOnly(pushErr)) {
+              this.quotaService.markCommentsBudgetExhaustedToday('comments.insert');
+            } else {
+              this.quotaService.markDataApiExhaustedToday('comments.insert');
+              await this.quotaService.logCall({
+                channelId,
+                endpoint: 'comments.insert',
+                quotaCost: QUOTA_COST_COMMENT_INSERT,
+                success: false,
+                errorMessage: pushErr.message,
+              });
+            }
+            break;
           }
+
+          // Permanent failure (deleted thread, disabled comments, etc.) — settle, no retry storm
+          settledIds.push(comment.commentId);
         }
       }
 
-      if (this.quotaService.isDataApiExhausted()) break;
+      if (this.quotaService.isDataApiExhausted() || this.quotaService.isCommentsBudgetExhausted()) break;
     }
 
     // Finalize AutomationBatch
