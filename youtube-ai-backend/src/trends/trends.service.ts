@@ -1,5 +1,5 @@
 import { Injectable, Logger, forwardRef, Inject, NotFoundException, OnModuleInit } from '@nestjs/common';
-import { Cron, CronExpression } from '@nestjs/schedule';
+import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
@@ -15,7 +15,7 @@ import { RedisService } from '../redis/redis.service';
 import { buildTrendsSearchPrompt, buildEntityExtractionPrompt } from './prompts';
 import { validateExtractedEntity, SearchListQuotaCounter } from './trends.utils';
 
-const TREND_HISTORY_DAYS = 5;
+const TREND_HISTORY_DAYS = 14;
 
 @Injectable()
 export class TrendsService implements OnModuleInit {
@@ -64,7 +64,8 @@ export class TrendsService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
+  /** Daily full refresh at 7:30 America/New_York (same morning window as SEO) — not UTC midnight. */
+  @Cron('30 7 * * *', { timeZone: 'America/New_York' })
   async handleDailyTrendsRefresh() {
     this.logger.log('Cron triggered: daily trends refresh for all channels');
     const channels = await this.channelModel.find().select('id name').lean();

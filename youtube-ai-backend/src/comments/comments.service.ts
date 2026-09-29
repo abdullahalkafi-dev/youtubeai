@@ -688,15 +688,18 @@ ${JSON.stringify(
 
     const targets: AutoTarget[] = [];
     const seenTargetIds = new Set<string>();
-    /** Hard budget: max comments.list calls for nested crawl this run (quota guard) */
-    let nestedListBudget = 4;
+    /**
+     * Hard budget: max comments.list calls for nested crawl this run.
+     * 12 is still tiny vs 4500/day comments wall (12 × 96 runs worst-case ≈ 1.1k list units).
+     */
+    let nestedListBudget = 12;
     let quotaStalled = false;
 
     /**
      * Collect @channel mention children.
-     * Quota-safe: prefer embedded seed replies; at most `nestedListBudget` extra list calls.
-     * Depth-2 fetch ONLY when the child does not already mention us (look for grandchild mentions)
-     * and only while budget remains. Never fan out per-child without a budget.
+     * Quota-safe: prefer embedded seed replies; list only when the thread is incomplete
+     * (YouTube often embeds only a few replies). Depth-2 only while budget remains.
+     * comments.list under a top-level id returns flattened thread replies (incl. reply-to-reply).
      */
     const collectMentionDescendants = async (
       parentId: string,
@@ -704,26 +707,30 @@ ${JSON.stringify(
       parentAuthorName: string,
       parentText: string,
       seedChildren?: any[],
+      forceList?: boolean,
     ) => {
       if (quotaStalled || depth > 2) return;
 
       let children: any[] = seedChildren || [];
-      const shouldList =
-        depth > 1 ||
-        !seedChildren ||
-        seedChildren.length === 0;
+      const shouldList = forceList || depth > 1 || !seedChildren || seedChildren.length === 0;
 
       if (shouldList && nestedListBudget > 0) {
         nestedListBudget--;
         try {
-          await this.quotaService.checkCommentsBudget(channelId, 'comments.list (auto-mention)', 1);
-          children = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 40);
+          await this.quotaService.checkCommentsBudget(channelId, 'comments.list (auto-mention)', 2);
+          const listed = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 40);
           await this.quotaService.logCall({
             channelId,
             endpoint: 'comments.list (auto-mention)',
-            quotaCost: 1,
+            quotaCost: 2,
             relatedId: parentId,
           });
+          // Merge seed + listed so embedded mentions are never lost
+          const byId = new Map<string, any>();
+          for (const c of [...(seedChildren || []), ...listed]) {
+            if (c?.id) byId.set(c.id, c);
+          }
+          children = Array.from(byId.values());
         } catch (loadErr: any) {
           if (isBudgetOrQuotaStop(loadErr)) {
             quotaStalled = true;
@@ -744,7 +751,7 @@ ${JSON.stringify(
 
         const childMentionsChannel = this.mentionsThisChannel(child.text, channel);
 
-        // One extra level only if this child is NOT the mention (grandchild might @us)
+        // Extra level only if this child is NOT the mention (grandchild might @us)
         // and we still have list budget — never N+1 per reply.
         if (depth === 1 && !childMentionsChannel && nestedListBudget > 0 && !quotaStalled) {
           await collectMentionDescendants(
@@ -770,6 +777,7 @@ ${JSON.stringify(
       }
     };
 
+    // Pass 1: harvest @mentions already on the thread (0 extra list calls)
     for (const thread of threadsRes.comments) {
       if (quotaStalled) break;
       const topIsCreator = this.isCreatorAuthored(thread, channel);
@@ -782,16 +790,33 @@ ${JSON.stringify(
           kind: 'top',
         });
       }
+    }
 
+    // Pass 2: nested @channel — list only threads that are incomplete or look alive
+    for (const thread of threadsRes.comments) {
+      if (quotaStalled) break;
       const seed = thread.replies || [];
-      const hasAllEmbedded =
-        (thread.replyCount || 0) > 0 && seed.length >= (thread.replyCount || 0);
+      const replyCount = thread.replyCount || 0;
+      const hasAllEmbedded = replyCount > 0 && seed.length >= replyCount;
+      const seedHasMention = seed.some((r: any) => this.mentionsThisChannel(r?.text, channel));
+
+      // Always scan seeds first (no API). Then list when:
+      // - thread actually has replies AND the list is incomplete (YouTube embeds only a few), or
+      // - many replies and no mention found yet (deep @channel might be later in the thread)
+      const needsList =
+        replyCount > 0 &&
+        !hasAllEmbedded &&
+        nestedListBudget > 0 &&
+        !quotaStalled &&
+        (replyCount > seed.length || (replyCount >= 3 && !seedHasMention) || seed.length === 0);
+
       await collectMentionDescendants(
         thread.id,
         1,
         thread.authorName || 'Viewer',
         thread.text || '',
-        hasAllEmbedded || seed.length > 0 ? seed : undefined,
+        seed.length > 0 ? seed : undefined,
+        needsList,
       );
     }
 

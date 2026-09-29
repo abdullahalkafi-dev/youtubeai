@@ -349,24 +349,42 @@ export class PerformanceContextService {
 
     let best: any = null;
     let bestScore = 0;
+    let runnerUpScore = 0;
+    let bestTokenHits = 0;
     for (const v of candidates) {
       const title = String(v.title || '').toLowerCase();
       let score = 0;
+      let tokenHits = 0;
       for (const t of tokens) {
-        if (title.includes(t)) score += 2;
-        else if (t.length >= 5 && title.includes(t.slice(0, 5))) score += 1;
+        if (title.includes(t)) {
+          score += 2;
+          tokenHits++;
+        } else if (t.length >= 5 && title.includes(t.slice(0, 5))) {
+          score += 1;
+          tokenHits++;
+        }
       }
       if (titleHint.length > 8 && title.includes(titleHint.slice(0, 18))) score += 4;
       // Quoted exact-ish title is a strong signal
       if (quoted?.[1] && title.includes(quoted[1].toLowerCase())) score += 5;
       if (score > bestScore) {
+        runnerUpScore = bestScore;
         bestScore = score;
+        bestTokenHits = tokenHits;
         best = v;
+      } else if (score > runnerUpScore) {
+        runnerUpScore = score;
       }
     }
 
-    // Require a stronger match to avoid injecting the wrong video's numbers (C4)
-    return bestScore >= 4 && best ? { video: best, score: bestScore } : null;
+    // C4: refuse weak / ambiguous matches — better to ask than inject the wrong numbers
+    if (!best || bestScore < 6) return null;
+    // Two titles almost tied → not sure which video
+    if (runnerUpScore > 0 && bestScore - runnerUpScore < 2) return null;
+    // Need real title signal (quote, long phrase, or multiple tokens) — not one soft word
+    if (!quoted?.[1] && bestTokenHits < 2 && bestScore < 8) return null;
+
+    return { video: best, score: bestScore };
   }
 
   /**
@@ -394,9 +412,14 @@ export class PerformanceContextService {
       const hasUrlId = /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)[A-Za-z0-9_-]{11}/.test(
         query || '',
       );
+      const lowerQ = String(query || '').toLowerCase();
+      const saysThisVideo =
+        /\b(this|that|the same|current)\s+video\b/.test(lowerQ) &&
+        !/https?:\/\//i.test(query || '');
+      // Strong title match always wins over the thread's attached video
       if (matched && (hasUrlId || matched.score >= 6)) {
         video = matched.video;
-      } else if (!video?.youtubeId && matched) {
+      } else if (!video?.youtubeId && matched && matched.score >= 6 && !saysThisVideo) {
         video = matched.video;
       }
 

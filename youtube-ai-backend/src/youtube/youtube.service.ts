@@ -315,13 +315,14 @@ export class YouTubeService {
   }>> {
     const all: any[] = [];
     let pageToken: string | undefined;
+    let pages = 0;
     // Max 2 pages × 20 = 40 rows — never N+1 storm the API
-    while (all.length < maxTotal) {
+    while (all.length < maxTotal && pages < 2) {
       const batch = await this.getCommentReplies(accessToken, parentId, pageToken, 20);
       all.push(...(batch.replies || []));
+      pages++;
       pageToken = batch.nextPageToken;
-      if (!pageToken || all.length >= maxTotal) break;
-      if (all.length >= 20) break; // second page only if first was full
+      if (!pageToken) break;
     }
     return all.slice(0, maxTotal);
   }
