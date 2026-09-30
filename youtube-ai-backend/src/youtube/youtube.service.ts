@@ -329,12 +329,16 @@ export class YouTubeService {
 
   async insertCommentReply(accessToken: string, parentId: string, text: string) {
     const youtube = this.getClient(accessToken);
+    // YouTube comments.insert wants the TOP-LEVEL comment id as parent.
+    // Nested rows use ids like "Ugw…Ag.AbH…" (top.reply) — passing the compound
+    // id makes Google return "The API server failed to successfully process…".
+    const topLevelParentId = String(parentId || '').split('.')[0];
     try {
-      const response = await retryWithBackoff(() => youtube.comments.insert({ part: ['snippet'], requestBody: { snippet: { parentId, textOriginal: text } } }), { operationName: 'YouTube Insert Comment Reply' });
+      const response = await retryWithBackoff(() => youtube.comments.insert({ part: ['snippet'], requestBody: { snippet: { parentId: topLevelParentId, textOriginal: text } } }), { operationName: 'YouTube Insert Comment Reply' });
       const comment = response.data;
       return { success: true, mock: false, commentId: comment.id || '', authorName: comment.snippet?.authorDisplayName || '', text: comment.snippet?.textDisplay || '' };
     } catch (error: any) {
-      this.logger.error(`Failed to post reply to parent ${parentId}: ${error?.message || error}`);
+      this.logger.error(`Failed to post reply to parent ${parentId} (yt parent ${topLevelParentId}): ${error?.message || error}`);
       throw error;
     }
   }

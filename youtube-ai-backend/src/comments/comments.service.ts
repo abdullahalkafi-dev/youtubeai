@@ -29,6 +29,16 @@ function isCommentsBudgetOnly(err: any): boolean {
   return err?.scope === 'comments_budget' || /comments daily budget/i.test(String(err?.message || ''));
 }
 
+/** True for errors where retrying the same comment will never work. */
+function isPermanentCommentFailure(err: any): boolean {
+  const m = String(err?.message || err || '');
+  if (isBudgetOrQuotaStop(err)) return false;
+  if (/api server failed|backend error|internal error|timed? ?out|econnreset|socket hang up|temporarily|unavailable|502|503|504/i.test(m)) {
+    return false;
+  }
+  return /commentsdisabled|comments disabled|disabled comments|comment.*disabled|comment.*deleted|forbidden|unauthorized|invalid.*parent|disabled/i.test(m);
+}
+
 export type ReplyTone =
   | 'General'
   | 'Humorous'
@@ -994,8 +1004,11 @@ ${JSON.stringify(
             break;
           }
 
-          // Permanent failure (deleted thread, disabled comments, etc.) — settle, no retry storm
-          settledIds.push(comment.commentId);
+          if (isPermanentCommentFailure(pushErr)) {
+            // Deleted thread / comments disabled — settle, no retry storm
+            settledIds.push(comment.commentId);
+          }
+          // Transient Google/API errors: leave unsettled so a later run can retry
         }
       }
 
