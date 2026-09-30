@@ -579,9 +579,15 @@ export class PerformanceContextService {
           lines.push(
             'CTR source: YouTube Reporting API Reach (channel_reach_basic_a1) — thumbnail impressions + CTR.',
           );
+          lines.push(
+            'CTR window: Reporting daily files as delivered (compare Studio on the SAME date range only — not lifetime).',
+          );
         } else {
           lines.push(
-            'CTR: unavailable via Analytics API (unsupported). Reporting Reach job may still be filling (can lag 24–48h after first setup). See backend logs grep "[Reach]".',
+            'CTR NOT MEASURED YET (not a bad CTR score): Reporting Reach reports are empty (count=0). This is missing data, not a low click-through rate.',
+          );
+          lines.push(
+            'Cause: Reporting Reach job has no downloadable daily files yet (allow 48–72h after enable/create; ~30-day backfill may apply). Check backend logs grep "[Reach]".',
           );
         }
         if (baseline.impressionsClickThroughRate > 0 || baseline.views > 0) {
@@ -589,17 +595,17 @@ export class PerformanceContextService {
           const ctrLabel =
             baseline.impressionsClickThroughRate > 0
               ? `target CTR ${baseline.impressionsClickThroughRate.toFixed(1)}%`
-              : 'CTR unavailable (no impressions data)';
+              : 'CTR not measured yet (no Reach impressions in-window)';
           const impLabel =
             baseline.impressions > 0
               ? `${baseline.impressions.toLocaleString()} impressions`
-              : 'impressions unavailable';
+              : 'impressions not measured yet';
           lines.push(
             `CHANNEL BASELINE (28d): ${ctrLabel} | avg ${Math.round(baseline.averageViewPercentage)}% viewed | ${impLabel} | ${baseline.views.toLocaleString()} views`,
           );
           if (baseline.impressionsClickThroughRate <= 0) {
             lines.push(
-              'Do NOT invent a CTR target. When CTR is unavailable, say "CTR unavailable" and target packaging quality only.',
+              'Do NOT invent a CTR target. Do NOT call CTR terrible/bad when it is simply not measured yet. Target packaging quality only until Reach CTR exists.',
             );
           }
         }
@@ -611,7 +617,7 @@ export class PerformanceContextService {
           peers.forEach((r, i) => {
             const impPart =
               r.impressions > 0 ? ` | imp ${Math.round(r.impressions).toLocaleString()}` : '';
-            const ctrPart = r.ctr > 0 ? ` | CTR ${r.ctr.toFixed(1)}%` : ' | CTR unavailable';
+            const ctrPart = r.ctr > 0 ? ` | CTR ${r.ctr.toFixed(1)}%` : ' | CTR not measured yet';
             lines.push(
               `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views${impPart}${ctrPart} | ${Math.round(r.averageViewPercentage)}% viewed`,
             );
@@ -625,7 +631,7 @@ export class PerformanceContextService {
           const impPart =
             selfRow.impressions > 0 ? ` | imp ${Math.round(selfRow.impressions).toLocaleString()}` : '';
           const ctrPart =
-            selfRow.ctr > 0 ? ` | CTR ${selfRow.ctr.toFixed(1)}%` : ' | CTR unavailable';
+            selfRow.ctr > 0 ? ` | CTR ${selfRow.ctr.toFixed(1)}%` : ' | CTR not measured yet';
           lines.push(
             `THIS VIDEO (28d window): ${selfRow.views.toLocaleString()} views${impPart}${ctrPart} | ${Math.round(selfRow.averageViewPercentage)}% viewed`,
           );
