@@ -1297,17 +1297,18 @@ ${imageFormat}`,
     opts?: { withUploads?: boolean },
   ): Promise<Array<{ title: string; subscriberCount: number; lifetimeViews?: number; recentUploads: Array<{ title: string; publishedAt: string; viewCount?: number }> }>> {
     try {
-      const count = await this.competitorModel.countDocuments({ channelId });
-      if (count === 0) {
-        try {
-          const seed = await this.competitorsService.seedAudienceWatches(channelId);
-          this.logger.log(`Audience watches seed: added=${seed.added} skipped=${seed.skipped}`);
-        } catch (seedErr: any) {
-          this.logger.warn(`Audience watches seed skipped: ${seedErr?.message || seedErr}`);
-        }
-      }
-
+      // Seed only when we actually need upload depth (competitor skill)
+      // — avoids surprise 1.5k quota on first general chat.
       if (opts?.withUploads) {
+        const count = await this.competitorModel.countDocuments({ channelId });
+        if (count === 0) {
+          try {
+            const seed = await this.competitorsService.seedAudienceWatches(channelId);
+            this.logger.log(`Audience watches seed: added=${seed.added} skipped=${seed.skipped} missing=${seed.missing.length}`);
+          } catch (seedErr: any) {
+            this.logger.warn(`Audience watches seed skipped: ${seedErr?.message || seedErr}`);
+          }
+        }
         const brief = await this.competitorsService.getAudienceWatchBrief(channelId, 8);
         return brief.map((c) => ({
           title: c.title,
@@ -1321,7 +1322,7 @@ ${imageFormat}`,
         }));
       }
 
-      // Cheap path: DB stats only (no YouTube upload scan)
+      // Cheap path: DB stats only (no YouTube upload scan, no seed)
       const competitors = await this.competitorModel
         .find({ channelId })
         .sort({ subscriberCount: -1 })

@@ -152,6 +152,29 @@ export class LocalNewsService {
   }
 
   /**
+   * Strip chat chrome so YouTube search gets a real subject, not
+   * "write me a script about local news footage for…".
+   */
+  extractSearchTopic(message: string): string {
+    let t = (message || '').trim();
+    t = t.replace(
+      /^(?:please\s+)?(?:can\s+you\s+)?(?:write\s+(?:me\s+)?a\s+)?(?:full\s+)?(?:10[- ]?minute\s+)?(?:video\s+)?script\s+(?:about|on|for)\s+/i,
+      '',
+    );
+    t = t.replace(
+      /^(?:find|get|show|give\s+me|search\s+for)?\s*(?:me\s+)?(?:some\s+)?(?:local\s+news\s+)?(?:footage|clips?|b-?roll|video\s+clips?)\s*(?:for|about|on|of)?\s+/i,
+      '',
+    );
+    t = t.replace(
+      /^(?:i\s+)?(?:need|want)\s+(?:local\s+)?(?:news\s+)?(?:footage|clips?|b-?roll)\s+(?:for|about|on|of)\s+/i,
+      '',
+    );
+    t = t.replace(/\s+/g, ' ').trim();
+    if (t.length > 100) t = t.slice(0, 100).trim();
+    return t || (message || '').trim().slice(0, 80);
+  }
+
+  /**
    * Find short local-news YouTube clips for a story (≤ maxSeconds).
    * Quota: at most 2 search.list calls + 1 videos.list batch.
    */

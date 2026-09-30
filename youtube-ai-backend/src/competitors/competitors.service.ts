@@ -113,8 +113,11 @@ export class CompetitorsService {
         });
         const hit =
           hits.find((h) => (h.title || '').toLowerCase().trim() === key) ||
-          hits.find((h) => (h.title || '').toLowerCase().includes(key.slice(0, 8))) ||
-          hits[0];
+          hits.find((h) => {
+            const t = (h.title || '').toLowerCase().trim();
+            // Close match only — do not accept random top hit (avoids "AI Profit" wrong channel)
+            return t === key || t.replace(/[^a-z0-9]/g, '') === key.replace(/[^a-z0-9]/g, '');
+          });
         if (!hit?.channelId) {
           missing.push(name);
           continue;
@@ -172,7 +175,11 @@ export class CompetitorsService {
     const channel = await this.channelModel.findById(channelId).lean();
     if (!channel?.userId) return [];
 
-    const uploads = await this.getCompetitorUploads(channelId, 45);
+    // Only scan the same N channels as the brief (quota-safe)
+    const onlyIds = competitors
+      .map((c) => c.youtubeChannelId)
+      .filter(Boolean);
+    const uploads = await this.getCompetitorUploads(channelId, 45, onlyIds);
     const byChannel = new Map<string, CompetitorVideo[]>();
     for (const v of uploads) {
       const key = (v.channelTitle || '').toLowerCase();
@@ -360,15 +367,19 @@ export class CompetitorsService {
   }
 
   /**
-   * Get recent uploads from all competitors.
+   * Get recent uploads from competitors.
+   * @param onlyYoutubeIds optional — limit scan to these competitor channel IDs (quota).
    */
   async getCompetitorUploads(
     channelId: string,
     days: number = 30,
+    onlyYoutubeIds?: string[],
   ): Promise<CompetitorVideo[]> {
-    const competitors = await this.competitorModel
-      .find({ channelId: new Types.ObjectId(channelId) })
-      .lean();
+    const query: any = { channelId: new Types.ObjectId(channelId) };
+    if (onlyYoutubeIds?.length) {
+      query.youtubeChannelId = { $in: onlyYoutubeIds };
+    }
+    const competitors = await this.competitorModel.find(query).lean();
 
     if (competitors.length === 0) return [];
 

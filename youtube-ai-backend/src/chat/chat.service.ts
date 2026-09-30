@@ -996,7 +996,7 @@ export class ChatService {
   ): Promise<string> {
     try {
       if (!channel?.userId) return '';
-      const topic = message.trim().slice(0, 120);
+      const topic = this.localNewsService.extractSearchTopic(message);
       const pack = await this.localNewsService.findFootagePack({
         userId: channel.userId.toString(),
         topic,
