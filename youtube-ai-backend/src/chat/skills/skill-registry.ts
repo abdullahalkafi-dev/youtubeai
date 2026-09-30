@@ -10,6 +10,7 @@ import { CompetitorChannel, CompetitorChannelDocument } from '../../mongo/schema
 import { ChromaService } from '../../chroma/chroma.service';
 import { YoutubeAnalyticsService } from '../../youtube/youtube-analytics.service';
 import { PerformanceContextService } from '../../youtube/performance-context.service';
+import { CompetitorsService } from '../../competitors/competitors.service';
 import { buildCompactChannelContext } from '../../openai/prompts/context';
 import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES } from '../../openai/prompts/script-cadence';
 
@@ -27,6 +28,7 @@ export class SkillRegistry {
     private readonly chromaService: ChromaService,
     private readonly analyticsService: YoutubeAnalyticsService,
     private readonly performanceContext: PerformanceContextService,
+    private readonly competitorsService: CompetitorsService,
   ) {
     this.registerDefaults();
   }
@@ -164,6 +166,7 @@ When the user asks about channel performance, strategy, what to post, content pl
 - One short honesty line is OK only if needed: you do not have per-viewer history or Studio "other videos they watched" on other channels — then answer with the data you DO have.
 - Reference top watched videos (watch time + retention), traffic sources, search terms, and audience demos when present.
 - Reference the COMPETITOR data, VIDEOS GETTING SEARCH TRAFFIC, and TRENDING TOPICS when relevant.
+- **AUDIENCE WATCHES** = Studio competitor channels. Use their **view counts as demand proof** for a topic. Do **not** copy their edit style or produce a generic recap of their video.
 - Respect user constraints (e.g. avoid redundant Lil Durk unless asked) using EXISTING VIDEOS + performance ranking.
 - Only use what's relevant to the question — don't dump all data unprompted
 
@@ -849,8 +852,8 @@ ${thumbnailFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
 
-        // Load actual competitor data
-        const competitorData = await this.loadCompetitorData(channelId);
+        // Load actual competitor data (with real upload views)
+        const competitorData = await this.loadCompetitorData(channelId, { withUploads: true });
         if (competitorData.length > 0) {
           base.competitorSummary = competitorData;
         }
@@ -1246,7 +1249,20 @@ ${imageFormat}`,
       }
     }
     if (context.competitorSummary && context.competitorSummary.length > 0) {
-      parts.push(`COMPETITORS:\n${context.competitorSummary.map(c => `- ${c.title} (${c.subscriberCount.toLocaleString()} subs)${c.recentUploads.length > 0 ? `, latest: "${c.recentUploads[0].title}"` : ''}`).join('\n')}`);
+      parts.push(
+        `AUDIENCE WATCHES (Studio competitors — use for demand/topic proof only; do NOT copy their edit structure):\n` +
+          context.competitorSummary
+            .map((c) => {
+              const subs = `${c.subscriberCount.toLocaleString()} subs`;
+              const life = c.lifetimeViews ? ` | ${c.lifetimeViews.toLocaleString()} lifetime views` : '';
+              const latest =
+                c.recentUploads.length > 0
+                  ? ` | recent: "${c.recentUploads[0].title}" — ${(c.recentUploads[0].viewCount || 0).toLocaleString()} views`
+                  : '';
+              return `- ${c.title} (${subs}${life})${latest}`;
+            })
+            .join('\n'),
+      );
     }
     if (context.revivalOpportunities && context.revivalOpportunities.length > 0) {
       parts.push(`VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map(v => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`);
@@ -1271,20 +1287,50 @@ ${imageFormat}`,
     return parts.join('\n\n');
   }
 
-  private async loadCompetitorData(channelId: string): Promise<Array<{ title: string; subscriberCount: number; recentUploads: Array<{ title: string; publishedAt: string }> }>> {
+  /**
+   * Competitor brief for AI context.
+   * withUploads=false → cheap DB-only (general chat).
+   * withUploads=true  → real recent upload views (ideas/competitor/script).
+   */
+  private async loadCompetitorData(
+    channelId: string,
+    opts?: { withUploads?: boolean },
+  ): Promise<Array<{ title: string; subscriberCount: number; lifetimeViews?: number; recentUploads: Array<{ title: string; publishedAt: string; viewCount?: number }> }>> {
     try {
+      const count = await this.competitorModel.countDocuments({ channelId });
+      if (count === 0) {
+        try {
+          const seed = await this.competitorsService.seedAudienceWatches(channelId);
+          this.logger.log(`Audience watches seed: added=${seed.added} skipped=${seed.skipped}`);
+        } catch (seedErr: any) {
+          this.logger.warn(`Audience watches seed skipped: ${seedErr?.message || seedErr}`);
+        }
+      }
+
+      if (opts?.withUploads) {
+        const brief = await this.competitorsService.getAudienceWatchBrief(channelId, 8);
+        return brief.map((c) => ({
+          title: c.title,
+          subscriberCount: c.subscriberCount,
+          lifetimeViews: c.lifetimeViews,
+          recentUploads: c.recentUploads.map((u) => ({
+            title: u.title,
+            publishedAt: u.publishedAt,
+            viewCount: u.viewCount,
+          })),
+        }));
+      }
+
+      // Cheap path: DB stats only (no YouTube upload scan)
       const competitors = await this.competitorModel
         .find({ channelId })
         .sort({ subscriberCount: -1 })
-        .limit(5)
+        .limit(8)
         .lean();
-
-      // Note: Competitor videos are NOT in the user's DB (they're external channels).
-      // recentUploads is always empty — this is by design. The AI uses subscriberCount
-      // and title for competitor analysis, not their video lists.
       return competitors.map((comp) => ({
         title: comp.title,
-        subscriberCount: comp.subscriberCount,
+        subscriberCount: comp.subscriberCount || 0,
+        lifetimeViews: comp.viewCount || 0,
         recentUploads: [],
       }));
     } catch (error) {

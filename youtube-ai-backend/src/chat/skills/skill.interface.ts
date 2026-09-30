@@ -17,7 +17,8 @@ export interface SkillContext {
   competitorSummary?: Array<{
     title: string;
     subscriberCount: number;
-    recentUploads: Array<{ title: string; publishedAt: string }>;
+    lifetimeViews?: number;
+    recentUploads: Array<{ title: string; publishedAt: string; viewCount?: number }>;
   }>;
   revivalOpportunities?: Array<{
     videoId: string;

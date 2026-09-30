@@ -29,6 +29,10 @@ export class CompetitorChannel {
   @Prop({ default: true })
   isAutoDetected: boolean;
 
+  /** audience_watches = Studio "Channels your audience watches" seed */
+  @Prop({ default: 'auto', enum: ['auto', 'manual', 'audience_watches'] })
+  source: string;
+
   @Prop({ type: Date, default: () => new Date() })
   discoveredAt: Date;
 

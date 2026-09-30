@@ -29,6 +29,36 @@ export interface ContentGap {
   searchDemand: number;
 }
 
+/** Studio → "Channels your audience watches" (client screenshots). */
+export const AUDIENCE_WATCHES_NAMES = [
+  'Ceddy Nash',
+  'End Of Sentence',
+  'Trap More Ross',
+  'djvlad',
+  'Hood Educated',
+  'TRENCHES NEWS',
+  'CUFBOYS',
+  'King Akademiks',
+  'AI Profit',
+  'BOSS TALK 101',
+  'The Art Of Dialogue',
+  'Poetik Flakko',
+  '1800WTF',
+  'URBAN POLITICIANS TV',
+  'SAY CHEESE!',
+] as const;
+
+export interface AudienceWatchBrief {
+  title: string;
+  subscriberCount: number;
+  lifetimeViews: number;
+  recentUploads: Array<{
+    title: string;
+    publishedAt: string;
+    viewCount: number;
+  }>;
+}
+
 @Injectable()
 export class CompetitorsService {
   private readonly logger = new Logger(CompetitorsService.name);
@@ -44,6 +74,128 @@ export class CompetitorsService {
     private readonly suggestionsService: YouTubeSuggestionsService,
     private readonly quotaService: QuotaService,
   ) {}
+
+  /**
+   * Seed Studio "Channels your audience watches" (idempotent).
+   * At most 1 search.list per missing name (only when not already in DB).
+   */
+  async seedAudienceWatches(channelId: string): Promise<{ added: number; skipped: number; missing: string[] }> {
+    const channel = await this.channelModel.findById(channelId).lean();
+    if (!channel?.userId) throw new Error('Channel not found');
+
+    const existing = await this.competitorModel
+      .find({ channelId: new Types.ObjectId(channelId) })
+      .lean();
+    const have = new Set(existing.map((c) => (c.title || '').toLowerCase().trim()));
+
+    let added = 0;
+    let skipped = 0;
+    const missing: string[] = [];
+
+    for (const name of AUDIENCE_WATCHES_NAMES) {
+      const key = name.toLowerCase().trim();
+      if (have.has(key) || existing.some((c) => key.includes((c.title || '').toLowerCase()) || (c.title || '').toLowerCase().includes(key))) {
+        skipped++;
+        continue;
+      }
+      try {
+        const hits = await this.youtubeService.searchChannels({
+          userId: channel.userId.toString(),
+          query: name,
+          maxResults: 3,
+        });
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'search.list (seedAudienceWatches)',
+          quotaCost: 100,
+          success: true,
+          relatedId: name,
+        });
+        const hit =
+          hits.find((h) => (h.title || '').toLowerCase().trim() === key) ||
+          hits.find((h) => (h.title || '').toLowerCase().includes(key.slice(0, 8))) ||
+          hits[0];
+        if (!hit?.channelId) {
+          missing.push(name);
+          continue;
+        }
+        const yt = await this.youtubeService.getChannelDetails(
+          await this.youtubeService.getValidAccessToken(channel.userId.toString()),
+          hit.channelId,
+        );
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'channels.list (seedAudienceWatches)',
+          quotaCost: 1,
+          success: true,
+          relatedId: hit.channelId,
+        });
+        await this.competitorModel.create({
+          channelId: new Types.ObjectId(channelId),
+          youtubeChannelId: hit.channelId,
+          title: yt?.title || hit.title || name,
+          thumbnailUrl: yt?.thumbnailUrl || hit.thumbnailUrl || '',
+          subscriberCount: yt?.subscriberCount || 0,
+          videoCount: yt?.videoCount || 0,
+          viewCount: yt?.viewCount || 0,
+          isAutoDetected: false,
+          source: 'audience_watches',
+          discoveredAt: new Date(),
+          lastChecked: new Date(),
+        });
+        have.add((yt?.title || name).toLowerCase().trim());
+        added++;
+      } catch (err: any) {
+        this.logger.warn(`seedAudienceWatches "${name}" failed: ${err?.message || err}`);
+        missing.push(name);
+      }
+    }
+
+    this.logger.log(
+      `[AudienceWatches] seed channel=${channelId} added=${added} skipped=${skipped} missing=${missing.length}`,
+    );
+    return { added, skipped, missing };
+  }
+
+  /**
+   * Compact demand brief for AI context (subs + lifetime + 2 recent uploads with views).
+   * Caches nothing — caller should only use this for ideas/trends/script, not every message.
+   */
+  async getAudienceWatchBrief(channelId: string, maxChannels = 8): Promise<AudienceWatchBrief[]> {
+    const competitors = await this.competitorModel
+      .find({ channelId: new Types.ObjectId(channelId) })
+      .sort({ subscriberCount: -1 })
+      .limit(maxChannels)
+      .lean();
+    if (competitors.length === 0) return [];
+
+    const channel = await this.channelModel.findById(channelId).lean();
+    if (!channel?.userId) return [];
+
+    const uploads = await this.getCompetitorUploads(channelId, 45);
+    const byChannel = new Map<string, CompetitorVideo[]>();
+    for (const v of uploads) {
+      const key = (v.channelTitle || '').toLowerCase();
+      const list = byChannel.get(key) || [];
+      list.push(v);
+      byChannel.set(key, list);
+    }
+
+    return competitors.map((c) => {
+      const key = (c.title || '').toLowerCase();
+      const list = (byChannel.get(key) || []).slice(0, 2);
+      return {
+        title: c.title,
+        subscriberCount: c.subscriberCount || 0,
+        lifetimeViews: c.viewCount || 0,
+        recentUploads: list.map((v) => ({
+          title: v.title,
+          publishedAt: v.publishedAt,
+          viewCount: v.viewCount || 0,
+        })),
+      };
+    });
+  }
 
   /**
    * List saved competitors for a channel.
@@ -268,6 +420,26 @@ export class CompetitorsService {
         this.logger.warn(
           `Failed to fetch uploads for ${competitor.title}: ${error.message}`,
         );
+      }
+    }
+
+    // Real view counts (was hardcoded 0) — one videos.list batch
+    if (allVideos.length > 0) {
+      try {
+        const ids = allVideos.map((v) => v.videoId).filter(Boolean);
+        const details = await this.youtubeService.getVideoDetails(accessToken, ids);
+        const viewMap = new Map(details.map((d) => [d.videoId, d.viewCount || 0]));
+        for (const v of allVideos) {
+          v.viewCount = viewMap.get(v.videoId) || 0;
+        }
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'videos.list (competitorUploads views)',
+          quotaCost: Math.max(1, Math.ceil(ids.length / 50)),
+          success: true,
+        });
+      } catch (err: any) {
+        this.logger.warn(`competitor viewCount fetch failed: ${err?.message || err}`);
       }
     }
 

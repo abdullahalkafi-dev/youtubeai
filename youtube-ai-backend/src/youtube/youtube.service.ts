@@ -356,6 +356,27 @@ export class YouTubeService {
     })).filter(v => v.videoId);
   }
 
+  /** Resolve a channel by name (search.list type=channel). */
+  async searchChannels(params: { userId: string; query: string; maxResults?: number }) {
+    const accessToken = await this.getValidAccessToken(params.userId);
+    const youtube = this.getClient(accessToken);
+    const response = await retryWithBackoff(
+      () =>
+        youtube.search.list({
+          part: ['snippet'],
+          q: params.query,
+          type: ['channel'],
+          maxResults: params.maxResults || 3,
+        }),
+      { operationName: 'YouTube Search Channels' },
+    );
+    return (response.data.items || []).map((i) => ({
+      channelId: i.id?.channelId || '',
+      title: i.snippet?.title || '',
+      thumbnailUrl: i.snippet?.thumbnails?.default?.url || '',
+    })).filter((c) => c.channelId);
+  }
+
   async getChannelDetails(accessToken: string, youtubeChannelId: string) {
     const youtube = this.getClient(accessToken);
     const response = await retryWithBackoff(

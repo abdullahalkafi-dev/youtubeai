@@ -27,6 +27,18 @@ export class CompetitorsController {
     return this.competitorsService.discoverCompetitors(channelId);
   }
 
+  /** Seed Studio "Channels your audience watches" (15-channel list). */
+  @Post('seed-audience-watches')
+  seedAudienceWatches(@Param('channelId') channelId: string) {
+    return this.competitorsService.seedAudienceWatches(channelId);
+  }
+
+  /** Demand brief for AI / UI (real upload view counts). */
+  @Get('audience-watches')
+  audienceWatches(@Param('channelId') channelId: string) {
+    return this.competitorsService.getAudienceWatchBrief(channelId, 15);
+  }
+
   @Post()
   add(
     @Param('channelId') channelId: string,

@@ -15,6 +15,7 @@ import { MinioModule } from '../minio/minio.module';
 import { ChromaModule } from '../chroma/chroma.module';
 import { CommonModule } from '../common/common.module';
 import { YouTubeModule } from '../youtube/youtube.module';
+import { CompetitorsModule } from '../competitors/competitors.module';
 import { SkillRegistry } from './skills/skill-registry';
 import { TrendsModule } from '../trends/trends.module';
 
@@ -35,6 +36,7 @@ import { TrendsModule } from '../trends/trends.module';
     ChromaModule,
     CommonModule,
     YouTubeModule,
+    CompetitorsModule,
     forwardRef(() => TrendsModule),
   ],
   controllers: [ChatController],
