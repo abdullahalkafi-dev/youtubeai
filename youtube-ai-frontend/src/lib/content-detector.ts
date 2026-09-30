@@ -148,10 +148,15 @@ function extractTitleFromSectionBody(body: string): string {
   return alternateFallback
 }
 
+/** Kit/SEO field headers that end a Title/Description/Tags body. Chapters (### Chapter 1) do NOT end it. */
+const SEO_SECTION_STOP =
+  /^#{1,3}\s*(?:\d+\.\s*)?(?:TITLE|DESCRIPTION|TAGS|HASHTAGS|KEYWORDS|THUMBNAILS?|APPLY\s*ORDER|COPY\s*BUNDLE|REPACKAGE\s+KIT)\b/im
+
 function extractSection(content: string, header: string): string {
   // Match header as its own line. Title must not swallow "Title Options".
-  // Body runs until the next markdown header — NOT end-of-line ($ under /m was truncating).
+  // Body runs until the next known SEO section header (not every ### — chapters live inside descriptions).
   const isTitle = header.toLowerCase() === 'title'
+  const isSeoField = ['title', 'description', 'tags', 'hashtags'].includes(header.toLowerCase())
   const headerPat = isTitle
     ? `Title\\s*:?[ \\t]*$`
     : `${header}\\b[^\\n]*`
@@ -160,8 +165,10 @@ function extractSection(content: string, header: string): string {
   if (!startMatch || startMatch.index === undefined) return ''
   const bodyStart = startMatch.index + startMatch[0].length
   const after = content.slice(bodyStart).replace(/^\r?\n/, '')
-  const nextHeader = after.match(/^#{1,3}\s+/m)
-  const body = (nextHeader ? after.slice(0, nextHeader.index) : after).trim()
+  const nextHeader = isSeoField
+    ? SEO_SECTION_STOP.exec(after)
+    : after.match(/^#{1,3}\s+/m)
+  const body = (nextHeader && nextHeader.index !== undefined ? after.slice(0, nextHeader.index) : after).trim()
   if (isTitle) return extractTitleFromSectionBody(body)
   return body
 }
@@ -530,7 +537,9 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     const afterHeader = textContent.slice(headerStart)
     const firstLineEnd = afterHeader.indexOf('\n')
     const searchAfterHeader = firstLineEnd !== -1 ? afterHeader.slice(firstLineEnd) : ''
-    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(#{1,3}\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b|Recommended\b|Alternates\b|APPLY\b|COPY\b|THUMBNAILS\b|Concept\b)[^\n]+)/i
+    // End SEO block only at the next ## (h2) that is NOT part of the kit.
+    // ### chapters inside a description must NOT cut the block.
+    const NEXT_SECTION_REGEX = /(?:\n---\s*)?\n(##\s+(?!Title\b|Description\b|Tags\b|Hashtags\b|Keywords\b|Recommended\b|Alternates\b|APPLY\b|COPY\b|THUMBNAILS\b|Concept\b|REPACKAGE\b|SEO\b|METADATA\b)[^\n]+)/i
     const nextSectionMatch = NEXT_SECTION_REGEX.exec(searchAfterHeader)
     // Stop SEO block before thumbnail delimiters so ThumbnailCard can own that range
     const thumbCut = afterHeader.search(/<!--\s*THUMBNAILS_START\s*-->/i)

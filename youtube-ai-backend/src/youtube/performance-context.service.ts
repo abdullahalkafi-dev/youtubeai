@@ -560,21 +560,28 @@ export class PerformanceContextService {
             life && ((life as any).impressions = selfReach.impressions);
             life && ((life as any).impressionsClickThroughRate = selfReach.ctr);
           }
-          // Channel baseline CTR = total clicks proxy = mean of video CTRs weighted — use simple avg of positive CTRs
-          const positive = reachRows.filter((r) => r.ctr > 0);
+          // Channel baseline CTR = impression-weighted mean of positive video CTRs
+          const positive = reachRows.filter((r) => r.ctr > 0 && r.impressions > 0);
           if (positive.length && baseline.impressionsClickThroughRate <= 0) {
-            baseline.impressionsClickThroughRate =
-              Math.round((positive.reduce((s, r) => s + r.ctr, 0) / positive.length) * 100) / 100;
             let impSum = 0;
-            for (const r of reachRows) impSum += Number(r.impressions) || 0;
-            baseline.impressions = impSum;
+            let ctrWeighted = 0;
+            for (const r of positive) {
+              const imp = Number(r.impressions) || 0;
+              impSum += imp;
+              ctrWeighted += r.ctr * imp;
+            }
+            const weighted = impSum > 0 ? ctrWeighted / impSum : positive.reduce((s, r) => s + r.ctr, 0) / positive.length;
+            baseline.impressionsClickThroughRate = Math.round(weighted * 100) / 100;
+            let impAll = 0;
+            for (const r of reachRows) impAll += Number(r.impressions) || 0;
+            baseline.impressions = impAll;
           }
           lines.push(
             'CTR source: YouTube Reporting API Reach (channel_reach_basic_a1) — thumbnail impressions + CTR.',
           );
         } else {
           lines.push(
-            'CTR: unavailable via Analytics API (unsupported). Reporting Reach job may still be filling (can lag 24–48h after first setup).',
+            'CTR: unavailable via Analytics API (unsupported). Reporting Reach job may still be filling (can lag 24–48h after first setup). See backend logs grep "[Reach]".',
           );
         }
         if (baseline.impressionsClickThroughRate > 0 || baseline.views > 0) {

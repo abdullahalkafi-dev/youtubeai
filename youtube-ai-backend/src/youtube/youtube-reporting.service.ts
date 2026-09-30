@@ -22,6 +22,8 @@ export interface VideoReachMetrics {
 export class YoutubeReportingService {
   private readonly logger = new Logger(YoutubeReportingService.name);
   private readonly REACH_REPORT_TYPE = 'channel_reach_basic_a1';
+  /** YouTube Reporting docs: thumbnail CTR is a percentage (0–100), not a 0–1 fraction. */
+  private readonly CTR_UNIT = 'percent_0_100';
 
   constructor(
     private readonly youtubeService: YouTubeService,
@@ -43,14 +45,24 @@ export class YoutubeReportingService {
   async ensureReachJob(userId: string): Promise<string | null> {
     try {
       const accessToken = await this.youtubeService.getValidAccessToken(userId);
-      if (!accessToken) return null;
+      if (!accessToken) {
+        this.logger.warn('[Reach] ensureReachJob: no access token');
+        return null;
+      }
       const reporting = this.getClient(accessToken);
 
       const list = await reporting.jobs.list({ includeSystemManaged: true });
-      const existing = (list.data.jobs || []).find(
+      const jobs = list.data.jobs || [];
+      this.logger.log(
+        `[Reach] jobs.list: ${jobs.length} job(s) types=${jobs.map((j: any) => j.reportTypeId).join('|') || 'none'}`,
+      );
+      const existing = jobs.find(
         (j: any) => j.reportTypeId === this.REACH_REPORT_TYPE,
       );
-      if (existing?.id) return existing.id;
+      if (existing?.id) {
+        this.logger.log(`[Reach] using existing job id=${existing.id}`);
+        return existing.id;
+      }
 
       const created = await reporting.jobs.create({
         requestBody: {
@@ -58,10 +70,10 @@ export class YoutubeReportingService {
           name: 'MAE reach (thumbnail CTR)',
         },
       });
-      this.logger.log(`Created Reporting job ${created.data.id} for ${this.REACH_REPORT_TYPE}`);
+      this.logger.log(`[Reach] Created job id=${created.data.id} type=${this.REACH_REPORT_TYPE} (data lags 24–48h)`);
       return created.data.id || null;
     } catch (err: any) {
-      this.logger.warn(`ensureReachJob failed: ${err?.message || err}`);
+      this.logger.warn(`[Reach] ensureReachJob failed: ${err?.message || err}`);
       return null;
     }
   }
@@ -76,10 +88,16 @@ export class YoutubeReportingService {
   ): Promise<VideoReachMetrics[]> {
     try {
       const jobId = await this.ensureReachJob(userId);
-      if (!jobId) return [];
+      if (!jobId) {
+        this.logger.warn('[Reach] getReachMetrics: no jobId (see ensureReachJob log)');
+        return [];
+      }
 
       const accessToken = await this.youtubeService.getValidAccessToken(userId);
-      if (!accessToken) return [];
+      if (!accessToken) {
+        this.logger.warn('[Reach] getReachMetrics: no access token');
+        return [];
+      }
       const reporting = this.getClient(accessToken);
 
       const reports = await reporting.jobs.reports.list({
@@ -87,8 +105,9 @@ export class YoutubeReportingService {
         pageSize: 10,
       });
       const items = reports.data.reports || [];
+      this.logger.log(`[Reach] reports.list job=${jobId} count=${items.length}`);
       if (!items.length) {
-        this.logger.warn('No reach reports yet (job created — data can lag 24–48h)');
+        this.logger.warn('[Reach] no reports yet — data can lag 24–48h after job create');
         return [];
       }
 
@@ -98,9 +117,12 @@ export class YoutubeReportingService {
       );
       const usable = sorted.filter((r: any) => r.downloadUrl).slice(0, 7);
       if (!usable.length) {
-        this.logger.warn('Reach reports have no downloadUrl yet');
+        this.logger.warn('[Reach] reports have no downloadUrl yet');
         return [];
       }
+      this.logger.log(
+        `[Reach] downloading ${usable.length} report file(s) range=${usable[usable.length - 1]?.startTime || '?'}..${usable[0]?.startTime || '?'}`,
+      );
 
       // Merge days: sum impressions, impression-weighted CTR
       const merged = new Map<string, { impressions: number; ctrWeighted: number }>();
@@ -111,7 +133,7 @@ export class YoutubeReportingService {
             headers: { Authorization: `Bearer ${accessToken}` },
           });
           if (!res.ok) {
-            this.logger.warn(`Reach report download failed: HTTP ${res.status}`);
+            this.logger.warn(`[Reach] download HTTP ${res.status} for report ${report.id || report.startTime}`);
             continue;
           }
           const text = await res.text();
@@ -124,7 +146,7 @@ export class YoutubeReportingService {
             merged.set(row.videoId, prev);
           }
         } catch (dlErr: any) {
-          this.logger.warn(`Reach report download error: ${dlErr?.message || dlErr}`);
+          this.logger.warn(`[Reach] download error: ${dlErr?.message || dlErr}`);
         }
       }
 
@@ -142,38 +164,91 @@ export class YoutubeReportingService {
           ctr: v.impressions > 0 ? Math.round((v.ctrWeighted / v.impressions) * 100) / 100 : 0,
         });
       }
-      if (!out.length && downloaded === 0) {
-        this.logger.warn('Reach reports downloaded 0 files — CTR still empty');
+      this.logger.log(
+        `[Reach] merged rows=${out.length} files=${downloaded}/${usable.length} filter=${videoIds?.length ? videoIds.join(',') : 'none'} unit=${this.CTR_UNIT}`,
+      );
+      if (out.length > 0) {
+        const sample = out.slice(0, 5).map((r) => `${r.videoId}:imp=${r.impressions},ctr=${r.ctr}`).join(' | ');
+        this.logger.log(`[Reach] sample ${sample}`);
+      } else if (downloaded === 0) {
+        this.logger.warn('[Reach] 0 files downloaded — CTR empty (auth/URL issue)');
+      } else {
+        this.logger.warn('[Reach] files downloaded but 0 rows — check [Reach] header/missing-columns logs');
       }
       return out;
     } catch (err: any) {
-      this.logger.warn(`getReachMetrics failed: ${err?.message || err}`);
+      this.logger.warn(`[Reach] getReachMetrics failed: ${err?.message || err}`);
       return [];
     }
   }
 
+  /** Find first header index matching any alias (case-insensitive). */
+  private findCol(header: string[], aliases: string[]): number {
+    const lower = header.map((h) => h.toLowerCase().replace(/^"|"$/g, '').trim());
+    for (const alias of aliases) {
+      const i = lower.indexOf(alias.toLowerCase());
+      if (i >= 0) return i;
+    }
+    return -1;
+  }
+
+  /**
+   * Parse reach CSV. Logs full header when columns are missing so prod can diagnose.
+   * CTR unit: percentage 0–100 (YouTube Reporting docs). Values in (0,1] stay as-is
+   * (e.g. 0.8 → 0.8%), never ×100 (that would show 80%).
+   */
   private parseReachCsv(csv: string, filterIds?: string[]): VideoReachMetrics[] {
     const lines = csv.split(/\r?\n/).filter((l) => l.trim());
-    if (lines.length < 2) return [];
+    if (lines.length < 2) {
+      this.logger.warn(`[Reach] CSV too short (lines=${lines.length}) — need header + rows`);
+      return [];
+    }
     const header = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
     const idx = {
-      date: header.indexOf('date'),
-      video: header.indexOf('video_id'),
-      imp: header.indexOf('video_thumbnail_impressions'),
-      ctr: header.indexOf('video_thumbnail_impressions_ctr'),
+      date: this.findCol(header, ['date', 'day']),
+      video: this.findCol(header, ['video_id', 'videoid', 'video', 'id']),
+      imp: this.findCol(header, [
+        'video_thumbnail_impressions',
+        'thumbnail_impressions',
+        'impressions',
+      ]),
+      ctr: this.findCol(header, [
+        'video_thumbnail_impressions_ctr',
+        'thumbnail_impressions_ctr',
+        'impressions_ctr',
+        'ctr',
+      ]),
     };
-    if (idx.video < 0) return [];
+    if (idx.video < 0) {
+      this.logger.warn(
+        `[Reach] CSV missing video column. header=${JSON.stringify(header)} rows=${lines.length - 1}`,
+      );
+      return [];
+    }
+    if (idx.imp < 0 || idx.ctr < 0) {
+      this.logger.warn(
+        `[Reach] CSV missing metrics. impIdx=${idx.imp} ctrIdx=${idx.ctr} header=${JSON.stringify(header)}`,
+      );
+    }
 
     const want = filterIds?.length ? new Set(filterIds) : null;
     const out: VideoReachMetrics[] = [];
+    let loggedSample = false;
     for (let i = 1; i < lines.length; i++) {
       const cols = this.splitCsvLine(lines[i]);
       const videoId = (cols[idx.video] || '').replace(/^"|"$/g, '');
       if (!videoId) continue;
       if (want && !want.has(videoId)) continue;
-      const impressions = Number(cols[idx.imp] || 0) || 0;
-      const ctrRaw = Number(cols[idx.ctr] || 0) || 0;
-      const ctr = ctrRaw > 0 && ctrRaw <= 1 ? Math.round(ctrRaw * 10000) / 100 : Math.round(ctrRaw * 100) / 100;
+      const impressions = idx.imp >= 0 ? Number(cols[idx.imp] || 0) || 0 : 0;
+      const ctrRaw = idx.ctr >= 0 ? Number(cols[idx.ctr] || 0) || 0 : 0;
+      // FIXED RULE: Reporting CTR is already percent 0–100. Do not scale ≤1 up by 100.
+      const ctr = Math.round(ctrRaw * 100) / 100;
+      if (!loggedSample) {
+        this.logger.log(
+          `[Reach] row sample video=${videoId} raw_ctr=${ctrRaw} => ctr%=${ctr} imp=${impressions} unit=${this.CTR_UNIT} (compare vs Studio)`,
+        );
+        loggedSample = true;
+      }
       out.push({
         videoId,
         impressions,
