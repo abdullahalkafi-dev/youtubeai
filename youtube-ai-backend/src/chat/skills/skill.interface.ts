@@ -35,6 +35,21 @@ export interface SkillContext {
   /** Autopsy vs channel diagnosis (from PerformanceContextService). */
   analysisMode?: 'autopsy' | 'diagnosis';
   performanceLookup?: string;
+  /** Local-market YouTube clips for B-roll (when location + footage need). */
+  localScenePack?: {
+    market: string;
+    topic: string;
+    stations: string[];
+    clips: Array<{
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      videoUrl: string;
+      durationSeconds: number;
+      viewCount: number;
+    }>;
+    formatted?: string;
+  };
 }
 
 export interface ChatSkill {

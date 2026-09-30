@@ -666,7 +666,7 @@ C. [Third option]
 **Text overlay:** [What text to put on screen]
 
 ## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
-Provide real YouTube video links so the client can collect required footage. Baseline: 3–4 from Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV. LOCAL NEWS EXPANSION: if the story has a real local market and local affiliate video exists on YouTube (e.g. Shreveport → KSLA), add 4–6 local news clips (total 6–10) and lead B-roll with those stations. Only list clips you can actually find — never invent video IDs. Each YouTube URL EXACTLY ONCE on the title link line only (no [youtube.com](url), no bare URL repeat, no URL in How to Use):
+If LOCAL NEWS FOOTAGE PACK is in context: lead §17 with those real local clips (station B-roll the client can collect), then add 2–3 national/court sources. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. Each YouTube URL EXACTLY ONCE on the title link line only:
 1. [Channel Name: Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
    - Scene / Timestamp: [e.g. 0:45–1:15]
    - How to Use: [e.g. Overlay B-roll at Section 2]
@@ -1263,6 +1263,9 @@ ${imageFormat}`,
     }
     if (context.existingVideos && context.existingVideos.length > 0) {
       parts.push(`EXISTING VIDEOS (last 50 — check before suggesting topics to avoid duplicates):\n${context.existingVideos.map(v => `- "${v.title}" (${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString() : 'unknown date'}, ${v.viewCount?.toLocaleString() || 0} views)`).join('\n')}`);
+    }
+    if (context.localScenePack?.formatted) {
+      parts.push(context.localScenePack.formatted);
     }
 
     return parts.join('\n\n');

@@ -6,6 +6,7 @@ import { YoutubeReportingService } from './youtube-reporting.service';
 import { PerformanceContextService } from './performance-context.service';
 import { YouTubeSuggestionsService } from './youtube-suggestions.service';
 import { YouTubeTranscriptService } from './youtube-transcript.service';
+import { LocalNewsService } from './local-news.service';
 import { QuotaModule } from '../quota/quota.module';
 import { User, UserSchema } from '../mongo/schemas/user.schema';
 import { Video, VideoSchema } from '../mongo/schemas/video.schema';
@@ -27,6 +28,7 @@ import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
     PerformanceContextService,
     YouTubeSuggestionsService,
     YouTubeTranscriptService,
+    LocalNewsService,
   ],
   exports: [
     YouTubeService,
@@ -35,6 +37,7 @@ import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
     PerformanceContextService,
     YouTubeSuggestionsService,
     YouTubeTranscriptService,
+    LocalNewsService,
   ],
 })
 export class YouTubeModule {}

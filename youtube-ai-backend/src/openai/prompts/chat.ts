@@ -132,6 +132,7 @@ LINK RULES (critical):
 - Do not output a second markdown link or bare URL for a clip already listed.
 
 FOOTAGE VOLUME:
+- If LOCAL NEWS FOOTAGE PACK is in context: use those real local clips first (client collection list), then add 2–3 national/court sources.
 - Baseline: 3–4 clips from Court TV, Law & Crime Network, AP Archive, NBC/CBS/ABC News, 1090 Jake, DJ Akademiks, VladTV.
 - LOCAL NEWS EXPANSION: If the story has a real local market and local affiliate video exists on YouTube, add 4–6 local news clips (total 6–10). Lead B-roll with local market stations when the story is location-based — those clips are what the client needs to collect. Match the story city/region to its real affiliates (examples: Shreveport → KSLA; New Orleans → WWL/WDSU; NYC → WABC/WNBC/WCBS; Atlanta → WSB; Chicago → WGN/WLS; Houston → KPRK/KHOU; Miami → WPLG; Baltimore → WBAL) and use whatever station actually published the story.
 - Only list clips you can actually find. If local coverage is thin, say so. Never invent stations, titles, or video IDs.

@@ -16,6 +16,7 @@ import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { PerformanceContextService } from '../youtube/performance-context.service';
+import { LocalNewsService } from '../youtube/local-news.service';
 import {
   VIDEO_AUTOPSY_SYSTEM_PROMPT,
   CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
@@ -48,6 +49,7 @@ export class ChatService {
     private readonly chromaService: ChromaService,
     private readonly skillRegistry: SkillRegistry,
     private readonly performanceContext: PerformanceContextService,
+    private readonly localNewsService: LocalNewsService,
     @Inject(forwardRef(() => TrendsService))
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
@@ -295,6 +297,10 @@ export class ChatService {
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
+    if (this.shouldLoadLocalNews(dto.content, resolvedSkill)) {
+      this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
+      dynamicContext += await this.buildLocalNewsContext(channel, dto.content);
+    }
 
     // Detect if research is needed
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
@@ -478,6 +484,10 @@ export class ChatService {
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
+    if (this.shouldLoadLocalNews(dto.content, resolvedSkill)) {
+      this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
+      dynamicContext += await this.buildLocalNewsContext(channel, dto.content);
+    }
 
     // Build conversation history (last N messages)
     const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
@@ -966,6 +976,40 @@ export class ChatService {
       }
     } catch { /* RAG optional */ }
     return ragContext;
+  }
+
+  /**
+   * When to pull a local-news YouTube footage pack (quota-safe).
+   * Only on explicit footage ask OR script/outline/ideas with a place in the text.
+   */
+  private shouldLoadLocalNews(message: string, category?: string): boolean {
+    if (this.localNewsService.isFootageRequest(message)) return true;
+    if (category === 'script' || category === 'outline' || category === 'ideas') {
+      return this.localNewsService.resolveMarket(undefined, message) != null;
+    }
+    return false;
+  }
+
+  private async buildLocalNewsContext(
+    channel: any,
+    message: string,
+  ): Promise<string> {
+    try {
+      if (!channel?.userId) return '';
+      const topic = message.trim().slice(0, 120);
+      const pack = await this.localNewsService.findFootagePack({
+        userId: channel.userId.toString(),
+        topic,
+        locationHint: message,
+        maxClips: 5,
+        maxSeconds: 240,
+      });
+      if (!pack) return '';
+      return `\n\n${this.localNewsService.formatPack(pack)}`;
+    } catch (err: any) {
+      this.logger.warn(`Local news pack failed: ${err?.message || err}`);
+      return '';
+    }
   }
 
   /**
