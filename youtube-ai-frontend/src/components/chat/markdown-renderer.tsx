@@ -4,16 +4,10 @@ import { useState } from 'react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, ExternalLink, ShieldCheck, Maximize2, X, Image as ImageIcon } from 'lucide-react'
+import { collapseDuplicateYouTubeCards, extractYouTubeId } from '@/lib/youtube-markdown'
 
 interface MarkdownRendererProps {
   content: string
-}
-
-function extractYouTubeId(url: string): string | null {
-  if (!url) return null
-  const regExp = /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i
-  const match = url.match(regExp)
-  return match && match[1].length === 11 ? match[1] : null
 }
 
 function YouTubeCard({ url, title, videoId }: { url: string; title?: string; videoId: string }) {
@@ -150,6 +144,8 @@ function ImageLightbox({ src, alt }: { src: string; alt?: string }) {
 export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   if (!content || typeof content !== 'string') return null
 
+  const safeContent = collapseDuplicateYouTubeCards(content)
+
   return (
     <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-white prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-p:leading-relaxed prose-p:text-xs prose-strong:text-gray-800 dark:prose-strong:text-gray-200 prose-li:text-xs prose-li:text-gray-700 dark:prose-li:text-gray-300 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-indigo-300 dark:prose-blockquote:border-l-indigo-600 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 prose-code:text-xs prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-hr:border-gray-200 dark:prose-hr:border-gray-700">
       <Markdown
@@ -236,7 +232,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
           ),
         }}
       >
-        {content}
+        {safeContent}
       </Markdown>
     </div>
   )

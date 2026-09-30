@@ -10,6 +10,7 @@ import { TrendsCard } from './trends-card'
 import { OutlineCard } from './outline-card'
 import { MarkdownRenderer } from './markdown-renderer'
 import { SourcesSection } from './sources-section'
+import { collapseDuplicateYouTubeCards } from '@/lib/youtube-markdown'
 import { formatAssetUrl } from '@/lib/api'
 import { Wand2, ExternalLink } from 'lucide-react'
 
@@ -79,17 +80,22 @@ export function MessageRenderer({
   if (isStreaming) {
     // Strip script delimiters and trailing incomplete HTML tags like "<span" or "<div" during active stream
     const rawContent = typeof content === 'string' ? content : ''
-    const cleanStreamingContent = rawContent
-      .replace(/<!--\s*SCRIPT_(?:START|END)?\s*-->?/gi, '')
-      .replace(/<<<\/?SCRIPT_(?:START|END)?>>>?/gi, '')
-      .replace(/<[^>]*$/g, '')
+    const cleanStreamingContent = collapseDuplicateYouTubeCards(
+      rawContent
+        .replace(/<!--\s*SCRIPT_(?:START|END)?\s*-->?/gi, '')
+        .replace(/<<<\/?SCRIPT_(?:START|END)?>>>?/gi, '')
+        .replace(/<[^>]*$/g, ''),
+    )
     return <MarkdownRenderer content={cleanStreamingContent} />
   }
 
   if (!content || typeof content !== 'string') return <MarkdownRenderer content="" />
 
-  const effectiveTopic = resolveTopicHeadline(content, videoTitle, threadTitle);
-  const parsed = detectAndParse(content, category)
+  // Dedupe YouTube cards across the full message before block split
+  // (script packages render preamble/postamble as separate MarkdownRenderers).
+  const safeContent = collapseDuplicateYouTubeCards(content)
+  const effectiveTopic = resolveTopicHeadline(safeContent, videoTitle, threadTitle);
+  const parsed = detectAndParse(safeContent, category)
 
   return (
     <div>
