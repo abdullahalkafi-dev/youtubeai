@@ -65,7 +65,7 @@ Copy-paste into YouTube Studio. Target CTR: at least the channel baseline shown 
 
 ### TITLE
 **Recommended:**
-[exactly one title line — under 65 chars]
+[exactly one title line — under 65 chars — REQUIRED on this line, never empty]
 
 **Alternates:**
 B. [title]

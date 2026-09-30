@@ -111,21 +111,58 @@ function extractSources(content: string): Array<{ title: string; url: string }> 
   return sources
 }
 
-function extractSection(content: string, header: string): string {
-  // Anchor at line start so "### TITLE" does not match inside "### DESCRIPTION" via ## Title
-  const regex = new RegExp(`^#{1,3}\\s*${header}\\b[^\\n]*\\n([\\s\\S]*?)(?=^#{1,3}\\s+|$)`, 'im')
-  const match = content.match(regex)
-  let body = match?.[1]?.trim() || ''
-  // For titles: keep only the recommended/clean line, not the whole kit
-  if (header.toLowerCase() === 'title' && body.length > 120) {
-    const rec = body.match(/\*\*Recommended:?\*\*\s*\n+\s*(.+)/i) || body.match(/^\s*(?:\*\*)?Recommended:?(?:\*\*)?\s*\n+\s*(.+)/im)
-    if (rec?.[1]) {
-      body = rec[1].replace(/^["'\s]+|["'\s]+$/g, '').replace(/\*\*/g, '').trim()
-    } else {
-      const first = body.split('\n').map((l) => l.trim()).find((l) => l && !/^[-*#]/.test(l) && !/^(B\.|C\.|Why |Alternates)/i.test(l))
-      if (first) body = first.replace(/^["'\s]+|["'\s]+$/g, '').replace(/\*\*/g, '').trim()
-    }
+function isSeoLabelLine(line: string): boolean {
+  const l = line.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()
+  if (!l) return true
+  return /^(recommended|alternates?|best title|title|why (this|the) title)\s*:?$/i.test(l)
+    || /^why this title\b/i.test(l)
+}
+
+function stripTitleNoise(s: string): string {
+  return s.replace(/^["'\s]+|["'\s]+$/g, '').replace(/\*\*/g, '').trim()
+}
+
+/** Pull the real YouTube title out of a TITLE section body (handles Recommended: same/next line). */
+function extractTitleFromSectionBody(body: string): string {
+  if (!body) return ''
+  // **Recommended:** Actual  |  **Recommended:**\nActual  |  Recommended: Actual
+  const rec =
+    body.match(/^\s*(?:\*\*)?Recommended:?(?:\*\*)?[\s:]+(.+)$/im) ||
+    body.match(/^\s*(?:\*\*)?Best Title(?:\*\*)?\s*:?\s*(.+)$/im)
+  if (rec?.[1]) {
+    const t = stripTitleNoise(rec[1].split('\n')[0] || '')
+    if (t && !isSeoLabelLine(t)) return t.slice(0, 70)
   }
+  // Prefer a non-alternate line (B./C. are last resort)
+  let alternateFallback = ''
+  for (const raw of body.split('\n')) {
+    const l = stripTitleNoise(raw)
+    if (!l || isSeoLabelLine(raw)) continue
+    if (/^[-*#]/.test(l)) continue
+    if (/^(B\.|C\.)/i.test(l)) {
+      if (!alternateFallback) alternateFallback = l.replace(/^(B\.|C\.)\s*/i, '').trim().slice(0, 70)
+      continue
+    }
+    return l.slice(0, 70)
+  }
+  return alternateFallback
+}
+
+function extractSection(content: string, header: string): string {
+  // Match header as its own line. Title must not swallow "Title Options".
+  // Body runs until the next markdown header — NOT end-of-line ($ under /m was truncating).
+  const isTitle = header.toLowerCase() === 'title'
+  const headerPat = isTitle
+    ? `Title\\s*:?[ \\t]*$`
+    : `${header}\\b[^\\n]*`
+  const startRe = new RegExp(`^#{1,3}\\s*(?:\\d+\\.\\s*)?${headerPat}`, 'im')
+  const startMatch = startRe.exec(content)
+  if (!startMatch || startMatch.index === undefined) return ''
+  const bodyStart = startMatch.index + startMatch[0].length
+  const after = content.slice(bodyStart).replace(/^\r?\n/, '')
+  const nextHeader = after.match(/^#{1,3}\s+/m)
+  const body = (nextHeader ? after.slice(0, nextHeader.index) : after).trim()
+  if (isTitle) return extractTitleFromSectionBody(body)
   return body
 }
 
@@ -147,7 +184,7 @@ function parseSeoContent(content: string): SeoContent | null {
     .trim()
   const titleLines = title.split('\n').map((l) => l.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()).filter(Boolean)
   // Skip labels like "Recommended:" / "Alternates:" — take the actual title line
-  title = titleLines.find((l) => !/^(recommended|alternates?|why (this|the) title|title)\s*:?$/i.test(l)) || titleLines[0] || ''
+  title = titleLines.find((l) => !isSeoLabelLine(l)) || titleLines[0] || ''
   title = title.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()
   if (title.length > 70) title = title.split('\n')[0].slice(0, 70)
 
@@ -158,8 +195,16 @@ function parseSeoContent(content: string): SeoContent | null {
     .replace(/###\s*THUMBNAILS[\s\S]*$/i, '')
     .trim()
 
+  // Tags may wrap across lines — join then split on commas
   const tags = tagsRaw
-    ? tagsRaw.split('\n')[0].split(',').map((t) => t.trim()).filter(Boolean)
+    ? tagsRaw
+        .split('\n')
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .join(', ')
+        .split(',')
+        .map((t) => t.trim())
+        .filter(Boolean)
     : []
   const hashtags = hashtagsRaw
     ? hashtagsRaw.split(/[\s,]+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean)

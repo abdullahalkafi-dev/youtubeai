@@ -31,8 +31,11 @@ export class YoutubeReportingService {
   private getClient(accessToken: string): any {
     const oauth2Client = new google.auth.OAuth2();
     oauth2Client.setCredentials({ access_token: accessToken });
-    // googleapis youtubeReporting factory (typed loosely across versions)
-    const factory = (google as any).youtubeReporting;
+    // googleapis exports `youtubereporting` (lowercase). `youtubeReporting` is undefined and throws.
+    const factory = (google as any).youtubereporting || (google as any).youtubeReporting;
+    if (typeof factory !== 'function') {
+      throw new Error('googleapis youtubereporting factory missing');
+    }
     return factory({ version: 'v1', auth: oauth2Client });
   }
 
@@ -64,8 +67,8 @@ export class YoutubeReportingService {
   }
 
   /**
-   * Latest reach rows (per video) from the newest available report.
-   * Prefer a specific videoId filter when provided.
+   * Reach rows (per video) from recent daily reports, impressions summed
+   * and CTR impression-weighted across days. Optional videoId filter.
    */
   async getReachMetrics(
     userId: string,
@@ -81,7 +84,7 @@ export class YoutubeReportingService {
 
       const reports = await reporting.jobs.reports.list({
         jobId,
-        pageSize: 5,
+        pageSize: 10,
       });
       const items = reports.data.reports || [];
       if (!items.length) {
@@ -93,28 +96,56 @@ export class YoutubeReportingService {
       const sorted = [...items].sort((a, b) =>
         String(b.startTime || '').localeCompare(String(a.startTime || '')),
       );
-      const latest = sorted[0];
-      const downloadUrl = latest.downloadUrl;
-      if (!downloadUrl) {
-        this.logger.warn('Reach report has no downloadUrl yet');
+      const usable = sorted.filter((r: any) => r.downloadUrl).slice(0, 7);
+      if (!usable.length) {
+        this.logger.warn('Reach reports have no downloadUrl yet');
         return [];
       }
 
-      const res = await fetch(downloadUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-      });
-      if (!res.ok) {
-        this.logger.warn(`Reach report download failed: HTTP ${res.status}`);
-        return [];
+      // Merge days: sum impressions, impression-weighted CTR
+      const merged = new Map<string, { impressions: number; ctrWeighted: number }>();
+      let downloaded = 0;
+      for (const report of usable) {
+        try {
+          const res = await fetch(report.downloadUrl, {
+            headers: { Authorization: `Bearer ${accessToken}` },
+          });
+          if (!res.ok) {
+            this.logger.warn(`Reach report download failed: HTTP ${res.status}`);
+            continue;
+          }
+          const text = await res.text();
+          const rows = this.parseReachCsv(text, videoIds);
+          downloaded++;
+          for (const row of rows) {
+            const prev = merged.get(row.videoId) || { impressions: 0, ctrWeighted: 0 };
+            prev.impressions += row.impressions;
+            prev.ctrWeighted += row.impressions * row.ctr;
+            merged.set(row.videoId, prev);
+          }
+        } catch (dlErr: any) {
+          this.logger.warn(`Reach report download error: ${dlErr?.message || dlErr}`);
+        }
       }
-      const text = await res.text();
-      const rows = this.parseReachCsv(text, videoIds);
+
       await this.quotaService.logAnalyticsCall({
         channelId: 'reporting',
         endpoint: `reporting.jobs.reports (${this.REACH_REPORT_TYPE})`,
         success: true,
       });
-      return rows;
+
+      const out: VideoReachMetrics[] = [];
+      for (const [videoId, v] of merged.entries()) {
+        out.push({
+          videoId,
+          impressions: v.impressions,
+          ctr: v.impressions > 0 ? Math.round((v.ctrWeighted / v.impressions) * 100) / 100 : 0,
+        });
+      }
+      if (!out.length && downloaded === 0) {
+        this.logger.warn('Reach reports downloaded 0 files — CTR still empty');
+      }
+      return out;
     } catch (err: any) {
       this.logger.warn(`getReachMetrics failed: ${err?.message || err}`);
       return [];
