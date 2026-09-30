@@ -70,6 +70,25 @@ export class RedisService implements OnModuleDestroy {
     }
   }
 
+  /** Delete keys matching a glob pattern (e.g. comments:video:123:replies:*) */
+  async delByPattern(pattern: string): Promise<number> {
+    try {
+      let cursor = '0';
+      let deleted = 0;
+      do {
+        const [next, keys] = await this.client.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = next;
+        if (keys?.length) {
+          deleted += await this.client.del(...keys);
+        }
+      } while (cursor !== '0');
+      return deleted;
+    } catch (error) {
+      this.logger.warn(`Redis DEL pattern ${pattern} failed: ${error.message}`);
+      return 0;
+    }
+  }
+
   /** Check if a key exists */
   async exists(key: string): Promise<boolean> {
     try {

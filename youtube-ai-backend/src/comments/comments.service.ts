@@ -380,8 +380,12 @@ Do not include markdown codeblocks or extra text.`;
     // 'auto' = AI auto-reply pipeline. 'manual' = creator UI reply.
     // Only manual replies may stamp batch items as Creator Manual Response.
     const source = options?.source === 'auto' ? 'auto' : 'manual';
+    const replyBody = String(text || '').trim();
+    if (!replyBody) {
+      throw new Error('Reply text is empty');
+    }
     await this.quotaService.checkCommentsBudget(channelId, 'comments.insert', QUOTA_COST_COMMENT_INSERT);
-    const result = await this.youtubeService.insertCommentReply(accessToken, parentId, text);
+    const result = await this.youtubeService.insertCommentReply(accessToken, parentId, replyBody);
     if (!result.mock) {
       await this.quotaService.logCall({
         channelId,
@@ -404,7 +408,7 @@ Do not include markdown codeblocks or extra text.`;
           {
             $set: {
               'items.$[elem].status': 'handled_manually',
-              'items.$[elem].manualReplyText': text,
+              'items.$[elem].manualReplyText': replyBody,
               'items.$[elem].processedAt': new Date(),
             },
           },
@@ -413,30 +417,32 @@ Do not include markdown codeblocks or extra text.`;
           },
         );
 
-        await this.videoModel.findOneAndUpdate(
-          { youtubeId: videoId },
-          {
-            $addToSet: { repliedCommentIds: parentId },
-          },
-        );
+        await this.markCommentReplied(videoId, parentId);
       } catch (reconcileErr: any) {
         this.logger.warn(`Failed to reconcile batch status on manual reply: ${reconcileErr.message}`);
       }
     } else {
       // AI auto-reply: mark comment as replied. Do NOT write manualReplyText / handled_manually.
       try {
-        await this.videoModel.findOneAndUpdate(
-          { youtubeId: videoId },
-          {
-            $addToSet: { repliedCommentIds: parentId },
-          },
-        );
+        await this.markCommentReplied(videoId, parentId);
       } catch (reconcileErr: any) {
         this.logger.warn(`Failed to mark repliedCommentIds on auto reply: ${reconcileErr.message}`);
       }
     }
 
     return result;
+  }
+
+  /**
+   * Mark a comment as answered. Accepts either the Mongo video _id (UI route)
+   * or the YouTube video id (auto pipeline) — H1.
+   */
+  private async markCommentReplied(videoIdOrObjectId: string, parentId: string) {
+    const or: any[] = [{ youtubeId: videoIdOrObjectId }];
+    if (Types.ObjectId.isValid(videoIdOrObjectId)) {
+      or.push({ _id: new Types.ObjectId(videoIdOrObjectId) });
+    }
+    await this.videoModel.findOneAndUpdate({ $or: or }, { $addToSet: { repliedCommentIds: parentId } });
   }
 
   /**
@@ -694,6 +700,8 @@ ${JSON.stringify(
      */
     let nestedListBudget = 12;
     let quotaStalled = false;
+    /** Parent comment ids that already have a creator-authored child (Studio or app). */
+    const creatorRepliedTo = new Set<string>();
 
     /**
      * Collect @channel mention children.
@@ -747,7 +755,15 @@ ${JSON.stringify(
 
       for (const child of children) {
         if (!child?.id || seenTargetIds.has(child.id) || repliedSet.has(child.id)) continue;
-        if (this.isCreatorAuthored(child, channel)) continue;
+
+        // Track creator answers (H3 / M1) — reply parent is this thread or an intermediate id
+        if (this.isCreatorAuthored(child, channel)) {
+          const creatorParent = child.parentId || parentId;
+          if (creatorParent) creatorRepliedTo.add(creatorParent);
+          // Also treat top-level as answered when a creator child sits anywhere in the thread
+          if (parentId) creatorRepliedTo.add(parentId);
+          continue;
+        }
 
         const childMentionsChannel = this.mentionsThisChannel(child.text, channel);
 
@@ -820,6 +836,15 @@ ${JSON.stringify(
       );
     }
 
+    // Drop targets that already have a creator answer (Studio or earlier run) — H3 / M1
+    const finalTargets = targets.filter((t) => {
+      if (t.kind === 'top') {
+        return !creatorRepliedTo.has(t.commentId);
+      }
+      // mention_reply: skip if Unique already answered this mention
+      return !creatorRepliedTo.has(t.commentId);
+    });
+
     if (quotaStalled) {
       await this.videoModel.findByIdAndUpdate(video._id, {
         $set: { autoReplyLastRanAt: new Date() },
@@ -827,7 +852,7 @@ ${JSON.stringify(
       return { processedCount: 0, skippedCount: 0, failedCount: 0 };
     }
 
-    if (targets.length === 0) {
+    if (finalTargets.length === 0) {
       await this.videoModel.findByIdAndUpdate(video._id, {
         $set: { autoReplyLastRanAt: new Date() },
       });
@@ -835,7 +860,7 @@ ${JSON.stringify(
     }
 
     // Cap total comments by remaining daily quota
-    const targetComments = targets.slice(0, remainingDailyCap);
+    const targetComments = finalTargets.slice(0, remainingDailyCap);
 
     // Create 1 unified AutomationBatch document for this video run
     const batchDoc = await this.batchModel.create({
@@ -871,6 +896,10 @@ ${JSON.stringify(
     const newlyRepliedIds: string[] = [];
     /** Skipped (spam) + already-settled ids — never re-queue on the next cron (C1). */
     const settledIds: string[] = [];
+    // Already answered by creator in Studio — never auto-reply (H3)
+    for (const t of targets) {
+      if (creatorRepliedTo.has(t.commentId)) settledIds.push(t.commentId);
+    }
 
     // Process in chunks of up to 10 comments
     for (let offset = 0; offset < targetComments.length; offset += COMMENT_CHUNK_SIZE) {
@@ -896,13 +925,31 @@ ${JSON.stringify(
         const batchItemIndex = offset + i;
         const aiRes = aiReplies.find((r) => r.commentId === comment.commentId);
 
-        if (!aiRes || aiRes.action === 'skip') {
+        // H2: AI omitted this comment — do NOT settle (would drop the reply forever)
+        if (!aiRes) {
+          batchDoc.items[batchItemIndex].status = 'failed';
+          batchDoc.items[batchItemIndex].error = 'AI did not return a result for this comment';
+          batchDoc.items[batchItemIndex].processedAt = new Date();
+          failedCount++;
+          continue;
+        }
+
+        if (aiRes.action === 'skip') {
           batchDoc.items[batchItemIndex].status = 'skipped_spam';
-          batchDoc.items[batchItemIndex].skipReason = aiRes?.skipReason || 'Spam/bot comment';
+          batchDoc.items[batchItemIndex].skipReason = aiRes.skipReason || 'Spam/bot comment';
           batchDoc.items[batchItemIndex].processedAt = new Date();
           skippedCount++;
           // Settle forever — do not rebuild a batch for the same spam every 5 minutes
           settledIds.push(comment.commentId);
+          continue;
+        }
+
+        // M3: never post blank / whitespace-only replies
+        if (!String(aiRes.replyText || '').trim()) {
+          batchDoc.items[batchItemIndex].status = 'failed';
+          batchDoc.items[batchItemIndex].error = 'AI returned empty reply text';
+          batchDoc.items[batchItemIndex].processedAt = new Date();
+          failedCount++;
           continue;
         }
 

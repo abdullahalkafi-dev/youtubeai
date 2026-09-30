@@ -108,6 +108,7 @@ export class CommentCacheService {
       await this.redis.del(this.threadsKey(videoId, 'relevance'));
       await this.redis.del(this.threadsKey(videoId, 'time'));
       await this.redis.del(this.metaKey(videoId));
+      await this.redis.delByPattern(`comments:video:${videoId}:replies:*`);
     } catch (error) {
       this.logger.error(
         `Failed to invalidate cache for video ${videoId}: ${error.message}`,
