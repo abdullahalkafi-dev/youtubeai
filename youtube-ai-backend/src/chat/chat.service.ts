@@ -1002,7 +1002,7 @@ export class ChatService {
         topic,
         locationHint: message,
         maxClips: 5,
-        maxSeconds: 240,
+        maxSeconds: 360,
       });
       if (!pack) return '';
       return `\n\n${this.localNewsService.formatPack(pack)}`;

@@ -121,7 +121,7 @@ const MARKETS: MarketDef[] = [
 ];
 
 const MAX_CLIPS_DEFAULT = 5;
-const MAX_SECONDS_DEFAULT = 240; // client rule: under 4 minutes for B-roll
+const MAX_SECONDS_DEFAULT = 360; // 6 minutes — more usable local B-roll than 4 min
 const SEARCH_LOOKBACK_DAYS = 730; // allow older local archive for footage
 
 @Injectable()
