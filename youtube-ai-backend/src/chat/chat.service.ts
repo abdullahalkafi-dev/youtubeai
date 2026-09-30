@@ -324,7 +324,7 @@ export class ChatService {
       this.logger.log(`Thread ${threadId}: Research detected, using web search`);
       const searchResult = await this.openaiService.chatWithSearch({
         userMessage: dto.content,
-        systemPrompt: systemPrompt + '\n\n' + dynamicContext,
+        systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol() + '\n\n' + dynamicContext,
         conversationHistory: contextMessages.slice(0, -1),
       });
       aiResponse = { content: searchResult.content, usage: searchResult.usage };
@@ -530,7 +530,7 @@ export class ChatService {
         try {
           for await (const chunk of this.openaiService.chatWithSearchStream({
             userMessage: dto.content,
-            systemPrompt: systemPrompt + '\n\n' + dynamicContext,
+            systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol() + '\n\n' + dynamicContext,
             conversationHistory,
           })) {
             if (chunk.chunk) {
@@ -969,6 +969,30 @@ export class ChatService {
   }
 
   /**
+   * Live research brief appended when web search runs.
+   * Forces docket/status checks so topic packs do not ship stale legal stages.
+   */
+  private buildResearchProtocol(): string {
+    return `
+
+## LIVE RESEARCH PROTOCOL (required this turn)
+You have web search. Use it BEFORE recommending a topic, title, hook, thumbnail, or legal framing.
+
+Search checklist:
+1. **Legal/custody stage for every named person** — arrested / charged / indicted / on trial / awaiting trial / convicted / sentenced / appealing. Prefer court and major outlets (AP, Reuters, Court TV, Law & Crime, local affiliates).
+2. **Last 14 days of news** for each named person or case (updates, hearings, verdicts, sentencing dates, appeals).
+3. **YouTube / video coverage** from competitors and news channels that audiences already watch — list real watchable URLs when you find them.
+4. **Competitor / demand signals** if CHANNEL CONTEXT includes competitor or existing videos — do not ignore them; use them for angle, not for stale facts.
+
+Hard rules:
+- Search results beat training memory. If they conflict, follow search and say what changed.
+- Never label status "Verified" unless THIS turn's research confirms it. Otherwise: \`UNVERIFIED — confirm docket before publishing\`.
+- Do **not** build a GREENLIGHT package around a guessed legal stage (e.g. "before trial" / "awaiting trial") if you did not verify it this turn.
+- Only list real source URLs you actually saw. If you cannot verify sources: say so. Do **not** write "Sources pending verification" as if the package is production-ready.
+- Today's date is in the context — reject case stages that are older than current reporting.`;
+  }
+
+  /**
    * Detect if the user message needs web search / research.
    * Triggers for: outline/script/trends/thumbnail/ideas skills, legal/crime keywords, and research-oriented questions.
    */
@@ -993,6 +1017,17 @@ export class ChatService {
     // Short option selection (e.g. "b", "option b", "1", "choice a") — inherit research context
     if (/^(option\s*)?[a-d1-4]$/i.test(lower)) return true;
 
+    // Topic / "what should I post" planning — always need live case status (not training memory)
+    // e.g. "which topic video should i make today", "what to post today", "make this video today"
+    if (/\b(which|what)\s+(topic|video|story|case|angle)\b/i.test(lower)) return true;
+    if (/\b(today|tonight|this week|this month)\b/i.test(lower) &&
+        /\b(video|topic|post|content|idea|upload|make|cover|story|script)\b/i.test(lower)) {
+      return true;
+    }
+    if (/\b(make this video|content plan|video ideas?|topic ideas?|post today|upload today|pitch|greenlight)\b/i.test(lower)) {
+      return true;
+    }
+
     // News/current events & criminal case keywords — terms that indicate live news, person lookup, or case status
     const newsKeywords = [
       'latest news', 'recent news', 'current events', 'what happened',
@@ -1002,6 +1037,7 @@ export class ChatService {
       'arrested', 'jail', 'prison', 'trial', 'sentenced', 'verdict',
       'indicted', 'plea deal', 'released', 'charges', 'raided', 'fbi',
       'doj', 'court', 'guilty', 'custody', 'bail', 'investigation',
+      'convicted', 'acquitted', 'sentencing', 'appeal', 'plea', 'probation',
     ];
     if (newsKeywords.some(kw => lower.includes(kw))) return true;
 
