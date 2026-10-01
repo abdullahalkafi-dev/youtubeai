@@ -1562,6 +1562,22 @@ export class ChatService {
             .slice(0, 3)
             .join(' ');
         const candidates = [topic];
+        // Thread subjects can be weak search phrasings ("Rihanna Home Case").
+        // Walk to trend titles of the SAME story (≥2 shared tokens ≥4 chars);
+        // other trends are different stories — never attach their clips.
+        const subjectTokens = (s: string) =>
+          new Set(
+            (s || '')
+              .toLowerCase()
+              .replace(/[^a-z0-9]+/g, ' ')
+              .split(/\s+/)
+              .filter((w) => w.length >= 4),
+          );
+        const sharedCount = (a: Set<string>, b: Set<string>) => {
+          let n = 0;
+          for (const w of a) if (b.has(w)) n++;
+          return n;
+        };
         if (topicFromTrends) {
           const seen = new Set([topicKey(topic)]);
           for (const t of trendTitles || []) {
@@ -1572,7 +1588,23 @@ export class ChatService {
             candidates.push(v);
             if (candidates.length >= 3) break;
           }
+        } else if (topicSrc === 'conversation-heading') {
+          const subjToks = subjectTokens(topic);
+          const seen = new Set([topicKey(topic)]);
+          for (const t of trendTitles || []) {
+            const v = (t || '').trim().slice(0, 120);
+            const k = topicKey(v);
+            if (!v || !k || seen.has(k)) continue;
+            if (sharedCount(subjToks, subjectTokens(v)) < 2) continue;
+            seen.add(k);
+            candidates.push(v);
+            if (candidates.length >= 3) break;
+          }
         }
+        // Thread subjects need real coverage (≥3 clips); trends/user-named
+        // subjects keep the original first-non-empty semantics.
+        const need = topicSrc === 'conversation-heading' ? 3 : 1;
+        let fallback: LocalScenePack | null = null;
         let thin: LocalScenePack | null = null;
         for (const t of candidates) {
           const topicPack = await this.localNewsService.findTopicFootagePack({
@@ -1582,13 +1614,14 @@ export class ChatService {
             denyChannelIds,
           });
           if (!topicPack) continue;
-          if (topicPack.clips.length > 0) {
+          if (topicPack.clips.length >= need) {
             pack = topicPack;
             break;
           }
-          if (!thin) thin = topicPack;
+          if (topicPack.clips.length > 0 && !fallback) fallback = topicPack;
+          if (topicPack.clips.length === 0 && !thin) thin = topicPack;
         }
-        if (thin && !pack) pack = thin;
+        if (!pack) pack = fallback || thin;
       }
 
       this.logger.log(

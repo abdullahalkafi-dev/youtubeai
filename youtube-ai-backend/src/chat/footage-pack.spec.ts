@@ -276,6 +276,34 @@ describe('Phase 2c — loadFootagePack triggers', () => {
     expect(topicSpy.mock.calls[0][0].topic).toContain('Fresh Trend Topic');
     expect(pack).not.toBeNull();
   });
+
+  it('weak thread subject walks to the matching trend title, never other stories', async () => {
+    topicSpy.mockImplementation(async (p) =>
+      String(p.topic).includes('Rihanna home shooting')
+        ? makePack(
+            Array.from({ length: 6 }, (_, i) => clip(`trend${i}`)),
+            'topic',
+          )
+        : makePack([clip('ctx1')], 'topic'),
+    );
+    const pack = await load(
+      'give me script for this',
+      'script',
+      true,
+      '## Best Next Post: **Rihanna Home Case — The Competency Trap**\nLos Angeles.',
+      [
+        'Rihanna home shooting defendant ruled fit for trial',
+        'Chicago man gets 25 years for trafficking and abusing minor',
+      ],
+    );
+    const topics = topicSpy.mock.calls.map((c) => String(c[0].topic));
+    expect(topics[0]).toContain('Rihanna Home Case');
+    expect(topics).toContain(
+      'Rihanna home shooting defendant ruled fit for trial',
+    );
+    expect(topics.join(' | ')).not.toContain('Chicago man gets');
+    expect(pack?.clips.length).toBe(6);
+  });
 });
 
 describe('extractContextTopic — thread proposal heading parsing', () => {
