@@ -126,7 +126,7 @@ export function CommentAutomationTab() {
     }
   };
 
-  const dailyCap = stats?.dailyCommentCap || 70;
+  const dailyCap = stats?.dailyCommentCap || 120;
   const todayUsed = stats?.todayAutoRepliesCount || 0;
   const capPercent = Math.min(100, Math.round((todayUsed / dailyCap) * 100));
 
@@ -204,10 +204,10 @@ export function CommentAutomationTab() {
               <span className="text-2xl font-black text-gray-900 dark:text-white font-heading">
                 {stats?.activeVideosCount || 0}
               </span>
-              <span className="text-xs text-gray-400 font-medium">/ {stats?.maxActiveVideos || 5} max</span>
+              <span className="text-xs text-gray-400 font-medium">/ {stats?.maxActiveVideos || 10} max</span>
             </div>
             <span className="text-[11px] text-gray-400 block mt-4">
-              {5 - (stats?.activeVideosCount || 0)} video slots available
+                {(stats?.maxActiveVideos || 10) - (stats?.activeVideosCount || 0)} video slots available
             </span>
           </CardContent>
         </Card>
@@ -262,7 +262,7 @@ export function CommentAutomationTab() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-500" />
               <h3 className="text-sm font-bold text-gray-900 dark:text-white font-heading">
-                Active Auto-Reply Videos ({stats?.activeVideosCount || 0} / {stats?.maxActiveVideos || 5})
+                Active Auto-Reply Videos ({stats?.activeVideosCount || 0} / {stats?.maxActiveVideos || 10})
               </h3>
             </div>
             <span className="text-xs text-gray-400">

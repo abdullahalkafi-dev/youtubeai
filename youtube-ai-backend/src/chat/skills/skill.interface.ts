@@ -36,6 +36,16 @@ export interface SkillContext {
   /** Autopsy vs channel diagnosis (from PerformanceContextService). */
   analysisMode?: 'autopsy' | 'diagnosis';
   performanceLookup?: string;
+  /** Own last-14d winners vs below-median pattern (local DB, zero quota). */
+  recentPattern?: string;
+  /** Competitor videos we haven't covered, ranked by search demand (cached). */
+  contentGaps?: Array<{
+    topic: string;
+    competitorChannel: string;
+    competitorVideoTitle: string;
+    competitorViews: number;
+    searchDemand: number;
+  }>;
   /** Local-market YouTube clips for B-roll (when location + footage need). */
   localScenePack?: {
     market: string;

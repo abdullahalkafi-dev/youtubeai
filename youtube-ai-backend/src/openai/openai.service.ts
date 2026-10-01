@@ -432,7 +432,7 @@ export class OpenAIService {
           model: this.trendsModel || this.model,
           tools: [{ type: 'web_search' }],
           input: inputItems,
-          max_output_tokens: 8192,
+          max_output_tokens: 12000,
         }),
       { operationName: 'OpenAI Chat with Search' },
     );
@@ -502,7 +502,7 @@ export class OpenAIService {
           tools: [{ type: 'web_search' }],
           input: inputItems,
           stream: true,
-          max_output_tokens: 8192,
+          max_output_tokens: 12000,
         }),
       { operationName: 'OpenAI Chat with Search (stream)' },
     );

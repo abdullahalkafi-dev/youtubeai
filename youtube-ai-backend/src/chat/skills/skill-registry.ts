@@ -18,6 +18,10 @@ import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES } from '../../openai/prompts
 export class SkillRegistry {
   private readonly logger = new Logger(SkillRegistry.name);
   private skills = new Map<string, ChatSkill>();
+  /** 60-min TTL caches — competitor brief + content gaps (YouTube quota savers). */
+  private static readonly CTX_TTL_MS = 60 * 60 * 1000;
+  private competitorBriefCache = new Map<string, { at: number; data: SkillContext['competitorSummary'] }>();
+  private gapsCache = new Map<string, { at: number; data: NonNullable<SkillContext['contentGaps']> }>();
 
   constructor(
     @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
@@ -183,12 +187,19 @@ When the user asks a GENERAL question not about the channel:
 - Answer normally without referencing channel data
 - Keep it focused on what they asked
 
+EVIDENCE-BASED OUTPUT RULES (MANDATORY):
+- Every topic, title, and thumbnail recommendation MUST cite concrete evidence from the injected context: competitor videos WITH their view counts, YOUR recent winners/below-median list, content gaps, or trend scores.
+- NEVER give generic advice ("use an emotional title", "make it eye-catching", "post consistently") — replace it with: which proven video in the context this resembles, and what makes your proposal DIFFERENT.
+- When proposing a topic: name the gap or competitor result that proves demand, then state your unique angle.
+- When proposing packaging: reference which of your recent videos won or lost, and why this proposal breaks that pattern.
+- If context lacks evidence for a claim, say what data you would need instead of inventing it.
+
 ${generalFormat}`,
       loadContext: async (channelId, videoId) => {
         const [base, trending, competitorData, existingVideos] = await Promise.all([
           this.loadBaseContext(channelId, videoId),
           this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean().catch(() => []),
-          this.loadCompetitorData(channelId).catch(() => []),
+          this.getCompetitorBriefCached(channelId).catch(() => []),
           this.videoModel.find({ channelId, deletedFromYoutube: { $ne: true } }).sort({ publishedAt: -1 }).limit(50).select('title publishedAt viewCount youtubeId').lean().catch(() => []),
         ]);
 
@@ -695,11 +706,25 @@ IMPORTANT RULES:
 - For global viewers, explain American legal terms in street language when they appear
 - Never present psychological interpretation as confirmed fact
 
+EVIDENCE-BASED OUTPUT RULES (MANDATORY):
+- Every topic, title, and thumbnail recommendation MUST cite concrete evidence from the injected context: competitor videos WITH their view counts, YOUR recent winners/below-median list, content gaps, or trend scores.
+- NEVER give generic advice ("use an emotional title", "make it eye-catching", "post consistently") — replace it with: which proven video in the context this resembles, and what makes your proposal DIFFERENT.
+- When proposing a topic: name the gap or competitor result that proves demand, then state your unique angle.
+- When proposing packaging: reference which of your recent videos won or lost, and why this proposal breaks that pattern.
+- If context lacks evidence for a claim, say what data you would need instead of inventing it.
+
 ${scriptFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         const trending = await this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean();
         base.trendingTopics = trending;
+        // C1+C3: competitor demand brief + content gaps (both 60-min cached)
+        const [brief, gaps] = await Promise.all([
+          this.getCompetitorBriefCached(channelId).catch(() => []),
+          this.getContentGapsCached(channelId).catch(() => []),
+        ]);
+        base.competitorSummary = brief;
+        base.contentGaps = gaps;
         return base;
       },
       getFormatInstructions: () => scriptFormat,
@@ -810,6 +835,12 @@ RULES:
 - GPT-IMAGE-2 CAMERA-READY DIRECTIVE: Describe ONLY tangible physical objects, lighting, and attire that a camera can photograph. STRICTLY FORBIDDEN: Never write meta-disclaimers ("legally sourced image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
 - Style: Cinematic dark, dramatic chiaroscuro lighting, high-contrast photography look. Realistic photo style, NOT cartoon or 3D animation.
 
+EVIDENCE-BASED OUTPUT RULES (MANDATORY):
+- Every thumbnail concept MUST cite concrete evidence from the injected context: which of YOUR recent winners/below-median videos this resembles or breaks from, and competitor packaging patterns with view counts when present.
+- NEVER give generic advice ("make it eye-catching", "use bright colors") — replace it with: which proven pattern in context this references, and what makes this concept DIFFERENT.
+- Ground every concept in YOUR OWN winners/below-median pattern: winners show what this audience clicks; below-median titles show what they skip.
+- If context lacks evidence for a claim, say what data you would need instead of inventing it.
+
 ${thumbnailFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
@@ -918,7 +949,7 @@ ${thumbnailFormat}`,
     this.register({
       name: 'Idea Scorer',
       category: 'ideas',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a content idea evaluator. Score ideas on 8 criteria (1-10 each):\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\n${ideasFormat}`,
+      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a content idea evaluator. Score ideas on 8 criteria (1-10 each):\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\nEVIDENCE-BASED OUTPUT RULES (MANDATORY):\n- Every score MUST cite concrete evidence from the injected context: competitor videos WITH their view counts, YOUR recent winners/below-median list, content gaps, or trend scores.\n- NEVER give generic justifications ("strong topic", "good potential") — ground each criterion in a specific data point from context.\n- When scoring Search Demand: reference the gap list or competitor view counts. When scoring Thumbnail Power/Title Curiosity: reference YOUR recent winners vs below-median pattern.\n- Improvements must be specific and actionable, tied to evidence in context — not generic best-practice advice.\n- If context lacks evidence for a claim, say what data you would need instead of inventing it.\n\n${ideasFormat}`,
       loadContext: async (channelId) => {
         const base = await this.loadBaseContext(channelId);
         // Load trending for context on what's popular
@@ -937,6 +968,14 @@ ${thumbnailFormat}`,
           .select('title viewCount tags')
           .lean();
         base.topVideos = topVideos;
+
+        // C1+C3: competitor demand brief + content gaps (both 60-min cached)
+        const [brief, gaps] = await Promise.all([
+          this.getCompetitorBriefCached(channelId).catch(() => []),
+          this.getContentGapsCached(channelId).catch(() => []),
+        ]);
+        base.competitorSummary = brief;
+        base.contentGaps = gaps;
 
         return base;
       },
@@ -1274,6 +1313,23 @@ ${imageFormat}`,
         return `${i + 1}. "${v.title}" — ${v.viewCount.toLocaleString()} views${mins}${ret}`;
       }).join('\n')}`);
     }
+    if (context.recentPattern) {
+      parts.push(
+        `${context.recentPattern}\n\nGround ALL topic/title/thumbnail advice in this pattern: winners show what this audience clicks; below-median titles show what they skip.`,
+      );
+    }
+    if (context.contentGaps && context.contentGaps.length > 0) {
+      parts.push(
+        `CONTENT GAPS (competitor videos you have NOT covered — proven demand, ranked):\n` +
+          context.contentGaps
+            .slice(0, 15)
+            .map(
+              (g, i) =>
+                `${i + 1}. "${g.topic}" — ${g.competitorChannel} — ${g.competitorViews.toLocaleString()} views (search demand ${g.searchDemand})`,
+            )
+            .join('\n'),
+      );
+    }
     if (context.approvedSeoPatterns) {
       parts.push(`APPROVED SEO PATTERNS:\n${context.approvedSeoPatterns}`);
     }
@@ -1297,17 +1353,19 @@ ${imageFormat}`,
     opts?: { withUploads?: boolean },
   ): Promise<Array<{ title: string; subscriberCount: number; lifetimeViews?: number; recentUploads: Array<{ title: string; publishedAt: string; viewCount?: number }> }>> {
     try {
-      // Seed only when we actually need upload depth (competitor skill)
-      // — avoids surprise 1.5k quota on first general chat.
+      // Seed only when we actually need upload depth (competitor skill).
+      // Fire-and-forget — NEVER await seed inside a chat request (15 search.list
+      // calls = 10-30s stall + quota burn mid-message). Startup + daily-cron are
+      // the primary triggers; this only nudges backfill. Empty brief backfills
+      // on the next message once the seed lands.
       if (opts?.withUploads) {
         const count = await this.competitorModel.countDocuments({ channelId });
         if (count === 0) {
-          try {
-            const seed = await this.competitorsService.seedAudienceWatches(channelId);
-            this.logger.log(`Audience watches seed: added=${seed.added} skipped=${seed.skipped} missing=${seed.missing.length}`);
-          } catch (seedErr: any) {
-            this.logger.warn(`Audience watches seed skipped: ${seedErr?.message || seedErr}`);
-          }
+          void this.competitorsService
+            .autoSeedIfIncomplete(channelId, 'chat-lazy')
+            .catch((seedErr: any) =>
+              this.logger.warn(`Audience watches lazy seed failed: ${seedErr?.message || seedErr}`),
+            );
         }
         const brief = await this.competitorsService.getAudienceWatchBrief(channelId, 8);
         return brief.map((c) => ({
@@ -1340,6 +1398,32 @@ ${imageFormat}`,
     }
   }
 
+  /** Cached competitor brief with real upload views (60 min). Never caches empty — backfills after seed (A6). */
+  private async getCompetitorBriefCached(
+    channelId: string,
+  ): Promise<NonNullable<SkillContext['competitorSummary']>> {
+    const hit = this.competitorBriefCache.get(channelId);
+    if (hit && Date.now() - hit.at < SkillRegistry.CTX_TTL_MS && hit.data && hit.data.length > 0) {
+      return hit.data;
+    }
+    const data = await this.loadCompetitorData(channelId, { withUploads: true });
+    if (data.length > 0) this.competitorBriefCache.set(channelId, { at: Date.now(), data });
+    return data;
+  }
+
+  /** Cached content gaps (60 min) — shared by ideas + script skills, one fetch/hour max. */
+  private async getContentGapsCached(
+    channelId: string,
+  ): Promise<NonNullable<SkillContext['contentGaps']>> {
+    const hit = this.gapsCache.get(channelId);
+    if (hit && Date.now() - hit.at < SkillRegistry.CTX_TTL_MS && hit.data.length > 0) {
+      return hit.data;
+    }
+    const data = await this.competitorsService.findContentGaps(channelId);
+    if (data.length > 0) this.gapsCache.set(channelId, { at: Date.now(), data });
+    return data;
+  }
+
   private async loadBaseContext(channelId: string, videoId?: string): Promise<SkillContext> {
     const channel = await this.channelModel.findById(channelId).lean();
     const context: SkillContext = {};
@@ -1350,6 +1434,32 @@ ${imageFormat}`,
 
     if (videoId) {
       context.videoMetadata = await this.videoModel.findById(videoId).lean();
+    }
+
+    // C2: own last-14d winners vs below-median (local Mongo, zero YouTube quota).
+    // Skips when <3 videos in window (median would be meaningless).
+    try {
+      const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
+      const recent = await this.videoModel
+        .find({ channelId, publishedAt: { $gte: cutoff }, deletedFromYoutube: { $ne: true } })
+        .select('title viewCount publishedAt')
+        .sort({ viewCount: -1 })
+        .lean();
+      if (recent.length >= 3) {
+        const views = recent.map((v) => v.viewCount || 0).sort((a, b) => a - b);
+        const median =
+          views.length % 2
+            ? views[views.length >> 1]
+            : Math.round((views[views.length / 2 - 1] + views[views.length / 2]) / 2);
+        const fmt = (list: typeof recent) =>
+          list.map((v) => `- "${v.title}" — ${(v.viewCount || 0).toLocaleString()} views`).join('\n');
+        context.recentPattern =
+          `YOUR LAST 14 DAYS (${recent.length} videos, median ${median.toLocaleString()} views):\n` +
+          `WINNERS (at/above median):\n${fmt(recent.filter((v) => (v.viewCount || 0) >= median))}\n\n` +
+          `BELOW MEDIAN (audience skipped these):\n${fmt(recent.filter((v) => (v.viewCount || 0) < median))}`;
+      }
+    } catch {
+      /* optional context — never block the chat */
     }
 
     return context;

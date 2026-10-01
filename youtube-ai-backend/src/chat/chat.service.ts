@@ -344,10 +344,8 @@ export class ChatService {
         systemPromptOverride: systemPrompt,
         dynamicContext,
         temperature: skill.getTemperature?.() ?? 0.7,
-        maxCompletionTokens:
-          analysisMode === 'autopsy' || analysisMode === 'public' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
-            ? 8192
-            : 4096,
+        // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
+        maxCompletionTokens: 12000,
       });
     }
 
@@ -565,10 +563,8 @@ export class ChatService {
             systemPromptOverride: systemPrompt,
             dynamicContext,
             temperature: skill.getTemperature?.() ?? 0.7,
-            maxCompletionTokens:
-              analysisMode === 'autopsy' || analysisMode === 'public' || analysisMode === 'diagnosis' || resolvedSkill === 'analysis'
-                ? 8192
-                : 4096,
+            // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
+            maxCompletionTokens: 12000,
           })) {
             if (chunk.chunk) {
               fullContent += chunk.chunk;

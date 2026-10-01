@@ -6,8 +6,8 @@ export class RunBatchDto {
   @Type(() => Number)
   @IsNumber()
   @Min(1)
-  @Max(35)
-  batchSize?: number = 35;
+  @Max(15)
+  batchSize?: number = 15;
 
   @IsOptional()
   @IsIn(['auto_cron_batch', 'manual_ui_batch'])

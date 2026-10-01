@@ -3,7 +3,7 @@
  */
 
 export const DEFAULT_DAILY_BATCH_SIZE = parseInt(
-  process.env.AUTOMATION_DAILY_BATCH_SIZE || '35',
+  process.env.AUTOMATION_DAILY_BATCH_SIZE || '15',
   10,
 );
 
@@ -16,16 +16,15 @@ export const HEARTBEAT_STALE_MS = 15 * 60 * 1000; // 15 minutes without heartbea
 
 // Comment Auto-Reply Constants
 export const DEFAULT_COMMENT_DAILY_CAP = parseInt(
-  process.env.COMMENT_DAILY_CAP || '70',
+  process.env.COMMENT_DAILY_CAP || '120',
   10,
 );
-export const MAX_ACTIVE_COMMENT_VIDEOS = 5;
+export const MAX_ACTIVE_COMMENT_VIDEOS = 10;
 export const COMMENT_CHUNK_SIZE = 10;
 export const COMMENT_PUSH_SAFETY_GAP_MS = 3000; // 3-second pacing between comment replies
 export const QUOTA_COST_COMMENT_INSERT = 50;
 /** Hard sub-budget for all comment list+insert units/day (protects SEO/trends inside the 10k). */
 export const COMMENTS_DAILY_QUOTA_BUDGET = parseInt(
-  process.env.COMMENTS_DAILY_QUOTA_BUDGET || '4500',
+  process.env.COMMENTS_DAILY_QUOTA_BUDGET || '5500',
   10,
 );
-

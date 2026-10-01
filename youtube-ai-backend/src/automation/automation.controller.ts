@@ -11,6 +11,7 @@ import { AutomationService } from './automation.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChannelOwnershipGuard } from '../common/guards/channel-ownership.guard';
 import { RunBatchDto, BatchQueryDto } from './dto/automation.dto';
+import { DEFAULT_DAILY_BATCH_SIZE } from './automation.constants';
 
 @Controller()
 @UseGuards(JwtAuthGuard)
@@ -61,7 +62,7 @@ export class AutomationController {
   ) {
     return this.automationService.runBatch(
       channelId,
-      dto.batchSize || 20,
+      dto.batchSize || DEFAULT_DAILY_BATCH_SIZE,
       dto.source || 'manual_ui_batch',
     );
   }

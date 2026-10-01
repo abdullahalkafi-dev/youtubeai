@@ -30,7 +30,7 @@ export class QuotaService {
   private readonly logger = new Logger(QuotaService.name);
   private readonly YOUTUBE_DAILY_LIMIT = 10000;
   private readonly COMMENTS_DAILY_BUDGET = parseInt(
-    process.env.COMMENTS_DAILY_QUOTA_BUDGET || '4500',
+    process.env.COMMENTS_DAILY_QUOTA_BUDGET || '5500',
     10,
   );
   /** After Google says quota exceeded — pause Data API work until next PT midnight */

@@ -75,6 +75,49 @@ export class CompetitorsService {
     private readonly quotaService: QuotaService,
   ) {}
 
+  /** Auto-seed on boot (deferred so OAuth/quota services settle first). */
+  async onModuleInit(): Promise<void> {
+    await new Promise((resolve) => setTimeout(resolve, 15_000));
+    try {
+      const channel = await this.channelModel.findOne({}).lean();
+      if (channel) await this.autoSeedIfIncomplete(channel._id.toString(), 'startup');
+    } catch (err: any) {
+      this.logger.warn(`[AudienceWatches] startup seed failed: ${err?.message || err}`);
+    }
+  }
+
+  /**
+   * Seed the audience-watches list when incomplete (idempotent, quota-guarded).
+   * Safe to call from startup, the daily cron, or lazily from chat — it skips
+   * when the list is full or today's quota has no headroom left.
+   */
+  async autoSeedIfIncomplete(channelId: string, trigger: string): Promise<void> {
+    try {
+      const count = await this.competitorModel.countDocuments({
+        channelId: new Types.ObjectId(channelId),
+      });
+      if (count >= AUDIENCE_WATCHES_NAMES.length) return;
+
+      const channel = await this.channelModel.findById(channelId).lean();
+      if (!channel?.userId) return;
+
+      const { used } = await this.quotaService.getDailyUsage(channelId);
+      if (used > 6500) {
+        this.logger.warn(
+          `[AudienceWatches] seed (${trigger}) skipped — quota headroom too low (${used} used)`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `[AudienceWatches] seed (${trigger}) starting — count=${count}/${AUDIENCE_WATCHES_NAMES.length}`,
+      );
+      await this.seedAudienceWatches(channelId);
+    } catch (err: any) {
+      this.logger.warn(`[AudienceWatches] seed (${trigger}) failed: ${err?.message || err}`);
+    }
+  }
+
   /**
    * Seed Studio "Channels your audience watches" (idempotent).
    * At most 1 search.list per missing name (only when not already in DB).
@@ -472,39 +515,42 @@ export class CompetitorsService {
     const ourTitles = ourVideos.map((v) => v.title.toLowerCase());
 
     // Find gaps: competitor videos whose topic isn't in our catalog
-    const gaps: ContentGap[] = [];
-
-    for (const video of competitorUploads) {
+    const candidates = competitorUploads.filter((video) => {
       const titleLower = video.title.toLowerCase();
-      const isOurs = ourTitles.some(
+      return !ourTitles.some(
         (our) =>
           our.includes(titleLower.substring(0, 30)) ||
           titleLower.includes(our.substring(0, 30)),
       );
+    });
 
-      if (!isOurs) {
-        // Get search demand for this topic
-        let searchDemand = 0;
-        try {
-          const demandMap =
-            await this.suggestionsService.getSearchDemand([video.title]);
-          searchDemand = demandMap.get(video.title) || 0;
-        } catch {
-          searchDemand = 0;
-        }
+    // Proven-demand first: top 25 by views, then ONE batched suggest call.
+    // (Per-video sequential getSearchDemand here caused ~100 fetches = 30-60s
+    // freezes on first ideas/script message + Google 429 rate-limits.)
+    candidates.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+    const capped = candidates.slice(0, 25);
 
-        gaps.push({
-          topic: video.title,
-          competitorChannel: video.channelTitle,
-          competitorVideoTitle: video.title,
-          competitorViews: video.viewCount,
-          searchDemand,
-        });
-      }
+    let demandMap = new Map<string, number>();
+    try {
+      demandMap = await this.suggestionsService.getSearchDemand(
+        capped.map((v) => v.title),
+      );
+    } catch {
+      demandMap = new Map<string, number>();
     }
 
-    // Sort by search demand
-    gaps.sort((a, b) => b.searchDemand - a.searchDemand);
+    const gaps: ContentGap[] = capped.map((video) => ({
+      topic: video.title,
+      competitorChannel: video.channelTitle,
+      competitorVideoTitle: video.title,
+      competitorViews: video.viewCount,
+      searchDemand: demandMap.get(video.title) || 0,
+    }));
+
+    // Sort by search demand, views as tiebreak
+    gaps.sort(
+      (a, b) => b.searchDemand - a.searchDemand || b.competitorViews - a.competitorViews,
+    );
 
     return gaps.slice(0, 20);
   }
@@ -522,6 +568,8 @@ export class CompetitorsService {
 
     for (const channel of channels) {
       try {
+        // Self-healing seed: retries any missing audience-watches names after the quota reset
+        await this.autoSeedIfIncomplete(channel._id.toString(), 'daily-cron');
         await this.getCompetitorUploads(channel._id.toString(), 1);
         checked++;
       } catch (error) {
