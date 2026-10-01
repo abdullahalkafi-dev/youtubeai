@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { YouTubeService } from './youtube.service';
 import { QuotaService } from '../quota/quota.service';
+import {
+  TIER2_LABEL,
+  COMMENTARY_TITLE_SKIP,
+  getAllowedChannel,
+} from './news-channels';
 
 export interface LocalClip {
   videoId: string;
@@ -12,6 +17,8 @@ export interface LocalClip {
   thumbnailUrl?: string;
   publishedAt?: string;
   market?: string;
+  /** Provenance label for Tier-2 clips ("urban news outlet"). */
+  tierLabel?: string;
 }
 
 export interface LocalScenePack {
@@ -21,6 +28,8 @@ export interface LocalScenePack {
   stations: string[];
   clips: LocalClip[];
   note: string;
+  /** 'local' = market/affiliate pack; 'topic' = marketless allowlist search pack. */
+  kind?: 'local' | 'topic';
 }
 
 type MarketDef = {
@@ -167,9 +176,31 @@ const MAX_CLIPS_DEFAULT = 5;
 const MAX_SECONDS_DEFAULT = 360; // 6 minutes — more usable local B-roll than 4 min
 const SEARCH_LOOKBACK_DAYS = 730; // allow older local archive for footage
 
+/** Topic pack (Phase 2 lite): search-first, marketless. */
+const TOPIC_SEARCH_LOOKBACK_DAYS = 30; // Claude condition: publishedAfter ~30 days
+const TOPIC_SEARCH_MAX_RESULTS = 50; // same price per call — take the max
+const TOPIC_MAX_SECONDS = 900; // 15 min — packaged news segments OK, raw 1h streams not
+const TOPIC_MAX_CLIPS = 8; // within Claude's §17 6–10 target; relevance-sliced
+const FOOTAGE_ENDPOINT = 'search.list (footage)';
+const FOOTAGE_DAILY_SEARCH_CAP = 25; // of the shared 100/day search bucket
+const FOOTAGE_SEARCH_COST = 100; // 1 call in the search bucket (ceil(cost/100))
+const TIER2_MAX_CLIPS = 3;
+const TOPIC_VERIFY_CAP = 20; // candidates sent to videos.list
+const CACHE_FRESH_MS = 4 * 60 * 60 * 1000; // newest match ≤72h old
+const CACHE_STALE_MS = 24 * 60 * 60 * 1000; // older stories — results won't change
+const CACHE_NEGATIVE_MS = 30 * 60 * 1000; // empty/error result retry window
+const CACHE_MAX_ENTRIES = 200;
+const FRESH_STORY_MS = 72 * 60 * 60 * 1000;
+
 @Injectable()
 export class LocalNewsService {
   private readonly logger = new Logger(LocalNewsService.name);
+
+  /** Topic-pack result cache: key `${userId}::${topic}` → expiry + pack. */
+  private readonly topicCache = new Map<
+    string,
+    { expiresAt: number; pack: LocalScenePack }
+  >();
 
   constructor(
     private readonly youtubeService: YouTubeService,
@@ -368,6 +399,7 @@ export class LocalNewsService {
       topic,
       stations: market.stations,
       clips: top,
+      kind: 'local',
       note:
         top.length > 0
           ? `Local news clips (≤${maxSeconds}s) for ${market.label}. Use as B-roll only; verify rights/editorial before monetized use.`
@@ -375,12 +407,240 @@ export class LocalNewsService {
     };
   }
 
+  /**
+   * Marketless TOPIC footage pack — Phase 2 lite (Claude conditions 1-4).
+   *
+   * - search.list FIRST (allowlist filters results; it is not the source)
+   * - query 1 = "<topic> news", query 2 (only if <3 survive) = "<topic> courthouse"
+   * - publishedAfter ~30d, maxResults=50 (same price per call)
+   * - denylist (own + competitors) always wins; commentary titles skipped
+   * - Tier 2 only when Tier 1 yields <2, capped at 3, labeled
+   * - videos.list verify (embeddable + duration + date)
+   * - ≤25 footage search calls/day (endpoint counter) + shared 100/day bucket
+   * - topic cache: 4h when newest match ≤72h old, else 24h; empty → 30min
+   *
+   * Never throws. Returns null only when topic is empty; otherwise returns a
+   * pack (possibly with 0 clips) so callers can render the "footage thin" note.
+   */
+  async findTopicFootagePack(params: {
+    userId: string;
+    /** Real channel _id — lets the shared search-bucket pre-check see true usage. */
+    channelId?: string;
+    topic: string;
+    denyChannelIds?: string[];
+    maxClips?: number;
+    maxSeconds?: number;
+  }): Promise<LocalScenePack | null> {
+    const topic = (params.topic || '').trim().slice(0, 120);
+    if (!topic) return null;
+
+    const maxClips = params.maxClips ?? TOPIC_MAX_CLIPS;
+    const maxSeconds = params.maxSeconds ?? TOPIC_MAX_SECONDS;
+    const cacheKey = `${params.userId}::${topic.toLowerCase().replace(/\s+/g, ' ')}`;
+
+    // 0. Cache hit — repeated asks cost 0 units
+    const hit = this.topicCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) {
+      this.logger.log(`[TopicPack] cache hit topic="${topic.slice(0, 50)}"`);
+      return hit.pack;
+    }
+
+    const deny = new Set(params.denyChannelIds || []);
+    const publishedAfter = new Date(
+      Date.now() - TOPIC_SEARCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+    );
+    const queries = [`${topic} news`, `${topic} courthouse`];
+
+    type Row = { videoId: string; title: string; channelTitle: string; channelId: string; thumbnailUrl: string };
+    const seen = new Set<string>();
+    const tier1: Row[] = [];
+    const tier2: Row[] = [];
+    let searchesRun = 0;
+    let stopReason = '';
+
+    const absorb = (rows: Row[]) => {
+      for (const row of rows) {
+        if (!row.videoId || seen.has(row.videoId)) continue;
+        seen.add(row.videoId);
+        if (deny.has(row.channelId)) continue;
+        if (COMMENTARY_TITLE_SKIP.test(row.title)) continue;
+        const allowed = getAllowedChannel(row.channelId);
+        if (!allowed) continue;
+        (allowed.tier === 1 ? tier1 : tier2).push(row);
+      }
+    };
+
+    const effectiveCount = () =>
+      tier1.length + (tier1.length < 2 ? Math.min(tier2.length, TIER2_MAX_CLIPS) : 0);
+
+    // 1-2. Search (max 2 queries, caps enforced per query)
+    for (const query of queries) {
+      if (searchesRun > 0 && effectiveCount() >= 3) break; // condition 3: stop after enough survive
+      if (searchesRun >= 2) break;
+
+      const usedToday = await this.quotaService.countEndpointCallsToday(FOOTAGE_ENDPOINT);
+      if (usedToday >= FOOTAGE_DAILY_SEARCH_CAP) {
+        stopReason = `footage search cap reached (${usedToday}/${FOOTAGE_DAILY_SEARCH_CAP} today)`;
+        break;
+      }
+      if (params.channelId) {
+        try {
+          await this.quotaService.checkQuota(
+            params.channelId,
+            FOOTAGE_ENDPOINT,
+            FOOTAGE_SEARCH_COST,
+          );
+        } catch {
+          stopReason = 'shared search.list bucket exhausted';
+          break;
+        }
+      }
+
+      try {
+        const rows = await this.youtubeService.searchVideos({
+          userId: params.userId,
+          query,
+          publishedAfter,
+          regionCode: 'US',
+          maxResults: TOPIC_SEARCH_MAX_RESULTS,
+        });
+        searchesRun++;
+        await this.quotaService.logCall({
+          channelId: 'footage-pack',
+          endpoint: FOOTAGE_ENDPOINT,
+          quotaCost: FOOTAGE_SEARCH_COST,
+          success: true,
+          relatedId: query.slice(0, 80),
+        });
+        absorb(rows as Row[]);
+      } catch (err: any) {
+        this.logger.warn(`[TopicPack] search failed "${query}": ${err?.message || err}`);
+        await this.quotaService
+          .logCall({
+            channelId: 'footage-pack',
+            endpoint: FOOTAGE_ENDPOINT,
+            quotaCost: FOOTAGE_SEARCH_COST,
+            success: false,
+            errorMessage: String(err?.message || err).slice(0, 200),
+            relatedId: query.slice(0, 80),
+          })
+          .catch(() => {});
+        stopReason = 'search error';
+        break;
+      }
+    }
+
+    // Tier assembly: Tier 2 only when Tier 1 is thin; ≤3; already labeled later.
+    const chosen: Row[] =
+      tier1.length < 2
+        ? [...tier1, ...tier2.slice(0, TIER2_MAX_CLIPS)]
+        : [...tier1];
+
+    const pack: LocalScenePack = {
+      market: 'Topic (no local market)',
+      locationLabel: 'Topic footage pack',
+      topic,
+      stations: [...new Set(chosen.map((r) => r.channelTitle))],
+      clips: [],
+      note: '',
+      kind: 'topic',
+    };
+
+    if (chosen.length === 0) {
+      pack.note =
+        `No allowlisted newsroom clips found for this topic${stopReason ? ` (${stopReason})` : ''}. ` +
+        'Do not invent video IDs — render the "footage thin" note.';
+      this.cacheTopicPack(cacheKey, pack, true);
+      this.logger.log(`[TopicPack] empty topic="${topic.slice(0, 50)}" ${stopReason}`);
+      return pack;
+    }
+
+    // 4. Verify via videos.list (embeddable + duration + date)
+    const toVerify = chosen.slice(0, TOPIC_VERIFY_CAP);
+    try {
+      const details = await this.youtubeService.getVideoDetails(
+        await this.youtubeService.getValidAccessToken(params.userId),
+        toVerify.map((r) => r.videoId),
+      );
+      const detailById = new Map(details.map((d) => [d.videoId, d]));
+      const clips: LocalClip[] = [];
+      for (const row of toVerify) {
+        const d = detailById.get(row.videoId);
+        if (!d) continue;
+        if (d.embeddable === false) continue;
+        if (!d.durationSeconds || d.durationSeconds <= 0 || d.durationSeconds > maxSeconds) continue;
+        const allowed = getAllowedChannel(row.channelId);
+        clips.push({
+          videoId: row.videoId,
+          title: d.title || row.title,
+          channelTitle: d.channelTitle || row.channelTitle,
+          videoUrl: d.videoUrl || `https://www.youtube.com/watch?v=${row.videoId}`,
+          durationSeconds: d.durationSeconds,
+          viewCount: d.viewCount || 0,
+          thumbnailUrl: d.thumbnailUrl || row.thumbnailUrl,
+          publishedAt: d.publishedAt,
+          market: allowed?.tier === 2 ? TIER2_LABEL : 'newsroom',
+          tierLabel: allowed?.tier === 2 ? TIER2_LABEL : undefined,
+        });
+      }
+      pack.clips = clips.slice(0, maxClips);
+    } catch (err: any) {
+      this.logger.warn(`[TopicPack] verify failed: ${err?.message || err}`);
+      pack.note = 'Clip verification failed. Do not invent video IDs — render the "footage thin" note.';
+      this.cacheTopicPack(cacheKey, pack, true);
+      return pack;
+    }
+
+    if (pack.clips.length === 0) {
+      pack.note =
+        `Verified clips did not pass embeddable/duration filters${stopReason ? ` (${stopReason})` : ''}. ` +
+        'Render the "footage thin" note.';
+      this.cacheTopicPack(cacheKey, pack, true);
+      return pack;
+    }
+
+    const channels = [...new Set(pack.clips.map((c) => c.channelTitle))];
+    pack.stations = channels;
+    pack.note =
+      `Verified newsroom clips (≤${maxSeconds}s) from allowlisted channels: ${channels.join(', ')}. ` +
+      `Use as B-roll only; verify rights/editorial before monetized use.` +
+      (pack.clips.some((c) => c.tierLabel) ? ` Clips labeled "${TIER2_LABEL}" are urban-news outlets.` : '');
+
+    this.cacheTopicPack(cacheKey, pack, false);
+    this.logger.log(
+      `[TopicPack] pack topic="${topic.slice(0, 50)}" clips=${pack.clips.length} (t1=${tier1.length} t2=${tier2.length} q=${searchesRun})`,
+    );
+    return pack;
+  }
+
+  /** Cache with adaptive TTL: fresh stories 4h, older stories 24h, empty 30min. */
+  private cacheTopicPack(key: string, pack: LocalScenePack, empty: boolean): void {
+    let ttl = CACHE_NEGATIVE_MS;
+    if (!empty && pack.clips.length > 0) {
+      const newest = Math.max(
+        ...pack.clips.map((c) => (c.publishedAt ? new Date(c.publishedAt).getTime() : 0)),
+      );
+      ttl = Date.now() - newest <= FRESH_STORY_MS ? CACHE_FRESH_MS : CACHE_STALE_MS;
+    }
+    if (this.topicCache.size >= CACHE_MAX_ENTRIES) {
+      const now = Date.now();
+      for (const [k, v] of this.topicCache) if (v.expiresAt <= now) this.topicCache.delete(k);
+      if (this.topicCache.size >= CACHE_MAX_ENTRIES) {
+        const firstKey = this.topicCache.keys().next().value;
+        if (firstKey) this.topicCache.delete(firstKey);
+      }
+    }
+    this.topicCache.set(key, { expiresAt: Date.now() + ttl, pack });
+  }
+
   /** Render pack for model dynamic context. */
   formatPack(pack: LocalScenePack): string {
     const lines: string[] = [];
-    lines.push(`LOCAL NEWS FOOTAGE PACK`);
+    lines.push(pack.kind === 'topic' ? `VERIFIED TOPIC FOOTAGE PACK` : `LOCAL NEWS FOOTAGE PACK`);
     lines.push(`Market: ${pack.market} | Topic: ${pack.topic}`);
-    lines.push(`Stations to prefer: ${pack.stations.join(', ')}`);
+    if (pack.stations.length > 0) {
+      lines.push(pack.kind === 'topic' ? `Channels: ${pack.stations.join(', ')}` : `Stations to prefer: ${pack.stations.join(', ')}`);
+    }
     if (pack.clips.length === 0) {
       lines.push(pack.note);
       return lines.join('\n');
@@ -389,8 +649,9 @@ export class LocalNewsService {
     pack.clips.forEach((c, i) => {
       const mins = Math.floor(c.durationSeconds / 60);
       const secs = c.durationSeconds % 60;
+      const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
       lines.push(
-        `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`,
+        `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`,
       );
     });
     lines.push(pack.note);

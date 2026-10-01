@@ -16,7 +16,7 @@ import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { PerformanceContextService } from '../youtube/performance-context.service';
-import { LocalNewsService } from '../youtube/local-news.service';
+import { LocalNewsService, LocalScenePack } from '../youtube/local-news.service';
 import {
   VIDEO_AUTOPSY_SYSTEM_PROMPT,
   CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
@@ -296,27 +296,37 @@ export class ChatService {
     }
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
+    // Request-driven signals (competitor/duplicate asks) load BEFORE rendering — skill-agnostic.
+    await this.skillRegistry.applyRequestDrivenContext(
+      updatedThread.channelId.toString(),
+      dto.content,
+      skillContext,
+    );
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
-    if (
-      this.shouldLoadLocalNews(
-        dto.content,
-        resolvedSkill,
-        this.buildRecentThreadText(contextMessages),
-      )
-    ) {
-      this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
-      dynamicContext += await this.buildLocalNewsContext(
-        channel,
-        dto.content,
-        this.buildRecentThreadText(contextMessages),
-      );
-    }
 
-    // Detect if research is needed
+    // Detect if research is needed — BEFORE pack loading (topic packs auto-load
+    // only for research-backed content requests).
     let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
     // Autopsy/diagnosis are metrics-first — skip web search noise
     if (analysisMode || resolvedSkill === 'analysis') {
       needsResearch = false;
+    }
+
+    // Footage pack: local market pack preferred; marketless topic pack otherwise.
+    const recentThreadText = this.buildRecentThreadText(contextMessages);
+    const footagePack = await this.loadFootagePack(
+      channel,
+      dto.content,
+      resolvedSkill,
+      recentThreadText,
+      needsResearch,
+      (skillContext.trendingTopics || []).map((t: any) => t?.title).filter(Boolean),
+    );
+    if (footagePack) {
+      this.logger.log(
+        `Thread ${threadId}: Footage pack loaded (${footagePack.kind || 'local'}, ${footagePack.clips.length} clips)`,
+      );
+      dynamicContext += `\n\n${this.localNewsService.formatPack(footagePack)}`;
     }
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
@@ -359,10 +369,14 @@ export class ChatService {
       });
     }
 
+    // Phase 3: backend-rendered clip list — server-appended so the model cannot
+    // drop or invent clip IDs (inserted before the model's Sources section).
+    const finalContent = this.appendFootagePackBlock(aiResponse.content, footagePack);
+
     // Save AI response atomically
     const assistantMessage: Message = {
       role: 'assistant',
-      content: aiResponse.content,
+      content: finalContent,
       metadata: {
         category: resolvedSkill,
         ...(sources.length > 0 ? { sources } : {}),
@@ -383,14 +397,14 @@ export class ChatService {
     // Store in ChromaDB
     try {
       await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
-        `User: ${dto.content}\nAssistant: ${aiResponse.content}`,
+        `User: ${dto.content}\nAssistant: ${finalContent}`,
         { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
     } catch { /* RAG optional */ }
 
     // Log AI output
     await this.logAiOutput({
       channelId: updatedThread.channelId.toString(), operation: 'chat', threadId: threadId.toString(),
-      inputSummary: dto.content.substring(0, 200), output: { content: aiResponse.content }, usage: aiResponse.usage,
+      inputSummary: dto.content.substring(0, 200), output: { content: finalContent }, usage: aiResponse.usage,
     });
 
     return assistantMessage;
@@ -491,20 +505,36 @@ export class ChatService {
     }
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
+    // Request-driven signals (competitor/duplicate asks) load BEFORE rendering — skill-agnostic.
+    await this.skillRegistry.applyRequestDrivenContext(
+      updatedThread.channelId.toString(),
+      dto.content,
+      skillContext,
+    );
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
-    if (
-      this.shouldLoadLocalNews(
-        dto.content,
-        resolvedSkill,
-        this.buildRecentThreadText(updatedThread.messages),
-      )
-    ) {
-      this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
-      dynamicContext += await this.buildLocalNewsContext(
-        channel,
-        dto.content,
-        this.buildRecentThreadText(updatedThread.messages),
+
+    // Detect if research is needed — BEFORE pack loading (topic packs auto-load
+    // only for research-backed content requests).
+    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+    if (analysisMode || resolvedSkill === 'analysis') {
+      needsResearch = false;
+    }
+
+    // Footage pack: local market pack preferred; marketless topic pack otherwise.
+    const recentThreadText = this.buildRecentThreadText(updatedThread.messages);
+    const footagePack = await this.loadFootagePack(
+      channel,
+      dto.content,
+      resolvedSkill,
+      recentThreadText,
+      needsResearch,
+      (skillContext.trendingTopics || []).map((t: any) => t?.title).filter(Boolean),
+    );
+    if (footagePack) {
+      this.logger.log(
+        `Thread ${threadId}: Footage pack loaded (${footagePack.kind || 'local'}, ${footagePack.clips.length} clips)`,
       );
+      dynamicContext += `\n\n${this.localNewsService.formatPack(footagePack)}`;
     }
 
     // Build conversation history (last N messages)
@@ -531,12 +561,6 @@ export class ChatService {
     let finalUsage: TokenUsage | undefined;
     let sources: any[] = [];
     let savedThread: any = null;
-
-    // Detect if research is needed
-    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
-    if (analysisMode || resolvedSkill === 'analysis') {
-      needsResearch = false;
-    }
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
     if (!this.areTrendsFresh(skillContext.trendingTopics)) {
@@ -597,6 +621,14 @@ export class ChatService {
           yield { type: 'error', content: 'Stream interrupted. Please try again.' };
           return;
         }
+      }
+
+      // Phase 3: backend clip list — server-appended (model can't drop/invent IDs),
+      // streamed as a final chunk so the live view updates before 'done'.
+      const packBlock = this.buildFootagePackBlock(footagePack);
+      if (packBlock) {
+        fullContent = this.insertFootagePackBlock(fullContent, packBlock);
+        yield { type: 'chunk', content: packBlock };
       }
     } finally {
       // Save response atomically — GUARANTEED to execute even on client abort/disconnect
@@ -865,6 +897,9 @@ export class ChatService {
     // RAG context
     const ragContext = await this.buildRagContext(userContent, resolvedSkill);
 
+    if (content?.trim()) {
+      await this.skillRegistry.applyRequestDrivenContext(channelId, content, skillContext);
+    }
     const dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
     const conversationHistory = updatedThread.messages.slice(0, -1).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
 
@@ -1011,52 +1046,175 @@ export class ChatService {
   }
 
   /**
-   * When to pull a local-news YouTube footage pack (quota-safe).
-   * Only on explicit footage ask OR script/outline/ideas with a place in the text.
-   * `conversationText` (recent thread messages) is scanned too — location facts
-   * often live in earlier turns ("Florida man fentanyl plea…"), not the current ask.
+   * Load a footage pack for this message (Phase 2 lite).
+   * - Local market pack: explicit footage ask OR script/outline/ideas topic
+   *   request with a market in message+thread text (market takes precedence).
+   * - Topic pack (marketless, search-first): explicit footage ask, OR a
+   *   research-backed content request (general/ideas/script/outline) that names
+   *   an entity — trivial chats never spend a search call.
+   * Returns null when nothing should load (behavior identical to pre-pack).
    */
-  private shouldLoadLocalNews(
-    message: string,
-    category?: string,
-    conversationText?: string,
-  ): boolean {
-    const haystack = `${message || ''}\n${conversationText || ''}`;
-    if (this.localNewsService.isFootageRequest(message)) return true;
-    if (
-      category === 'script' ||
-      category === 'outline' ||
-      category === 'ideas'
-    ) {
-      return this.localNewsService.resolveMarket(undefined, haystack) != null;
-    }
-    return false;
-  }
-
-  private async buildLocalNewsContext(
+  private async loadFootagePack(
     channel: any,
     message: string,
-    conversationText?: string,
-  ): Promise<string> {
+    category: string,
+    conversationText: string,
+    needsResearch: boolean,
+    trendTitles: string[] = [],
+  ): Promise<LocalScenePack | null> {
     try {
-      if (!channel?.userId) return '';
-      // Topic: current message stripped of chat chrome. Location hint: message + recent
-      // thread text so resolveMarket can catch cities/counties mentioned in history.
-      const topic = this.localNewsService.extractSearchTopic(message);
-      const locationHint = `${message || ''}\n${conversationText || ''}`;
-      const pack = await this.localNewsService.findFootagePack({
-        userId: channel.userId.toString(),
-        topic,
-        locationHint,
-        maxClips: 5,
-        maxSeconds: 360,
-      });
-      if (!pack) return '';
-      return `\n\n${this.localNewsService.formatPack(pack)}`;
+      if (!channel?.userId) return null;
+
+      const wantsFootage = this.localNewsService.isFootageRequest(message);
+      const topicCat = ['general', 'ideas', 'script', 'outline'].includes(category);
+      const haystack = `${message || ''}\n${conversationText || ''}`;
+      const marketResolved =
+        this.localNewsService.resolveMarket(undefined, haystack) != null;
+      const wantsLocal = wantsFootage || (topicCat && marketResolved);
+
+      // Topic resolution: explicit footage ask → stripped phrasing; entity-bearing
+      // message → entity window; Rule-0 recommendation ask (names no subject) →
+      // top trending topic (what the model will recommend from anyway).
+      const topicRecAsk =
+        topicCat &&
+        /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
+          message,
+        );
+      let topic = this.extractEntityTopic(message);
+      if (!topic && wantsFootage) {
+        topic = this.localNewsService.extractSearchTopic(message);
+      }
+      if (!topic && topicRecAsk && needsResearch) {
+        const trend = (trendTitles || []).find((t) => t && t.trim().length > 0);
+        if (trend) topic = trend.trim().slice(0, 120);
+      }
+
+      const wantsTopic = wantsFootage || (topicCat && needsResearch && !!topic);
+      if (!wantsLocal && !wantsTopic) return null;
+
+      let pack: LocalScenePack | null = null;
+
+      // 1) Local market pack — precedence when a market resolves.
+      if (wantsLocal && marketResolved) {
+        pack = await this.localNewsService.findFootagePack({
+          userId: channel.userId.toString(),
+          topic: this.localNewsService.extractSearchTopic(message),
+          locationHint: haystack,
+          maxClips: 5,
+          maxSeconds: 360,
+        });
+      }
+
+      // 2) Marketless topic pack — when no local pack or the local pack is empty.
+      if ((!pack || pack.clips.length === 0) && wantsTopic && topic) {
+        const denyChannelIds = await this.getFootageDenyChannelIds(channel);
+        const topicPack = await this.localNewsService.findTopicFootagePack({
+          userId: channel.userId.toString(),
+          channelId: channel._id?.toString(),
+          topic,
+          denyChannelIds,
+        });
+        if (topicPack && (!pack || topicPack.clips.length > 0)) pack = topicPack;
+      }
+
+      return pack;
     } catch (err: any) {
-      this.logger.warn(`Local news pack failed: ${err?.message || err}`);
-      return '';
+      this.logger.warn(`Footage pack failed: ${err?.message || err}`);
+      return null;
     }
+  }
+
+  /** Own channel + all competitor channels — never allowed into the clip pack. */
+  private async getFootageDenyChannelIds(channel: any): Promise<string[]> {
+    const ids = new Set<string>();
+    if (channel?.youtubeChannelId) ids.add(channel.youtubeChannelId);
+    try {
+      if (channel?._id) {
+        const competitorIds = await this.skillRegistry.getCompetitorYoutubeIds(
+          channel._id.toString(),
+        );
+        for (const id of competitorIds) ids.add(id);
+      }
+    } catch { /* denylist is best-effort */ }
+    return [...ids];
+  }
+
+  /**
+   * Entity topic for auto-loaded packs: first Capitalized Pair → end of clause.
+   * "Make a video about Tory Lanez stabbing" → "Tory Lanez stabbing".
+   * Returns null when the message names no entity (trivial chats load no pack).
+   */
+  private extractEntityTopic(message: string): string | null {
+    const m = (message || '').match(
+      /\b[A-Z][A-Za-z'’.-]+(?:\s+[A-Z0-9][A-Za-z'’.-]*)+[^.?!:\n]{0,70}/,
+    );
+    if (!m) return null;
+    let topic = m[0].replace(/\s+/g, ' ').trim();
+    topic = topic
+      .replace(
+        /\s+(and|or|of|the|a|an|to|for|in|on|with|about|is|are|was|were)\s*$/i,
+        '',
+      )
+      .trim();
+    const words = topic.split(' ');
+    if (words.length < 2) return null;
+    if (words.length > 10) topic = words.slice(0, 10).join(' ');
+    return topic || null;
+  }
+
+  /**
+   * Phase 3: build the server-rendered clip block ('' when pack is null).
+   * IDs/links come from the verified pack only — the model never writes them.
+   */
+  private buildFootagePackBlock(pack: LocalScenePack | null): string {
+    if (!pack) return '';
+    if (!pack.clips || pack.clips.length === 0) {
+      return [
+        '## 🎬 FOOTAGE PACK',
+        '',
+        '> Footage thin this turn — no verified clips found. Use courthouse/agency B-roll or licensed pool feed, or ask me: "news clips for [topic]".',
+        '',
+      ].join('\n');
+    }
+    const lines = pack.clips.map((c, i) => {
+      const mins = Math.floor(c.durationSeconds / 60);
+      const secs = c.durationSeconds % 60;
+      const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+      return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`;
+    });
+    return [
+      '## 🎬 VERIFIED FOOTAGE PACK',
+      '',
+      ...lines,
+      '',
+      pack.note,
+      '',
+    ].join('\n');
+  }
+
+  /**
+   * Insert the pack block BEFORE the model's Sources heading. extractSources()
+   * captures '## Sources' to end-of-message, so appending after would swallow
+   * the clip links into the wrong section.
+   */
+  private insertFootagePackBlock(content: string, block: string): string {
+    if (!block) return content;
+    const body = content || '';
+    const src = body.match(/^#{2,3}\s+.*\bSources?\b.*$/im);
+    if (src && src.index != null) {
+      return body.slice(0, src.index) + block + '\n' + body.slice(src.index);
+    }
+    return `${body.trimEnd()}\n\n${block}`;
+  }
+
+  private appendFootagePackBlock(
+    content: string,
+    pack: LocalScenePack | null,
+  ): string {
+    return this.insertFootagePackBlock(
+      content,
+      this.buildFootagePackBlock(pack),
+    );
   }
 
   /**
@@ -1121,6 +1279,10 @@ Hard rules:
       return true;
     }
     if (/\b(make this video|content plan|video ideas?|topic ideas?|post today|upload today|pitch|greenlight)\b/i.test(lower)) {
+      return true;
+    }
+    // Rule-0 topic-recommendation phrases (must mirror classifyTextIntent Rule 0)
+    if (/\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation))\b/i.test(lower)) {
       return true;
     }
 

@@ -281,6 +281,25 @@ export class QuotaService {
     return { used, limit: this.SEARCH_DAILY_CALL_LIMIT };
   }
 
+  /**
+   * Global (all-channels) count of log rows for one endpoint since PT midnight.
+   * Used for per-feature daily caps (e.g. footage search ≤25/day) on top of the
+   * shared 100-calls/day search.list bucket.
+   */
+  async countEndpointCallsToday(endpoint: string | RegExp): Promise<number> {
+    try {
+      const ptMidnight = this.getPTMidnight();
+      const model = this.channelModel.db.model('ApiQuotaLog') as any;
+      return await model.countDocuments({
+        endpoint,
+        calledAt: { $gte: ptMidnight },
+      });
+    } catch (err: any) {
+      this.logger.warn(`countEndpointCallsToday failed: ${err?.message || err}`);
+      return 0;
+    }
+  }
+
   /** Sum of comment-related Data API units today (list + insert). */
   async getCommentsDailyUsage(channelId: string) {
     const ptMidnight = this.getPTMidnight();

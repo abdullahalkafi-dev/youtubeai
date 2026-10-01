@@ -58,6 +58,7 @@ export class SkillRegistry {
 
 4. NEVER output a full script unless the user explicitly asked for a script.
 5. Keep responses crisp, punchy, and actionable unless the user asks for deep detail.
+6. MULTI-DELIVERABLE REQUESTS: When the user asks for several deliverables at once (e.g., a topic suggestion + a title + a thumbnail package), deliver ALL of them — combine the IDEA score section with the THUMBNAIL intent block (3 concepts inside <!-- THUMBNAILS_START --> / <!-- THUMBNAILS_END -->). Never silently drop a requested part.
 
 ## OUTPUT FORMATS BY INTENT
 
@@ -680,7 +681,7 @@ C. [Third option]
 **Text overlay:** [What text to put on screen]
 
 ## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
-If LOCAL NEWS FOOTAGE PACK is in context: lead §17 with those real local clips (station B-roll the client can collect), then add 2–3 national/court sources. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. NEVER list this channel's own videos (Unique Mecca Audio uploads) as sources — they are not collectible B-roll. Do NOT pad with competitor commentary/explainer videos. SCENE / TIMESTAMP must be a real range (e.g. "0:45–1:15") or "full clip" — NEVER "Review manually" or other placeholders. If local coverage is thin, write "Local coverage thin — use courthouse/agency B-roll". Each YouTube URL EXACTLY ONCE on the title link line only:
+If a FOOTAGE PACK is in context (LOCAL NEWS FOOTAGE PACK or VERIFIED TOPIC FOOTAGE PACK): do NOT re-list clip URLs — the backend appends the verified list automatically right before §17. Write only a one-line "How to use" note per clip, then 2–3 national/court sources if needed. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. NEVER list this channel's own videos (Unique Mecca Audio uploads) as sources — they are not collectible B-roll. Do NOT pad with competitor commentary/explainer videos. SCENE / TIMESTAMP must be a real range (e.g. "0:45–1:15") or "full clip" — NEVER "Review manually" or other placeholders. If local coverage is thin, write "Local coverage thin — use courthouse/agency B-roll". Each YouTube URL EXACTLY ONCE on the title link line only:
 1. [Channel Name: Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
    - Scene / Timestamp: [e.g. 0:45–1:15]
    - How to Use: [e.g. Overlay B-roll at Section 2]
@@ -1194,9 +1195,33 @@ ${imageFormat}`,
   }
 
   private classifyTextIntent(lower: string): string {
-    // 1. Action-specific visual intents FIRST (handles singular/plural and phrase patterns)
+    // 1. Thumbnail as MAIN TASK — imperative (≤30 char window, sentence-bounded)
+    //    or object-first ("thumbnail for X"). Must beat Rule 2 so standalone asks
+    //    like "give me a title and thumbnail for this video" stay thumbnail.
+    if (
+      /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(lower) ||
+      /\b(?:thumbnail|cover art)\s+(?:for|of|concept)/i.test(lower)
+    ) {
+      return 'thumbnail';
+    }
+
+    // 2. Topic-recommendation → general. Must beat the BROAD thumbnail rule (3)
+    //    so a topic ask that merely mentions "…and a thumbnail package" is not
+    //    hijacked into the Thumbnail skill (which skips competitor/analytics/
+    //    duplicate-topic context). NARROW list only: "title and thumbnail" and
+    //    "ground it in" deliberately NOT here.
+    if (
+      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(lower) &&
+      // Explicit scoring asks stay with the dedicated 'ideas' skill
+      !/\b(?:score|rate|evaluate|greenlight|rank|grade)\b/i.test(lower)
+    ) {
+      return 'general';
+    }
+
+    // 3. Broad thumbnail fallback (message mentions thumbnails with no topic-rec signal)
     if (/\b(thumbnails?|cover\s*arts?|thumbs?)\b/i.test(lower)) return 'thumbnail';
 
+    // 4. Scene image / b-roll generation
     if (/\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photos?|wallpapers?)\b/i.test(lower)) return 'image';
 
     // 2. Metadata / SEO
@@ -1234,6 +1259,74 @@ ${imageFormat}`,
   private buildBasePrompt(channel: any, context: SkillContext): string {
     const { CHAT_SYSTEM_PROMPT } = require('../../openai/prompts/chat');
     return CHAT_SYSTEM_PROMPT;
+  }
+
+  /**
+   * YouTube channel IDs of Studio competitors — footage pack denylist.
+   * Used by ChatService.loadFootagePack so competitor/commentary uploads can
+   * never enter the verified clip list.
+   */
+  async getCompetitorYoutubeIds(channelId: string): Promise<string[]> {
+    try {
+      const comps = await this.competitorModel
+        .find({ channelId })
+        .select('youtubeChannelId')
+        .lean();
+      return comps
+        .map((c) => c.youtubeChannelId)
+        .filter((id): id is string => Boolean(id));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * Request-driven context — additive, skill-agnostic (Phase 1d).
+   * Loads data the MESSAGE asks for regardless of which skill ran, so a
+   * thumbnail/ideas/etc. request that mentions competitors or duplicates still
+   * gets the brief. Mutates `context` in place BEFORE buildDynamicContext.
+   * No signal → no change (zero quota/latency).
+   * Analytics/performance is NOT handled here — ChatService's performanceLookup
+   * path owns it (isPerformanceQuery).
+   */
+  async applyRequestDrivenContext(
+    channelId: string,
+    message: string,
+    context: SkillContext,
+  ): Promise<void> {
+    const lower = (message || '').toLowerCase();
+
+    // Competitor brief — when the message asks about competing channels.
+    if (
+      !context.competitorSummary?.length &&
+      /\b(competitor|rivals?|audience watches|other channels?|competing channels?|what they(?:'re| are| post| upload)|their (uploads|videos|thumbnails))\b/i.test(lower)
+    ) {
+      try {
+        const brief = await this.getCompetitorBriefCached(channelId);
+        if (brief.length) context.competitorSummary = brief;
+      } catch { /* optional context */ }
+    }
+
+    // Duplicate-topic guard — when the message asks what was already covered.
+    if (
+      !context.existingVideos?.length &&
+      /\b(already (?:made|covered|posted|did)|existing videos?|avoid duplicate|what i(?:'ve| have) (?:done|covered|posted)|before i (?:make|post|cover))\b/i.test(lower)
+    ) {
+      try {
+        const existing = await this.videoModel
+          .find({ channelId, deletedFromYoutube: { $ne: true } })
+          .sort({ publishedAt: -1 })
+          .limit(50)
+          .select('title publishedAt viewCount youtubeId')
+          .lean();
+        context.existingVideos = existing.map((v) => ({
+          title: v.title,
+          publishedAt: v.publishedAt?.toString() || '',
+          viewCount: v.viewCount || 0,
+          youtubeId: v.youtubeId || '',
+        }));
+      } catch { /* optional context */ }
+    }
   }
 
   /**
