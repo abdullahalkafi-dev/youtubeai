@@ -1,22 +1,42 @@
-import { Injectable, NotFoundException, Logger, forwardRef, Inject, BadRequestException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  Logger,
+  forwardRef,
+  Inject,
+  BadRequestException,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as fs from 'fs';
 import * as path from 'path';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
-import { Thread, ThreadDocument, Message } from '../mongo/schemas/thread.schema';
+import {
+  Thread,
+  ThreadDocument,
+  Message,
+} from '../mongo/schemas/thread.schema';
 import { User, UserDocument } from '../mongo/schemas/user.schema';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
-import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-topic.schema';
-import { AIOutputLog, AIOutputLogDocument } from '../mongo/schemas/ai-output-log.schema';
+import {
+  TrendingTopic,
+  TrendingTopicDocument,
+} from '../mongo/schemas/trending-topic.schema';
+import {
+  AIOutputLog,
+  AIOutputLogDocument,
+} from '../mongo/schemas/ai-output-log.schema';
 import { OpenAIService, TokenUsage } from '../openai/openai.service';
 import { ThumbnailComposerService } from '../openai/thumbnail-composer.service';
 import { SubjectReferenceService } from '../openai/subject-reference.service';
 import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { PerformanceContextService } from '../youtube/performance-context.service';
-import { LocalNewsService, LocalScenePack } from '../youtube/local-news.service';
+import {
+  LocalNewsService,
+  LocalScenePack,
+} from '../youtube/local-news.service';
 import {
   VIDEO_AUTOPSY_SYSTEM_PROMPT,
   CHANNEL_DIAGNOSIS_SYSTEM_PROMPT,
@@ -36,12 +56,16 @@ export class ChatService {
   private readonly modelName: string;
 
   constructor(
-    @InjectModel(Thread.name) private readonly threadModel: Model<ThreadDocument>,
-    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(Thread.name)
+    private readonly threadModel: Model<ThreadDocument>,
+    @InjectModel(Channel.name)
+    private readonly channelModel: Model<ChannelDocument>,
     @InjectModel(User.name) private readonly userModel: Model<UserDocument>,
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
-    @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
-    @InjectModel(AIOutputLog.name) private readonly aiOutputLogModel: Model<AIOutputLogDocument>,
+    @InjectModel(TrendingTopic.name)
+    private readonly trendingTopicModel: Model<TrendingTopicDocument>,
+    @InjectModel(AIOutputLog.name)
+    private readonly aiOutputLogModel: Model<AIOutputLogDocument>,
     private readonly openaiService: OpenAIService,
     private readonly composerService: ThumbnailComposerService,
     private readonly subjectReferenceService: SubjectReferenceService,
@@ -54,7 +78,10 @@ export class ChatService {
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
   ) {
-    this.modelName = this.configService.get<string>('OPENAI_MODEL', 'gpt-5.6-terra');
+    this.modelName = this.configService.get<string>(
+      'OPENAI_MODEL',
+      'gpt-5.6-terra',
+    );
   }
 
   async createThread(channelId: string, dto: CreateThreadDto) {
@@ -68,7 +95,8 @@ export class ChatService {
         const video = await this.videoModel.findById(dto.videoId).lean();
         if (video) {
           videoTitle = video.youtubeTitle || video.title;
-          videoThumbnail = video.thumbnailUrl || (video as any)?.thumbnails?.default?.url;
+          videoThumbnail =
+            video.thumbnailUrl || (video as any)?.thumbnails?.default?.url;
           if (!title) title = videoTitle?.slice(0, 50) || 'Video Thread';
         }
       }
@@ -98,26 +126,34 @@ export class ChatService {
     }
     const filter: any = { channelId: new Types.ObjectId(channelId) };
     if (!includeArchived) filter.status = 'active';
-    const threads = await this.threadModel.find(filter).sort({ updatedAt: -1 }).lean();
+    const threads = await this.threadModel
+      .find(filter)
+      .sort({ updatedAt: -1 })
+      .lean();
     return leanDocs(threads);
   }
 
   async findByVideoId(channelId: string, videoId: string) {
-    const thread = await this.threadModel.findOne({
-      channelId: new Types.ObjectId(channelId),
-      videoId: videoId,
-      status: 'active',
-    }).lean();
+    const thread = await this.threadModel
+      .findOne({
+        channelId: new Types.ObjectId(channelId),
+        videoId: videoId,
+        status: 'active',
+      })
+      .lean();
     return thread ? leanDoc(thread) : null;
   }
 
   async findById(id: string) {
-    const thread = await this.threadModel.findById(new Types.ObjectId(id)).lean();
+    const thread = await this.threadModel
+      .findById(new Types.ObjectId(id))
+      .lean();
     if (!thread) throw new NotFoundException(`Thread ${id} not found`);
 
     // Self-healing: if thread was marked isGenerating but started > 3 mins ago, auto-clear zombie state
     if ((thread as any).isGenerating && (thread as any).generationStartedAt) {
-      const elapsedMs = Date.now() - new Date((thread as any).generationStartedAt).getTime();
+      const elapsedMs =
+        Date.now() - new Date((thread as any).generationStartedAt).getTime();
       if (elapsedMs > 180000) {
         await this.threadModel.findByIdAndUpdate(new Types.ObjectId(id), {
           $set: { isGenerating: false },
@@ -133,7 +169,13 @@ export class ChatService {
   }
 
   async renameThread(id: string, title: string) {
-    const updated = await this.threadModel.findByIdAndUpdate(new Types.ObjectId(id), { $set: { title } }, { new: true }).lean();
+    const updated = await this.threadModel
+      .findByIdAndUpdate(
+        new Types.ObjectId(id),
+        { $set: { title } },
+        { new: true },
+      )
+      .lean();
     if (!updated) throw new NotFoundException(`Thread ${id} not found`);
     return leanDoc(updated);
   }
@@ -143,24 +185,34 @@ export class ChatService {
    * Only runs if title is still the default "New Thread" pattern.
    * Uses fast model with generous token limit, with an intelligent heuristic fallback.
    */
-  async autoNameThread(threadId: string, firstUserMessage: string): Promise<string | void> {
+  async autoNameThread(
+    threadId: string,
+    firstUserMessage: string,
+  ): Promise<string | void> {
     try {
       const thread = await this.threadModel.findById(threadId);
       if (!thread || (thread.title && thread.title !== 'New Thread')) return;
 
       // Direct extraction if message contains active script context
-      const scriptMatch = firstUserMessage.match(/\[ACTIVE SCRIPT CONTEXT:\s*"([^"]+)"\]/i);
+      const scriptMatch = firstUserMessage.match(
+        /\[ACTIVE SCRIPT CONTEXT:\s*"([^"]+)"\]/i,
+      );
       if (scriptMatch && scriptMatch[1]) {
         const cleanTitle = `Script: ${scriptMatch[1].trim().slice(0, 45)}`;
-        await this.threadModel.findByIdAndUpdate(threadId, { $set: { title: cleanTitle } });
-        this.logger.log(`Auto-named script thread ${threadId}: "${cleanTitle}"`);
+        await this.threadModel.findByIdAndUpdate(threadId, {
+          $set: { title: cleanTitle },
+        });
+        this.logger.log(
+          `Auto-named script thread ${threadId}: "${cleanTitle}"`,
+        );
         return cleanTitle;
       }
 
       let cleanTitle = '';
       try {
         const generatedTitle = await this.openaiService.chatFast({
-          systemPrompt: 'Generate a concise, descriptive thread title (3 to 6 words maximum) for this user request. Return ONLY the plain text title, nothing else. No quotes, no markdown, no punctuation at the end.',
+          systemPrompt:
+            'Generate a concise, descriptive thread title (3 to 6 words maximum) for this user request. Return ONLY the plain text title, nothing else. No quotes, no markdown, no punctuation at the end.',
           userMessage: firstUserMessage,
           temperature: 0.3,
           maxCompletionTokens: 150,
@@ -172,7 +224,9 @@ export class ChatService {
           .trim()
           .slice(0, 50);
       } catch (err: any) {
-        this.logger.warn(`OpenAI auto-name failed for thread ${threadId}: ${err.message}`);
+        this.logger.warn(
+          `OpenAI auto-name failed for thread ${threadId}: ${err.message}`,
+        );
       }
 
       // Intelligent fallback if OpenAI call returns empty or fails
@@ -188,12 +242,16 @@ export class ChatService {
       }
 
       if (cleanTitle && cleanTitle.length > 0) {
-        await this.threadModel.findByIdAndUpdate(threadId, { $set: { title: cleanTitle } });
+        await this.threadModel.findByIdAndUpdate(threadId, {
+          $set: { title: cleanTitle },
+        });
         this.logger.log(`Auto-named thread ${threadId}: "${cleanTitle}"`);
         return cleanTitle;
       }
     } catch (error) {
-      this.logger.warn(`Auto-name failed for thread ${threadId}: ${error.message}`);
+      this.logger.warn(
+        `Auto-name failed for thread ${threadId}: ${error.message}`,
+      );
     }
   }
 
@@ -208,36 +266,56 @@ export class ChatService {
     this.handleFirstMessage(threadId, thread, dto.content);
 
     // Save user message atomically — persists even if OpenAI call fails
-    const userMsg = { role: 'user' as const, content: dto.content, createdAt: new Date() };
-    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+    const userMsg = {
+      role: 'user' as const,
+      content: dto.content,
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: userMsg },
+    });
 
     // Re-load thread to get the updated messages array (includes the user message we just saved)
     const updatedThread = await this.threadModel.findById(threadId);
-    if (!updatedThread) throw new NotFoundException(`Thread ${threadId} not found`);
+    if (!updatedThread)
+      throw new NotFoundException(`Thread ${threadId} not found`);
 
     // Extract actual user prompt if prepended with injected active script context
-    const cleanUserPrompt = dto.content.replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '').trim();
+    const cleanUserPrompt = dto.content
+      .replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '')
+      .trim();
 
     // Find previous assistant message for dynamic A/B/C/D menu option resolution
     const prevAssistantMsg = updatedThread.messages
       .slice(0, -1)
       .reverse()
-      .find(m => m.role === 'assistant')?.content;
+      .find((m) => m.role === 'assistant')?.content;
 
     // Resolve skill: auto-classify intent on clean prompt
-    const detectedIntent = this.skillRegistry.classifyIntent(cleanUserPrompt || dto.content, prevAssistantMsg);
+    const detectedIntent = this.skillRegistry.classifyIntent(
+      cleanUserPrompt || dto.content,
+      prevAssistantMsg,
+    );
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
-    const resolvedSkill = (detectedIntent && detectedIntent !== 'general' && (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill))
-      ? detectedIntent
-      : (dto.skill || detectedIntent || 'general');
+    const resolvedSkill =
+      detectedIntent &&
+      detectedIntent !== 'general' &&
+      (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill)
+        ? detectedIntent
+        : dto.skill || detectedIntent || 'general';
 
     // Get channel and skill
-    const channel = await this.channelModel.findById(updatedThread.channelId).lean();
+    const channel = await this.channelModel
+      .findById(updatedThread.channelId)
+      .lean();
     const skill = this.skillRegistry.get(resolvedSkill);
 
     // Auto-load context based on skill
-    const skillContext = await skill.loadContext(updatedThread.channelId.toString(), updatedThread.videoId || undefined);
+    const skillContext = await skill.loadContext(
+      updatedThread.channelId.toString(),
+      updatedThread.videoId || undefined,
+    );
 
     // RAG context
     const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
@@ -251,36 +329,59 @@ export class ChatService {
       const cid = updatedThread.channelId.toString();
       if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
         analysisMode = 'diagnosis';
-        const health = await this.performanceContext.buildChannelHealthBundle(uid, cid);
-        if (health?.text) performanceLookup = '\n\n' + health.text;
-      } else if (uid && (PerformanceContextService.isVideoAutopsyQuery(q) || PerformanceContextService.isPerformanceQuery(q))) {
-        const lookup = await this.performanceContext.buildVideoPerformanceLookup(
+        const health = await this.performanceContext.buildChannelHealthBundle(
           uid,
           cid,
-          q,
-          updatedThread.videoId || undefined,
         );
+        if (health?.text) performanceLookup = '\n\n' + health.text;
+      } else if (
+        uid &&
+        (PerformanceContextService.isVideoAutopsyQuery(q) ||
+          PerformanceContextService.isPerformanceQuery(q))
+      ) {
+        const lookup =
+          await this.performanceContext.buildVideoPerformanceLookup(
+            uid,
+            cid,
+            q,
+            updatedThread.videoId || undefined,
+          );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
         if (lookup?.mode === 'public') analysisMode = 'public';
-        else if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
+        else if (PerformanceContextService.isVideoAutopsyQuery(q))
+          analysisMode = 'autopsy';
       }
     } catch (perfErr: any) {
-      this.logger.warn(`Performance lookup skipped: ${perfErr?.message || perfErr}`);
+      this.logger.warn(
+        `Performance lookup skipped: ${perfErr?.message || perfErr}`,
+      );
     }
 
     // Build conversation history (last N messages)
-    const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const allMessages = updatedThread.messages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
     let contextMessages = allMessages;
     let summaryToPrepend = updatedThread.summary;
 
     if (allMessages.length > MAX_MESSAGES_BEFORE_SUMMARY) {
       if (!summaryToPrepend) {
-        const summaryResult = await this.summarizeAndCompress(threadId.toString(), allMessages.slice(0, -5), channel || undefined);
+        const summaryResult = await this.summarizeAndCompress(
+          threadId.toString(),
+          allMessages.slice(0, -5),
+          channel || undefined,
+        );
         summaryToPrepend = summaryResult.summary;
-        await this.threadModel.findByIdAndUpdate(threadId, { $set: { summary: summaryToPrepend } });
+        await this.threadModel.findByIdAndUpdate(threadId, {
+          $set: { summary: summaryToPrepend },
+        });
       }
       contextMessages = [
-        { role: 'user' as const, content: `[Previous conversation summary]\n${summaryToPrepend}` },
+        {
+          role: 'user' as const,
+          content: `[Previous conversation summary]\n${summaryToPrepend}`,
+        },
         ...allMessages.slice(-5),
       ];
     }
@@ -302,7 +403,10 @@ export class ChatService {
       dto.content,
       skillContext,
     );
-    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
+    let dynamicContext =
+      this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
+      ragContext +
+      performanceLookup;
 
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
@@ -320,7 +424,9 @@ export class ChatService {
       resolvedSkill,
       recentThreadText,
       needsResearch,
-      (skillContext.trendingTopics || []).map((t: any) => t?.title).filter(Boolean),
+      (skillContext.trendingTopics || [])
+        .map((t: any) => t?.title)
+        .filter(Boolean),
     );
     if (footagePack) {
       this.logger.log(
@@ -331,11 +437,16 @@ export class ChatService {
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
     if (!this.areTrendsFresh(skillContext.trendingTopics)) {
-      this.logger.log(`Thread ${threadId}: Stale trends, triggering lite refresh in background`);
-      this.trendsService.refreshTrendsLite(updatedThread.channelId.toString())
+      this.logger.log(
+        `Thread ${threadId}: Stale trends, triggering lite refresh in background`,
+      );
+      this.trendsService
+        .refreshTrendsLite(updatedThread.channelId.toString())
         .then((freshTopics) => {
           if (freshTopics.length > 0) {
-            this.logger.log(`Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`);
+            this.logger.log(
+              `Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`,
+            );
           }
         })
         .catch((error) => {
@@ -347,10 +458,17 @@ export class ChatService {
     let sources: any[] = [];
 
     if (needsResearch) {
-      this.logger.log(`Thread ${threadId}: Research detected, using web search`);
+      this.logger.log(
+        `Thread ${threadId}: Research detected, using web search`,
+      );
       const searchResult = await this.openaiService.chatWithSearch({
         userMessage: dto.content,
-        systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol() + '\n\n' + dynamicContext,
+        systemPrompt:
+          systemPrompt +
+          '\n\n' +
+          this.buildResearchProtocol() +
+          '\n\n' +
+          dynamicContext,
         conversationHistory: contextMessages.slice(0, -1),
       });
       aiResponse = { content: searchResult.content, usage: searchResult.usage };
@@ -371,7 +489,10 @@ export class ChatService {
 
     // Phase 3: backend-rendered clip list — server-appended so the model cannot
     // drop or invent clip IDs (inserted before the model's Sources section).
-    const finalContent = this.appendFootagePackBlock(aiResponse.content, footagePack);
+    const finalContent = this.appendFootagePackBlock(
+      aiResponse.content,
+      footagePack,
+    );
 
     // Save AI response atomically
     const assistantMessage: Message = {
@@ -382,7 +503,7 @@ export class ChatService {
         ...(sources.length > 0 ? { sources } : {}),
       },
       createdAt: new Date(),
-    } as any;
+    };
 
     await this.threadModel.findByIdAndUpdate(threadId, {
       $push: { messages: assistantMessage },
@@ -396,15 +517,28 @@ export class ChatService {
 
     // Store in ChromaDB
     try {
-      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
+      await this.chromaService.upsert(
+        'chat_messages',
+        `${threadId}_${updatedThread.messages.length + 1}`,
         `User: ${dto.content}\nAssistant: ${finalContent}`,
-        { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
-    } catch { /* RAG optional */ }
+        {
+          threadId: threadId.toString(),
+          channelId: updatedThread.channelId.toString(),
+          category: resolvedSkill,
+        },
+      );
+    } catch {
+      /* RAG optional */
+    }
 
     // Log AI output
     await this.logAiOutput({
-      channelId: updatedThread.channelId.toString(), operation: 'chat', threadId: threadId.toString(),
-      inputSummary: dto.content.substring(0, 200), output: { content: finalContent }, usage: aiResponse.usage,
+      channelId: updatedThread.channelId.toString(),
+      operation: 'chat',
+      threadId: threadId.toString(),
+      inputSummary: dto.content.substring(0, 200),
+      output: { content: finalContent },
+      usage: aiResponse.usage,
     });
 
     return assistantMessage;
@@ -413,7 +547,17 @@ export class ChatService {
   /**
    * Stream a message — returns an async generator that yields chunks.
    */
-  async *streamMessage(threadId: string, dto: SendMessageDto): AsyncGenerator<{ type: string; content?: string; messageId?: string; usage?: TokenUsage; title?: string; category?: string }> {
+  async *streamMessage(
+    threadId: string,
+    dto: SendMessageDto,
+  ): AsyncGenerator<{
+    type: string;
+    content?: string;
+    messageId?: string;
+    usage?: TokenUsage;
+    title?: string;
+    category?: string;
+  }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
@@ -424,11 +568,21 @@ export class ChatService {
     }
 
     // Auto-name from first user message (tracked promise)
-    const autoNamePromise = this.handleFirstMessage(threadId, thread, dto.content);
+    const autoNamePromise = this.handleFirstMessage(
+      threadId,
+      thread,
+      dto.content,
+    );
 
     // Save user message atomically — persists even if stream drops
-    const userMsg = { role: 'user' as const, content: dto.content, createdAt: new Date() };
-    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+    const userMsg = {
+      role: 'user' as const,
+      content: dto.content,
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: userMsg },
+    });
 
     // Re-load thread to get the updated messages array
     const updatedThread = await this.threadModel.findById(threadId);
@@ -438,20 +592,28 @@ export class ChatService {
     }
 
     // Extract actual user prompt if prepended with injected active script context
-    const cleanUserPrompt = dto.content.replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '').trim();
+    const cleanUserPrompt = dto.content
+      .replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '')
+      .trim();
 
     const prevAssistantMsg = updatedThread.messages
       ?.slice(0, -1)
       ?.reverse()
-      ?.find(m => m.role === 'assistant')?.content;
+      ?.find((m) => m.role === 'assistant')?.content;
 
     // Resolve skill: auto-classify intent on clean prompt
-    const detectedIntent = this.skillRegistry.classifyIntent(cleanUserPrompt || dto.content, prevAssistantMsg);
+    const detectedIntent = this.skillRegistry.classifyIntent(
+      cleanUserPrompt || dto.content,
+      prevAssistantMsg,
+    );
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
-    const resolvedSkill = (detectedIntent && detectedIntent !== 'general' && (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill))
-      ? detectedIntent
-      : (dto.skill || detectedIntent || 'general');
+    const resolvedSkill =
+      detectedIntent &&
+      detectedIntent !== 'general' &&
+      (!dto.skill || dto.skill === 'general' || detectedIntent !== dto.skill)
+        ? detectedIntent
+        : dto.skill || detectedIntent || 'general';
 
     // Mark thread as actively generating with skill and timestamp
     await this.threadModel.findByIdAndUpdate(threadId, {
@@ -462,9 +624,14 @@ export class ChatService {
       },
     });
 
-    const channel = await this.channelModel.findById(updatedThread.channelId).lean();
+    const channel = await this.channelModel
+      .findById(updatedThread.channelId)
+      .lean();
     const skill = this.skillRegistry.get(resolvedSkill);
-    const skillContext = await skill.loadContext(updatedThread.channelId.toString(), updatedThread.videoId || undefined);
+    const skillContext = await skill.loadContext(
+      updatedThread.channelId.toString(),
+      updatedThread.videoId || undefined,
+    );
 
     // RAG context
     const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
@@ -478,21 +645,33 @@ export class ChatService {
       const cid = updatedThread.channelId.toString();
       if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
         analysisMode = 'diagnosis';
-        const health = await this.performanceContext.buildChannelHealthBundle(uid, cid);
-        if (health?.text) performanceLookup = '\n\n' + health.text;
-      } else if (uid && (PerformanceContextService.isVideoAutopsyQuery(q) || PerformanceContextService.isPerformanceQuery(q))) {
-        if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
-        const lookup = await this.performanceContext.buildVideoPerformanceLookup(
+        const health = await this.performanceContext.buildChannelHealthBundle(
           uid,
           cid,
-          q,
-          updatedThread.videoId || undefined,
         );
+        if (health?.text) performanceLookup = '\n\n' + health.text;
+      } else if (
+        uid &&
+        (PerformanceContextService.isVideoAutopsyQuery(q) ||
+          PerformanceContextService.isPerformanceQuery(q))
+      ) {
+        if (PerformanceContextService.isVideoAutopsyQuery(q))
+          analysisMode = 'autopsy';
+        const lookup =
+          await this.performanceContext.buildVideoPerformanceLookup(
+            uid,
+            cid,
+            q,
+            updatedThread.videoId || undefined,
+          );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
         if (lookup?.mode === 'public') analysisMode = 'public';
-        else if (PerformanceContextService.isVideoAutopsyQuery(q)) analysisMode = 'autopsy';
+        else if (PerformanceContextService.isVideoAutopsyQuery(q))
+          analysisMode = 'autopsy';
       }
-    } catch { /* optional */ }
+    } catch {
+      /* optional */
+    }
 
     // Build STATIC system prompt (byte-identical across requests for caching)
     let systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
@@ -511,7 +690,10 @@ export class ChatService {
       dto.content,
       skillContext,
     );
-    let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
+    let dynamicContext =
+      this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
+      ragContext +
+      performanceLookup;
 
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
@@ -528,7 +710,9 @@ export class ChatService {
       resolvedSkill,
       recentThreadText,
       needsResearch,
-      (skillContext.trendingTopics || []).map((t: any) => t?.title).filter(Boolean),
+      (skillContext.trendingTopics || [])
+        .map((t: any) => t?.title)
+        .filter(Boolean),
     );
     if (footagePack) {
       this.logger.log(
@@ -538,18 +722,30 @@ export class ChatService {
     }
 
     // Build conversation history (last N messages)
-    const allMessages = updatedThread.messages.map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const allMessages = updatedThread.messages.map((m) => ({
+      role: m.role as 'user' | 'assistant',
+      content: m.content,
+    }));
     let contextMessages = allMessages;
     let summaryToPrepend = updatedThread.summary;
 
     if (allMessages.length > MAX_MESSAGES_BEFORE_SUMMARY) {
       if (!summaryToPrepend) {
-        const summaryResult = await this.summarizeAndCompress(threadId.toString(), allMessages.slice(0, -5), channel || undefined);
+        const summaryResult = await this.summarizeAndCompress(
+          threadId.toString(),
+          allMessages.slice(0, -5),
+          channel || undefined,
+        );
         summaryToPrepend = summaryResult.summary;
-        await this.threadModel.findByIdAndUpdate(threadId, { $set: { summary: summaryToPrepend } });
+        await this.threadModel.findByIdAndUpdate(threadId, {
+          $set: { summary: summaryToPrepend },
+        });
       }
       contextMessages = [
-        { role: 'user' as const, content: `[Previous conversation summary]\n${summaryToPrepend}` },
+        {
+          role: 'user' as const,
+          content: `[Previous conversation summary]\n${summaryToPrepend}`,
+        },
         ...allMessages.slice(-5),
       ];
     }
@@ -564,11 +760,16 @@ export class ChatService {
 
     // Auto-lite refresh: if trends are stale/empty, refresh in background
     if (!this.areTrendsFresh(skillContext.trendingTopics)) {
-      this.logger.log(`Thread ${threadId}: Stale trends, triggering lite refresh in background`);
-      this.trendsService.refreshTrendsLite(updatedThread.channelId.toString())
+      this.logger.log(
+        `Thread ${threadId}: Stale trends, triggering lite refresh in background`,
+      );
+      this.trendsService
+        .refreshTrendsLite(updatedThread.channelId.toString())
         .then(async (freshTopics) => {
           if (freshTopics.length > 0) {
-            this.logger.log(`Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`);
+            this.logger.log(
+              `Lite refresh completed: ${freshTopics.length} new topics for channel ${updatedThread.channelId}`,
+            );
           }
         })
         .catch((error) => {
@@ -578,11 +779,18 @@ export class ChatService {
 
     try {
       if (needsResearch) {
-        this.logger.log(`Thread ${threadId}: Research detected in stream, using web search`);
+        this.logger.log(
+          `Thread ${threadId}: Research detected in stream, using web search`,
+        );
         try {
           for await (const chunk of this.openaiService.chatWithSearchStream({
             userMessage: dto.content,
-            systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol() + '\n\n' + dynamicContext,
+            systemPrompt:
+              systemPrompt +
+              '\n\n' +
+              this.buildResearchProtocol() +
+              '\n\n' +
+              dynamicContext,
             conversationHistory,
           })) {
             if (chunk.chunk) {
@@ -593,8 +801,13 @@ export class ChatService {
             if (chunk.usage) finalUsage = chunk.usage;
           }
         } catch (error) {
-          this.logger.warn(`Stream research error for thread ${threadId}: ${error.message}`);
-          yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+          this.logger.warn(
+            `Stream research error for thread ${threadId}: ${error.message}`,
+          );
+          yield {
+            type: 'error',
+            content: 'Stream interrupted. Please try again.',
+          };
           return;
         }
       } else {
@@ -617,8 +830,13 @@ export class ChatService {
             if (chunk.usage) finalUsage = chunk.usage;
           }
         } catch (error) {
-          this.logger.warn(`Stream error for thread ${threadId}: ${error.message}`);
-          yield { type: 'error', content: 'Stream interrupted. Please try again.' };
+          this.logger.warn(
+            `Stream error for thread ${threadId}: ${error.message}`,
+          );
+          yield {
+            type: 'error',
+            content: 'Stream interrupted. Please try again.',
+          };
           return;
         }
       }
@@ -642,7 +860,7 @@ export class ChatService {
               ...(sources.length > 0 ? { sources } : {}),
             },
             createdAt: new Date(),
-          } as any;
+          };
 
           const updateOps: any = {
             $push: { messages: assistantMessage },
@@ -666,24 +884,45 @@ export class ChatService {
           // Ensure auto-naming has finished so savedThread reflects updated title
           try {
             await autoNamePromise;
-          } catch { /* auto-naming optional */ }
+          } catch {
+            /* auto-naming optional */
+          }
 
-          savedThread = await this.threadModel.findByIdAndUpdate(threadId, updateOps, { new: true });
+          savedThread = await this.threadModel.findByIdAndUpdate(
+            threadId,
+            updateOps,
+            { new: true },
+          );
 
           // Store in ChromaDB
           try {
-            await this.chromaService.upsert('chat_messages', `${threadId}_${(updatedThread?.messages?.length || 0) + 1}`,
+            await this.chromaService.upsert(
+              'chat_messages',
+              `${threadId}_${(updatedThread?.messages?.length || 0) + 1}`,
               `User: ${dto.content}\nAssistant: ${fullContent}`,
-              { threadId: threadId.toString(), channelId: updatedThread.channelId.toString(), category: resolvedSkill });
-          } catch { /* RAG optional */ }
+              {
+                threadId: threadId.toString(),
+                channelId: updatedThread.channelId.toString(),
+                category: resolvedSkill,
+              },
+            );
+          } catch {
+            /* RAG optional */
+          }
 
           // Log AI output
           await this.logAiOutput({
-            channelId: updatedThread.channelId.toString(), operation: 'chat_stream', threadId: threadId.toString(),
-            inputSummary: dto.content.substring(0, 200), output: { content: fullContent }, usage: finalUsage,
+            channelId: updatedThread.channelId.toString(),
+            operation: 'chat_stream',
+            threadId: threadId.toString(),
+            inputSummary: dto.content.substring(0, 200),
+            output: { content: fullContent },
+            usage: finalUsage,
           });
         } catch (saveError: any) {
-          this.logger.error(`Failed to persist stream message to DB: ${saveError.message}`);
+          this.logger.error(
+            `Failed to persist stream message to DB: ${saveError.message}`,
+          );
           await this.threadModel.findByIdAndUpdate(threadId, {
             $set: { isGenerating: false },
             $unset: { generatingSkill: 1, generationStartedAt: 1 },
@@ -699,13 +938,24 @@ export class ChatService {
     }
 
     if (savedThread) {
-      const lastMsgId = savedThread?.messages?.[savedThread.messages.length - 1]?._id?.toString();
-      yield { type: 'done', messageId: lastMsgId, usage: finalUsage, title: savedThread.title, category: resolvedSkill };
+      const lastMsgId =
+        savedThread?.messages?.[
+          savedThread.messages.length - 1
+        ]?._id?.toString();
+      yield {
+        type: 'done',
+        messageId: lastMsgId,
+        usage: finalUsage,
+        title: savedThread.title,
+        category: resolvedSkill,
+      };
     }
   }
 
   async archiveThread(id: string, reason: string) {
-    await this.threadModel.findByIdAndUpdate(id, { $set: { status: 'archived' } });
+    await this.threadModel.findByIdAndUpdate(id, {
+      $set: { status: 'archived' },
+    });
     this.logger.log(`Thread ${id} archived: ${reason}`);
   }
 
@@ -720,17 +970,24 @@ export class ChatService {
 
     // Clean up ChromaDB vectors for this thread
     try {
-      await this.chromaService.deleteByMetadata('chat_messages', { threadId: id });
+      await this.chromaService.deleteByMetadata('chat_messages', {
+        threadId: id,
+      });
     } catch (error) {
-      this.logger.warn(`Failed to clean ChromaDB for thread ${id}: ${error.message}`);
+      this.logger.warn(
+        `Failed to clean ChromaDB for thread ${id}: ${error.message}`,
+      );
     }
 
-    const removed = await this.threadModel.findByIdAndDelete(new Types.ObjectId(id)).lean();
+    const removed = await this.threadModel
+      .findByIdAndDelete(new Types.ObjectId(id))
+      .lean();
     return leanDoc(removed);
   }
 
   async deleteMessage(threadId: string, messageId: string) {
-    const rawId = typeof messageId === 'string' ? messageId : String(messageId || '');
+    const rawId =
+      typeof messageId === 'string' ? messageId : String(messageId || '');
     if (!rawId || !Types.ObjectId.isValid(rawId)) {
       throw new BadRequestException(`Invalid message ID format: ${rawId}`);
     }
@@ -739,9 +996,10 @@ export class ChatService {
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
     const msgIndex = thread.messages.findIndex(
-      m => m._id?.toString() === rawId || (m as any).id === rawId
+      (m) => m._id?.toString() === rawId || (m as any).id === rawId,
     );
-    if (msgIndex === -1) throw new NotFoundException(`Message ${rawId} not found`);
+    if (msgIndex === -1)
+      throw new NotFoundException(`Message ${rawId} not found`);
 
     // Best-effort cleanup: if it's an assistant message with generated images, delete from MinIO
     const msg = thread.messages[msgIndex];
@@ -754,49 +1012,95 @@ export class ChatService {
           if (key) {
             await this.minioService.deleteFile(decodeURIComponent(key));
           }
-        } catch { /* best effort */ }
+        } catch {
+          /* best effort */
+        }
       }
     }
 
     await this.threadModel.findByIdAndUpdate(threadId, {
-      $pull: { messages: { _id: new Types.ObjectId(rawId) } }
+      $pull: { messages: { _id: new Types.ObjectId(rawId) } },
     });
 
     return { success: true, threadId, messageId: rawId };
   }
 
-  private async summarizeAndCompress(threadId: string, messages: Array<{ role: 'user' | 'assistant'; content: string }>, channel?: any): Promise<{ summary: string }> {
-    const result = await this.openaiService.summarizeConversation({ messages, channel });
-    await this.logAiOutput({ channelId: '', operation: 'summarize', threadId, inputSummary: `Summarizing ${messages.length} messages`, output: { summary: result.summary }, usage: result.usage });
+  private async summarizeAndCompress(
+    threadId: string,
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>,
+    channel?: any,
+  ): Promise<{ summary: string }> {
+    const result = await this.openaiService.summarizeConversation({
+      messages,
+      channel,
+    });
+    await this.logAiOutput({
+      channelId: '',
+      operation: 'summarize',
+      threadId,
+      inputSummary: `Summarizing ${messages.length} messages`,
+      output: { summary: result.summary },
+      usage: result.usage,
+    });
     return { summary: result.summary };
   }
 
-  private async logAiOutput(params: { channelId: string; operation: string; threadId?: string; videoId?: string; inputSummary: string; output: any; usage?: TokenUsage }) {
+  private async logAiOutput(params: {
+    channelId: string;
+    operation: string;
+    threadId?: string;
+    videoId?: string;
+    inputSummary: string;
+    output: any;
+    usage?: TokenUsage;
+  }) {
     try {
       await this.aiOutputLogModel.create({
-        channelId: params.channelId, operation: params.operation, threadId: params.threadId,
-        videoId: params.videoId, inputSummary: params.inputSummary, output: params.output,
-        promptTokens: params.usage?.promptTokens || 0, completionTokens: params.usage?.completionTokens || 0,
-        cachedTokens: params.usage?.cachedTokens || 0, cacheHitRate: params.usage?.cacheHitRate || 0, model: this.modelName,
+        channelId: params.channelId,
+        operation: params.operation,
+        threadId: params.threadId,
+        videoId: params.videoId,
+        inputSummary: params.inputSummary,
+        output: params.output,
+        promptTokens: params.usage?.promptTokens || 0,
+        completionTokens: params.usage?.completionTokens || 0,
+        cachedTokens: params.usage?.cachedTokens || 0,
+        cacheHitRate: params.usage?.cacheHitRate || 0,
+        model: this.modelName,
       });
-    } catch (error) { this.logger.error(`Failed to log AI output: ${error.message}`); }
+    } catch (error) {
+      this.logger.error(`Failed to log AI output: ${error.message}`);
+    }
   }
 
-  async uploadAssetOnly(threadId: string, file: Express.Multer.File): Promise<{ url: string; filename: string }> {
+  async uploadAssetOnly(
+    threadId: string,
+    file: Express.Multer.File,
+  ): Promise<{ url: string; filename: string }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
     const channelId = thread.channelId.toString();
-    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
-    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    const safeFilename = file.originalname
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .substring(0, 100);
+    const isMinioReady = await this.minioService
+      .isAvailable()
+      .catch(() => false);
     let url: string;
 
     if (isMinioReady) {
       try {
         const key = `uploads/${channelId}/${Date.now()}_${safeFilename}`;
-        url = await this.minioService.uploadBuffer(key, file.buffer, file.mimetype);
+        url = await this.minioService.uploadBuffer(
+          key,
+          file.buffer,
+          file.mimetype,
+        );
       } catch (err: any) {
-        this.logger.warn(`MinIO upload failed in uploadAssetOnly (${err.message}), falling back to local...`);
+        this.logger.warn(
+          `MinIO upload failed in uploadAssetOnly (${err.message}), falling back to local...`,
+        );
         const filename = `${Date.now()}_${safeFilename}`;
         const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
         if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
@@ -814,7 +1118,11 @@ export class ChatService {
     return { url, filename: safeFilename };
   }
 
-  async handleFileUpload(threadId: string, file: Express.Multer.File, content?: string) {
+  async handleFileUpload(
+    threadId: string,
+    file: Express.Multer.File,
+    content?: string,
+  ) {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
@@ -828,9 +1136,15 @@ export class ChatService {
     const channelId = thread.channelId.toString();
 
     // Sanitize filename to prevent path traversal
-    const safeFilename = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 100);
+    const safeFilename = file.originalname
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .substring(0, 100);
     const key = `uploads/${channelId}/${Date.now()}_${safeFilename}`;
-    const url = await this.minioService.uploadBuffer(key, file.buffer, file.mimetype);
+    const url = await this.minioService.uploadBuffer(
+      key,
+      file.buffer,
+      file.mimetype,
+    );
 
     let extractedText = '';
     const isPdf = file.mimetype === 'application/pdf';
@@ -870,38 +1184,59 @@ export class ChatService {
       role: 'user' as const,
       content: userContent,
       metadata: {
-        attachments: [{
-          type: isPdf ? 'pdf' as const : 'image' as const,
-          url,
-          filename: safeFilename,
-          extractedText: isPdf ? extractedText : undefined,
-        }],
+        attachments: [
+          {
+            type: isPdf ? ('pdf' as const) : ('image' as const),
+            url,
+            filename: safeFilename,
+            extractedText: isPdf ? extractedText : undefined,
+          },
+        ],
       },
       createdAt: new Date(),
     };
-    await this.threadModel.findByIdAndUpdate(threadId, { $push: { messages: userMsg } });
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: { messages: userMsg },
+    });
 
     // Re-load thread for conversation history
     const updatedThread = await this.threadModel.findById(threadId);
-    if (!updatedThread) throw new NotFoundException(`Thread ${threadId} not found`);
+    if (!updatedThread)
+      throw new NotFoundException(`Thread ${threadId} not found`);
 
     // Resolve skill from user-provided content only (not PDF extracted text)
     // If no user text provided (pure file upload), default to 'general' skill
-    const resolvedSkill = content?.trim() ? this.skillRegistry.classifyIntent(content) : 'general';
+    const resolvedSkill = content?.trim()
+      ? this.skillRegistry.classifyIntent(content)
+      : 'general';
 
     // Get AI response with RAG context
     const skill = this.skillRegistry.get(resolvedSkill);
-    const skillContext = await skill.loadContext(channelId, updatedThread.videoId || undefined);
+    const skillContext = await skill.loadContext(
+      channelId,
+      updatedThread.videoId || undefined,
+    );
     const systemPrompt = skill.buildSystemPrompt(channel || {}, skillContext);
 
     // RAG context
     const ragContext = await this.buildRagContext(userContent, resolvedSkill);
 
     if (content?.trim()) {
-      await this.skillRegistry.applyRequestDrivenContext(channelId, content, skillContext);
+      await this.skillRegistry.applyRequestDrivenContext(
+        channelId,
+        content,
+        skillContext,
+      );
     }
-    const dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext;
-    const conversationHistory = updatedThread.messages.slice(0, -1).map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }));
+    const dynamicContext =
+      this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
+      ragContext;
+    const conversationHistory = updatedThread.messages
+      .slice(0, -1)
+      .map((m) => ({
+        role: m.role as 'user' | 'assistant',
+        content: m.content,
+      }));
 
     let aiResponse: { content: string; usage?: TokenUsage };
 
@@ -932,7 +1267,7 @@ export class ChatService {
       content: aiResponse.content,
       metadata: { category: resolvedSkill },
       createdAt: new Date(),
-    } as any;
+    };
 
     await this.threadModel.findByIdAndUpdate(threadId, {
       $push: { messages: assistantMsg },
@@ -946,15 +1281,24 @@ export class ChatService {
 
     // Store in ChromaDB
     try {
-      await this.chromaService.upsert('chat_messages', `${threadId}_${updatedThread.messages.length + 1}`,
+      await this.chromaService.upsert(
+        'chat_messages',
+        `${threadId}_${updatedThread.messages.length + 1}`,
         `User: ${userContent}\nAssistant: ${aiResponse.content}`,
-        { threadId: threadId.toString(), channelId, category: resolvedSkill });
-    } catch { /* RAG optional */ }
+        { threadId: threadId.toString(), channelId, category: resolvedSkill },
+      );
+    } catch {
+      /* RAG optional */
+    }
 
     // Log AI output
     await this.logAiOutput({
-      channelId, operation: 'chat_upload', threadId: threadId.toString(),
-      inputSummary: userContent.substring(0, 200), output: { content: aiResponse.content }, usage: aiResponse.usage,
+      channelId,
+      operation: 'chat_upload',
+      threadId: threadId.toString(),
+      inputSummary: userContent.substring(0, 200),
+      output: { content: aiResponse.content },
+      usage: aiResponse.usage,
     });
 
     return {
@@ -974,14 +1318,29 @@ export class ChatService {
    * Check if thread is active and not expired.
    * Returns { ok: true } or { ok: false, error: string }.
    */
-  private async checkThreadHealth(thread: ThreadDocument): Promise<{ ok: boolean; error?: string }> {
+  private async checkThreadHealth(
+    thread: ThreadDocument,
+  ): Promise<{ ok: boolean; error?: string }> {
     if (thread.status === 'archived') {
-      return { ok: false, error: 'This thread has been archived. Start a new conversation.' };
+      return {
+        ok: false,
+        error: 'This thread has been archived. Start a new conversation.',
+      };
     }
-    const daysSinceUpdate = Math.floor((Date.now() - (thread.updatedAt?.getTime() || thread.createdAt?.getTime() || Date.now())) / (1000 * 60 * 60 * 24));
+    const daysSinceUpdate = Math.floor(
+      (Date.now() -
+        (thread.updatedAt?.getTime() ||
+          thread.createdAt?.getTime() ||
+          Date.now())) /
+        (1000 * 60 * 60 * 24),
+    );
     if (daysSinceUpdate >= THREAD_EXPIRY_DAYS) {
       await this.archiveThread(thread._id.toString(), 'expired_inactivity');
-      return { ok: false, error: 'This thread expired due to inactivity. Start a new conversation.' };
+      return {
+        ok: false,
+        error:
+          'This thread expired due to inactivity. Start a new conversation.',
+      };
     }
     return { ok: true };
   }
@@ -989,9 +1348,18 @@ export class ChatService {
   /**
    * Handle first-message auto-naming (returns promise).
    */
-  private handleFirstMessage(threadId: string, thread: ThreadDocument, content: string): Promise<string | void> {
-    const userMessageCount = thread.messages.filter(m => m.role === 'user').length;
-    if (userMessageCount === 0 && (!thread.title || thread.title === 'New Thread')) {
+  private handleFirstMessage(
+    threadId: string,
+    thread: ThreadDocument,
+    content: string,
+  ): Promise<string | void> {
+    const userMessageCount = thread.messages.filter(
+      (m) => m.role === 'user',
+    ).length;
+    if (
+      userMessageCount === 0 &&
+      (!thread.title || thread.title === 'New Thread')
+    ) {
       return this.autoNameThread(threadId, content);
     }
     return Promise.resolve();
@@ -1000,7 +1368,10 @@ export class ChatService {
   /**
    * Build RAG context from ChromaDB — chat messages, SEO patterns, video metadata, and book passages.
    */
-  private async buildRagContext(content: string, resolvedSkill: string): Promise<string> {
+  private async buildRagContext(
+    content: string,
+    resolvedSkill: string,
+  ): Promise<string> {
     let ragContext = '';
     try {
       const [chatResults, seoResults, videoResults] = await Promise.all([
@@ -1008,24 +1379,43 @@ export class ChatService {
         this.chromaService.query('seo_suggestions', content, 2),
         this.chromaService.query('video_metadata', content, 2),
       ]);
-      const allResults = [...chatResults, ...seoResults, ...videoResults].filter(r => r.distance < 0.7);
+      const allResults = [
+        ...chatResults,
+        ...seoResults,
+        ...videoResults,
+      ].filter((r) => r.distance < 0.7);
       if (allResults.length > 0) {
-        ragContext = '\n\n## RELEVANT CONTEXT FROM PAST INTERACTIONS\n' +
-          allResults.map(r => `- ${r.text.substring(0, 200)}`).join('\n');
+        ragContext =
+          '\n\n## RELEVANT CONTEXT FROM PAST INTERACTIONS\n' +
+          allResults.map((r) => `- ${r.text.substring(0, 200)}`).join('\n');
       }
 
       // Search client book for script/general — adds authentic voice and story references
       if (resolvedSkill === 'script' || resolvedSkill === 'general') {
         try {
-          const bookResults = await this.chromaService.query('client_book', content, 3);
-          const relevantBook = bookResults.filter(r => r.distance < 0.75);
+          const bookResults = await this.chromaService.query(
+            'client_book',
+            content,
+            3,
+          );
+          const relevantBook = bookResults.filter((r) => r.distance < 0.75);
           if (relevantBook.length > 0) {
-            ragContext += '\n\n## RELEVANT PASSAGES FROM "A ROAR IN HARLEM" (Unique\'s Book)\n' +
-              relevantBook.map(r => `- [${r.metadata.type || 'passage'}] ${r.text.substring(0, 300)}`).join('\n');
+            ragContext +=
+              '\n\n## RELEVANT PASSAGES FROM "A ROAR IN HARLEM" (Unique\'s Book)\n' +
+              relevantBook
+                .map(
+                  (r) =>
+                    `- [${r.metadata.type || 'passage'}] ${r.text.substring(0, 300)}`,
+                )
+                .join('\n');
           }
-        } catch { /* book collection may not exist yet */ }
+        } catch {
+          /* book collection may not exist yet */
+        }
       }
-    } catch { /* RAG optional */ }
+    } catch {
+      /* RAG optional */
+    }
     return ragContext;
   }
 
@@ -1066,7 +1456,9 @@ export class ChatService {
       if (!channel?.userId) return null;
 
       const wantsFootage = this.localNewsService.isFootageRequest(message);
-      const topicCat = ['general', 'ideas', 'script', 'outline'].includes(category);
+      const topicCat = ['general', 'ideas', 'script', 'outline'].includes(
+        category,
+      );
       const haystack = `${message || ''}\n${conversationText || ''}`;
       const marketResolved =
         this.localNewsService.resolveMarket(undefined, haystack) != null;
@@ -1084,9 +1476,13 @@ export class ChatService {
       if (!topic && wantsFootage) {
         topic = this.localNewsService.extractSearchTopic(message);
       }
+      let topicFromTrends = false;
       if (!topic && topicRecAsk && needsResearch) {
         const trend = (trendTitles || []).find((t) => t && t.trim().length > 0);
-        if (trend) topic = trend.trim().slice(0, 120);
+        if (trend) {
+          topic = trend.trim().slice(0, 120);
+          topicFromTrends = true;
+        }
       }
 
       const wantsTopic = wantsFootage || (topicCat && needsResearch && !!topic);
@@ -1108,13 +1504,45 @@ export class ChatService {
       // 2) Marketless topic pack — when no local pack or the local pack is empty.
       if ((!pack || pack.clips.length === 0) && wantsTopic && topic) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
-        const topicPack = await this.localNewsService.findTopicFootagePack({
-          userId: channel.userId.toString(),
-          channelId: channel._id?.toString(),
-          topic,
-          denyChannelIds,
-        });
-        if (topicPack && (!pack || topicPack.clips.length > 0)) pack = topicPack;
+        // Trend-derived topics are a ranked list and the top story can have
+        // zero allowlisted coverage — walk down (3-word dup guard, ≤3 tries).
+        // Entity/explicit topics stay single-attempt: the user named the subject.
+        const topicKey = (t: string) =>
+          (t || '')
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, ' ')
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 3)
+            .join(' ');
+        const candidates = [topic];
+        if (topicFromTrends) {
+          const seen = new Set([topicKey(topic)]);
+          for (const t of trendTitles || []) {
+            const v = (t || '').trim().slice(0, 120);
+            const k = topicKey(v);
+            if (!v || !k || seen.has(k)) continue;
+            seen.add(k);
+            candidates.push(v);
+            if (candidates.length >= 3) break;
+          }
+        }
+        let thin: LocalScenePack | null = null;
+        for (const t of candidates) {
+          const topicPack = await this.localNewsService.findTopicFootagePack({
+            userId: channel.userId.toString(),
+            channelId: channel._id?.toString(),
+            topic: t,
+            denyChannelIds,
+          });
+          if (!topicPack) continue;
+          if (topicPack.clips.length > 0) {
+            pack = topicPack;
+            break;
+          }
+          if (!thin) thin = topicPack;
+        }
+        if (thin && !pack) pack = thin;
       }
 
       return pack;
@@ -1135,7 +1563,9 @@ export class ChatService {
         );
         for (const id of competitorIds) ids.add(id);
       }
-    } catch { /* denylist is best-effort */ }
+    } catch {
+      /* denylist is best-effort */
+    }
     return [...ids];
   }
 
@@ -1273,34 +1703,83 @@ Hard rules:
 
     // Topic / "what should I post" planning — always need live case status (not training memory)
     // e.g. "which topic video should i make today", "what to post today", "make this video today"
-    if (/\b(which|what)\s+(topic|video|story|case|angle)\b/i.test(lower)) return true;
-    if (/\b(today|tonight|this week|this month)\b/i.test(lower) &&
-        /\b(video|topic|post|content|idea|upload|make|cover|story|script)\b/i.test(lower)) {
+    if (/\b(which|what)\s+(topic|video|story|case|angle)\b/i.test(lower))
+      return true;
+    if (
+      /\b(today|tonight|this week|this month)\b/i.test(lower) &&
+      /\b(video|topic|post|content|idea|upload|make|cover|story|script)\b/i.test(
+        lower,
+      )
+    ) {
       return true;
     }
-    if (/\b(make this video|content plan|video ideas?|topic ideas?|post today|upload today|pitch|greenlight)\b/i.test(lower)) {
+    if (
+      /\b(make this video|content plan|video ideas?|topic ideas?|post today|upload today|pitch|greenlight)\b/i.test(
+        lower,
+      )
+    ) {
       return true;
     }
     // Rule-0 topic-recommendation phrases (must mirror classifyTextIntent Rule 0)
-    if (/\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation))\b/i.test(lower)) {
+    if (
+      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation))\b/i.test(
+        lower,
+      )
+    ) {
       return true;
     }
 
     // News/current events & criminal case keywords — terms that indicate live news, person lookup, or case status
     const newsKeywords = [
-      'latest news', 'recent news', 'current events', 'what happened',
-      'breaking news', 'update on', 'just happened', 'this week',
-      'today in', 'happening now', 'allegedly', 'trending', 'top stories',
-      'trending stories', 'what\'s trending',
-      'arrested', 'jail', 'prison', 'trial', 'sentenced', 'verdict',
-      'indicted', 'plea deal', 'released', 'charges', 'raided', 'fbi',
-      'doj', 'court', 'guilty', 'custody', 'bail', 'investigation',
-      'convicted', 'acquitted', 'sentencing', 'appeal', 'plea', 'probation',
+      'latest news',
+      'recent news',
+      'current events',
+      'what happened',
+      'breaking news',
+      'update on',
+      'just happened',
+      'this week',
+      'today in',
+      'happening now',
+      'allegedly',
+      'trending',
+      'top stories',
+      'trending stories',
+      "what's trending",
+      'arrested',
+      'jail',
+      'prison',
+      'trial',
+      'sentenced',
+      'verdict',
+      'indicted',
+      'plea deal',
+      'released',
+      'charges',
+      'raided',
+      'fbi',
+      'doj',
+      'court',
+      'guilty',
+      'custody',
+      'bail',
+      'investigation',
+      'convicted',
+      'acquitted',
+      'sentencing',
+      'appeal',
+      'plea',
+      'probation',
     ];
-    if (newsKeywords.some(kw => lower.includes(kw))) return true;
+    if (newsKeywords.some((kw) => lower.includes(kw))) return true;
 
     // Specific topic/person queries — "tell me about [X]", "what happened to [X]", "thumbnail for [X]"
-    if (/\b(tell me about|what happened to|what's going on with|give me info on|research|look up|thumbnail|thumbnails)\b/i.test(lower)) return true;
+    if (
+      /\b(tell me about|what happened to|what's going on with|give me info on|research|look up|thumbnail|thumbnails)\b/i.test(
+        lower,
+      )
+    )
+      return true;
 
     return false;
   }
@@ -1311,7 +1790,9 @@ Hard rules:
    */
   private areTrendsFresh(trends: any[] | undefined): boolean {
     if (!trends || trends.length === 0) return false;
-    const newestFetchAt = Math.max(...trends.map(t => new Date(t.fetchedAt).getTime()));
+    const newestFetchAt = Math.max(
+      ...trends.map((t) => new Date(t.fetchedAt).getTime()),
+    );
     const daysSinceFetch = (Date.now() - newestFetchAt) / (1000 * 60 * 60 * 24);
     return daysSinceFetch <= 3;
   }
@@ -1345,10 +1826,14 @@ Hard rules:
     const promptText = (currentPrompt || '').toLowerCase();
 
     // Reusable regexes with negation protection for both prompt and thread history scanning
-    const hostExclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+me|don'?t\s+put\s+me|dont\s+put\s+me|without\s+me|without\s+host|no\s+host|take\s+me\s+out|no\s+me|delete\s+me)\b/i;
-    const hostInclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:put\s+me|add\s+me|with\s+me|include\s+me|keep\s+me|use\s+host|with\s+host)\b/i;
-    const logoExclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+logo|no\s+logo|without\s+logo|delete\s+logo|no\s+brand|without\s+brand)\b/i;
-    const logoInclusionRegex = /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:add\s+logo|with\s+logo|include\s+logo|keep\s+logo|put\s+logo)\b/i;
+    const hostExclusionRegex =
+      /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+me|don'?t\s+put\s+me|dont\s+put\s+me|without\s+me|without\s+host|no\s+host|take\s+me\s+out|no\s+me|delete\s+me)\b/i;
+    const hostInclusionRegex =
+      /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:put\s+me|add\s+me|with\s+me|include\s+me|keep\s+me|use\s+host|with\s+host)\b/i;
+    const logoExclusionRegex =
+      /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:remove\s+logo|no\s+logo|without\s+logo|delete\s+logo|no\s+brand|without\s+brand)\b/i;
+    const logoInclusionRegex =
+      /(?<!don'?t\s+|do\s+not\s+|never\s+)\b(?:add\s+logo|with\s+logo|include\s+logo|keep\s+logo|put\s+logo)\b/i;
 
     // 1. Check current prompt with negation protection
     if (promptText) {
@@ -1365,22 +1850,35 @@ Hard rules:
       }
 
       // Aspect ratio auto-detection
-      if (/\b(?:reel|reels|short|shorts|tiktok|9:16|vertical)\b/i.test(promptText)) {
+      if (
+        /\b(?:reel|reels|short|shorts|tiktok|9:16|vertical)\b/i.test(promptText)
+      ) {
         result.aspectRatio = '9:16';
-      } else if (/\b(?:16:9|landscape|horizontal|standard\s+video)\b/i.test(promptText)) {
+      } else if (
+        /\b(?:16:9|landscape|horizontal|standard\s+video)\b/i.test(promptText)
+      ) {
         result.aspectRatio = '16:9';
       }
 
       // Custom host attachment detection ("use this for me", "this is me", multi-turn supported)
       let customAttachUrl: string | undefined;
       if (attachments && attachments.length > 0) {
-        const imgAttach = attachments.find((a) => a.type === 'image' || /\.(png|jpg|jpeg|webp)$/i.test(a.url));
+        const imgAttach = attachments.find(
+          (a) => a.type === 'image' || /\.(png|jpg|jpeg|webp)$/i.test(a.url),
+        );
         if (imgAttach) customAttachUrl = imgAttach.url;
       } else if (threadMessages && threadMessages.length > 0) {
         for (const msg of threadMessages.slice().reverse()) {
-          if (msg.role === 'user' && (msg.attachments?.length || msg.metadata?.attachments?.length)) {
+          if (
+            msg.role === 'user' &&
+            (msg.attachments?.length || msg.metadata?.attachments?.length)
+          ) {
             const list = msg.attachments || msg.metadata?.attachments || [];
-            const imgAttach = list.find((a: any) => a.type === 'image' || /\.(png|jpg|jpeg|webp)$/i.test(a.url || a.path));
+            const imgAttach = list.find(
+              (a: any) =>
+                a.type === 'image' ||
+                /\.(png|jpg|jpeg|webp)$/i.test(a.url || a.path),
+            );
             if (imgAttach?.url || imgAttach?.path) {
               customAttachUrl = imgAttach.url || imgAttach.path;
               break;
@@ -1390,7 +1888,11 @@ Hard rules:
       }
 
       if (customAttachUrl) {
-        if (/\b(?:use\s+this\s+(?:one\s+)?(?:for\s+me|picture|photo)|this\s+is\s+me|my\s+picture|my\s+photo|with\s+this\s+photo|use\s+my\s+photo)\b/i.test(promptText)) {
+        if (
+          /\b(?:use\s+this\s+(?:one\s+)?(?:for\s+me|picture|photo)|this\s+is\s+me|my\s+picture|my\s+photo|with\s+this\s+photo|use\s+my\s+photo)\b/i.test(
+            promptText,
+          )
+        ) {
           result.customHostUrl = customAttachUrl;
         }
       }
@@ -1465,19 +1967,36 @@ Hard rules:
       try {
         videoDoc = await this.videoModel.findById(thread.videoId).lean();
         if (videoDoc) {
-          videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+          videoContextTitle =
+            videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
           resolvedShowType = videoDoc.showType || undefined;
         }
-      } catch { /* optional */ }
+      } catch {
+        /* optional */
+      }
     }
 
-    if (!videoContextTitle || videoContextTitle === 'New Thread' || videoContextTitle === 'Video Thread') {
-      const firstUserMsg = thread.messages.find((m) => m.role === 'user')?.content;
-      videoContextTitle = thread.title && thread.title !== 'New Thread' ? thread.title : firstUserMsg ? firstUserMsg.slice(0, 80) : 'YouTube Video';
+    if (
+      !videoContextTitle ||
+      videoContextTitle === 'New Thread' ||
+      videoContextTitle === 'Video Thread'
+    ) {
+      const firstUserMsg = thread.messages.find(
+        (m) => m.role === 'user',
+      )?.content;
+      videoContextTitle =
+        thread.title && thread.title !== 'New Thread'
+          ? thread.title
+          : firstUserMsg
+            ? firstUserMsg.slice(0, 80)
+            : 'YouTube Video';
     }
 
     // 1. Inspect user prompt / messages for negative host/logo constraints
-    const parsedDirectives = this.parseClientThumbnailDirectives(dto.text, thread.messages);
+    const parsedDirectives = this.parseClientThumbnailDirectives(
+      dto.text,
+      thread.messages,
+    );
 
     const excludeLogo =
       dto.excludeLogo ??
@@ -1485,22 +2004,29 @@ Hard rules:
 
     const excludeHost =
       dto.excludeHost ??
-      (dto.selectedHostImage === 'none' || parsedDirectives.excludeHost === true);
+      (dto.selectedHostImage === 'none' ||
+        parsedDirectives.excludeHost === true);
 
     const resolvedAspectRatio: '16:9' | '9:16' =
       dto.aspectRatio || parsedDirectives.aspectRatio || '16:9';
 
     const effectiveCustomHostUrl =
-      dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
+      dto.customHostUrl ||
+      dto.customHostImage ||
+      parsedDirectives.customHostUrl;
     // Canonical host: default to channel default host unless explicitly excluded
-    const selectedHost = excludeHost ? undefined : (dto.selectedHostImage || 'default');
+    const selectedHost = excludeHost
+      ? undefined
+      : dto.selectedHostImage || 'default';
 
-    const storyContext = await this.openaiService.extractStoryContextFromThread({
-      videoTitle: videoContextTitle,
-      videoDescription: videoDoc?.description,
-      recentMessages: thread.messages,
-      userPrompt: dto.text,
-    });
+    const storyContext = await this.openaiService.extractStoryContextFromThread(
+      {
+        videoTitle: videoContextTitle,
+        videoDescription: videoDoc?.description,
+        recentMessages: thread.messages,
+        userPrompt: dto.text,
+      },
+    );
 
     const result = await this.openaiService.generateThumbnailImage({
       concept: { text: dto.text, description: dto.visual, colors: dto.colors },
@@ -1508,7 +2034,7 @@ Hard rules:
       showType: resolvedShowType,
       selectedHostImage: selectedHost,
       customHostUrl: effectiveCustomHostUrl,
-      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       customLayoutInstructions: dto.customLayoutInstructions,
       excludeLogo,
       excludeHost: excludeHost === true,
@@ -1525,8 +2051,10 @@ Hard rules:
       conceptTitle: dto.conceptTitle || 'Concept',
       textOverlay: dto.text || '',
       visualDescription: dto.visual || '',
-      selectedHostImage: excludeHost ? 'none' : (selectedHost || (effectiveCustomHostUrl ? 'custom' : 'none')),
-      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      selectedHostImage: excludeHost
+        ? 'none'
+        : selectedHost || (effectiveCustomHostUrl ? 'custom' : 'none'),
+      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       aspectRatio: resolvedAspectRatio,
       mode: 'thumbnail',
       createdAt: new Date(),
@@ -1538,9 +2066,21 @@ Hard rules:
         { $push: { 'messages.$.metadata.images': imageObj } },
       );
     } else {
-      const targetMessage = thread.messages.slice().reverse().find(
-        (m) => m.role === 'assistant' && (m.content.includes('Concept') || (dto.text && m.content.toLowerCase().includes(dto.text.toLowerCase()))),
-      ) || thread.messages.slice().reverse().find((m) => m.role === 'assistant');
+      const targetMessage =
+        thread.messages
+          .slice()
+          .reverse()
+          .find(
+            (m) =>
+              m.role === 'assistant' &&
+              (m.content.includes('Concept') ||
+                (dto.text &&
+                  m.content.toLowerCase().includes(dto.text.toLowerCase()))),
+          ) ||
+        thread.messages
+          .slice()
+          .reverse()
+          .find((m) => m.role === 'assistant');
 
       if (targetMessage && targetMessage._id) {
         await this.threadModel.updateOne(
@@ -1584,16 +2124,22 @@ Hard rules:
     if (thread.videoId) {
       try {
         videoDoc = await this.videoModel.findById(thread.videoId).lean();
-        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
-      } catch { /* optional */ }
+        if (videoDoc)
+          videoContextTitle =
+            videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+      } catch {
+        /* optional */
+      }
     }
 
-    const storyContext = await this.openaiService.extractStoryContextFromThread({
-      videoTitle: videoContextTitle,
-      videoDescription: videoDoc?.description,
-      recentMessages: thread.messages,
-      userPrompt: dto.scene,
-    });
+    const storyContext = await this.openaiService.extractStoryContextFromThread(
+      {
+        videoTitle: videoContextTitle,
+        videoDescription: videoDoc?.description,
+        recentMessages: thread.messages,
+        userPrompt: dto.scene,
+      },
+    );
 
     const result = await this.openaiService.generateSceneImage({
       scene: dto.scene,
@@ -1615,14 +2161,26 @@ Hard rules:
           selectedHostImage: 'none',
           excludeHost: true,
         });
-        const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+        const isMinioReady = await this.minioService
+          .isAvailable()
+          .catch(() => false);
         if (isMinioReady) {
           try {
-            finalImageUrl = await this.minioService.uploadThumbnail('system', `scene_composed_${Date.now()}.png`, composedBuffer);
+            finalImageUrl = await this.minioService.uploadThumbnail(
+              'system',
+              `scene_composed_${Date.now()}.png`,
+              composedBuffer,
+            );
           } catch {
             const filename = `scene_composed_${Date.now()}.png`;
-            const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
-            if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+            const genDir = path.join(
+              process.cwd(),
+              'src',
+              'assets',
+              'generated',
+            );
+            if (!fs.existsSync(genDir))
+              fs.mkdirSync(genDir, { recursive: true });
             fs.writeFileSync(path.join(genDir, filename), composedBuffer);
             finalImageUrl = `/api/assets/generated/${filename}`;
           }
@@ -1633,7 +2191,9 @@ Hard rules:
           fs.writeFileSync(path.join(genDir, filename), composedBuffer);
           finalImageUrl = `/api/assets/generated/${filename}`;
         }
-      } catch { /* use raw image if compositing fails */ }
+      } catch {
+        /* use raw image if compositing fails */
+      }
     }
 
     const imageObj = {
@@ -1656,7 +2216,10 @@ Hard rules:
         { $push: { 'messages.$.metadata.images': imageObj } },
       );
     } else {
-      const targetMessage = thread.messages.slice().reverse().find(m => m.role === 'assistant');
+      const targetMessage = thread.messages
+        .slice()
+        .reverse()
+        .find((m) => m.role === 'assistant');
       if (targetMessage && targetMessage._id) {
         await this.threadModel.updateOne(
           { _id: threadId, 'messages._id': targetMessage._id },
@@ -1707,23 +2270,32 @@ Hard rules:
     if (thread.videoId) {
       try {
         videoDoc = await this.videoModel.findById(thread.videoId).lean();
-        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
-      } catch { /* optional */ }
+        if (videoDoc)
+          videoContextTitle =
+            videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+      } catch {
+        /* optional */
+      }
     }
 
     // Directives parsing on edit prompt
-    const parsedDirectives = this.parseClientThumbnailDirectives(dto.prompt, thread.messages);
+    const parsedDirectives = this.parseClientThumbnailDirectives(
+      dto.prompt,
+      thread.messages,
+    );
 
     // Context resolution from parent thumbnail metadata
     let matchedImg: any = null;
-    let resolvedAspectRatio: '16:9' | '9:16' | undefined = dto.aspectRatio || parsedDirectives.aspectRatio;
+    let resolvedAspectRatio: '16:9' | '9:16' | undefined =
+      dto.aspectRatio || parsedDirectives.aspectRatio;
     if (thread.messages) {
       const cleanBase = (dto.baseImageUrl || '').split('?')[0];
       for (const msg of thread.messages.slice().reverse()) {
         const found = (msg as any).metadata?.images?.find(
           (img: any) =>
             (img.url && img.url.split('?')[0] === cleanBase) ||
-            (img.cleanBackgroundUrl && img.cleanBackgroundUrl.split('?')[0] === cleanBase),
+            (img.cleanBackgroundUrl &&
+              img.cleanBackgroundUrl.split('?')[0] === cleanBase),
         );
         if (found) {
           matchedImg = found;
@@ -1735,19 +2307,22 @@ Hard rules:
       }
     }
 
-    const storyContext = await this.openaiService.extractStoryContextFromThread({
-      videoTitle: videoContextTitle,
-      videoDescription: videoDoc?.description,
-      recentMessages: thread.messages,
-      userPrompt: dto.prompt,
-    });
+    const storyContext = await this.openaiService.extractStoryContextFromThread(
+      {
+        videoTitle: videoContextTitle,
+        videoDescription: videoDoc?.description,
+        recentMessages: thread.messages,
+        userPrompt: dto.prompt,
+      },
+    );
 
     // Run gpt-5.6-luna compiler middleware to disambiguate intent and shield main subject
     const compiledDecision = await this.openaiService.compileEditIntent({
       clientPrompt: dto.prompt,
       videoTitle: videoContextTitle,
       storyContext,
-      visualDescription: dto.visualDescription || matchedImg?.visualDescription || dto.prompt,
+      visualDescription:
+        dto.visualDescription || matchedImg?.visualDescription || dto.prompt,
       textOverlay: dto.textOverlay || matchedImg?.textOverlay || '',
       currentHostImage: matchedImg?.selectedHostImage || dto.selectedHostImage,
       currentAspectRatio: resolvedAspectRatio || '16:9',
@@ -1756,12 +2331,18 @@ Hard rules:
 
     // Disambiguate uploaded images: Host vs Story Subject
     const incomingUploadedUrls = [...(dto.referenceImageUrls || [])];
-    const rawCustomHost = dto.customHostUrl || dto.customHostImage || parsedDirectives.customHostUrl;
+    const rawCustomHost =
+      dto.customHostUrl ||
+      dto.customHostImage ||
+      parsedDirectives.customHostUrl;
     let effectiveCustomHost = rawCustomHost;
     const diffusionReferenceUrls: string[] = [];
 
     for (const u of incomingUploadedUrls) {
-      if (u === rawCustomHost || compiledDecision.uploadedImageRole === 'host') {
+      if (
+        u === rawCustomHost ||
+        compiledDecision.uploadedImageRole === 'host'
+      ) {
         if (!effectiveCustomHost) effectiveCustomHost = u;
       } else {
         diffusionReferenceUrls.push(u);
@@ -1780,7 +2361,9 @@ Hard rules:
     ) {
       excludeHost = false;
     } else {
-      excludeHost = parsedDirectives.excludeHost === true || dto.selectedHostImage === 'none';
+      excludeHost =
+        parsedDirectives.excludeHost === true ||
+        dto.selectedHostImage === 'none';
     }
 
     let excludeLogo: boolean;
@@ -1795,10 +2378,14 @@ Hard rules:
     ) {
       excludeLogo = false;
     } else {
-      excludeLogo = dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true;
+      excludeLogo =
+        dto.logoPosition === 'none' || parsedDirectives.excludeLogo === true;
     }
 
-    if (compiledDecision.overlayActions.aspectRatio && compiledDecision.overlayActions.aspectRatio !== 'keep') {
+    if (
+      compiledDecision.overlayActions.aspectRatio &&
+      compiledDecision.overlayActions.aspectRatio !== 'keep'
+    ) {
       resolvedAspectRatio = compiledDecision.overlayActions.aspectRatio;
     }
     const finalAspectRatio: '16:9' | '9:16' = resolvedAspectRatio || '16:9';
@@ -1810,8 +2397,13 @@ Hard rules:
     let threadOriginalHost: string | undefined;
     for (const msg of thread.messages) {
       if (msg.metadata?.images) {
-        for (const img of (msg.metadata.images as any[])) {
-          if (img.selectedHostImage && img.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(img.selectedHostImage) || img.selectedHostImage === 'default')) {
+        for (const img of msg.metadata.images as any[]) {
+          if (
+            img.selectedHostImage &&
+            img.selectedHostImage !== 'none' &&
+            (/^host_\d+(\.png)?$/i.test(img.selectedHostImage) ||
+              img.selectedHostImage === 'default')
+          ) {
             threadOriginalHost = img.selectedHostImage;
             break;
           }
@@ -1828,10 +2420,23 @@ Hard rules:
     let resolvedHostImage = 'none';
     if (!excludeHost) {
       if (isValidHostFilename) {
-        resolvedHostImage = rawNewHost.endsWith('.png') || rawNewHost === 'default' ? rawNewHost : `${rawNewHost}.png`;
-      } else if (dto.selectedHostImage && dto.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(dto.selectedHostImage) || dto.selectedHostImage === 'default')) {
+        resolvedHostImage =
+          rawNewHost.endsWith('.png') || rawNewHost === 'default'
+            ? rawNewHost
+            : `${rawNewHost}.png`;
+      } else if (
+        dto.selectedHostImage &&
+        dto.selectedHostImage !== 'none' &&
+        (/^host_\d+(\.png)?$/i.test(dto.selectedHostImage) ||
+          dto.selectedHostImage === 'default')
+      ) {
         resolvedHostImage = dto.selectedHostImage;
-      } else if (matchedImg?.selectedHostImage && matchedImg.selectedHostImage !== 'none' && (/^host_\d+(\.png)?$/i.test(matchedImg.selectedHostImage) || matchedImg.selectedHostImage === 'default')) {
+      } else if (
+        matchedImg?.selectedHostImage &&
+        matchedImg.selectedHostImage !== 'none' &&
+        (/^host_\d+(\.png)?$/i.test(matchedImg.selectedHostImage) ||
+          matchedImg.selectedHostImage === 'default')
+      ) {
         resolvedHostImage = matchedImg.selectedHostImage;
       } else if (threadOriginalHost) {
         resolvedHostImage = threadOriginalHost;
@@ -1842,23 +2447,26 @@ Hard rules:
 
     this.logger.log(
       `[Thumbnail Edit] Processing edit request for thread ${threadId}:\n` +
-      `- Client Prompt: "${dto.prompt}"\n` +
-      `- Category: ${compiledDecision.category}\n` +
-      `- Middleware Intent: "${compiledDecision.userIntentSummary}"\n` +
-      `- Main Subject Decision: ${compiledDecision.sceneActions?.mainSubject || 'keep_intact'}\n` +
-      `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost}, selectedHost: ${resolvedHostImage}, customHost: ${effectiveCustomHost || 'none'})\n` +
-      `- Logo Action: ${compiledDecision.overlayActions.logo} (excludeLogo: ${excludeLogo})\n` +
-      `- Base Image Sent: ${baseImageToSend}`,
+        `- Client Prompt: "${dto.prompt}"\n` +
+        `- Category: ${compiledDecision.category}\n` +
+        `- Middleware Intent: "${compiledDecision.userIntentSummary}"\n` +
+        `- Main Subject Decision: ${compiledDecision.sceneActions?.mainSubject || 'keep_intact'}\n` +
+        `- Host Action: ${compiledDecision.overlayActions.host} (excludeHost: ${excludeHost}, selectedHost: ${resolvedHostImage}, customHost: ${effectiveCustomHost || 'none'})\n` +
+        `- Logo Action: ${compiledDecision.overlayActions.logo} (excludeLogo: ${excludeLogo})\n` +
+        `- Base Image Sent: ${baseImageToSend}`,
     );
 
     // Instant 50ms Overlay-Only Path: When user only changes host/logo and no scene modifications
     if (compiledDecision.category === 'overlay_only' && baseImageToSend) {
-      this.logger.log(`[Thumbnail Edit] Executing instant overlay-only composition via Sharp (zero background drift)...`);
+      this.logger.log(
+        `[Thumbnail Edit] Executing instant overlay-only composition via Sharp (zero background drift)...`,
+      );
 
       let customHostBuffer: Buffer | undefined;
       if (effectiveCustomHost && !excludeHost) {
         try {
-          customHostBuffer = await this.composerService.fetchBufferFromUrl(effectiveCustomHost);
+          customHostBuffer =
+            await this.composerService.fetchBufferFromUrl(effectiveCustomHost);
         } catch (e: any) {
           this.logger.warn(`Failed to fetch custom host buffer: ${e.message}`);
         }
@@ -1869,16 +2477,22 @@ Hard rules:
         selectedHostImage: excludeHost ? 'none' : resolvedHostImage,
         customHostBuffer,
         excludeHost,
-        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
         excludeLogo,
         aspectRatio: finalAspectRatio,
       });
 
       let finalUrl: string;
-      const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+      const isMinioReady = await this.minioService
+        .isAvailable()
+        .catch(() => false);
       if (isMinioReady) {
         try {
-          finalUrl = await this.minioService.uploadThumbnail('system', `edited_${Date.now()}.png`, composedBuffer);
+          finalUrl = await this.minioService.uploadThumbnail(
+            'system',
+            `edited_${Date.now()}.png`,
+            composedBuffer,
+          );
         } catch {
           const filename = `edited_${Date.now()}.png`;
           const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
@@ -1903,7 +2517,7 @@ Hard rules:
         textOverlay: matchedImg?.textOverlay || dto.textOverlay || '',
         visualDescription: compiledDecision.userIntentSummary || dto.prompt,
         selectedHostImage: resolvedHostImage,
-        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
         aspectRatio: finalAspectRatio,
         mode: dto.mode || 'thumbnail',
         createdAt: new Date(),
@@ -1917,7 +2531,7 @@ Hard rules:
           images: [imageObj],
         },
         createdAt: new Date(),
-      } as any;
+      };
 
       await this.threadModel.findByIdAndUpdate(threadId, {
         $push: { messages: assistantMessage },
@@ -1938,7 +2552,7 @@ Hard rules:
         customHostUrl: effectiveCustomHost,
         excludeHost,
         excludeLogo,
-        logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+        logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
         aspectRatio: finalAspectRatio,
         storyContext,
       },
@@ -1950,10 +2564,14 @@ Hard rules:
       cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
       prompt: result.revisedPrompt,
       conceptTitle: 'Edit',
-      textOverlay: compiledDecision.sceneActions?.newHeadlineText || matchedImg?.textOverlay || dto.textOverlay || '',
+      textOverlay:
+        compiledDecision.sceneActions?.newHeadlineText ||
+        matchedImg?.textOverlay ||
+        dto.textOverlay ||
+        '',
       visualDescription: compiledDecision.userIntentSummary || dto.prompt,
       selectedHostImage: resolvedHostImage,
-      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       aspectRatio: finalAspectRatio,
       mode: dto.mode || 'thumbnail',
       createdAt: new Date(),
@@ -1968,7 +2586,7 @@ Hard rules:
         images: [imageObj],
       },
       createdAt: new Date(),
-    } as any;
+    };
 
     await this.threadModel.findByIdAndUpdate(threadId, {
       $push: { messages: assistantMessage },
@@ -2001,16 +2619,22 @@ Hard rules:
     if (thread.videoId) {
       try {
         videoDoc = await this.videoModel.findById(thread.videoId).lean();
-        if (videoDoc) videoContextTitle = videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
-      } catch { /* optional */ }
+        if (videoDoc)
+          videoContextTitle =
+            videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+      } catch {
+        /* optional */
+      }
     }
 
-    const storyContext = await this.openaiService.extractStoryContextFromThread({
-      videoTitle: videoContextTitle,
-      videoDescription: videoDoc?.description,
-      recentMessages: thread.messages,
-      userPrompt: dto.prompt,
-    });
+    const storyContext = await this.openaiService.extractStoryContextFromThread(
+      {
+        videoTitle: videoContextTitle,
+        videoDescription: videoDoc?.description,
+        recentMessages: thread.messages,
+        userPrompt: dto.prompt,
+      },
+    );
 
     const result = await this.openaiService.generateSceneImage({
       scene: dto.prompt,
@@ -2030,14 +2654,26 @@ Hard rules:
           selectedHostImage: 'none',
           excludeHost: true,
         });
-        const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+        const isMinioReady = await this.minioService
+          .isAvailable()
+          .catch(() => false);
         if (isMinioReady) {
           try {
-            finalImageUrl = await this.minioService.uploadThumbnail('system', `direct_${Date.now()}.png`, composedBuffer);
+            finalImageUrl = await this.minioService.uploadThumbnail(
+              'system',
+              `direct_${Date.now()}.png`,
+              composedBuffer,
+            );
           } catch {
             const filename = `direct_${Date.now()}.png`;
-            const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
-            if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+            const genDir = path.join(
+              process.cwd(),
+              'src',
+              'assets',
+              'generated',
+            );
+            if (!fs.existsSync(genDir))
+              fs.mkdirSync(genDir, { recursive: true });
             fs.writeFileSync(path.join(genDir, filename), composedBuffer);
             finalImageUrl = `/api/assets/generated/${filename}`;
           }
@@ -2048,7 +2684,9 @@ Hard rules:
           fs.writeFileSync(path.join(genDir, filename), composedBuffer);
           finalImageUrl = `/api/assets/generated/${filename}`;
         }
-      } catch { /* use raw image */ }
+      } catch {
+        /* use raw image */
+      }
     }
 
     const imageObj = {
@@ -2072,7 +2710,7 @@ Hard rules:
         images: [imageObj],
       },
       createdAt: new Date(),
-    } as any;
+    };
 
     await this.threadModel.findByIdAndUpdate(threadId, {
       $push: { messages: assistantMessage },
@@ -2107,44 +2745,59 @@ Hard rules:
     for (const msg of thread.messages) {
       if (msg.metadata?.images) {
         matchedImg = (msg.metadata.images as any[]).find(
-          (img) => img.url === dto.baseImageUrl || img.cleanBackgroundUrl === dto.baseImageUrl,
+          (img) =>
+            img.url === dto.baseImageUrl ||
+            img.cleanBackgroundUrl === dto.baseImageUrl,
         );
         if (matchedImg) break;
       }
     }
 
     const cleanCanvas = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
-    const excludeHost = dto.excludeHost ?? (dto.selectedHostImage === 'none');
-    const excludeLogo = dto.excludeLogo ?? (dto.logoPosition === 'none');
-    const finalAspectRatio: '16:9' | '9:16' = dto.aspectRatio || matchedImg?.aspectRatio || '16:9';
+    const excludeHost = dto.excludeHost ?? dto.selectedHostImage === 'none';
+    const excludeLogo = dto.excludeLogo ?? dto.logoPosition === 'none';
+    const finalAspectRatio: '16:9' | '9:16' =
+      dto.aspectRatio || matchedImg?.aspectRatio || '16:9';
 
     let customHostBuffer: Buffer | undefined;
     if (dto.customHostUrl && !excludeHost) {
       try {
-        customHostBuffer = await this.composerService.fetchBufferFromUrl(dto.customHostUrl);
+        customHostBuffer = await this.composerService.fetchBufferFromUrl(
+          dto.customHostUrl,
+        );
       } catch (e: any) {
-        this.logger.warn(`Failed to fetch custom host buffer in recompose: ${e.message}`);
+        this.logger.warn(
+          `Failed to fetch custom host buffer in recompose: ${e.message}`,
+        );
       }
     }
 
-    const resolvedHostImage = excludeHost ? 'none' : (dto.selectedHostImage || matchedImg?.selectedHostImage || 'default');
+    const resolvedHostImage = excludeHost
+      ? 'none'
+      : dto.selectedHostImage || matchedImg?.selectedHostImage || 'default';
 
     const composedBuffer = await this.composerService.composeThumbnail({
       backgroundInput: cleanCanvas,
       selectedHostImage: resolvedHostImage,
       customHostBuffer,
       excludeHost,
-      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       excludeLogo,
       aspectRatio: finalAspectRatio,
     });
 
     let finalUrl: string;
     const filename = `recomposed_${Date.now()}.png`;
-    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    const isMinioReady = await this.minioService
+      .isAvailable()
+      .catch(() => false);
     if (isMinioReady) {
       try {
-        finalUrl = await this.minioService.uploadThumbnail('system', filename, composedBuffer);
+        finalUrl = await this.minioService.uploadThumbnail(
+          'system',
+          filename,
+          composedBuffer,
+        );
       } catch {
         const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
         if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
@@ -2167,7 +2820,7 @@ Hard rules:
       textOverlay: matchedImg?.textOverlay || '',
       visualDescription: matchedImg?.visualDescription || 'Overlay modified',
       selectedHostImage: resolvedHostImage,
-      logoPosition: excludeLogo ? 'none' : (dto.logoPosition || 'top-right'),
+      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       aspectRatio: finalAspectRatio,
       mode: matchedImg?.mode || 'thumbnail',
       createdAt: new Date(),
@@ -2181,7 +2834,7 @@ Hard rules:
         images: [imageObj],
       },
       createdAt: new Date(),
-    } as any;
+    };
 
     await this.threadModel.findByIdAndUpdate(threadId, {
       $push: { messages: assistantMessage },
@@ -2197,35 +2850,46 @@ Hard rules:
   ) {
     const thread = await this.threadModel.findById(threadId);
     let title = dto.videoTitle || thread?.title || '';
-    let concept = dto.visualConcept || '';
+    const concept = dto.visualConcept || '';
 
     if (!title && thread?.videoId) {
       try {
         const video = await this.videoModel.findById(thread.videoId).lean();
         if (video) title = video.youtubeTitle || video.title || '';
-      } catch { /* ignore */ }
+      } catch {
+        /* ignore */
+      }
     }
 
     return this.subjectReferenceService.detectAndFetchSubjects(title, concept);
   }
 
   async searchSubjectImage(query: string) {
-    const imageUrl = await this.subjectReferenceService.searchSubjectPublicImage(query);
+    const imageUrl =
+      await this.subjectReferenceService.searchSubjectPublicImage(query);
     return { name: query, imageUrl };
   }
 
   async previewCutout(
     threadId: string,
-    dto: { imageBase64: string; mode?: 'green_screen' | 'ai'; tolerance?: number; smoothness?: number },
+    dto: {
+      imageBase64: string;
+      mode?: 'green_screen' | 'ai';
+      tolerance?: number;
+      smoothness?: number;
+    },
   ) {
     if (!dto.imageBase64) throw new BadRequestException('No image provided');
     const rawB64 = dto.imageBase64.replace(/^data:image\/\w+;base64,/, '');
     const buffer = Buffer.from(rawB64, 'base64');
 
     // Run automatic transparent cutout detection & keying (green screen, black, white, or PNG)
-    const resultBuffer = await this.composerService.ensureTransparentCutout(buffer);
+    const resultBuffer =
+      await this.composerService.ensureTransparentCutout(buffer);
 
-    return { previewUrl: `data:image/png;base64,${resultBuffer.toString('base64')}` };
+    return {
+      previewUrl: `data:image/png;base64,${resultBuffer.toString('base64')}`,
+    };
   }
 
   async saveCustomHost(
@@ -2237,24 +2901,43 @@ Hard rules:
     const inputBuffer = Buffer.from(rawB64, 'base64');
 
     // Automatically ensure transparent cutout in Node before saving to storage
-    const buffer = await this.composerService.ensureTransparentCutout(inputBuffer);
+    const buffer =
+      await this.composerService.ensureTransparentCutout(inputBuffer);
 
     const filename = dto.filename || `custom_host_${Date.now()}.png`;
     let finalUrl: string;
 
-    const isMinioReady = await this.minioService.isAvailable().catch(() => false);
+    const isMinioReady = await this.minioService
+      .isAvailable()
+      .catch(() => false);
     if (isMinioReady) {
       try {
-        finalUrl = await this.minioService.uploadThumbnail('system', filename, buffer);
+        finalUrl = await this.minioService.uploadThumbnail(
+          'system',
+          filename,
+          buffer,
+        );
       } catch {
-        const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
-        if (!fs.existsSync(uniqueDir)) fs.mkdirSync(uniqueDir, { recursive: true });
+        const uniqueDir = path.join(
+          process.cwd(),
+          'src',
+          'assets',
+          'unique_images',
+        );
+        if (!fs.existsSync(uniqueDir))
+          fs.mkdirSync(uniqueDir, { recursive: true });
         fs.writeFileSync(path.join(uniqueDir, filename), buffer);
         finalUrl = `/api/assets/unique-images/${filename}`;
       }
     } else {
-      const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
-      if (!fs.existsSync(uniqueDir)) fs.mkdirSync(uniqueDir, { recursive: true });
+      const uniqueDir = path.join(
+        process.cwd(),
+        'src',
+        'assets',
+        'unique_images',
+      );
+      if (!fs.existsSync(uniqueDir))
+        fs.mkdirSync(uniqueDir, { recursive: true });
       fs.writeFileSync(path.join(uniqueDir, filename), buffer);
       finalUrl = `/api/assets/unique-images/${filename}`;
     }
@@ -2265,10 +2948,17 @@ Hard rules:
   async deleteCustomHost(threadId: string, filename: string) {
     if (!filename) return { success: true };
     const cleanFilename = path.basename(filename);
-    const uniqueDir = path.join(process.cwd(), 'src', 'assets', 'unique_images');
+    const uniqueDir = path.join(
+      process.cwd(),
+      'src',
+      'assets',
+      'unique_images',
+    );
     const filePath = path.join(uniqueDir, cleanFilename);
     if (fs.existsSync(filePath)) {
-      try { fs.unlinkSync(filePath); } catch {}
+      try {
+        fs.unlinkSync(filePath);
+      } catch {}
     }
     return { success: true };
   }

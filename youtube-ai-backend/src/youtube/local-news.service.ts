@@ -62,7 +62,16 @@ const MARKETS: MarketDef[] = [
     regionCode: 'US',
   },
   {
-    keys: ['brooklyn', 'manhattan', 'queens', 'bronx', 'nyc', 'new york city', 'harlem', 'mdc brooklyn'],
+    keys: [
+      'brooklyn',
+      'manhattan',
+      'queens',
+      'bronx',
+      'nyc',
+      'new york city',
+      'harlem',
+      'mdc brooklyn',
+    ],
     label: 'New York, NY',
     stations: ['WABC', 'WNBC', 'WCBS', 'WNYW', 'PIX11'],
     regionCode: 'US',
@@ -293,13 +302,17 @@ export class LocalNewsService {
 
     const market = this.resolveMarket(params.locationHint, topic);
     if (!market) {
-      this.logger.log(`[LocalNews] no market for topic="${topic.slice(0, 60)}" hint="${params.locationHint || ''}"`);
+      this.logger.log(
+        `[LocalNews] no market for topic="${topic.slice(0, 60)}" hint="${params.locationHint || ''}"`,
+      );
       return null;
     }
 
     const maxClips = params.maxClips ?? MAX_CLIPS_DEFAULT;
     const maxSeconds = params.maxSeconds ?? MAX_SECONDS_DEFAULT;
-    const publishedAfter = new Date(Date.now() - SEARCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+    const publishedAfter = new Date(
+      Date.now() - SEARCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
+    );
 
     // Market-first queries (max 2 — search.list is expensive)
     const primaryStation = market.stations[0];
@@ -308,7 +321,15 @@ export class LocalNewsService {
       `${market.label.split(',')[0]} news ${topic}`,
     ];
 
-    const found = new Map<string, { videoId: string; title: string; channelTitle: string; thumbnailUrl: string }>();
+    const found = new Map<
+      string,
+      {
+        videoId: string;
+        title: string;
+        channelTitle: string;
+        thumbnailUrl: string;
+      }
+    >();
     for (const query of queries) {
       try {
         const rows = await this.youtubeService.searchVideos({
@@ -336,12 +357,16 @@ export class LocalNewsService {
           }
         }
       } catch (err: any) {
-        this.logger.warn(`[LocalNews] search failed "${query}": ${err?.message || err}`);
+        this.logger.warn(
+          `[LocalNews] search failed "${query}": ${err?.message || err}`,
+        );
       }
     }
 
     if (found.size === 0) {
-      this.logger.log(`[LocalNews] no search hits market=${market.label} topic="${topic.slice(0, 60)}"`);
+      this.logger.log(
+        `[LocalNews] no search hits market=${market.label} topic="${topic.slice(0, 60)}"`,
+      );
       return {
         market: market.label,
         locationLabel: market.label,
@@ -361,10 +386,21 @@ export class LocalNewsService {
     const stationNames = market.stations.map((s) => s.toLowerCase());
     const clips: LocalClip[] = [];
     for (const d of details) {
-      if (!d.videoId || d.durationSeconds <= 0 || d.durationSeconds > maxSeconds) continue;
+      if (
+        !d.videoId ||
+        d.durationSeconds <= 0 ||
+        d.durationSeconds > maxSeconds
+      )
+        continue;
       const meta = found.get(d.videoId);
-      const channel = (d.channelTitle || meta?.channelTitle || '').toLowerCase();
-      const isLocalStation = stationNames.some((s) => channel.includes(s.toLowerCase().slice(0, 4)));
+      const channel = (
+        d.channelTitle ||
+        meta?.channelTitle ||
+        ''
+      ).toLowerCase();
+      const isLocalStation = stationNames.some((s) =>
+        channel.includes(s.toLowerCase().slice(0, 4)),
+      );
       const isNews = /news|tv|abc|nbc|cbs|fox|cw|nbc/i.test(channel);
       if (!isLocalStation && !isNews) continue;
       clips.push({
@@ -382,8 +418,16 @@ export class LocalNewsService {
 
     // Prefer local station names, then views
     clips.sort((a, b) => {
-      const aLocal = stationNames.some((s) => a.channelTitle.toLowerCase().includes(s.toLowerCase().slice(0, 4))) ? 1 : 0;
-      const bLocal = stationNames.some((s) => b.channelTitle.toLowerCase().includes(s.toLowerCase().slice(0, 4))) ? 1 : 0;
+      const aLocal = stationNames.some((s) =>
+        a.channelTitle.toLowerCase().includes(s.toLowerCase().slice(0, 4)),
+      )
+        ? 1
+        : 0;
+      const bLocal = stationNames.some((s) =>
+        b.channelTitle.toLowerCase().includes(s.toLowerCase().slice(0, 4)),
+      )
+        ? 1
+        : 0;
       if (aLocal !== bLocal) return bLocal - aLocal;
       return (b.viewCount || 0) - (a.viewCount || 0);
     });
@@ -411,7 +455,9 @@ export class LocalNewsService {
    * Marketless TOPIC footage pack — Phase 2 lite (Claude conditions 1-4).
    *
    * - search.list FIRST (allowlist filters results; it is not the source)
-   * - query 1 = "<topic> news", query 2 (only if <3 survive) = "<topic> courthouse"
+   * - query 1 = leading core (≤4 words) for long topics / "<topic> news" for
+   *   short ones; query 2 (only if <3 survive) = "<topic> courthouse"
+   * - long-topic result titles must share ≥2 tokens with the query
    * - publishedAfter ~30d, maxResults=50 (same price per call)
    * - denylist (own + competitors) always wins; commentary titles skipped
    * - Tier 2 only when Tier 1 yields <2, capped at 3, labeled
@@ -449,9 +495,36 @@ export class LocalNewsService {
     const publishedAfter = new Date(
       Date.now() - TOPIC_SEARCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
     );
-    const queries = [`${topic} news`, `${topic} courthouse`];
+    // Trend/summary titles run long; newsroom titles are short. For long
+    // topics q1 uses the leading core so allowlisted coverage surfaces, and
+    // results must overlap the query (≥2 tokens) to stay on-topic. Short
+    // topics keep the original "<topic> news" phrasing (gate parity).
+    const topicWords = topic.split(/\s+/);
+    const longTopic = topicWords.length > 4;
+    const queries = longTopic
+      ? [topicWords.slice(0, 4).join(' '), `${topic} courthouse`]
+      : [`${topic} news`, `${topic} courthouse`];
+    const tokens = (s: string) =>
+      new Set(
+        (s || '')
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, ' ')
+          .split(/\s+/)
+          .filter((t) => t.length >= 2),
+      );
+    const overlapsQuery = (title: string, q: Set<string>) => {
+      let n = 0;
+      for (const t of tokens(title)) if (q.has(t) && ++n >= 2) return true;
+      return false;
+    };
 
-    type Row = { videoId: string; title: string; channelTitle: string; channelId: string; thumbnailUrl: string };
+    type Row = {
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      channelId: string;
+      thumbnailUrl: string;
+    };
     const seen = new Set<string>();
     const tier1: Row[] = [];
     const tier2: Row[] = [];
@@ -471,14 +544,16 @@ export class LocalNewsService {
     };
 
     const effectiveCount = () =>
-      tier1.length + (tier1.length < 2 ? Math.min(tier2.length, TIER2_MAX_CLIPS) : 0);
+      tier1.length +
+      (tier1.length < 2 ? Math.min(tier2.length, TIER2_MAX_CLIPS) : 0);
 
     // 1-2. Search (max 2 queries, caps enforced per query)
     for (const query of queries) {
       if (searchesRun > 0 && effectiveCount() >= 3) break; // condition 3: stop after enough survive
       if (searchesRun >= 2) break;
 
-      const usedToday = await this.quotaService.countEndpointCallsToday(FOOTAGE_ENDPOINT);
+      const usedToday =
+        await this.quotaService.countEndpointCallsToday(FOOTAGE_ENDPOINT);
       if (usedToday >= FOOTAGE_DAILY_SEARCH_CAP) {
         stopReason = `footage search cap reached (${usedToday}/${FOOTAGE_DAILY_SEARCH_CAP} today)`;
         break;
@@ -512,9 +587,16 @@ export class LocalNewsService {
           success: true,
           relatedId: query.slice(0, 80),
         });
-        absorb(rows as Row[]);
+        const qTokens = longTopic ? tokens(query) : null;
+        absorb(
+          qTokens
+            ? (rows as Row[]).filter((r) => overlapsQuery(r.title, qTokens))
+            : rows,
+        );
       } catch (err: any) {
-        this.logger.warn(`[TopicPack] search failed "${query}": ${err?.message || err}`);
+        this.logger.warn(
+          `[TopicPack] search failed "${query}": ${err?.message || err}`,
+        );
         await this.quotaService
           .logCall({
             channelId: 'footage-pack',
@@ -551,7 +633,9 @@ export class LocalNewsService {
         `No allowlisted newsroom clips found for this topic${stopReason ? ` (${stopReason})` : ''}. ` +
         'Do not invent video IDs — render the "footage thin" note.';
       this.cacheTopicPack(cacheKey, pack, true);
-      this.logger.log(`[TopicPack] empty topic="${topic.slice(0, 50)}" ${stopReason}`);
+      this.logger.log(
+        `[TopicPack] empty topic="${topic.slice(0, 50)}" ${stopReason}`,
+      );
       return pack;
     }
 
@@ -568,13 +652,19 @@ export class LocalNewsService {
         const d = detailById.get(row.videoId);
         if (!d) continue;
         if (d.embeddable === false) continue;
-        if (!d.durationSeconds || d.durationSeconds <= 0 || d.durationSeconds > maxSeconds) continue;
+        if (
+          !d.durationSeconds ||
+          d.durationSeconds <= 0 ||
+          d.durationSeconds > maxSeconds
+        )
+          continue;
         const allowed = getAllowedChannel(row.channelId);
         clips.push({
           videoId: row.videoId,
           title: d.title || row.title,
           channelTitle: d.channelTitle || row.channelTitle,
-          videoUrl: d.videoUrl || `https://www.youtube.com/watch?v=${row.videoId}`,
+          videoUrl:
+            d.videoUrl || `https://www.youtube.com/watch?v=${row.videoId}`,
           durationSeconds: d.durationSeconds,
           viewCount: d.viewCount || 0,
           thumbnailUrl: d.thumbnailUrl || row.thumbnailUrl,
@@ -586,7 +676,8 @@ export class LocalNewsService {
       pack.clips = clips.slice(0, maxClips);
     } catch (err: any) {
       this.logger.warn(`[TopicPack] verify failed: ${err?.message || err}`);
-      pack.note = 'Clip verification failed. Do not invent video IDs — render the "footage thin" note.';
+      pack.note =
+        'Clip verification failed. Do not invent video IDs — render the "footage thin" note.';
       this.cacheTopicPack(cacheKey, pack, true);
       return pack;
     }
@@ -604,7 +695,9 @@ export class LocalNewsService {
     pack.note =
       `Verified newsroom clips (≤${maxSeconds}s) from allowlisted channels: ${channels.join(', ')}. ` +
       `Use as B-roll only; verify rights/editorial before monetized use.` +
-      (pack.clips.some((c) => c.tierLabel) ? ` Clips labeled "${TIER2_LABEL}" are urban-news outlets.` : '');
+      (pack.clips.some((c) => c.tierLabel)
+        ? ` Clips labeled "${TIER2_LABEL}" are urban-news outlets.`
+        : '');
 
     this.cacheTopicPack(cacheKey, pack, false);
     this.logger.log(
@@ -614,17 +707,25 @@ export class LocalNewsService {
   }
 
   /** Cache with adaptive TTL: fresh stories 4h, older stories 24h, empty 30min. */
-  private cacheTopicPack(key: string, pack: LocalScenePack, empty: boolean): void {
+  private cacheTopicPack(
+    key: string,
+    pack: LocalScenePack,
+    empty: boolean,
+  ): void {
     let ttl = CACHE_NEGATIVE_MS;
     if (!empty && pack.clips.length > 0) {
       const newest = Math.max(
-        ...pack.clips.map((c) => (c.publishedAt ? new Date(c.publishedAt).getTime() : 0)),
+        ...pack.clips.map((c) =>
+          c.publishedAt ? new Date(c.publishedAt).getTime() : 0,
+        ),
       );
-      ttl = Date.now() - newest <= FRESH_STORY_MS ? CACHE_FRESH_MS : CACHE_STALE_MS;
+      ttl =
+        Date.now() - newest <= FRESH_STORY_MS ? CACHE_FRESH_MS : CACHE_STALE_MS;
     }
     if (this.topicCache.size >= CACHE_MAX_ENTRIES) {
       const now = Date.now();
-      for (const [k, v] of this.topicCache) if (v.expiresAt <= now) this.topicCache.delete(k);
+      for (const [k, v] of this.topicCache)
+        if (v.expiresAt <= now) this.topicCache.delete(k);
       if (this.topicCache.size >= CACHE_MAX_ENTRIES) {
         const firstKey = this.topicCache.keys().next().value;
         if (firstKey) this.topicCache.delete(firstKey);
@@ -636,16 +737,26 @@ export class LocalNewsService {
   /** Render pack for model dynamic context. */
   formatPack(pack: LocalScenePack): string {
     const lines: string[] = [];
-    lines.push(pack.kind === 'topic' ? `VERIFIED TOPIC FOOTAGE PACK` : `LOCAL NEWS FOOTAGE PACK`);
+    lines.push(
+      pack.kind === 'topic'
+        ? `VERIFIED TOPIC FOOTAGE PACK`
+        : `LOCAL NEWS FOOTAGE PACK`,
+    );
     lines.push(`Market: ${pack.market} | Topic: ${pack.topic}`);
     if (pack.stations.length > 0) {
-      lines.push(pack.kind === 'topic' ? `Channels: ${pack.stations.join(', ')}` : `Stations to prefer: ${pack.stations.join(', ')}`);
+      lines.push(
+        pack.kind === 'topic'
+          ? `Channels: ${pack.stations.join(', ')}`
+          : `Stations to prefer: ${pack.stations.join(', ')}`,
+      );
     }
     if (pack.clips.length === 0) {
       lines.push(pack.note);
       return lines.join('\n');
     }
-    lines.push(`Use these REAL YouTube clips (URL exactly once per clip) in §17 / B-roll:`);
+    lines.push(
+      `Use these REAL YouTube clips (URL exactly once per clip) in §17 / B-roll:`,
+    );
     pack.clips.forEach((c, i) => {
       const mins = Math.floor(c.durationSeconds / 60);
       const secs = c.durationSeconds % 60;
