@@ -1,18 +1,30 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ChatSkill, SkillContext } from './skill.interface';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../../mongo/schemas/channel.schema';
 import { Video, VideoDocument } from '../../mongo/schemas/video.schema';
-import { TrendingTopic, TrendingTopicDocument } from '../../mongo/schemas/trending-topic.schema';
-import { SeoSuggestion, SeoSuggestionDocument } from '../../mongo/schemas/seo-suggestion.schema';
-import { CompetitorChannel, CompetitorChannelDocument } from '../../mongo/schemas/competitor-channel.schema';
+import {
+  TrendingTopic,
+  TrendingTopicDocument,
+} from '../../mongo/schemas/trending-topic.schema';
+import {
+  SeoSuggestion,
+  SeoSuggestionDocument,
+} from '../../mongo/schemas/seo-suggestion.schema';
+import {
+  CompetitorChannel,
+  CompetitorChannelDocument,
+} from '../../mongo/schemas/competitor-channel.schema';
 import { ChromaService } from '../../chroma/chroma.service';
 import { YoutubeAnalyticsService } from '../../youtube/youtube-analytics.service';
 import { PerformanceContextService } from '../../youtube/performance-context.service';
 import { CompetitorsService } from '../../competitors/competitors.service';
 import { buildCompactChannelContext } from '../../openai/prompts/context';
-import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES } from '../../openai/prompts/script-cadence';
+import {
+  SPOKEN_LINE_CONTRACT,
+  GOLD_SPOKEN_EXAMPLES,
+} from '../../openai/prompts/script-cadence';
 
 @Injectable()
 export class SkillRegistry {
@@ -20,15 +32,25 @@ export class SkillRegistry {
   private skills = new Map<string, ChatSkill>();
   /** 60-min TTL caches — competitor brief + content gaps (YouTube quota savers). */
   private static readonly CTX_TTL_MS = 60 * 60 * 1000;
-  private competitorBriefCache = new Map<string, { at: number; data: SkillContext['competitorSummary'] }>();
-  private gapsCache = new Map<string, { at: number; data: NonNullable<SkillContext['contentGaps']> }>();
+  private competitorBriefCache = new Map<
+    string,
+    { at: number; data: SkillContext['competitorSummary'] }
+  >();
+  private gapsCache = new Map<
+    string,
+    { at: number; data: NonNullable<SkillContext['contentGaps']> }
+  >();
 
   constructor(
-    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(Channel.name)
+    private readonly channelModel: Model<ChannelDocument>,
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
-    @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
-    @InjectModel(SeoSuggestion.name) private readonly seoSuggestionModel: Model<SeoSuggestionDocument>,
-    @InjectModel(CompetitorChannel.name) private readonly competitorModel: Model<CompetitorChannelDocument>,
+    @InjectModel(TrendingTopic.name)
+    private readonly trendingTopicModel: Model<TrendingTopicDocument>,
+    @InjectModel(SeoSuggestion.name)
+    private readonly seoSuggestionModel: Model<SeoSuggestionDocument>,
+    @InjectModel(CompetitorChannel.name)
+    private readonly competitorModel: Model<CompetitorChannelDocument>,
     private readonly chromaService: ChromaService,
     private readonly analyticsService: YoutubeAnalyticsService,
     private readonly performanceContext: PerformanceContextService,
@@ -133,7 +155,9 @@ Respond conversationally, acknowledge the topic/photo, share 1-2 creative angles
     this.register({
       name: 'General Assistant',
       category: 'general',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are the Unique Mecca Audio Show Agent working in GENERAL MODE. You handle any question — scripts, SEO, thumbnails, ideas, trends, strategy, personal questions, or creative collaboration.
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are the Unique Mecca Audio Show Agent working in GENERAL MODE. You handle any question — scripts, SEO, thumbnails, ideas, trends, strategy, personal questions, or creative collaboration.
 
 CRITICAL: Do NOT default to writing a full script. First understand what the user actually wants. If the request is broad, open-ended, or accompanied by an image upload, engage as an active creative director: acknowledge their hook or photo, give an immediate creative recommendation, and suggest natural next steps. Never force a robotic A/B/C/D multiple-choice menu.
 
@@ -197,16 +221,31 @@ EVIDENCE-BASED OUTPUT RULES (MANDATORY):
 
 ${generalFormat}`,
       loadContext: async (channelId, videoId) => {
-        const [base, trending, competitorData, existingVideos] = await Promise.all([
-          this.loadBaseContext(channelId, videoId),
-          this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean().catch(() => []),
-          this.getCompetitorBriefCached(channelId).catch(() => []),
-          this.videoModel.find({ channelId, deletedFromYoutube: { $ne: true } }).sort({ publishedAt: -1 }).limit(50).select('title publishedAt viewCount youtubeId').lean().catch(() => []),
-        ]);
+        const [base, trending, competitorData, existingVideos] =
+          await Promise.all([
+            this.loadBaseContext(channelId, videoId),
+            this.trendingTopicModel
+              .find({ channelId: this.oid(channelId) })
+              .sort({ opportunityScore: -1 })
+              .limit(5)
+              .lean()
+              .catch(() => []),
+            this.getCompetitorBriefCached(channelId).catch(() => []),
+            this.videoModel
+              .find({
+                channelId: this.oid(channelId),
+                deletedFromYoutube: { $ne: true },
+              })
+              .sort({ publishedAt: -1 })
+              .limit(50)
+              .select('title publishedAt viewCount youtubeId')
+              .lean()
+              .catch(() => []),
+          ]);
 
         base.trendingTopics = trending;
         if (competitorData.length > 0) base.competitorSummary = competitorData;
-        base.existingVideos = existingVideos.map(v => ({
+        base.existingVideos = existingVideos.map((v) => ({
           title: v.title,
           publishedAt: v.publishedAt?.toString() || '',
           viewCount: v.viewCount || 0,
@@ -217,11 +256,12 @@ ${generalFormat}`,
         try {
           const channel = await this.channelModel.findById(channelId).lean();
           if (channel?.youtubeChannelId && channel?.userId) {
-            const bundle = await this.performanceContext.buildChannelPerformanceContext(
-              channel.userId.toString(),
-              channelId.toString(),
-              30,
-            );
+            const bundle =
+              await this.performanceContext.buildChannelPerformanceContext(
+                channel.userId.toString(),
+                channelId.toString(),
+                30,
+              );
             const s = bundle.summary;
             base.channelAnalytics = {
               views: s?.views || 0,
@@ -242,7 +282,9 @@ ${generalFormat}`,
             }
           }
         } catch (error) {
-          this.logger.warn(`Failed to load analytics for context: ${error.message}`);
+          this.logger.warn(
+            `Failed to load analytics for context: ${error.message}`,
+          );
         }
 
         return base;
@@ -692,7 +734,9 @@ If a FOOTAGE PACK is in context (LOCAL NEWS FOOTAGE PACK or VERIFIED TOPIC FOOTA
     this.register({
       name: 'Script Writer',
       category: 'script',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
 
 IMPORTANT RULES:
 - TIMING & DURATION: Script pacing MUST target 9 to 14 minutes (approx. 1,300 to 1,900 words spoken at ~140 WPM) unless the user explicitly requests a different duration.
@@ -717,7 +761,11 @@ EVIDENCE-BASED OUTPUT RULES (MANDATORY):
 ${scriptFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
-        const trending = await this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean();
+        const trending = await this.trendingTopicModel
+          .find({ channelId: this.oid(channelId) })
+          .sort({ opportunityScore: -1 })
+          .limit(5)
+          .lean();
         base.trendingTopics = trending;
         // C1+C3: competitor demand brief + content gaps (both 60-min cached)
         const [brief, gaps] = await Promise.all([
@@ -749,7 +797,9 @@ ${scriptFormat}`,
     this.register({
       name: 'SEO Optimizer',
       category: 'seo',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: Under 70 chars, curious, emotional words\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${seoFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: Under 70 chars, curious, emotional words\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${seoFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         if (videoId) {
@@ -757,15 +807,31 @@ ${scriptFormat}`,
           base.videoMetadata = video;
           // Load approved patterns from RAG
           try {
-            const approved = await this.chromaService.query('seo_suggestions', video?.title || '', 3, { status: 'approved' });
-            if (approved.length > 0) base.approvedSeoPatterns = approved.map(r => r.text).join('\n---\n');
-          } catch { /* RAG optional */ }
+            const approved = await this.chromaService.query(
+              'seo_suggestions',
+              video?.title || '',
+              3,
+              { status: 'approved' },
+            );
+            if (approved.length > 0)
+              base.approvedSeoPatterns = approved
+                .map((r) => r.text)
+                .join('\n---\n');
+          } catch {
+            /* RAG optional */
+          }
         }
-        const topVideos = await this.videoModel.find({ channelId }).sort({ viewCount: -1 }).limit(8).select('title viewCount tags').lean();
+        const topVideos = await this.videoModel
+          .find({ channelId: this.oid(channelId) })
+          .sort({ viewCount: -1 })
+          .limit(8)
+          .select('title viewCount tags')
+          .lean();
         base.topVideos = topVideos;
         return base;
       },
-      getFormatInstructions: () => `Format your response in this exact structure:
+      getFormatInstructions:
+        () => `Format your response in this exact structure:
 
 ## Title
 [Your optimized title here — under 70 characters, curious, emotional]
@@ -847,13 +913,22 @@ ${thumbnailFormat}`,
         const base = await this.loadBaseContext(channelId, videoId);
         try {
           const topVideos = await this.videoModel
-            .find({ channelId, deletedFromYoutube: { $ne: true } })
+            .find({
+              channelId: this.oid(channelId),
+              deletedFromYoutube: { $ne: true },
+            })
             .sort({ viewCount: -1 })
             .limit(4)
             .select('title viewCount tags youtubeId')
             .lean();
-          base.topVideos = topVideos.map(v => ({ title: v.title, viewCount: v.viewCount, tags: v.tags || [] }));
-        } catch { /* optional */ }
+          base.topVideos = topVideos.map((v) => ({
+            title: v.title,
+            viewCount: v.viewCount,
+            tags: v.tags || [],
+          }));
+        } catch {
+          /* optional */
+        }
         return base;
       },
       getFormatInstructions: () => thumbnailFormat,
@@ -880,18 +955,26 @@ ${thumbnailFormat}`,
     this.register({
       name: 'Competitor Analyst',
       category: 'competitor',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a competitor analyst. Analyze competing channels and identify gaps and opportunities.\n\n${competitorFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are a competitor analyst. Analyze competing channels and identify gaps and opportunities.\n\n${competitorFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
 
         // Load actual competitor data (with real upload views)
-        const competitorData = await this.loadCompetitorData(channelId, { withUploads: true });
+        const competitorData = await this.loadCompetitorData(channelId, {
+          withUploads: true,
+        });
         if (competitorData.length > 0) {
           base.competitorSummary = competitorData;
         }
 
         // Also load trending for gap analysis
-        const trending = await this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(10).lean();
+        const trending = await this.trendingTopicModel
+          .find({ channelId: this.oid(channelId) })
+          .sort({ opportunityScore: -1 })
+          .limit(10)
+          .lean();
         base.trendingTopics = trending;
         return base;
       },
@@ -916,10 +999,16 @@ ${thumbnailFormat}`,
     this.register({
       name: 'Trend Researcher',
       category: 'trends',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a trend researcher for this channel's niche. Find and evaluate trending topics.\n\nScoring criteria:\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\n${trendsFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are a trend researcher for this channel's niche. Find and evaluate trending topics.\n\nScoring criteria:\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\n${trendsFormat}`,
       loadContext: async (channelId) => {
         const base = await this.loadBaseContext(channelId);
-        const trending = await this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean();
+        const trending = await this.trendingTopicModel
+          .find({ channelId: this.oid(channelId) })
+          .sort({ opportunityScore: -1 })
+          .limit(5)
+          .lean();
         base.trendingTopics = trending;
         return base;
       },
@@ -950,12 +1039,14 @@ ${thumbnailFormat}`,
     this.register({
       name: 'Idea Scorer',
       category: 'ideas',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a content idea evaluator. Score ideas on 8 criteria (1-10 each):\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\nEVIDENCE-BASED OUTPUT RULES (MANDATORY):\n- Every score MUST cite concrete evidence from the injected context: competitor videos WITH their view counts, YOUR recent winners/below-median list, content gaps, or trend scores.\n- NEVER give generic justifications ("strong topic", "good potential") — ground each criterion in a specific data point from context.\n- When scoring Search Demand: reference the gap list or competitor view counts. When scoring Thumbnail Power/Title Curiosity: reference YOUR recent winners vs below-median pattern.\n- Improvements must be specific and actionable, tied to evidence in context — not generic best-practice advice.\n- If context lacks evidence for a claim, say what data you would need instead of inventing it.\n\n${ideasFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are a content idea evaluator. Score ideas on 8 criteria (1-10 each):\nA. SEARCH DEMAND\nB. EMOTIONAL PRESSURE\nC. AUTHORITY FIT\nD. THUMBNAIL POWER\nE. TITLE CURIOSITY\nF. TRUST RETENTION\nG. REPLAY VALUE\nH. SPONSOR SAFETY\n\nGREENLIGHT: 8.5+ | HOLD: 7.0-8.4 | PASS: under 7.0\n\nEVIDENCE-BASED OUTPUT RULES (MANDATORY):\n- Every score MUST cite concrete evidence from the injected context: competitor videos WITH their view counts, YOUR recent winners/below-median list, content gaps, or trend scores.\n- NEVER give generic justifications ("strong topic", "good potential") — ground each criterion in a specific data point from context.\n- When scoring Search Demand: reference the gap list or competitor view counts. When scoring Thumbnail Power/Title Curiosity: reference YOUR recent winners vs below-median pattern.\n- Improvements must be specific and actionable, tied to evidence in context — not generic best-practice advice.\n- If context lacks evidence for a claim, say what data you would need instead of inventing it.\n\n${ideasFormat}`,
       loadContext: async (channelId) => {
         const base = await this.loadBaseContext(channelId);
         // Load trending for context on what's popular
         const trending = await this.trendingTopicModel
-          .find({ channelId })
+          .find({ channelId: this.oid(channelId) })
           .sort({ opportunityScore: -1 })
           .limit(5)
           .lean();
@@ -963,7 +1054,7 @@ ${thumbnailFormat}`,
 
         // Load top videos for scoring context
         const topVideos = await this.videoModel
-          .find({ channelId })
+          .find({ channelId: this.oid(channelId) })
           .sort({ viewCount: -1 })
           .limit(5)
           .select('title viewCount tags')
@@ -1036,10 +1127,16 @@ ${thumbnailFormat}`,
     this.register({
       name: 'Outline Builder',
       category: 'outline',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are an outline builder for this YouTube channel. Before writing any script, you research the topic, develop the angle, and create a structured outline.\n\nYour job:\n1. Research the topic using web search if needed\n2. Identify the unique angle — what only this creator can say\n3. Generate 3 distinct hook options for the first 15 seconds\n4. Recommend which of the 7 show types fits best\n5. Build a detailed outline following the 6-part structure\n6. Score the outline using the 8-criteria system\n\nEvery outline must pass this test: could any other creator make this same video? If yes, the angle is not unique enough.\n\n${outlineFormat}`,
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are an outline builder for this YouTube channel. Before writing any script, you research the topic, develop the angle, and create a structured outline.\n\nYour job:\n1. Research the topic using web search if needed\n2. Identify the unique angle — what only this creator can say\n3. Generate 3 distinct hook options for the first 15 seconds\n4. Recommend which of the 7 show types fits best\n5. Build a detailed outline following the 6-part structure\n6. Score the outline using the 8-criteria system\n\nEvery outline must pass this test: could any other creator make this same video? If yes, the angle is not unique enough.\n\n${outlineFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
-        const trending = await this.trendingTopicModel.find({ channelId }).sort({ opportunityScore: -1 }).limit(5).lean();
+        const trending = await this.trendingTopicModel
+          .find({ channelId: this.oid(channelId) })
+          .sort({ opportunityScore: -1 })
+          .limit(5)
+          .lean();
         base.trendingTopics = trending;
         return base;
       },
@@ -1078,11 +1175,12 @@ Never ask for Studio screenshots. Never invent metrics.`;
           const channel = await this.channelModel.findById(channelId).lean();
           if (channel?.youtubeChannelId && channel?.userId) {
             const uid = channel.userId.toString();
-            const bundle = await this.performanceContext.buildChannelPerformanceContext(
-              uid,
-              channelId.toString(),
-              30,
-            );
+            const bundle =
+              await this.performanceContext.buildChannelPerformanceContext(
+                uid,
+                channelId.toString(),
+                30,
+              );
             const s = bundle.summary;
             base.channelAnalytics = {
               views: s?.views || 0,
@@ -1094,7 +1192,9 @@ Never ask for Studio screenshots. Never invent metrics.`;
             };
           }
         } catch (error: any) {
-          this.logger.warn(`Analysis loadContext analytics failed: ${error.message}`);
+          this.logger.warn(
+            `Analysis loadContext analytics failed: ${error.message}`,
+          );
         }
         return base;
       },
@@ -1121,7 +1221,9 @@ Never ask for Studio screenshots. Never invent metrics.`;
     this.register({
       name: 'Scene Image Generator',
       category: 'image',
-      buildSystemPrompt: (channel, ctx) => this.buildBasePrompt(channel, ctx) + `\n\nYou are a scene image concept generator for YouTube video production.
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are a scene image concept generator for YouTube video production.
 
 When the user asks for an image, generate 3 DISTINCT scene concepts as structured text.
 Each concept describes a 16:9 cinematic scene for video b-roll, background visuals, or standalone images.
@@ -1165,7 +1267,9 @@ ${imageFormat}`,
     const trimmed = message.trim().toLowerCase();
 
     // Check if user is responding to an A/B/C/D or 1/2/3/4 menu choice (e.g. "a", "b", "option a", "choice 2")
-    const optionMatch = trimmed.match(/^(?:option\s+|choice\s+)?([a-d1-4])[\.\)]?$/i);
+    const optionMatch = trimmed.match(
+      /^(?:option\s+|choice\s+)?([a-d1-4])[\.\)]?$/i,
+    );
     if (optionMatch && previousAssistantMessage) {
       const selectedKey = optionMatch[1].toUpperCase();
 
@@ -1173,8 +1277,13 @@ ${imageFormat}`,
       const lines = previousAssistantMessage.split('\n');
       for (const line of lines) {
         const lineTrim = line.trim();
-        const optionHeaderMatch = lineTrim.match(/^(?:([A-D1-4])[\.\)]\s*)(.+)/i);
-        if (optionHeaderMatch && optionHeaderMatch[1].toUpperCase() === selectedKey) {
+        const optionHeaderMatch = lineTrim.match(
+          /^(?:([A-D1-4])[\.\)]\s*)(.+)/i,
+        );
+        if (
+          optionHeaderMatch &&
+          optionHeaderMatch[1].toUpperCase() === selectedKey
+        ) {
           const targetOptionText = optionHeaderMatch[2];
           const intentFromMenu = this.classifyTextIntent(targetOptionText);
           if (intentFromMenu !== 'general') {
@@ -1185,8 +1294,16 @@ ${imageFormat}`,
     }
 
     // Check for conversational iteration on previous thumbnails (e.g. "make them darker", "change concept 2", "try lighter")
-    if (previousAssistantMessage && (previousAssistantMessage.includes('THUMBNAILS_START') || /Concept\s*[1-3]/i.test(previousAssistantMessage))) {
-      if (/\b(darker|lighter|change\s+concept|concept\s*[1-3]|make\s+(?:it|them)\s+(?:more|less)?\s*(?:dark|light|cinematic|dramatic|intense)|different\s+(?:angle|color|face)|add\s+(?:prosecutor|lawyer|judge|microphone|gavel)|try\s+another|give\s+me\s+\d+\s+more)\b/i.test(trimmed)) {
+    if (
+      previousAssistantMessage &&
+      (previousAssistantMessage.includes('THUMBNAILS_START') ||
+        /Concept\s*[1-3]/i.test(previousAssistantMessage))
+    ) {
+      if (
+        /\b(darker|lighter|change\s+concept|concept\s*[1-3]|make\s+(?:it|them)\s+(?:more|less)?\s*(?:dark|light|cinematic|dramatic|intense)|different\s+(?:angle|color|face)|add\s+(?:prosecutor|lawyer|judge|microphone|gavel)|try\s+another|give\s+me\s+\d+\s+more)\b/i.test(
+          trimmed,
+        )
+      ) {
         return 'thumbnail';
       }
     }
@@ -1199,7 +1316,9 @@ ${imageFormat}`,
     //    or object-first ("thumbnail for X"). Must beat Rule 2 so standalone asks
     //    like "give me a title and thumbnail for this video" stay thumbnail.
     if (
-      /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(lower) ||
+      /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(
+        lower,
+      ) ||
       /\b(?:thumbnail|cover art)\s+(?:for|of|concept)/i.test(lower)
     ) {
       return 'thumbnail';
@@ -1211,7 +1330,9 @@ ${imageFormat}`,
     //    duplicate-topic context). NARROW list only: "title and thumbnail" and
     //    "ground it in" deliberately NOT here.
     if (
-      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(lower) &&
+      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
+        lower,
+      ) &&
       // Explicit scoring asks stay with the dedicated 'ideas' skill
       !/\b(?:score|rate|evaluate|greenlight|rank|grade)\b/i.test(lower)
     ) {
@@ -1219,25 +1340,61 @@ ${imageFormat}`,
     }
 
     // 3. Broad thumbnail fallback (message mentions thumbnails with no topic-rec signal)
-    if (/\b(thumbnails?|cover\s*arts?|thumbs?)\b/i.test(lower)) return 'thumbnail';
+    if (/\b(thumbnails?|cover\s*arts?|thumbs?)\b/i.test(lower))
+      return 'thumbnail';
 
     // 4. Scene image / b-roll generation
-    if (/\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photos?|wallpapers?)\b/i.test(lower)) return 'image';
+    if (
+      /\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photos?|wallpapers?)\b/i.test(
+        lower,
+      )
+    )
+      return 'image';
 
     // 2. Metadata / SEO
-    if (/\b(seo|title.*description|tags?|keywords?|optimize|hashtags?|meta\s*description)\b/i.test(lower)) return 'seo';
+    if (
+      /\b(seo|title.*description|tags?|keywords?|optimize|hashtags?|meta\s*description)\b/i.test(
+        lower,
+      )
+    )
+      return 'seo';
 
     // 3. Script intent (explicit script requests only)
-    if (/\b(write.*scripts?|draft.*scripts?|full.*scripts?|teleprompter|cold\s+open|6.?part|video\s+scripts?|\bscripts?\b)\b/i.test(lower)) return 'script';
+    if (
+      /\b(write.*scripts?|draft.*scripts?|full.*scripts?|teleprompter|cold\s+open|6.?part|video\s+scripts?|\bscripts?\b)\b/i.test(
+        lower,
+      )
+    )
+      return 'script';
 
     // 4. Analysis, Strategy & Trends
-    if (/\b(trending|trends|what.*popular|hot topics?|current events|whats.*news)\b/i.test(lower)) return 'trends';
+    if (
+      /\b(trending|trends|what.*popular|hot topics?|current events|whats.*news)\b/i.test(
+        lower,
+      )
+    )
+      return 'trends';
 
-    if (/\b(competitor|competing|other channels?|content gaps?|rivals?|what.*they.*doing)\b/i.test(lower)) return 'competitor';
+    if (
+      /\b(competitor|competing|other channels?|content gaps?|rivals?|what.*they.*doing)\b/i.test(
+        lower,
+      )
+    )
+      return 'competitor';
 
-    if (/\b(ideas?|score.*ideas?|rate.*ideas?|evaluate|greenlight|pass)\b/i.test(lower)) return 'ideas';
+    if (
+      /\b(ideas?|score.*ideas?|rate.*ideas?|evaluate|greenlight|pass)\b/i.test(
+        lower,
+      )
+    )
+      return 'ideas';
 
-    if (/\b(outlines?|structure|organize|plan.*video|hooks?|angles?)\b/i.test(lower)) return 'outline';
+    if (
+      /\b(outlines?|structure|organize|plan.*video|hooks?|angles?)\b/i.test(
+        lower,
+      )
+    )
+      return 'outline';
 
     // Performance analysis — video autopsy / channel diagnosis / repackage
     if (
@@ -1269,7 +1426,7 @@ ${imageFormat}`,
   async getCompetitorYoutubeIds(channelId: string): Promise<string[]> {
     try {
       const comps = await this.competitorModel
-        .find({ channelId })
+        .find({ channelId: this.oid(channelId) })
         .select('youtubeChannelId')
         .lean();
       return comps
@@ -1299,22 +1456,31 @@ ${imageFormat}`,
     // Competitor brief — when the message asks about competing channels.
     if (
       !context.competitorSummary?.length &&
-      /\b(competitor|rivals?|audience watches|other channels?|competing channels?|what they(?:'re| are| post| upload)|their (uploads|videos|thumbnails))\b/i.test(lower)
+      /\b(competitor|rivals?|audience watches|other channels?|competing channels?|what they(?:'re| are| post| upload)|their (uploads|videos|thumbnails))\b/i.test(
+        lower,
+      )
     ) {
       try {
         const brief = await this.getCompetitorBriefCached(channelId);
         if (brief.length) context.competitorSummary = brief;
-      } catch { /* optional context */ }
+      } catch {
+        /* optional context */
+      }
     }
 
     // Duplicate-topic guard — when the message asks what was already covered.
     if (
       !context.existingVideos?.length &&
-      /\b(already (?:made|covered|posted|did)|existing videos?|avoid duplicate|what i(?:'ve| have) (?:done|covered|posted)|before i (?:make|post|cover))\b/i.test(lower)
+      /\b(already (?:made|covered|posted|did)|existing videos?|avoid duplicate|what i(?:'ve| have) (?:done|covered|posted)|before i (?:make|post|cover))\b/i.test(
+        lower,
+      )
     ) {
       try {
         const existing = await this.videoModel
-          .find({ channelId, deletedFromYoutube: { $ne: true } })
+          .find({
+            channelId: this.oid(channelId),
+            deletedFromYoutube: { $ne: true },
+          })
           .sort({ publishedAt: -1 })
           .limit(50)
           .select('title publishedAt viewCount youtubeId')
@@ -1325,7 +1491,9 @@ ${imageFormat}`,
           viewCount: v.viewCount || 0,
           youtubeId: v.youtubeId || '',
         }));
-      } catch { /* optional context */ }
+      } catch {
+        /* optional context */
+      }
     }
   }
 
@@ -1341,7 +1509,9 @@ ${imageFormat}`,
       parts.push(`CHANNEL STATS:\n${context.channelStats}`);
     }
     if (context.videoMetadata) {
-      parts.push(`CURRENT VIDEO:\nTitle: ${context.videoMetadata.title}\nViews: ${context.videoMetadata.viewCount}\nTags: ${(context.videoMetadata.tags || []).join(', ')}`);
+      parts.push(
+        `CURRENT VIDEO:\nTitle: ${context.videoMetadata.title}\nViews: ${context.videoMetadata.viewCount}\nTags: ${(context.videoMetadata.tags || []).join(', ')}`,
+      );
     }
     if (context.trendingTopics && context.trendingTopics.length > 0) {
       let freshnessLabel = '';
@@ -1351,22 +1521,28 @@ ${imageFormat}`,
       if (fetchedDates.length > 0) {
         const newestFetchAt = Math.max(...fetchedDates);
         const daysSinceFetch = Math.round(
-          (Date.now() - newestFetchAt) / (1000 * 60 * 60 * 24)
+          (Date.now() - newestFetchAt) / (1000 * 60 * 60 * 24),
         );
-        freshnessLabel = daysSinceFetch <= 3
-          ? (daysSinceFetch === 0 ? ' ✅ Fresh (today)' : ` ✅ Fresh (${daysSinceFetch}d old)`)
-          : ` ❌ Stale (${daysSinceFetch} days old)`;
+        freshnessLabel =
+          daysSinceFetch <= 3
+            ? daysSinceFetch === 0
+              ? ' ✅ Fresh (today)'
+              : ` ✅ Fresh (${daysSinceFetch}d old)`
+            : ` ❌ Stale (${daysSinceFetch} days old)`;
       }
       parts.push(
         `TRENDING TOPICS (Data:${freshnessLabel}):\n` +
-        context.trendingTopics.map((t: any) =>
-          `- ${t.title} (Score: ${t.opportunityScore || 0}, Badge: ${t.badge || 'none'})\n` +
-          `  Summary: ${t.summary || 'No summary available'}\n` +
-          `  Source: ${t.source || 'Unknown'} | ${t.sourceUrl || 'No URL'}\n` +
-          `  Published: ${t.publishedAt ? new Date(t.publishedAt).toLocaleDateString() : 'Unknown'}\n` +
-          `  YouTube: ${t.youtubeVideoUrl || 'None matched'}\n` +
-          `  Channel: ${t.youtubeChannelTitle || 'N/A'}`
-        ).join('\n\n')
+          context.trendingTopics
+            .map(
+              (t: any) =>
+                `- ${t.title} (Score: ${t.opportunityScore || 0}, Badge: ${t.badge || 'none'})\n` +
+                `  Summary: ${t.summary || 'No summary available'}\n` +
+                `  Source: ${t.source || 'Unknown'} | ${t.sourceUrl || 'No URL'}\n` +
+                `  Published: ${t.publishedAt ? new Date(t.publishedAt).toLocaleDateString() : 'Unknown'}\n` +
+                `  YouTube: ${t.youtubeVideoUrl || 'None matched'}\n` +
+                `  Channel: ${t.youtubeChannelTitle || 'N/A'}`,
+            )
+            .join('\n\n'),
       );
     }
     if (context.channelAnalytics) {
@@ -1374,10 +1550,15 @@ ${imageFormat}`,
       if (a.rawBundle) {
         parts.push(a.rawBundle);
       } else {
-        const trafficStr = a.trafficSources.length > 0
-          ? a.trafficSources.map(t => `${t.source}: ${t.views.toLocaleString()}`).join(', ')
-          : 'No data yet';
-        parts.push(`CHANNEL ANALYTICS (Last 30 days):\nViews: ${a.views.toLocaleString()} | Watch Time: ${a.watchTimeHours} hrs | Revenue: $${a.revenue}\nTraffic Sources: ${trafficStr}`);
+        const trafficStr =
+          a.trafficSources.length > 0
+            ? a.trafficSources
+                .map((t) => `${t.source}: ${t.views.toLocaleString()}`)
+                .join(', ')
+            : 'No data yet';
+        parts.push(
+          `CHANNEL ANALYTICS (Last 30 days):\nViews: ${a.views.toLocaleString()} | Watch Time: ${a.watchTimeHours} hrs | Revenue: $${a.revenue}\nTraffic Sources: ${trafficStr}`,
+        );
       }
     }
     if (context.competitorSummary && context.competitorSummary.length > 0) {
@@ -1386,7 +1567,9 @@ ${imageFormat}`,
           context.competitorSummary
             .map((c) => {
               const subs = `${c.subscriberCount.toLocaleString()} subs`;
-              const life = c.lifetimeViews ? ` | ${c.lifetimeViews.toLocaleString()} lifetime views` : '';
+              const life = c.lifetimeViews
+                ? ` | ${c.lifetimeViews.toLocaleString()} lifetime views`
+                : '';
               const latest =
                 c.recentUploads.length > 0
                   ? ` | recent: "${c.recentUploads[0].title}" — ${(c.recentUploads[0].viewCount || 0).toLocaleString()} views`
@@ -1396,15 +1579,30 @@ ${imageFormat}`,
             .join('\n'),
       );
     }
-    if (context.revivalOpportunities && context.revivalOpportunities.length > 0) {
-      parts.push(`VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map(v => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`);
+    if (
+      context.revivalOpportunities &&
+      context.revivalOpportunities.length > 0
+    ) {
+      parts.push(
+        `VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map((v) => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`,
+      );
     }
     if (context.topVideos && context.topVideos.length > 0) {
-      parts.push(`TOP PERFORMING VIDEOS (what the audience watches most):\n${context.topVideos.map((v: any, i: number) => {
-        const mins = v.watchMinutes != null ? ` | ${Math.round(v.watchMinutes).toLocaleString()} watch min` : '';
-        const ret = v.retentionPercent != null ? ` | ${Math.round(v.retentionPercent)}% avg viewed` : '';
-        return `${i + 1}. "${v.title}" — ${v.viewCount.toLocaleString()} views${mins}${ret}`;
-      }).join('\n')}`);
+      parts.push(
+        `TOP PERFORMING VIDEOS (what the audience watches most):\n${context.topVideos
+          .map((v: any, i: number) => {
+            const mins =
+              v.watchMinutes != null
+                ? ` | ${Math.round(v.watchMinutes).toLocaleString()} watch min`
+                : '';
+            const ret =
+              v.retentionPercent != null
+                ? ` | ${Math.round(v.retentionPercent)}% avg viewed`
+                : '';
+            return `${i + 1}. "${v.title}" — ${v.viewCount.toLocaleString()} views${mins}${ret}`;
+          })
+          .join('\n')}`,
+      );
     }
     if (context.recentPattern) {
       parts.push(
@@ -1427,7 +1625,9 @@ ${imageFormat}`,
       parts.push(`APPROVED SEO PATTERNS:\n${context.approvedSeoPatterns}`);
     }
     if (context.existingVideos && context.existingVideos.length > 0) {
-      parts.push(`EXISTING VIDEOS (last 50 — check before suggesting topics to avoid duplicates):\n${context.existingVideos.map(v => `- "${v.title}" (${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString() : 'unknown date'}, ${v.viewCount?.toLocaleString() || 0} views)`).join('\n')}`);
+      parts.push(
+        `EXISTING VIDEOS (last 50 — check before suggesting topics to avoid duplicates):\n${context.existingVideos.map((v) => `- "${v.title}" (${v.publishedAt ? new Date(v.publishedAt).toLocaleDateString() : 'unknown date'}, ${v.viewCount?.toLocaleString() || 0} views)`).join('\n')}`,
+      );
     }
     if (context.localScenePack?.formatted) {
       parts.push(context.localScenePack.formatted);
@@ -1444,7 +1644,18 @@ ${imageFormat}`,
   private async loadCompetitorData(
     channelId: string,
     opts?: { withUploads?: boolean },
-  ): Promise<Array<{ title: string; subscriberCount: number; lifetimeViews?: number; recentUploads: Array<{ title: string; publishedAt: string; viewCount?: number }> }>> {
+  ): Promise<
+    Array<{
+      title: string;
+      subscriberCount: number;
+      lifetimeViews?: number;
+      recentUploads: Array<{
+        title: string;
+        publishedAt: string;
+        viewCount?: number;
+      }>;
+    }>
+  > {
     try {
       // Seed only when we actually need upload depth (competitor skill).
       // Fire-and-forget — NEVER await seed inside a chat request (15 search.list
@@ -1452,15 +1663,22 @@ ${imageFormat}`,
       // the primary triggers; this only nudges backfill. Empty brief backfills
       // on the next message once the seed lands.
       if (opts?.withUploads) {
-        const count = await this.competitorModel.countDocuments({ channelId });
+        const count = await this.competitorModel.countDocuments({
+          channelId: this.oid(channelId),
+        });
         if (count === 0) {
           void this.competitorsService
             .autoSeedIfIncomplete(channelId, 'chat-lazy')
             .catch((seedErr: any) =>
-              this.logger.warn(`Audience watches lazy seed failed: ${seedErr?.message || seedErr}`),
+              this.logger.warn(
+                `Audience watches lazy seed failed: ${seedErr?.message || seedErr}`,
+              ),
             );
         }
-        const brief = await this.competitorsService.getAudienceWatchBrief(channelId, 8);
+        const brief = await this.competitorsService.getAudienceWatchBrief(
+          channelId,
+          8,
+        );
         return brief.map((c) => ({
           title: c.title,
           subscriberCount: c.subscriberCount,
@@ -1475,7 +1693,7 @@ ${imageFormat}`,
 
       // Cheap path: DB stats only (no YouTube upload scan, no seed)
       const competitors = await this.competitorModel
-        .find({ channelId })
+        .find({ channelId: this.oid(channelId) })
         .sort({ subscriberCount: -1 })
         .limit(8)
         .lean();
@@ -1496,11 +1714,19 @@ ${imageFormat}`,
     channelId: string,
   ): Promise<NonNullable<SkillContext['competitorSummary']>> {
     const hit = this.competitorBriefCache.get(channelId);
-    if (hit && Date.now() - hit.at < SkillRegistry.CTX_TTL_MS && hit.data && hit.data.length > 0) {
+    if (
+      hit &&
+      Date.now() - hit.at < SkillRegistry.CTX_TTL_MS &&
+      hit.data &&
+      hit.data.length > 0
+    ) {
       return hit.data;
     }
-    const data = await this.loadCompetitorData(channelId, { withUploads: true });
-    if (data.length > 0) this.competitorBriefCache.set(channelId, { at: Date.now(), data });
+    const data = await this.loadCompetitorData(channelId, {
+      withUploads: true,
+    });
+    if (data.length > 0)
+      this.competitorBriefCache.set(channelId, { at: Date.now(), data });
     return data;
   }
 
@@ -1509,15 +1735,37 @@ ${imageFormat}`,
     channelId: string,
   ): Promise<NonNullable<SkillContext['contentGaps']>> {
     const hit = this.gapsCache.get(channelId);
-    if (hit && Date.now() - hit.at < SkillRegistry.CTX_TTL_MS && hit.data.length > 0) {
+    if (
+      hit &&
+      Date.now() - hit.at < SkillRegistry.CTX_TTL_MS &&
+      hit.data.length > 0
+    ) {
       return hit.data;
     }
     const data = await this.competitorsService.findContentGaps(channelId);
-    if (data.length > 0) this.gapsCache.set(channelId, { at: Date.now(), data });
+    if (data.length > 0)
+      this.gapsCache.set(channelId, { at: Date.now(), data });
     return data;
   }
 
-  private async loadBaseContext(channelId: string, videoId?: string): Promise<SkillContext> {
+  /**
+   * channelId is stored as ObjectId in every collection, but these schemas'
+   * `type: Types.ObjectId` paths do NOT auto-cast query strings — a raw
+   * string find returns 0 (verified in prod: 105 trend docs, string query 0).
+   * Explicit casts elsewhere (e.g. chat findAll) are why the app still works.
+   * Always funnel channelId queries through here.
+   */
+  private oid(channelId: string | Types.ObjectId): string | Types.ObjectId {
+    if (channelId instanceof Types.ObjectId) return channelId;
+    return Types.ObjectId.isValid(channelId)
+      ? new Types.ObjectId(channelId)
+      : channelId;
+  }
+
+  private async loadBaseContext(
+    channelId: string,
+    videoId?: string,
+  ): Promise<SkillContext> {
     const channel = await this.channelModel.findById(channelId).lean();
     const context: SkillContext = {};
 
@@ -1534,7 +1782,11 @@ ${imageFormat}`,
     try {
       const cutoff = new Date(Date.now() - 14 * 24 * 60 * 60 * 1000);
       const recent = await this.videoModel
-        .find({ channelId, publishedAt: { $gte: cutoff }, deletedFromYoutube: { $ne: true } })
+        .find({
+          channelId: this.oid(channelId),
+          publishedAt: { $gte: cutoff },
+          deletedFromYoutube: { $ne: true },
+        })
         .select('title viewCount publishedAt')
         .sort({ viewCount: -1 })
         .lean();
@@ -1543,9 +1795,16 @@ ${imageFormat}`,
         const median =
           views.length % 2
             ? views[views.length >> 1]
-            : Math.round((views[views.length / 2 - 1] + views[views.length / 2]) / 2);
+            : Math.round(
+                (views[views.length / 2 - 1] + views[views.length / 2]) / 2,
+              );
         const fmt = (list: typeof recent) =>
-          list.map((v) => `- "${v.title}" — ${(v.viewCount || 0).toLocaleString()} views`).join('\n');
+          list
+            .map(
+              (v) =>
+                `- "${v.title}" — ${(v.viewCount || 0).toLocaleString()} views`,
+            )
+            .join('\n');
         context.recentPattern =
           `YOUR LAST 14 DAYS (${recent.length} videos, median ${median.toLocaleString()} views):\n` +
           `WINNERS (at/above median):\n${fmt(recent.filter((v) => (v.viewCount || 0) >= median))}\n\n` +
