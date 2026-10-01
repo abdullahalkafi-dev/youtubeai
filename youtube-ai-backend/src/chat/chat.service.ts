@@ -297,9 +297,19 @@ export class ChatService {
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
-    if (this.shouldLoadLocalNews(dto.content, resolvedSkill)) {
+    if (
+      this.shouldLoadLocalNews(
+        dto.content,
+        resolvedSkill,
+        this.buildRecentThreadText(contextMessages),
+      )
+    ) {
       this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
-      dynamicContext += await this.buildLocalNewsContext(channel, dto.content);
+      dynamicContext += await this.buildLocalNewsContext(
+        channel,
+        dto.content,
+        this.buildRecentThreadText(contextMessages),
+      );
     }
 
     // Detect if research is needed
@@ -482,9 +492,19 @@ export class ChatService {
 
     // Build DYNAMIC context (goes in user message prefix, NOT system prompt)
     let dynamicContext = this.skillRegistry.buildDynamicContext(channel || {}, skillContext) + ragContext + performanceLookup;
-    if (this.shouldLoadLocalNews(dto.content, resolvedSkill)) {
+    if (
+      this.shouldLoadLocalNews(
+        dto.content,
+        resolvedSkill,
+        this.buildRecentThreadText(updatedThread.messages),
+      )
+    ) {
       this.logger.log(`Thread ${threadId}: Local news footage pack requested`);
-      dynamicContext += await this.buildLocalNewsContext(channel, dto.content);
+      dynamicContext += await this.buildLocalNewsContext(
+        channel,
+        dto.content,
+        this.buildRecentThreadText(updatedThread.messages),
+      );
     }
 
     // Build conversation history (last N messages)
@@ -975,13 +995,40 @@ export class ChatService {
   }
 
   /**
+   * Flatten recent thread messages into one location-scanning string.
+   * Capped (last 6 msgs × 500 chars) — used only for market/city matching,
+   * not as model context.
+   */
+  private buildRecentThreadText(
+    messages: Array<{ role: string; content: string }>,
+  ): string {
+    if (!messages?.length) return '';
+    return messages
+      .slice(-6)
+      .map((m) => m.content || '')
+      .join('\n')
+      .slice(0, 4000);
+  }
+
+  /**
    * When to pull a local-news YouTube footage pack (quota-safe).
    * Only on explicit footage ask OR script/outline/ideas with a place in the text.
+   * `conversationText` (recent thread messages) is scanned too — location facts
+   * often live in earlier turns ("Florida man fentanyl plea…"), not the current ask.
    */
-  private shouldLoadLocalNews(message: string, category?: string): boolean {
+  private shouldLoadLocalNews(
+    message: string,
+    category?: string,
+    conversationText?: string,
+  ): boolean {
+    const haystack = `${message || ''}\n${conversationText || ''}`;
     if (this.localNewsService.isFootageRequest(message)) return true;
-    if (category === 'script' || category === 'outline' || category === 'ideas') {
-      return this.localNewsService.resolveMarket(undefined, message) != null;
+    if (
+      category === 'script' ||
+      category === 'outline' ||
+      category === 'ideas'
+    ) {
+      return this.localNewsService.resolveMarket(undefined, haystack) != null;
     }
     return false;
   }
@@ -989,14 +1036,18 @@ export class ChatService {
   private async buildLocalNewsContext(
     channel: any,
     message: string,
+    conversationText?: string,
   ): Promise<string> {
     try {
       if (!channel?.userId) return '';
+      // Topic: current message stripped of chat chrome. Location hint: message + recent
+      // thread text so resolveMarket can catch cities/counties mentioned in history.
       const topic = this.localNewsService.extractSearchTopic(message);
+      const locationHint = `${message || ''}\n${conversationText || ''}`;
       const pack = await this.localNewsService.findFootagePack({
         userId: channel.userId.toString(),
         topic,
-        locationHint: message,
+        locationHint,
         maxClips: 5,
         maxSeconds: 360,
       });
@@ -1029,7 +1080,8 @@ Hard rules:
 - Never label status "Verified" unless THIS turn's research confirms it. Otherwise: \`UNVERIFIED — confirm docket before publishing\`.
 - Do **not** build a GREENLIGHT package around a guessed legal stage (e.g. "before trial" / "awaiting trial") if you did not verify it this turn.
 - Only list real source URLs you actually saw. If you cannot verify sources: say so. Do **not** write "Sources pending verification" as if the package is production-ready.
-- Today's date is in the context — reject case stages that are older than current reporting.`;
+- Today's date is in the context — reject case stages that are older than current reporting.
+- **LOCAL NEWS / FOOTAGE REQUESTS**: never reply asking the user for the city, county, or federal district when the story or person is named. FIRST search the story (defendant name + case + "guilty plea"/"trial" etc.) to identify the city/county/DMA, the federal district, and the real local affiliates (e.g. Fort Walton Beach/Okaloosa → WJHG, WECP, WKRG, WEAR). Then deliver local clips/stations from that research. Asking for the location is only allowed if search genuinely returns no jurisdiction.`;
   }
 
   /**
@@ -1039,6 +1091,10 @@ Hard rules:
   private detectNeedsResearch(message: string, category?: string): boolean {
     // Performance analysis is metrics-first — never force web search
     if (category === 'analysis') return false;
+
+    // Footage / local-news asks need live research so the model can self-resolve
+    // the story's city/county/market and real local affiliates instead of asking the user.
+    if (this.localNewsService.isFootageRequest(message)) return true;
 
     // Trends, outline, script, thumbnail, ideas, and competitor skills always benefit from current web research
     if (

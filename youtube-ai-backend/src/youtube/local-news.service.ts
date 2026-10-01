@@ -77,7 +77,32 @@ const MARKETS: MarketDef[] = [
     regionCode: 'US',
   },
   {
-    keys: ['miami', 'broward', 'fort lauderdale', 'florida'],
+    // Florida Panhandle — Fort Walton Beach / Okaloosa / Pensacola / Panama City.
+    // MUST come before Miami and must own 'florida' so panhandle stories never
+    // resolve to Miami stations.
+    keys: [
+      'fort walton beach',
+      'okaloosa',
+      'pensacola',
+      'panama city',
+      'destin',
+      'crestview',
+      'niceville',
+      'mary esther',
+      'northwest florida',
+      'northwest florida daily news',
+      'emerald coast',
+      'santa rosa',
+      'escambia',
+      'florida panhandle',
+      'florida',
+    ],
+    label: 'Pensacola / Panama City, FL',
+    stations: ['WEAR', 'WJHG', 'WECP', 'WKRG', 'WMBB', 'WZVN'],
+    regionCode: 'US',
+  },
+  {
+    keys: ['miami', 'broward', 'fort lauderdale', 'dade', 'palm beach'],
     label: 'Miami, FL',
     stations: ['WPLG', 'WTVJ', 'WSVN', 'WFOR'],
     regionCode: 'US',
@@ -120,6 +145,24 @@ const MARKETS: MarketDef[] = [
   },
 ];
 
+/**
+ * State-level catch-all keys: tier 0 in resolveMarket. Any city/county key
+ * (tier 1) beats them, so "Dallas, Texas" → Dallas (not Houston) and
+ * "Miami, Florida" → Miami (not the 'florida' panhandle fallback).
+ */
+const GENERIC_STATE_KEYS = new Set([
+  'florida',
+  'louisiana',
+  'texas',
+  'illinois',
+  'georgia',
+  'maryland',
+  'pennsylvania',
+  'nevada',
+  'tennessee',
+  'missouri',
+]);
+
 const MAX_CLIPS_DEFAULT = 5;
 const MAX_SECONDS_DEFAULT = 360; // 6 minutes — more usable local B-roll than 4 min
 const SEARCH_LOOKBACK_DAYS = 730; // allow older local archive for footage
@@ -133,14 +176,43 @@ export class LocalNewsService {
     private readonly quotaService: QuotaService,
   ) {}
 
-  /** Resolve a free-text location / story to a known local market. */
+  /**
+   * Resolve a free-text location / story to a known local market.
+   * Priority: any city/county key beats state-level catch-all keys (tier),
+   * then longest key wins, then array order. So:
+   * - "Miami, Florida" → Miami ('miami' city key beats 'florida' state key)
+   * - "Fort Walton Beach, Florida" → Panhandle ('fort walton beach' beats 'florida')
+   * - "Florida man fentanyl" (no city) → Panhandle (first market owning 'florida')
+   */
   resolveMarket(locationHint?: string, topic?: string): MarketDef | null {
     const hay = `${locationHint || ''} ${topic || ''}`.toLowerCase();
     if (!hay.trim()) return null;
-    for (const market of MARKETS) {
-      if (market.keys.some((k) => hay.includes(k))) return market;
-    }
-    return null;
+    let best: {
+      market: MarketDef;
+      tier: number;
+      keyLen: number;
+      order: number;
+    } | null = null;
+    MARKETS.forEach((market, order) => {
+      for (const key of market.keys) {
+        if (!hay.includes(key)) continue;
+        const candidate = {
+          market,
+          tier: GENERIC_STATE_KEYS.has(key) ? 0 : 1,
+          keyLen: key.length,
+          order,
+        };
+        const beats =
+          !best ||
+          candidate.tier > best.tier ||
+          (candidate.tier === best.tier &&
+            (candidate.keyLen > best.keyLen ||
+              (candidate.keyLen === best.keyLen &&
+                candidate.order < best.order)));
+        if (beats) best = candidate;
+      }
+    });
+    return best ? (best as { market: MarketDef }).market : null;
   }
 
   /** True when the client is asking for footage / local news clips. */

@@ -680,7 +680,7 @@ C. [Third option]
 **Text overlay:** [What text to put on screen]
 
 ## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
-If LOCAL NEWS FOOTAGE PACK is in context: lead §17 with those real local clips (station B-roll the client can collect), then add 2–3 national/court sources. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. Each YouTube URL EXACTLY ONCE on the title link line only:
+If LOCAL NEWS FOOTAGE PACK is in context: lead §17 with those real local clips (station B-roll the client can collect), then add 2–3 national/court sources. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. NEVER list this channel's own videos (Unique Mecca Audio uploads) as sources — they are not collectible B-roll. Do NOT pad with competitor commentary/explainer videos. SCENE / TIMESTAMP must be a real range (e.g. "0:45–1:15") or "full clip" — NEVER "Review manually" or other placeholders. If local coverage is thin, write "Local coverage thin — use courthouse/agency B-roll". Each YouTube URL EXACTLY ONCE on the title link line only:
 1. [Channel Name: Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
    - Scene / Timestamp: [e.g. 0:45–1:15]
    - How to Use: [e.g. Overlay B-roll at Section 2]
@@ -696,7 +696,7 @@ If LOCAL NEWS FOOTAGE PACK is in context: lead §17 with those real local clips 
 IMPORTANT RULES:
 - TIMING & DURATION: Script pacing MUST target 9 to 14 minutes (approx. 1,300 to 1,900 words spoken at ~140 WPM) unless the user explicitly requests a different duration.
 - REVISIONS: If the user asks to rewrite, edit, or adjust a specific section or the script (e.g. "make it more breathable"), output ONLY the revised spoken script beats. DO NOT regenerate Sections 1–7 or metadata unless requested. Apply the spoken line contract: keep gray rails and breath blocks; split long essay rails into short speakable lines inside the same block; do not isolate every sentence; keep facts/legal points; style stays dynamic.
-- PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link.
+- PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link. NEVER list this channel's own videos as sources. No competitor explainer padding. Real timestamps or "full clip" only — never "Review manually".
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
 - Label the legal status of any case (Arrested, Charged, Indictmented, Convicted, Sentenced, etc.)
 - Use "allegedly" and "reportedly" for unconfirmed claims

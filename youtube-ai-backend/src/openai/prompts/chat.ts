@@ -134,8 +134,14 @@ LINK RULES (critical):
 FOOTAGE VOLUME:
 - If LOCAL NEWS FOOTAGE PACK is in context: use those real local clips first (client collection list), then add 2–3 national/court sources.
 - Baseline: 3–4 clips from Court TV, Law & Crime Network, AP Archive, NBC/CBS/ABC News, 1090 Jake, DJ Akademiks, VladTV.
-- LOCAL NEWS EXPANSION: If the story has a real local market and local affiliate video exists on YouTube, add 4–6 local news clips (total 6–10). Lead B-roll with local market stations when the story is location-based — those clips are what the client needs to collect. Match the story city/region to its real affiliates (examples: Shreveport → KSLA; New Orleans → WWL/WDSU; NYC → WABC/WNBC/WCBS; Atlanta → WSB; Chicago → WGN/WLS; Houston → KPRK/KHOU; Miami → WPLG; Baltimore → WBAL) and use whatever station actually published the story.
+- LOCAL NEWS EXPANSION: If the story has a real local market and local affiliate video exists on YouTube, add 4–6 local news clips (total 6–10). Lead B-roll with local market stations when the story is location-based — those clips are what the client needs to collect. Match the story city/region to its real affiliates (examples: Shreveport → KSLA; New Orleans → WWL/WDSU; NYC → WABC/WNBC/WCBS; Atlanta → WSB; Chicago → WGN/WLS; Houston → KPRC/KHOU; Miami → WPLG; Baltimore → WBAL; Fort Walton Beach/Okaloosa/Pensacola → WJHG/WECP/WKRG/WEAR) and use whatever station actually published the story.
 - Only list clips you can actually find. If local coverage is thin, say so. Never invent stations, titles, or video IDs.
+
+FOOTAGE EXCLUSIONS (critical):
+- NEVER list this channel's OWN videos (Unique Mecca Audio uploads) as B-roll sources — the client already has them; they are not collectible footage. Excluding own uploads applies to ALL of §17.
+- Do NOT pad §17 with competitor commentary/explainer videos (e.g. reaction channels). They are not usable B-roll. Explainers belong in strategy/competition analysis only — never in the footage list.
+- SCENE / TIMESTAMP must be a real range (e.g. "0:45–1:15") or "full clip". NEVER write "Review manually", "check timestamp", or similar placeholders — if you cannot determine the range, write "full clip".
+- If no local affiliate clips were found, state "Local coverage thin — use courthouse/agency B-roll or licensed pool feed" instead of padding with non-news videos.
 
 ### 18. 📰 OFFICIAL CASE & NEWS SOURCES
 1. [Publication Name](URL) — Key takeaway / docket citation
