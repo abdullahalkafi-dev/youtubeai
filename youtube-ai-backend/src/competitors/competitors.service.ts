@@ -293,6 +293,15 @@ export class CompetitorsService {
           publishedAfter: new Date(Date.now() - 365 * 24 * 60 * 60 * 1000),
           maxResults: 5,
         });
+        // One log row PER search.list query — the "x/100 calls" counter must count
+        // calls, not saved competitors (queries returning nothing still bill Google).
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'search.list (discoverCompetitors)',
+          quotaCost: 100,
+          success: true,
+          relatedId: query,
+        });
 
         for (const result of results) {
           // Get channel info from video result
@@ -306,6 +315,14 @@ export class CompetitorsService {
         }
       } catch (error) {
         this.logger.warn(`Search failed for "${query}": ${error.message}`);
+        await this.quotaService.logCall({
+          channelId,
+          endpoint: 'search.list (discoverCompetitors)',
+          quotaCost: 100,
+          success: false,
+          errorMessage: error.message,
+          relatedId: query,
+        });
       }
     }
 
@@ -342,13 +359,6 @@ export class CompetitorsService {
     this.logger.log(
       `Discovered ${newCompetitors.length} new competitors for channel ${channelId}`,
     );
-
-    await this.quotaService.logCall({
-      channelId,
-      endpoint: 'search.list (discoverCompetitors)',
-      quotaCost: 400,
-      success: true,
-    });
 
     return newCompetitors;
   }

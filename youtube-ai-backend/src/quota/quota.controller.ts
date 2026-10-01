@@ -12,9 +12,11 @@ export class QuotaController {
   async getDailyUsage(@Param('channelId') channelId: string) {
     const data = await this.quotaService.getDailyUsage(channelId);
     const comments = await this.quotaService.getCommentsDailyUsage(channelId);
+    const search = await this.quotaService.getSearchDailyUsage(channelId);
     return {
       ...data,
       comments,
+      search,
       commentsBudgetExhausted: this.quotaService.isCommentsBudgetExhausted(),
       dataApiExhausted: this.quotaService.isDataApiExhausted(),
     };

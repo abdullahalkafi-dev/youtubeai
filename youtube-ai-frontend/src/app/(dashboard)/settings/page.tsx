@@ -288,7 +288,23 @@ export default function SettingsPage() {
                       style={{ width: `${percentage}%` }}
                     />
                   </div>
-                  <p className="text-[10px] text-gray-400 mt-1">Resets at midnight Pacific Time</p>
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Resets at midnight Pacific Time · Self-tracked estimate — search queries count against Google&apos;s separate 100-calls/day bucket, not the 10,000 units
+                  </p>
+                  {usage.search && (
+                    <div className="flex justify-between text-xs bg-gray-50 dark:bg-gray-800 rounded-lg px-2.5 py-2 mt-2">
+                      <span className="font-medium text-gray-700 dark:text-gray-300">Search queries</span>
+                      <span
+                        className={
+                          usage.search.used >= usage.search.limit
+                            ? 'text-red-500 font-semibold'
+                            : 'text-gray-700 dark:text-gray-300'
+                        }
+                      >
+                        {usage.search.used} / {usage.search.limit} calls
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Breakdown by Endpoint */}

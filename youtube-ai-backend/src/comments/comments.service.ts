@@ -16,8 +16,8 @@ import {
 } from '../automation/automation.constants';
 import { QuotaExceededException } from '../quota/quota.service';
 
-const QUOTA_COST_COMMENT_THREADS = 2;
-const QUOTA_COST_COMMENT_REPLIES = 2;
+const QUOTA_COST_COMMENT_THREADS = 1; // official YouTube quota: commentThreads.list = 1 unit
+const QUOTA_COST_COMMENT_REPLIES = 1; // official YouTube quota: comments.list = 1 unit
 
 function isBudgetOrQuotaStop(err: any): boolean {
   if (err instanceof QuotaExceededException) return true;
@@ -706,7 +706,7 @@ ${JSON.stringify(
     const seenTargetIds = new Set<string>();
     /**
      * Hard budget: max comments.list calls for nested crawl this run.
-     * 12 is still tiny vs 4500/day comments wall (12 × 96 runs worst-case ≈ 1.1k list units).
+     * 12 is still tiny vs the 5500/day comments wall (12 × 96 runs worst-case ≈ 576 list units at 1 unit/call).
      */
     let nestedListBudget = 12;
     let quotaStalled = false;
@@ -735,12 +735,12 @@ ${JSON.stringify(
       if (shouldList && nestedListBudget > 0) {
         nestedListBudget--;
         try {
-          await this.quotaService.checkCommentsBudget(channelId, 'comments.list (auto-mention)', 2);
+          await this.quotaService.checkCommentsBudget(channelId, 'comments.list (auto-mention)', 1);
           const listed = await this.youtubeService.listAllCommentReplies(accessToken!, parentId, 40);
           await this.quotaService.logCall({
             channelId,
             endpoint: 'comments.list (auto-mention)',
-            quotaCost: 2,
+            quotaCost: 1,
             relatedId: parentId,
           });
           // Merge seed + listed so embedded mentions are never lost

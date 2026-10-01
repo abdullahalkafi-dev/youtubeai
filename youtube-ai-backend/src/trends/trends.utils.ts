@@ -37,7 +37,11 @@ export class SearchListQuotaCounter {
   }
 
   private getTodayString(): string {
-    return new Date().toISOString().split('T')[0];
+    // Pacific Time day window — matches Google's midnight-PT quota reset
+    // (UTC date reset ~7-8h off Google's window).
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Los_Angeles' }).format(
+      new Date(),
+    );
   }
 
   private async ensureTodayRow(): Promise<{ callCount: number; limit: number }> {

@@ -75,6 +75,17 @@ export class QuotaService {
   }
 
   /**
+   * search.list family — Google meters these on a SEPARATE 100-calls/day bucket
+   * (console row "Search Queries per day"), NOT against the 10,000 units/day.
+   * Matches: 'search.list (...)', 'refreshTrends (search.list)', 'refreshTrendsLite (search)'.
+   */
+  private isSearchEndpoint(endpoint: string): boolean {
+    return /search\.list|\(search\)/i.test(String(endpoint || ''));
+  }
+
+  private readonly SEARCH_DAILY_CALL_LIMIT = 100;
+
+  /**
    * Pre-check: verify quota is available before making a YouTube API call.
    * Throws QuotaExceededException if over limit.
    */
@@ -84,6 +95,18 @@ export class QuotaService {
     }
     if (this.isCommentEndpoint(endpoint)) {
       await this.checkCommentsBudget(channelId, endpoint, cost);
+      return;
+    }
+    if (this.isSearchEndpoint(endpoint)) {
+      // Separate Google bucket: 100 search.list CALLS/day (not units of the 10k)
+      const search = await this.getSearchDailyUsage(channelId);
+      const calls = Math.max(1, Math.ceil(cost / 100));
+      if (search.used + calls > search.limit) {
+        this.logger.warn(
+          `Search query check failed: ${search.used}/${search.limit} calls used, ${endpoint} needs ${calls}`,
+        );
+        throw new QuotaExceededException(search.used, search.limit, endpoint, calls, 'data_api');
+      }
       return;
     }
     const { used } = await this.getDailyUsage(channelId);
@@ -214,12 +237,14 @@ export class QuotaService {
       : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
 
     // Strictly exclude 'youtube_analytics' so Analytics queries NEVER count against the 10,000 Data API daily limit!
+    // Also exclude search.list family — Google meters those on the separate 100-calls/day bucket.
     const breakdown = await model.aggregate([
       {
         $match: {
           ...channelMatch,
           calledAt: { $gte: ptMidnight },
           apiType: { $ne: 'youtube_analytics' },
+          endpoint: { $not: /search\.list|\(search\)/ },
         },
       },
       { $group: { _id: '$endpoint', total: { $sum: '$quotaCost' } } },
@@ -232,6 +257,28 @@ export class QuotaService {
     }
 
     return { used, limit: this.YOUTUBE_DAILY_LIMIT, breakdown: breakdownMap };
+  }
+
+  /**
+   * search.list CALLS made today (PT day window — matches Google's midnight-PT reset).
+   * One logCall row = one search query. Google's own bucket: 100 calls/day.
+   */
+  async getSearchDailyUsage(channelId: string) {
+    const ptMidnight = this.getPTMidnight();
+    const model = this.channelModel.db.model('ApiQuotaLog') as any;
+    const isObjId = Types.ObjectId.isValid(channelId);
+    const cId = isObjId ? new Types.ObjectId(channelId) : null;
+    const channelMatch = cId
+      ? { $or: [{ channelId: cId }, { channelId }] }
+      : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
+
+    const used = await model.countDocuments({
+      ...channelMatch,
+      calledAt: { $gte: ptMidnight },
+      endpoint: /search\.list|\(search\)/,
+    });
+
+    return { used, limit: this.SEARCH_DAILY_CALL_LIMIT };
   }
 
   /** Sum of comment-related Data API units today (list + insert). */
