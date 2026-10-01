@@ -28,7 +28,7 @@ export default function SettingsPage() {
     (c) => c.id === channelId || (c as any)._id === channelId,
   )
 
-  const [dailyUpdateCap, setDailyUpdateCap] = useState<number>(50)
+  const [dailyUpdateCap, setDailyUpdateCap] = useState<number>(35)
   const [autoPauseAtLimit, setAutoPauseAtLimit] = useState<boolean>(true)
   const [autoResumeAtMidnight, setAutoResumeAtMidnight] = useState<boolean>(true)
   const [savingSettings, setSavingSettings] = useState(false)
@@ -43,7 +43,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (activeChannel?.seoSettings) {
-      setDailyUpdateCap(activeChannel.seoSettings.dailyUpdateCap || 50)
+      setDailyUpdateCap(activeChannel.seoSettings.dailyUpdateCap || 35)
       setAutoPauseAtLimit(activeChannel.seoSettings.autoPauseAtLimit ?? true)
       setAutoResumeAtMidnight(activeChannel.seoSettings.autoResumeAtMidnight ?? true)
     }
@@ -195,12 +195,12 @@ export default function SettingsPage() {
                 <Input
                   type="number"
                   min={1}
-                  max={50}
+                  max={35}
                   value={dailyUpdateCap}
                   onChange={(e) => setDailyUpdateCap(Number(e.target.value))}
                   className="bg-gray-50 dark:bg-gray-800 text-sm font-semibold text-gray-900 dark:text-white"
                 />
-                <p className="text-xs text-gray-400 mt-1">Number of videos optimized per daily morning batch (1–50)</p>
+                <p className="text-xs text-gray-400 mt-1">Number of videos optimized per daily morning batch (1–35)</p>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium block mb-1.5">Morning Schedule</label>
