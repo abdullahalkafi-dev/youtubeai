@@ -219,6 +219,90 @@ describe('Phase 2c — loadFootagePack triggers', () => {
     expect(localSpy).toHaveBeenCalledTimes(1);
     expect(pack?.kind).toBe('local');
   });
+
+  it('script follow-up "give me script for this" resolves the subject from thread context (topic pack, not local)', async () => {
+    localSpy.mockResolvedValue(makePack([clip('local1')], 'local')); // must NOT win
+    const pack = await load(
+      'give me script for this',
+      'script',
+      true,
+      '## Best Next Post: **Rihanna Home Shooting — The Competency Question Is Over**\n\nOur Los Angeles market story keeps developing.',
+      ['Some unrelated trend'],
+    );
+    expect(topicSpy).toHaveBeenCalledTimes(1);
+    expect(topicSpy.mock.calls[0][0].topic).toContain('Rihanna Home Shooting');
+    expect(localSpy).not.toHaveBeenCalled();
+    expect(pack?.kind).toBe('topic');
+    expect(host.logger.log).toHaveBeenCalledWith(
+      expect.stringContaining('[FootagePack]'),
+    );
+  });
+
+  it('anaphoric footage ask "give me clips for the script" uses the thread subject', async () => {
+    localSpy.mockResolvedValue(makePack([clip('local1')], 'local'));
+    const pack = await load(
+      'give me clips for the script',
+      'general',
+      true,
+      '## Best Next Post: **Rihanna Home Shooting — Competency Ruling**\nLos Angeles coverage.',
+    );
+    expect(topicSpy.mock.calls[0][0].topic).toContain('Rihanna Home Shooting');
+    expect(localSpy).not.toHaveBeenCalled();
+    expect(pack?.kind).toBe('topic');
+  });
+
+  it('story subject with empty coverage renders thin — never generic local clips', async () => {
+    localSpy.mockResolvedValue(makePack([clip('local1')], 'local'));
+    topicSpy.mockResolvedValue(makePack([], 'topic'));
+    const pack = await load(
+      'give me script for this',
+      'script',
+      true,
+      '## Best Next Post: **Ghost Story Nobody Covered**\nLos Angeles.',
+    );
+    expect(localSpy).not.toHaveBeenCalled();
+    expect(pack).not.toBeNull();
+    expect(pack?.clips.length).toBe(0);
+  });
+
+  it('fresh Rule-0 recommendation ask uses trends, not the previous proposal', async () => {
+    const pack = await load(
+      'What should I post next? Give me 1 strong topic suggestion with a title and a thumbnail package.',
+      'general',
+      true,
+      '## Best Next Post: **Old Rihanna Proposal**',
+      ['Fresh Trend Topic'],
+    );
+    expect(topicSpy.mock.calls[0][0].topic).toContain('Fresh Trend Topic');
+    expect(pack).not.toBeNull();
+  });
+});
+
+describe('extractContextTopic — thread proposal heading parsing', () => {
+  const h = Object.create(ChatService.prototype) as {
+    extractContextTopic(t: string): string | null;
+  };
+
+  it('parses the latest heading and trims the caption tail at the dash', () => {
+    expect(
+      h.extractContextTopic(
+        'noise\n## Best Next Post: **Rihanna Home Shooting — The Competency Question Is Over**',
+      ),
+    ).toBe('Rihanna Home Shooting');
+  });
+
+  it('takes the LAST heading when the thread has several', () => {
+    expect(
+      h.extractContextTopic(
+        '## Best Next Post: **First Old Topic**\nbody\n### Best Next Post: **Second New Topic**',
+      ),
+    ).toBe('Second New Topic');
+  });
+
+  it('returns null without a proposal heading', () => {
+    expect(h.extractContextTopic('no heading here')).toBeNull();
+    expect(h.extractContextTopic('')).toBeNull();
+  });
 });
 
 describe('prompt contracts (Phase 1c + 2d)', () => {

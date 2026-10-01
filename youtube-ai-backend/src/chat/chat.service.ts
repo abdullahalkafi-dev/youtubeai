@@ -1437,11 +1437,13 @@ export class ChatService {
 
   /**
    * Load a footage pack for this message (Phase 2 lite).
-   * - Local market pack: explicit footage ask OR script/outline/ideas topic
-   *   request with a market in message+thread text (market takes precedence).
-   * - Topic pack (marketless, search-first): explicit footage ask, OR a
-   *   research-backed content request (general/ideas/script/outline) that names
-   *   an entity — trivial chats never spend a search call.
+   * - Topic resolution: message entity → stripped footage phrasing → the
+   *   thread's established subject ("script for this" follow-ups) → top trend
+   *   (Rule-0 recommendation asks only).
+   * - Precedence: a subject the USER named → local market pack first when a
+   *   market resolves (market-story asks). A subject taken from the thread or
+   *   trends is story-specific → topic pack ONLY (never generic local clips);
+   *   empty coverage renders the honest thin note.
    * Returns null when nothing should load (behavior identical to pre-pack).
    */
   private async loadFootagePack(
@@ -1465,16 +1467,43 @@ export class ChatService {
       const wantsLocal = wantsFootage || (topicCat && marketResolved);
 
       // Topic resolution: explicit footage ask → stripped phrasing; entity-bearing
-      // message → entity window; Rule-0 recommendation ask (names no subject) →
-      // top trending topic (what the model will recommend from anyway).
+      // message → entity window; follow-up anaphora ("script for this") → the
+      // thread's established subject; Rule-0 recommendation ask → top trend.
       const topicRecAsk =
         topicCat &&
         /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
           message,
         );
       let topic = this.extractEntityTopic(message);
+      let topicSrc:
+        | 'message'
+        | 'message-search'
+        | 'conversation-heading'
+        | 'trends'
+        | 'none' = topic ? 'message' : 'none';
       if (!topic && wantsFootage) {
-        topic = this.localNewsService.extractSearchTopic(message);
+        const stripped = this.localNewsService.extractSearchTopic(message);
+        if (stripped) {
+          topic = stripped;
+          topicSrc = 'message-search';
+        }
+      }
+      // "give me script for this" / "clips for the script" name no subject —
+      // the client never restates it; take it from the thread's last proposal.
+      const anaphoric =
+        !topic ||
+        /^(?:this|that|it|the\s+(?:script|video|post|story|case|clip|clips|one|thing))\s*$/i.test(
+          topic,
+        );
+      if (anaphoric && !topicRecAsk) {
+        const ctx = this.extractContextTopic(conversationText);
+        if (ctx) {
+          topic = ctx;
+          topicSrc = 'conversation-heading';
+        } else if (topic && anaphoric && topic !== '') {
+          topic = ''; // junk subject ("the script") — never search for it
+          topicSrc = 'none';
+        }
       }
       let topicFromTrends = false;
       if (!topic && topicRecAsk && needsResearch) {
@@ -1482,16 +1511,28 @@ export class ChatService {
         if (trend) {
           topic = trend.trim().slice(0, 120);
           topicFromTrends = true;
+          topicSrc = 'trends';
         }
       }
 
       const wantsTopic = wantsFootage || (topicCat && needsResearch && !!topic);
-      if (!wantsLocal && !wantsTopic) return null;
+      if (!wantsLocal && !wantsTopic) {
+        this.logger.log(
+          `[FootagePack] cat=${category} skip: no market and no subject`,
+        );
+        return null;
+      }
 
+      // Precedence: only a user-named (or absent) subject may rank the local
+      // market pack first; thread/trend subjects are story-specific.
+      const localFirst =
+        topicSrc === 'none' ||
+        topicSrc === 'message' ||
+        topicSrc === 'message-search';
       let pack: LocalScenePack | null = null;
 
-      // 1) Local market pack — precedence when a market resolves.
-      if (wantsLocal && marketResolved) {
+      // 1) Local market pack — market-story asks (user-named subject or bare).
+      if (wantsLocal && marketResolved && localFirst) {
         pack = await this.localNewsService.findFootagePack({
           userId: channel.userId.toString(),
           topic: this.localNewsService.extractSearchTopic(message),
@@ -1501,8 +1542,13 @@ export class ChatService {
         });
       }
 
-      // 2) Marketless topic pack — when no local pack or the local pack is empty.
-      if ((!pack || pack.clips.length === 0) && wantsTopic && topic) {
+      // 2) Topic pack — always for thread/trend subjects; for user-named
+      //    subjects only when the local pack is absent or empty.
+      const runTopicPack =
+        wantsTopic &&
+        !!topic &&
+        (!localFirst || !pack || pack.clips.length === 0);
+      if (runTopicPack && topic) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
         // Trend-derived topics are a ranked list and the top story can have
         // zero allowlisted coverage — walk down (3-word dup guard, ≤3 tries).
@@ -1545,6 +1591,14 @@ export class ChatService {
         if (thin && !pack) pack = thin;
       }
 
+      this.logger.log(
+        `[FootagePack] cat=${category} src=${topicSrc} ` +
+          `topic=${topic ? JSON.stringify(String(topic).slice(0, 60)) : 'none'} ` +
+          `market=${marketResolved ? 'yes' : 'no'} → ` +
+          (pack
+            ? `${pack.kind || 'unknown'}(${pack.clips.length} clips)`
+            : 'none'),
+      );
       return pack;
     } catch (err: any) {
       this.logger.warn(`Footage pack failed: ${err?.message || err}`);
@@ -1590,6 +1644,29 @@ export class ChatService {
     if (words.length < 2) return null;
     if (words.length > 10) topic = words.slice(0, 10).join(' ');
     return topic || null;
+  }
+
+  /**
+   * The subject a follow-up like "script for this" refers back to: the thread's
+   * latest proposal heading, e.g.
+   * "## Best Next Post: **Rihanna Home Shooting — The Competency Question…**"
+   * → "Rihanna Home Shooting" (caption tail after the dash dropped; the short
+   * core is what newsroom search matches on).
+   */
+  private extractContextTopic(conversationText: string): string | null {
+    const text = conversationText || '';
+    if (!text) return null;
+    const matches = [
+      ...text.matchAll(/^#{0,3}\s*best next post[:* ]+\**([^*\n]{3,90})/gim),
+    ];
+    if (!matches.length) return null;
+    const raw = matches[matches.length - 1][1];
+    const subject = raw
+      .split(/\s+[—–-]\s+/)[0]
+      .split(/[:,]/)[0]
+      .replace(/\*\*/g, '')
+      .trim();
+    return subject.length >= 3 ? subject.slice(0, 120) : null;
   }
 
   /**
