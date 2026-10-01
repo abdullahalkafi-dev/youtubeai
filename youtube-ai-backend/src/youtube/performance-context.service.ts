@@ -18,7 +18,12 @@ export interface PerformanceBundleText {
     revenue: number;
   }>;
   trafficSources?: Array<{ source: string; views: number }>;
-  summary?: { views: number; watchTimeHours: number; revenue: number; retentionPercent: number };
+  summary?: {
+    views: number;
+    watchTimeHours: number;
+    revenue: number;
+    retentionPercent: number;
+  };
   /** When set, chat should run Autopsy + Repackage Kit format. */
   mode?: 'autopsy' | 'public';
 }
@@ -36,12 +41,15 @@ export class PerformanceContextService {
     private readonly youtubeService: YouTubeService,
     private readonly reporting: YoutubeReportingService,
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
-    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(Channel.name)
+    private readonly channelModel: Model<ChannelDocument>,
   ) {}
 
   private dateWindow(days: number) {
     const endDate = new Date().toISOString().split('T')[0];
-    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000)
+      .toISOString()
+      .split('T')[0];
     return { startDate, endDate };
   }
 
@@ -56,19 +64,45 @@ export class PerformanceContextService {
     try {
       const channel = await this.channelModel.findById(channelId).lean();
       if (!channel?.youtubeChannelId || !channel.userId) {
-        return { text: 'YOUTUBE ANALYTICS: unavailable (channel not linked).', ok: false };
+        return {
+          text: 'YOUTUBE ANALYTICS: unavailable (channel not linked).',
+          ok: false,
+        };
       }
 
       const uid = channel.userId.toString();
       const ytChannelId = channel.youtubeChannelId;
       const { startDate, endDate } = this.dateWindow(days);
 
-      const [trafficSources, topVideos, searchTerms, audience] = await Promise.all([
-        this.analytics.getTrafficSources(uid, ytChannelId, startDate, endDate),
-        this.analytics.getTopVideosByWatchTime(uid, ytChannelId, startDate, endDate, 8),
-        this.analytics.getTopSearchTerms(uid, ytChannelId, startDate, endDate, 8),
-        this.analytics.getAudienceBreakdown(uid, ytChannelId, startDate, endDate),
-      ]);
+      const [trafficSources, topVideos, searchTerms, audience] =
+        await Promise.all([
+          this.analytics.getTrafficSources(
+            uid,
+            ytChannelId,
+            startDate,
+            endDate,
+          ),
+          this.analytics.getTopVideosByWatchTime(
+            uid,
+            ytChannelId,
+            startDate,
+            endDate,
+            8,
+          ),
+          this.analytics.getTopSearchTerms(
+            uid,
+            ytChannelId,
+            startDate,
+            endDate,
+            8,
+          ),
+          this.analytics.getAudienceBreakdown(
+            uid,
+            ytChannelId,
+            startDate,
+            endDate,
+          ),
+        ]);
 
       if (!trafficSources.length && !topVideos.length) {
         return {
@@ -78,7 +112,9 @@ export class PerformanceContextService {
       }
 
       const lines: string[] = [];
-      lines.push(`YOUTUBE ANALYTICS — this channel (last ${days} days: ${startDate} → ${endDate})`);
+      lines.push(
+        `YOUTUBE ANALYTICS — this channel (last ${days} days: ${startDate} → ${endDate})`,
+      );
       lines.push(
         'This is owned channel performance from the YouTube Analytics API (not raw viewer watch history). Use it for strategy and ideas. Never claim you cannot see channel performance when this block is present.',
       );
@@ -100,7 +136,10 @@ export class PerformanceContextService {
         lines.push(
           trafficSources
             .slice(0, 8)
-            .map((t) => `- ${t.source}: ${t.views.toLocaleString()} views, ${Math.round(t.watchMinutes).toLocaleString()} min`)
+            .map(
+              (t) =>
+                `- ${t.source}: ${t.views.toLocaleString()} views, ${Math.round(t.watchMinutes).toLocaleString()} min`,
+            )
             .join('\n'),
         );
       } else {
@@ -110,10 +149,19 @@ export class PerformanceContextService {
       if (searchTerms.length) {
         lines.push('');
         lines.push('TOP YOUTUBE SEARCH TERMS:');
-        lines.push(searchTerms.map((s) => `- "${s.term}" (${s.views.toLocaleString()} views)`).join('\n'));
+        lines.push(
+          searchTerms
+            .map((s) => `- "${s.term}" (${s.views.toLocaleString()} views)`)
+            .join('\n'),
+        );
       }
 
-      if (audience.ageGroups.length || audience.genders.length || audience.countries.length || audience.subscribed.length) {
+      if (
+        audience.ageGroups.length ||
+        audience.genders.length ||
+        audience.countries.length ||
+        audience.subscribed.length
+      ) {
         lines.push('');
         lines.push('AUDIENCE (estimated, logged-in where available):');
         if (audience.ageGroups.length) {
@@ -122,10 +170,14 @@ export class PerformanceContextService {
           );
         }
         if (audience.genders.length) {
-          lines.push(`Gender: ${audience.genders.map((g) => `${g.gender} ${g.views.toLocaleString()}`).join(' | ')}`);
+          lines.push(
+            `Gender: ${audience.genders.map((g) => `${g.gender} ${g.views.toLocaleString()}`).join(' | ')}`,
+          );
         }
         if (audience.countries.length) {
-          lines.push(`Top countries: ${audience.countries.map((c) => `${c.country} ${c.views.toLocaleString()}`).join(' | ')}`);
+          lines.push(
+            `Top countries: ${audience.countries.map((c) => `${c.country} ${c.views.toLocaleString()}`).join(' | ')}`,
+          );
         }
         if (audience.subscribed.length) {
           lines.push(
@@ -149,19 +201,31 @@ export class PerformanceContextService {
           retentionPercent: v.retentionPercent,
           revenue: v.revenue,
         })),
-        trafficSources: trafficSources.slice(0, 8).map((t) => ({ source: t.source, views: t.views })),
+        trafficSources: trafficSources
+          .slice(0, 8)
+          .map((t) => ({ source: t.source, views: t.views })),
         summary: {
           views: trafficSources.reduce((s, t) => s + (t.views || 0), 0),
-          watchTimeHours: Math.round(trafficSources.reduce((s, t) => s + (t.watchMinutes || 0), 0) / 60),
-          revenue: Math.round(topVideos.reduce((s, v) => s + (v.revenue || 0), 0) * 100) / 100,
+          watchTimeHours: Math.round(
+            trafficSources.reduce((s, t) => s + (t.watchMinutes || 0), 0) / 60,
+          ),
+          revenue:
+            Math.round(
+              topVideos.reduce((s, v) => s + (v.revenue || 0), 0) * 100,
+            ) / 100,
           retentionPercent:
             topVideos.length > 0
-              ? Math.round(topVideos.reduce((s, v) => s + (v.retentionPercent || 0), 0) / topVideos.length)
+              ? Math.round(
+                  topVideos.reduce((s, v) => s + (v.retentionPercent || 0), 0) /
+                    topVideos.length,
+                )
               : 0,
         },
       };
     } catch (err: any) {
-      this.logger.warn(`Channel performance context failed: ${err?.message || err}`);
+      this.logger.warn(
+        `Channel performance context failed: ${err?.message || err}`,
+      );
       return {
         text: 'YOUTUBE ANALYTICS: temporarily unavailable. Say data is limited; do not pretend Studio access; still use EXISTING VIDEOS and trends.',
         ok: false,
@@ -195,23 +259,33 @@ export class PerformanceContextService {
     const ytId = String(youtubeVideoId || '').trim();
     if (!/^[A-Za-z0-9_-]{11}$/.test(ytId)) return null;
 
-    const cId = channelId as any;
+    const cId = Types.ObjectId.isValid(channelId)
+      ? new Types.ObjectId(channelId)
+      : channelId;
     let catalog =
-      (await this.videoModel.findOne({ channelId: cId, youtubeId: ytId }).lean()) ||
-      (await this.videoModel.findOne({ youtubeId: ytId }).lean());
+      (await this.videoModel
+        .findOne({ channelId: cId, youtubeId: ytId })
+        .lean()) || (await this.videoModel.findOne({ youtubeId: ytId }).lean());
 
     const channel = await this.channelModel.findById(channelId).lean();
     const myYtChannelId = channel?.youtubeChannelId || '';
 
     // Always try Data API when catalog is missing OR title looks like a stub
     const catalogTitle = String(catalog?.title || '');
-    const needsApi = !catalog || /^youtube video /i.test(catalogTitle) || catalogTitle.length < 3;
+    const needsApi =
+      !catalog ||
+      /^youtube video /i.test(catalogTitle) ||
+      catalogTitle.length < 3;
 
     if (needsApi && userId) {
       try {
-        const accessToken = await this.youtubeService.getValidAccessToken(userId);
+        const accessToken =
+          await this.youtubeService.getValidAccessToken(userId);
         if (accessToken) {
-          const details = await this.youtubeService.getVideoDetails(accessToken, [ytId]);
+          const details = await this.youtubeService.getVideoDetails(
+            accessToken,
+            [ytId],
+          );
           const d = details.find((x) => x.videoId === ytId) || details[0];
           if (d?.title) {
             const isOwner = Boolean(
@@ -232,7 +306,9 @@ export class PerformanceContextService {
                       durationSeconds: d.durationSeconds,
                       duration: d.duration,
                       thumbnailUrl: d.thumbnailUrl,
-                      publishedAt: d.publishedAt ? new Date(d.publishedAt) : undefined,
+                      publishedAt: d.publishedAt
+                        ? new Date(d.publishedAt)
+                        : undefined,
                     },
                     $setOnInsert: {
                       channelId: cId,
@@ -242,7 +318,9 @@ export class PerformanceContextService {
                   },
                   { upsert: true },
                 );
-              } catch { /* backfill optional */ }
+              } catch {
+                /* backfill optional */
+              }
             }
             return {
               youtubeId: ytId,
@@ -261,7 +339,9 @@ export class PerformanceContextService {
           }
         }
       } catch (err: any) {
-        this.logger.warn(`Video identity API lookup failed for ${ytId}: ${err?.message || err}`);
+        this.logger.warn(
+          `Video identity API lookup failed for ${ytId}: ${err?.message || err}`,
+        );
       }
     }
 
@@ -297,21 +377,37 @@ export class PerformanceContextService {
     channelId: string,
     query: string,
     userId?: string,
-  ): Promise<{ video: any; score: number; identity?: Awaited<ReturnType<PerformanceContextService['resolveVideoIdentity']>> } | null> {
-    const cId = channelId as any;
+  ): Promise<{
+    video: any;
+    score: number;
+    identity?: Awaited<
+      ReturnType<PerformanceContextService['resolveVideoIdentity']>
+    >;
+  } | null> {
+    const cId = Types.ObjectId.isValid(channelId)
+      ? new Types.ObjectId(channelId)
+      : channelId;
     const q = String(query || '');
     if (!q.trim()) return null;
 
     // Explicit YouTube id (11 chars) — ALWAYS win over fuzzy title match
-    const idMatch = q.match(/(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)([A-Za-z0-9_-]{11})/);
+    const idMatch = q.match(
+      /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)([A-Za-z0-9_-]{11})/,
+    );
     if (idMatch && idMatch[1]) {
       const ytId = idMatch[1];
       const identity = userId
         ? await this.resolveVideoIdentity(userId, channelId, ytId)
         : null;
-      const byYt = await this.videoModel.findOne({ channelId: cId, youtubeId: ytId }).lean();
+      const byYt = await this.videoModel
+        .findOne({ channelId: cId, youtubeId: ytId })
+        .lean();
       if (byYt && byYt.title && !/^youtube video /i.test(byYt.title)) {
-        return { video: { ...byYt, ...identity, title: identity?.title || byYt.title }, score: 100, identity };
+        return {
+          video: { ...byYt, ...identity, title: identity?.title || byYt.title },
+          score: 100,
+          identity,
+        };
       }
       // API identity or stub — still lock to this id (never fuzzy-match another title)
       const title = identity?.title || `YouTube video ${ytId}`;
@@ -332,7 +428,46 @@ export class PerformanceContextService {
     const quoted = q.match(/"([^"]{4,120})"/);
     const titleHint = (quoted?.[1] || q).toLowerCase();
 
-    const stop = new Set(['the', 'a', 'an', 'this', 'that', 'video', 'my', 'is', 'how', 'what', 'why', 'are', 'get', 'gets', 'getting', 'views', 'view', 'doing', 'performance', 'analytics', 'for', 'on', 'of', 'and', 'or', 'to', 'in', 'it', 'can', 'you', 'tell', 'about', 'with', 'from', 'last', 'week', 'month', 'today']);
+    const stop = new Set([
+      'the',
+      'a',
+      'an',
+      'this',
+      'that',
+      'video',
+      'my',
+      'is',
+      'how',
+      'what',
+      'why',
+      'are',
+      'get',
+      'gets',
+      'getting',
+      'views',
+      'view',
+      'doing',
+      'performance',
+      'analytics',
+      'for',
+      'on',
+      'of',
+      'and',
+      'or',
+      'to',
+      'in',
+      'it',
+      'can',
+      'you',
+      'tell',
+      'about',
+      'with',
+      'from',
+      'last',
+      'week',
+      'month',
+      'today',
+    ]);
     const tokens = titleHint
       .replace(/[^\w\s]/g, ' ')
       .split(/\s+/)
@@ -342,7 +477,9 @@ export class PerformanceContextService {
 
     const candidates = await this.videoModel
       .find({ channelId: cId, deletedFromYoutube: { $ne: true } })
-      .select('title youtubeId publishedAt viewCount description avgWatchTime retentionPercent')
+      .select(
+        'title youtubeId publishedAt viewCount description avgWatchTime retentionPercent',
+      )
       .sort({ publishedAt: -1 })
       .limit(200)
       .lean();
@@ -364,7 +501,8 @@ export class PerformanceContextService {
           tokenHits++;
         }
       }
-      if (titleHint.length > 8 && title.includes(titleHint.slice(0, 18))) score += 4;
+      if (titleHint.length > 8 && title.includes(titleHint.slice(0, 18)))
+        score += 4;
       // Quoted exact-ish title is a strong signal
       if (quoted?.[1] && title.includes(quoted[1].toLowerCase())) score += 5;
       if (score > bestScore) {
@@ -408,10 +546,15 @@ export class PerformanceContextService {
       }
 
       // Explicit URL id always wins (C3) — never fuzzy-match when a link is present
-      const matched = await this.findVideoFromQuery(channelId, query, uidForLookup);
-      const hasUrlId = /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)[A-Za-z0-9_-]{11}/.test(
-        query || '',
+      const matched = await this.findVideoFromQuery(
+        channelId,
+        query,
+        uidForLookup,
       );
+      const hasUrlId =
+        /(?:v=|youtu\.be\/|\/shorts\/|\/embed\/|\/live\/|\/videos\/)[A-Za-z0-9_-]{11}/.test(
+          query || '',
+        );
       const lowerQ = String(query || '').toLowerCase();
       const saysThisVideo =
         /\b(this|that|the same|current)\s+video\b/.test(lowerQ) &&
@@ -419,7 +562,12 @@ export class PerformanceContextService {
       // Strong title match always wins over the thread's attached video
       if (matched && (hasUrlId || matched.score >= 6)) {
         video = matched.video;
-      } else if (!video?.youtubeId && matched && matched.score >= 6 && !saysThisVideo) {
+      } else if (
+        !video?.youtubeId &&
+        matched &&
+        matched.score >= 6 &&
+        !saysThisVideo
+      ) {
         video = matched.video;
       }
 
@@ -428,11 +576,20 @@ export class PerformanceContextService {
       // Resolve real title / ownership via Data API when stub or foreign
       const identity =
         matched?.identity ||
-        (await this.resolveVideoIdentity(channel.userId?.toString() || '', channelId, video.youtubeId));
+        (await this.resolveVideoIdentity(
+          channel.userId?.toString() || '',
+          channelId,
+          video.youtubeId,
+        ));
       const isOwner = identity?.isOwner ?? true;
-      const realTitle = identity?.title || video.title || `YouTube video ${video.youtubeId}`;
+      const realTitle =
+        identity?.title || video.title || `YouTube video ${video.youtubeId}`;
 
-      if (!identity || identity.source === 'stub' || /^youtube video /i.test(realTitle)) {
+      if (
+        !identity ||
+        identity.source === 'stub' ||
+        /^youtube video /i.test(realTitle)
+      ) {
         return {
           text: [
             'VIDEO IDENTITY: UNRESOLVED',
@@ -450,14 +607,25 @@ export class PerformanceContextService {
       if (!isOwner) {
         // Public / competitor video — no private Analytics
         const lines: string[] = [];
-        lines.push('PUBLIC VIDEO LOOKUP (not this channel — no private Analytics/CTR/impressions)');
+        lines.push(
+          'PUBLIC VIDEO LOOKUP (not this channel — no private Analytics/CTR/impressions)',
+        );
         lines.push(`Title: "${realTitle}"`);
         lines.push(`YouTube ID: ${video.youtubeId}`);
-        if (identity.channelTitle) lines.push(`Channel: ${identity.channelTitle}`);
-        if (identity.publishedAt) lines.push(`Published: ${String(identity.publishedAt).slice(0, 10)}`);
-        if (identity.viewCount != null) lines.push(`Public views: ${Number(identity.viewCount).toLocaleString()}`);
-        if (identity.likeCount != null) lines.push(`Public likes: ${Number(identity.likeCount).toLocaleString()}`);
-        if (identity.durationSeconds) lines.push(`Duration: ${Math.round(identity.durationSeconds)}s`);
+        if (identity.channelTitle)
+          lines.push(`Channel: ${identity.channelTitle}`);
+        if (identity.publishedAt)
+          lines.push(`Published: ${String(identity.publishedAt).slice(0, 10)}`);
+        if (identity.viewCount != null)
+          lines.push(
+            `Public views: ${Number(identity.viewCount).toLocaleString()}`,
+          );
+        if (identity.likeCount != null)
+          lines.push(
+            `Public likes: ${Number(identity.likeCount).toLocaleString()}`,
+          );
+        if (identity.durationSeconds)
+          lines.push(`Duration: ${Math.round(identity.durationSeconds)}s`);
         if (identity.description) {
           lines.push('Description (first 500 chars):');
           lines.push(String(identity.description).slice(0, 500));
@@ -472,7 +640,11 @@ export class PerformanceContextService {
         return { text: lines.join('\n'), ok: true, mode: 'public' as any };
       }
 
-      video = { ...video, title: realTitle, viewCount: identity.viewCount ?? video.viewCount };
+      video = {
+        ...video,
+        title: realTitle,
+        viewCount: identity.viewCount ?? video.viewCount,
+      };
       const titleForPrompt = realTitle;
 
       const uid = channel.userId?.toString();
@@ -481,18 +653,32 @@ export class PerformanceContextService {
       const { startDate, endDate } = this.dateWindow(28);
 
       const [life, window28, traffic] = await Promise.all([
-        this.analytics.getVideoPackagingMetrics(uid, ytChannelId, video.youtubeId).catch(() => null),
+        this.analytics
+          .getVideoPackagingMetrics(uid, ytChannelId, video.youtubeId)
+          .catch(() => null),
         this.analytics
           .getTopVideosByWatchTime(uid, ytChannelId, startDate, endDate, 50)
-          .then((rows) => rows.find((r) => r.videoId === video.youtubeId) || null)
+          .then(
+            (rows) => rows.find((r) => r.videoId === video.youtubeId) || null,
+          )
           .catch(() => null),
         this.analytics
           .getTrafficSources(uid, ytChannelId, startDate, endDate)
-          .catch(() => [] as Array<{ source: string; views: number; watchMinutes: number; subsGained: number }>),
+          .catch(
+            () =>
+              [] as Array<{
+                source: string;
+                views: number;
+                watchMinutes: number;
+                subsGained: number;
+              }>,
+          ),
       ]);
 
       const lines: string[] = [];
-      lines.push('VIDEO PERFORMANCE LOOKUP (YouTube Analytics API + local catalog)');
+      lines.push(
+        'VIDEO PERFORMANCE LOOKUP (YouTube Analytics API + local catalog)',
+      );
       lines.push(`Title: "${titleForPrompt}"`);
       lines.push(`YouTube ID: ${video.youtubeId}`);
       if (identity?.source) lines.push(`Identity source: ${identity.source}`);
@@ -509,18 +695,29 @@ export class PerformanceContextService {
       if (hasUrlId) {
         lines.push('(Locked to the YouTube link in the user message.)');
       } else if (matched && matched.score >= 6) {
-        lines.push('(Matched from your question wording — if you meant a different video, say the exact title.)');
+        lines.push(
+          '(Matched from your question wording — if you meant a different video, say the exact title.)',
+        );
       } else if (videoId) {
         lines.push('(Using the video attached to this chat thread.)');
       }
-      if (video.publishedAt) lines.push(`Published: ${new Date(video.publishedAt).toISOString().split('T')[0]}`);
-      if (video.viewCount !== undefined) lines.push(`Catalog views (synced): ${Number(video.viewCount).toLocaleString()}`);
-      if (video.avgWatchTime) lines.push(`Avg watch (synced sec): ${video.avgWatchTime}`);
-      if (video.retentionPercent) lines.push(`Retention (synced %): ${video.retentionPercent}`);
+      if (video.publishedAt)
+        lines.push(
+          `Published: ${new Date(video.publishedAt).toISOString().split('T')[0]}`,
+        );
+      if (video.viewCount !== undefined)
+        lines.push(
+          `Catalog views (synced): ${Number(video.viewCount).toLocaleString()}`,
+        );
+      if (video.avgWatchTime)
+        lines.push(`Avg watch (synced sec): ${video.avgWatchTime}`);
+      if (video.retentionPercent)
+        lines.push(`Retention (synced %): ${video.retentionPercent}`);
 
       if (life) {
         const ctrStr =
-          life.impressionsClickThroughRate != null && life.impressionsClickThroughRate > 0
+          life.impressionsClickThroughRate != null &&
+          life.impressionsClickThroughRate > 0
             ? ` | CTR ${life.impressionsClickThroughRate.toFixed(1)}%`
             : ' | CTR n/a';
         const impStr =
@@ -541,9 +738,27 @@ export class PerformanceContextService {
       try {
         const { startDate: baseStart, endDate: baseEnd } = this.dateWindow(28);
         const [baseline, packagingRows, reachRows] = await Promise.all([
-          this.analytics.getChannelPackagingBaseline(uid, ytChannelId, baseStart, baseEnd),
-          this.analytics.getVideoPackagingRows(uid, ytChannelId, baseStart, baseEnd, 25),
-          this.reporting.getReachMetrics(uid).catch(() => [] as Array<{ videoId: string; impressions: number; ctr: number }>),
+          this.analytics.getChannelPackagingBaseline(
+            uid,
+            ytChannelId,
+            baseStart,
+            baseEnd,
+          ),
+          this.analytics.getVideoPackagingRows(
+            uid,
+            ytChannelId,
+            baseStart,
+            baseEnd,
+            25,
+          ),
+          this.reporting.getReachMetrics(uid).catch(
+            () =>
+              [] as Array<{
+                videoId: string;
+                impressions: number;
+                ctr: number;
+              }>,
+          ),
         ]);
         // Overlay real CTR/impressions from Reporting API Reach (only official source)
         if (reachRows.length) {
@@ -561,7 +776,9 @@ export class PerformanceContextService {
             life && ((life as any).impressionsClickThroughRate = selfReach.ctr);
           }
           // Channel baseline CTR = impression-weighted mean of positive video CTRs
-          const positive = reachRows.filter((r) => r.ctr > 0 && r.impressions > 0);
+          const positive = reachRows.filter(
+            (r) => r.ctr > 0 && r.impressions > 0,
+          );
           if (positive.length && baseline.impressionsClickThroughRate <= 0) {
             let impSum = 0;
             let ctrWeighted = 0;
@@ -570,8 +787,12 @@ export class PerformanceContextService {
               impSum += imp;
               ctrWeighted += r.ctr * imp;
             }
-            const weighted = impSum > 0 ? ctrWeighted / impSum : positive.reduce((s, r) => s + r.ctr, 0) / positive.length;
-            baseline.impressionsClickThroughRate = Math.round(weighted * 100) / 100;
+            const weighted =
+              impSum > 0
+                ? ctrWeighted / impSum
+                : positive.reduce((s, r) => s + r.ctr, 0) / positive.length;
+            baseline.impressionsClickThroughRate =
+              Math.round(weighted * 100) / 100;
             let impAll = 0;
             for (const r of reachRows) impAll += Number(r.impressions) || 0;
             baseline.impressions = impAll;
@@ -613,11 +834,18 @@ export class PerformanceContextService {
           .filter((r) => r.videoId !== video.youtubeId && r.views > 0)
           .slice(0, 3);
         if (peers.length) {
-          lines.push('SIBLING / RECENT VIDEOS (use these TITLE PATTERNS for the kit):');
+          lines.push(
+            'SIBLING / RECENT VIDEOS (use these TITLE PATTERNS for the kit):',
+          );
           peers.forEach((r, i) => {
             const impPart =
-              r.impressions > 0 ? ` | imp ${Math.round(r.impressions).toLocaleString()}` : '';
-            const ctrPart = r.ctr > 0 ? ` | CTR ${r.ctr.toFixed(1)}%` : ' | CTR not measured yet';
+              r.impressions > 0
+                ? ` | imp ${Math.round(r.impressions).toLocaleString()}`
+                : '';
+            const ctrPart =
+              r.ctr > 0
+                ? ` | CTR ${r.ctr.toFixed(1)}%`
+                : ' | CTR not measured yet';
             lines.push(
               `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views${impPart}${ctrPart} | ${Math.round(r.averageViewPercentage)}% viewed`,
             );
@@ -626,12 +854,18 @@ export class PerformanceContextService {
             'Title pattern to copy: Entity (person/case) + concrete consequence — never abstract category labels.',
           );
         }
-        const selfRow = packagingRows.find((r) => r.videoId === video.youtubeId);
+        const selfRow = packagingRows.find(
+          (r) => r.videoId === video.youtubeId,
+        );
         if (selfRow) {
           const impPart =
-            selfRow.impressions > 0 ? ` | imp ${Math.round(selfRow.impressions).toLocaleString()}` : '';
+            selfRow.impressions > 0
+              ? ` | imp ${Math.round(selfRow.impressions).toLocaleString()}`
+              : '';
           const ctrPart =
-            selfRow.ctr > 0 ? ` | CTR ${selfRow.ctr.toFixed(1)}%` : ' | CTR not measured yet';
+            selfRow.ctr > 0
+              ? ` | CTR ${selfRow.ctr.toFixed(1)}%`
+              : ' | CTR not measured yet';
           lines.push(
             `THIS VIDEO (28d window): ${selfRow.views.toLocaleString()} views${impPart}${ctrPart} | ${Math.round(selfRow.averageViewPercentage)}% viewed`,
           );
@@ -657,21 +891,37 @@ export class PerformanceContextService {
             .catch(() => {});
         }
       } catch (pkgErr: any) {
-        this.logger.warn(`Packaging context skipped: ${pkgErr?.message || pkgErr}`);
+        this.logger.warn(
+          `Packaging context skipped: ${pkgErr?.message || pkgErr}`,
+        );
       }
 
       if (traffic.length) {
-        lines.push('Channel traffic mix (context, last 28d): ' + traffic.slice(0, 5).map((t) => `${t.source} ${t.views}`).join(', '));
+        lines.push(
+          'Channel traffic mix (context, last 28d): ' +
+            traffic
+              .slice(0, 5)
+              .map((t) => `${t.source} ${t.views}`)
+              .join(', '),
+        );
       }
       if (!life && !window28) {
-        lines.push('No Analytics rows for this video in the queried windows — use catalog stats and say the range is empty.');
+        lines.push(
+          'No Analytics rows for this video in the queried windows — use catalog stats and say the range is empty.',
+        );
       }
-      lines.push('Use these numbers to answer “what is this video getting” — do not say you cannot see analytics.');
-      lines.push('If asked why this video failed or for a repackage, output the VIDEO AUTOPSY + REPACKAGE KIT format (metrics first, paste-ready SEO + thumbs). Never ask the user for Studio screenshots.');
+      lines.push(
+        'Use these numbers to answer “what is this video getting” — do not say you cannot see analytics.',
+      );
+      lines.push(
+        'If asked why this video failed or for a repackage, output the VIDEO AUTOPSY + REPACKAGE KIT format (metrics first, paste-ready SEO + thumbs). Never ask the user for Studio screenshots.',
+      );
 
       return { text: lines.join('\n'), ok: true, mode: 'autopsy' };
     } catch (err: any) {
-      this.logger.warn(`Video performance lookup failed: ${err?.message || err}`);
+      this.logger.warn(
+        `Video performance lookup failed: ${err?.message || err}`,
+      );
       return null;
     }
   }
@@ -687,7 +937,10 @@ export class PerformanceContextService {
     try {
       const channel = await this.channelModel.findById(channelId).lean();
       if (!channel?.youtubeChannelId || !channel.userId) {
-        return { text: 'CHANNEL HEALTH: unavailable (channel not linked).', ok: false };
+        return {
+          text: 'CHANNEL HEALTH: unavailable (channel not linked).',
+          ok: false,
+        };
       }
       const uid = channel.userId.toString();
       const ytChannelId = channel.youtubeChannelId;
@@ -696,16 +949,49 @@ export class PerformanceContextService {
       const mid = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
       const start = new Date(Date.now() - 56 * 24 * 60 * 60 * 1000);
       const fmt = (d: Date) => d.toISOString().split('T')[0];
-      const [curStart, curEnd, prevStart, prevEnd] = [fmt(mid), fmt(end), fmt(start), fmt(mid)];
+      const [curStart, curEnd, prevStart, prevEnd] = [
+        fmt(mid),
+        fmt(end),
+        fmt(start),
+        fmt(mid),
+      ];
 
-      const [cur, prev, curTraffic, prevTraffic, rows, searchTerms] = await Promise.all([
-        this.analytics.getChannelPackagingBaseline(uid, ytChannelId, curStart, curEnd),
-        this.analytics.getChannelPackagingBaseline(uid, ytChannelId, prevStart, prevEnd),
-        this.analytics.getTrafficSources(uid, ytChannelId, curStart, curEnd),
-        this.analytics.getTrafficSources(uid, ytChannelId, prevStart, prevEnd),
-        this.analytics.getVideoPackagingRows(uid, ytChannelId, curStart, curEnd, 20),
-        this.analytics.getTopSearchTerms(uid, ytChannelId, curStart, curEnd, 8),
-      ]);
+      const [cur, prev, curTraffic, prevTraffic, rows, searchTerms] =
+        await Promise.all([
+          this.analytics.getChannelPackagingBaseline(
+            uid,
+            ytChannelId,
+            curStart,
+            curEnd,
+          ),
+          this.analytics.getChannelPackagingBaseline(
+            uid,
+            ytChannelId,
+            prevStart,
+            prevEnd,
+          ),
+          this.analytics.getTrafficSources(uid, ytChannelId, curStart, curEnd),
+          this.analytics.getTrafficSources(
+            uid,
+            ytChannelId,
+            prevStart,
+            prevEnd,
+          ),
+          this.analytics.getVideoPackagingRows(
+            uid,
+            ytChannelId,
+            curStart,
+            curEnd,
+            20,
+          ),
+          this.analytics.getTopSearchTerms(
+            uid,
+            ytChannelId,
+            curStart,
+            curEnd,
+            8,
+          ),
+        ]);
 
       const pct = (a: number, b: number) =>
         b === 0 ? (a > 0 ? 100 : 0) : Math.round(((a - b) / b) * 100);
@@ -743,7 +1029,9 @@ export class PerformanceContextService {
         const before = prevMap.get(t.source) || 0;
         const d = pct(t.views, before);
         if (Math.abs(d) >= 10 || (before === 0 && t.views > 100)) {
-          moves.push(`- ${t.source}: ${before.toLocaleString()} → ${t.views.toLocaleString()} (${d}%)`);
+          moves.push(
+            `- ${t.source}: ${before.toLocaleString()} → ${t.views.toLocaleString()} (${d}%)`,
+          );
         }
       }
       for (const [source, before] of prevMap) {
@@ -772,13 +1060,19 @@ export class PerformanceContextService {
             `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed`,
           );
         });
-        lines.push(`Highest CTR reference: "${byCtr[0]?.title}" at ${byCtr[0]?.ctr.toFixed(1)}%`);
+        lines.push(
+          `Highest CTR reference: "${byCtr[0]?.title}" at ${byCtr[0]?.ctr.toFixed(1)}%`,
+        );
       }
 
       if (searchTerms.length) {
         lines.push('');
         lines.push('TOP SEARCH TERMS (28d):');
-        lines.push(searchTerms.map((s) => `- "${s.term}" (${s.views.toLocaleString()})`).join('\n'));
+        lines.push(
+          searchTerms
+            .map((s) => `- "${s.term}" (${s.views.toLocaleString()})`)
+            .join('\n'),
+        );
       }
 
       lines.push('');
@@ -809,13 +1103,19 @@ export class PerformanceContextService {
   static isPerformanceQuery(message: string): boolean {
     const lower = String(message || '');
     if (
-      /\b(how (is|are|was|did) (this|that|my|the|our) (video|videos|upload|content)|what (is|are|was) (this|that|my|the|our) (video|videos) (getting|doing|perform)|getting views|view count|watch time|watchtime|retention|audience retention|search terms?|traffic source|\bctr\b|click[-\s]?through|impressions|youtube analytics|channel analytics|video performance|performance (of|for|on)|recent performance|ground(?:ed)? (it|this) in|what(?:'s| is)? working|based on (my|the) (data|numbers|analytics|performance)|what (videos?|content) (do|does) (my|the) (channel|audience)|what my (channel|audience|videos?|content)|why (this|that|my|the) (video|upload|content).{0,40}(bad|badly|fail|failed|flop|low|under)|not doing (good|well)|isn'?t doing (good|well)|low (views|ctr|impressions|click)|didn'?t do (good|well)|compared to (the |my )?(other|rest)|repackage|autopsy|video audit|why did (this|that|my))\b/i.test(lower)
+      /\b(how (is|are|was|did) (this|that|my|the|our) (video|videos|upload|content)|what (is|are|was) (this|that|my|the|our) (video|videos) (getting|doing|perform)|getting views|view count|watch time|watchtime|retention|audience retention|search terms?|traffic source|\bctr\b|click[-\s]?through|impressions|youtube analytics|channel analytics|video performance|performance (of|for|on)|recent performance|ground(?:ed)? (it|this) in|what(?:'s| is)? working|based on (my|the) (data|numbers|analytics|performance)|what (videos?|content) (do|does) (my|the) (channel|audience)|what my (channel|audience|videos?|content)|why (this|that|my|the) (video|upload|content).{0,40}(bad|badly|fail|failed|flop|low|under)|not doing (good|well)|isn'?t doing (good|well)|low (views|ctr|impressions|click)|didn'?t do (good|well)|compared to (the |my )?(other|rest)|repackage|autopsy|video audit|why did (this|that|my))\b/i.test(
+        lower,
+      )
     ) {
       return true;
     }
     // Pasted YouTube link + failure/performance language nearby
     if (/(?:youtu\.be\/|v=|\/videos\/)[A-Za-z0-9_-]{11}/.test(lower)) {
-      if (/\b(why|bad|badly|fail|low|views|ctr|click|impressions|analytics|doing|performance|fix|repackage|improve)\b/i.test(lower)) {
+      if (
+        /\b(why|bad|badly|fail|low|views|ctr|click|impressions|analytics|doing|performance|fix|repackage|improve)\b/i.test(
+          lower,
+        )
+      ) {
         return true;
       }
     }
@@ -829,7 +1129,9 @@ export class PerformanceContextService {
       /(?:youtu\.be\/|watch\?v=|\/videos\/)[A-Za-z0-9_-]{11}/.test(lower) ||
       /\b(this|that|my|the)\s+(video|upload)\b/i.test(lower);
     const hasFailure =
-      /\b(bad|badly|fail|failed|flop|low|underperform|not doing|isn'?t doing|didn'?t do|worse|why|ctr|click[-\s]?through|repackage|fix this|improve this|do better)\b/i.test(lower);
+      /\b(bad|badly|fail|failed|flop|low|underperform|not doing|isn'?t doing|didn'?t do|worse|why|ctr|click[-\s]?through|repackage|fix this|improve this|do better)\b/i.test(
+        lower,
+      );
     return hasVideoRef && hasFailure;
   }
 

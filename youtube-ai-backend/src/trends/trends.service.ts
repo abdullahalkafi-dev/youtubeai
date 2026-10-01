@@ -1,9 +1,19 @@
-import { Injectable, Logger, forwardRef, Inject, NotFoundException, OnModuleInit } from '@nestjs/common';
+import {
+  Injectable,
+  Logger,
+  forwardRef,
+  Inject,
+  NotFoundException,
+  OnModuleInit,
+} from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
-import { TrendingTopic, TrendingTopicDocument } from '../mongo/schemas/trending-topic.schema';
+import {
+  TrendingTopic,
+  TrendingTopicDocument,
+} from '../mongo/schemas/trending-topic.schema';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { ChatService } from '../chat/chat.service';
 import { YouTubeService } from '../youtube/youtube.service';
@@ -12,8 +22,14 @@ import { ChromaService } from '../chroma/chroma.service';
 import { OpenAIService } from '../openai/openai.service';
 import { QuotaService } from '../quota/quota.service';
 import { RedisService } from '../redis/redis.service';
-import { buildTrendsSearchPrompt, buildEntityExtractionPrompt } from './prompts';
-import { validateExtractedEntity, SearchListQuotaCounter } from './trends.utils';
+import {
+  buildTrendsSearchPrompt,
+  buildEntityExtractionPrompt,
+} from './prompts';
+import {
+  validateExtractedEntity,
+  SearchListQuotaCounter,
+} from './trends.utils';
 
 const TREND_HISTORY_DAYS = 14;
 
@@ -23,8 +39,10 @@ export class TrendsService implements OnModuleInit {
   private readonly quota: SearchListQuotaCounter;
 
   constructor(
-    @InjectModel(Channel.name) private readonly channelModel: Model<ChannelDocument>,
-    @InjectModel(TrendingTopic.name) private readonly trendingTopicModel: Model<TrendingTopicDocument>,
+    @InjectModel(Channel.name)
+    private readonly channelModel: Model<ChannelDocument>,
+    @InjectModel(TrendingTopic.name)
+    private readonly trendingTopicModel: Model<TrendingTopicDocument>,
     @InjectModel(Video.name) private readonly videoModel: Model<VideoDocument>,
     @Inject(forwardRef(() => ChatService))
     private readonly chatService: ChatService,
@@ -40,15 +58,23 @@ export class TrendsService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      const unmigrated = await this.trendingTopicModel.find({
-        $or: [{ sourceUrl: { $exists: false } }, { sourceUrl: null }, { sourceUrl: '' }],
-      }).select('_id title source').lean();
+      const unmigrated = await this.trendingTopicModel
+        .find({
+          $or: [
+            { sourceUrl: { $exists: false } },
+            { sourceUrl: null },
+            { sourceUrl: '' },
+          ],
+        })
+        .select('_id title source')
+        .lean();
 
       if (unmigrated.length > 0) {
-        const bulkOps = unmigrated.map(t => {
-          const fallbackUrl = (t.source && t.source.startsWith('http'))
-            ? t.source
-            : `https://www.google.com/search?q=${encodeURIComponent((t.title || '') + ' ' + (t.source || ''))}`;
+        const bulkOps = unmigrated.map((t) => {
+          const fallbackUrl =
+            t.source && t.source.startsWith('http')
+              ? t.source
+              : `https://www.google.com/search?q=${encodeURIComponent((t.title || '') + ' ' + (t.source || ''))}`;
           return {
             updateOne: {
               filter: { _id: t._id },
@@ -57,10 +83,14 @@ export class TrendsService implements OnModuleInit {
           };
         });
         const res = await this.trendingTopicModel.bulkWrite(bulkOps);
-        this.logger.log(`[onModuleInit] Backfilled sourceUrl for ${res.modifiedCount} legacy trend topics`);
+        this.logger.log(
+          `[onModuleInit] Backfilled sourceUrl for ${res.modifiedCount} legacy trend topics`,
+        );
       }
     } catch (err: any) {
-      this.logger.warn(`[onModuleInit] Failed to backfill legacy trend sourceUrls: ${err.message}`);
+      this.logger.warn(
+        `[onModuleInit] Failed to backfill legacy trend sourceUrls: ${err.message}`,
+      );
     }
   }
 
@@ -74,7 +104,9 @@ export class TrendsService implements OnModuleInit {
         await this.refreshTrends(channel._id.toString());
         this.logger.log(`Cron: refreshed trends for channel "${channel.name}"`);
       } catch (error) {
-        this.logger.error(`Cron: failed for channel "${channel.name}": ${error.message}`);
+        this.logger.error(
+          `Cron: failed for channel "${channel.name}": ${error.message}`,
+        );
       }
     }
   }
@@ -83,16 +115,27 @@ export class TrendsService implements OnModuleInit {
     const cacheKey = `trends:channel:${channelId}:days:${days ?? 'all'}`;
     const cached = await this.redisService.getJson<any[]>(cacheKey);
     if (cached) {
-      this.logger.log(`[getTrends] HIT Redis cache for channelId=${channelId} (${cached.length} topics)`);
+      this.logger.log(
+        `[getTrends] HIT Redis cache for channelId=${channelId} (${cached.length} topics)`,
+      );
       return cached;
     }
 
     const oid = new Types.ObjectId(channelId);
     const filter: any = { $or: [{ channelId: oid }, { channelId }] };
-    if (days) filter.fetchedAt = { $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000) };
-    this.logger.log(`[getTrends] MISS Redis cache. Fetching from DB channelId=${channelId} days=${days ?? 'all'}`);
-    const topics = await this.trendingTopicModel.find(filter).sort({ publishedAt: -1, fetchedAt: -1 }).limit(days ? 10 * days : 15).lean();
-    
+    if (days)
+      filter.fetchedAt = {
+        $gte: new Date(Date.now() - days * 24 * 60 * 60 * 1000),
+      };
+    this.logger.log(
+      `[getTrends] MISS Redis cache. Fetching from DB channelId=${channelId} days=${days ?? 'all'}`,
+    );
+    const topics = await this.trendingTopicModel
+      .find(filter)
+      .sort({ publishedAt: -1, fetchedAt: -1 })
+      .limit(days ? 10 * days : 15)
+      .lean();
+
     const result = topics.map((t: any) => {
       const { _id, __v, ...rest } = t;
       return { id: _id.toString(), ...rest };
@@ -107,49 +150,88 @@ export class TrendsService implements OnModuleInit {
    * Start a trends refresh in the background using Redis for state tracking. Returns immediately.
    * Use getRefreshStatus() to check progress.
    */
-  async startRefresh(channelId: string): Promise<{ status: string; message: string }> {
+  async startRefresh(
+    channelId: string,
+  ): Promise<{ status: string; message: string }> {
     this.logger.log(`[startRefresh] called for channelId=${channelId}`);
     const statusKey = `trends:status:${channelId}`;
-    const existing = await this.redisService.getJson<{ running: boolean; startedAt: string }>(statusKey);
+    const existing = await this.redisService.getJson<{
+      running: boolean;
+      startedAt: string;
+    }>(statusKey);
 
     if (existing?.running) {
-      this.logger.warn(`[startRefresh] channelId=${channelId} already running in Redis since ${existing.startedAt}`);
-      return { status: 'already_running', message: 'A refresh is already in progress for this channel.' };
+      this.logger.warn(
+        `[startRefresh] channelId=${channelId} already running in Redis since ${existing.startedAt}`,
+      );
+      return {
+        status: 'already_running',
+        message: 'A refresh is already in progress for this channel.',
+      };
     }
 
-    await this.redisService.setJson(statusKey, { running: true, startedAt: new Date().toISOString() }, 3600);
-    this.logger.log(`[startRefresh] channelId=${channelId} background job started (tracked in Redis)`);
+    await this.redisService.setJson(
+      statusKey,
+      { running: true, startedAt: new Date().toISOString() },
+      3600,
+    );
+    this.logger.log(
+      `[startRefresh] channelId=${channelId} background job started (tracked in Redis)`,
+    );
 
     // Fire and forget — run in background
     this.refreshTrends(channelId)
       .then(async (result) => {
-        await this.redisService.setJson(statusKey, {
-          running: false,
-          completedAt: new Date().toISOString(),
-          topicsCount: Array.isArray(result) ? result.length : 0,
-        }, 3600);
-        this.logger.log(`[startRefresh] channelId=${channelId} background refresh completed — ${Array.isArray(result) ? result.length : 0} topics created`);
+        await this.redisService.setJson(
+          statusKey,
+          {
+            running: false,
+            completedAt: new Date().toISOString(),
+            topicsCount: Array.isArray(result) ? result.length : 0,
+          },
+          3600,
+        );
+        this.logger.log(
+          `[startRefresh] channelId=${channelId} background refresh completed — ${Array.isArray(result) ? result.length : 0} topics created`,
+        );
       })
       .catch(async (error) => {
-        await this.redisService.setJson(statusKey, {
-          running: false,
-          completedAt: new Date().toISOString(),
-          error: error.message,
-        }, 3600);
-        this.logger.error(`[startRefresh] channelId=${channelId} background refresh FAILED: ${error.message}`);
+        await this.redisService.setJson(
+          statusKey,
+          {
+            running: false,
+            completedAt: new Date().toISOString(),
+            error: error.message,
+          },
+          3600,
+        );
+        this.logger.error(
+          `[startRefresh] channelId=${channelId} background refresh FAILED: ${error.message}`,
+        );
       });
 
-    return { status: 'started', message: 'Trends refresh started in the background. Check status with GET /trends/refresh/status.' };
+    return {
+      status: 'started',
+      message:
+        'Trends refresh started in the background. Check status with GET /trends/refresh/status.',
+    };
   }
 
-  async getRefreshStatus(channelId: string): Promise<{ running: boolean; startedAt?: Date; completedAt?: Date; error?: string }> {
+  async getRefreshStatus(channelId: string): Promise<{
+    running: boolean;
+    startedAt?: Date;
+    completedAt?: Date;
+    error?: string;
+  }> {
     const statusKey = `trends:status:${channelId}`;
     const status = await this.redisService.getJson<any>(statusKey);
     if (!status) return { running: false };
     return {
       running: !!status.running,
       startedAt: status.startedAt ? new Date(status.startedAt) : undefined,
-      completedAt: status.completedAt ? new Date(status.completedAt) : undefined,
+      completedAt: status.completedAt
+        ? new Date(status.completedAt)
+        : undefined,
       error: status.error,
     };
   }
@@ -163,22 +245,33 @@ export class TrendsService implements OnModuleInit {
       this.logger.error(`[refreshTrends] channel ${channelId} NOT FOUND in DB`);
       throw new NotFoundException(`Channel ${channelId} not found`);
     }
-    this.logger.log(`[refreshTrends] channel found: "${channel.name}" subs=${channel.subscriberCount} videos=${channel.totalVideos} views=${channel.totalViews}`);
+    this.logger.log(
+      `[refreshTrends] channel found: "${channel.name}" subs=${channel.subscriberCount} videos=${channel.totalVideos} views=${channel.totalViews}`,
+    );
 
     // Load last 10 videos for context
+    const cId = Types.ObjectId.isValid(channelId)
+      ? new Types.ObjectId(channelId)
+      : channelId;
     const recentVideos = await this.videoModel
-      .find({ channelId })
+      .find({ channelId: cId })
       .sort({ publishedAt: -1 })
       .limit(10)
       .select('title description viewCount')
       .lean();
 
-    const videoList = recentVideos.length > 0
-      ? recentVideos.map((v, i) =>
-          `${i + 1}. "${v.title}" (${(v.viewCount || 0).toLocaleString()} views)` +
-          (v.description ? `\n   Description: ${v.description.substring(0, 150)}` : '')
-        ).join('\n')
-      : 'No recent videos recorded yet.';
+    const videoList =
+      recentVideos.length > 0
+        ? recentVideos
+            .map(
+              (v, i) =>
+                `${i + 1}. "${v.title}" (${(v.viewCount || 0).toLocaleString()} views)` +
+                (v.description
+                  ? `\n   Description: ${v.description.substring(0, 150)}`
+                  : ''),
+            )
+            .join('\n')
+        : 'No recent videos recorded yet.';
 
     const channelContext = `
 CHANNEL: ${channel.name} (${channel.handle || 'N/A'})
@@ -205,69 +298,126 @@ Use these recent videos as a reference for what topics and angles this channel c
 
     // Phase 1: Web search for trending topics
     this.logger.log(`[refreshTrends] Phase 1: Web search`);
-    const { system, user } = buildTrendsSearchPrompt({ channelContext, today, twentyOneDaysAgoStr });
+    const { system, user } = buildTrendsSearchPrompt({
+      channelContext,
+      today,
+      twentyOneDaysAgoStr,
+    });
     this.logger.log(`[refreshTrends] Phase 1: prompt built, calling OpenAI...`);
     const searchResult = await this.openaiService.chatWithSearch({
       systemPrompt: system,
       userMessage: user,
     });
     const text = searchResult.content;
-    this.logger.log(`[refreshTrends] Phase 1: OpenAI response received (${text.length} chars)`);
+    this.logger.log(
+      `[refreshTrends] Phase 1: OpenAI response received (${text.length} chars)`,
+    );
 
     let allTopics: any[];
     try {
       allTopics = this.extractCleanJsonArray(text);
-      this.logger.log(`[refreshTrends] Phase 1: parsed ${allTopics.length} web topics from AI`);
+      this.logger.log(
+        `[refreshTrends] Phase 1: parsed ${allTopics.length} web topics from AI`,
+      );
       allTopics.forEach((t, i) => {
         if (!t.source && t.sourceName) t.source = t.sourceName;
-        this.logger.log(`[refreshTrends] Phase 1:   [${i}] "${t.title}" publishedAt=${t.publishedAt ?? 'null'} source=${t.source ?? 'null'}`);
+        this.logger.log(
+          `[refreshTrends] Phase 1:   [${i}] "${t.title}" publishedAt=${t.publishedAt ?? 'null'} source=${t.source ?? 'null'}`,
+        );
       });
     } catch (parseError) {
-      this.logger.error(`[refreshTrends] Phase 1: JSON.parse FAILED: ${parseError.message}`);
-      this.logger.debug(`[refreshTrends] Phase 1: Raw AI response (first 500 chars): ${text.substring(0, 500)}`);
+      this.logger.error(
+        `[refreshTrends] Phase 1: JSON.parse FAILED: ${parseError.message}`,
+      );
+      this.logger.debug(
+        `[refreshTrends] Phase 1: Raw AI response (first 500 chars): ${text.substring(0, 500)}`,
+      );
       throw new Error(`AI returned malformed JSON: ${parseError.message}`);
     }
 
     // Two-Tier Relevance Gate
     const TIER1_MANDATORY = [
-      'indicted', 'convicted', 'sentenced', 'federal', 'prison', 'inmate',
-      'racketeering', 'trafficking', 'guilty', 'plea', 'verdict', 'murder',
-      'homicide', 'solitary', 'probation', 'parole', 'incarceration',
-      'arrested', 'charges', 'felony', 'conspiracy', 'cartel',
+      'indicted',
+      'convicted',
+      'sentenced',
+      'federal',
+      'prison',
+      'inmate',
+      'racketeering',
+      'trafficking',
+      'guilty',
+      'plea',
+      'verdict',
+      'murder',
+      'homicide',
+      'solitary',
+      'probation',
+      'parole',
+      'incarceration',
+      'arrested',
+      'charges',
+      'felony',
+      'conspiracy',
+      'cartel',
     ];
 
     const NEGATIVE_DISQUALIFIERS = [
-      'ncaa', 'nba', 'nfl', 'mlb', 'basketball', 'football', 'soccer', 'tennis',
-      'zoning', 'construction', 'ballroom', 'real estate', 'school board',
-      'cryptocurrency', 'crypto token', 'dividend', 'stock market', 'quarterly revenue',
+      'ncaa',
+      'nba',
+      'nfl',
+      'mlb',
+      'basketball',
+      'football',
+      'soccer',
+      'tennis',
+      'zoning',
+      'construction',
+      'ballroom',
+      'real estate',
+      'school board',
+      'cryptocurrency',
+      'crypto token',
+      'dividend',
+      'stock market',
+      'quarterly revenue',
     ];
 
     const passesRelevanceGate = (title: string, summary: string): boolean => {
       const combined = `${title} ${summary}`.toLowerCase();
-      const isNegative = NEGATIVE_DISQUALIFIERS.some(kw => combined.includes(kw));
+      const isNegative = NEGATIVE_DISQUALIFIERS.some((kw) =>
+        combined.includes(kw),
+      );
       if (isNegative) return false;
-      const hasTier1 = TIER1_MANDATORY.some(kw => combined.includes(kw));
+      const hasTier1 = TIER1_MANDATORY.some((kw) => combined.includes(kw));
       return hasTier1;
     };
 
-    const filteredWebTopics = allTopics.filter(topic => {
+    const filteredWebTopics = allTopics.filter((topic) => {
       if (!passesRelevanceGate(topic.title || '', topic.summary || '')) {
-        this.logger.log(`[refreshTrends] Rejected (no Tier 1 keyword or negative match): "${topic.title}"`);
+        this.logger.log(
+          `[refreshTrends] Rejected (no Tier 1 keyword or negative match): "${topic.title}"`,
+        );
         return false;
       }
       return true;
     });
-    this.logger.log(`[refreshTrends] Phase 1: ${allTopics.length} → ${filteredWebTopics.length} after relevance gate`);
+    this.logger.log(
+      `[refreshTrends] Phase 1: ${allTopics.length} → ${filteredWebTopics.length} after relevance gate`,
+    );
     allTopics = filteredWebTopics;
 
     // Phase 2: Date filter — all topics come from AI web search (Phase 1), already relevance-gated
-    this.logger.log(`[refreshTrends] Phase 2: Date filter (21 days, since ${twentyOneDaysAgoStr})`);
+    this.logger.log(
+      `[refreshTrends] Phase 2: Date filter (21 days, since ${twentyOneDaysAgoStr})`,
+    );
     let topics = allTopics.filter((t: any) => {
       if (!t.publishedAt) return true;
       const published = new Date(t.publishedAt);
       return !isNaN(published.getTime()) && published >= twentyOneDaysAgo;
     });
-    this.logger.log(`[refreshTrends] Phase 2: ${topics.length} topics passed 21-day filter`);
+    this.logger.log(
+      `[refreshTrends] Phase 2: ${topics.length} topics passed 21-day filter`,
+    );
 
     if (topics.length === 0) {
       const fortyFiveDaysAgo = new Date(Date.now() - 45 * 24 * 60 * 60 * 1000);
@@ -277,27 +427,44 @@ Use these recent videos as a reference for what topics and angles this channel c
         const published = new Date(t.publishedAt);
         return !isNaN(published.getTime()) && published >= fortyFiveDaysAgo;
       });
-      this.logger.log(`[refreshTrends] Phase 2: ${topics.length} topics passed 45-day filter`);
+      this.logger.log(
+        `[refreshTrends] Phase 2: ${topics.length} topics passed 45-day filter`,
+      );
     }
 
     const deduplicatedTopics = this.deduplicateTopics(topics);
-    this.logger.log(`[refreshTrends] Phase 4: Dedup: ${topics.length} → ${deduplicatedTopics.length} unique`);
+    this.logger.log(
+      `[refreshTrends] Phase 4: Dedup: ${topics.length} → ${deduplicatedTopics.length} unique`,
+    );
 
     const quotaStats = await this.quota.getStats();
-    this.logger.log(`[refreshTrends] Quota stats: used=${quotaStats.used} limit=${quotaStats.limit}`);
+    this.logger.log(
+      `[refreshTrends] Quota stats: used=${quotaStats.used} limit=${quotaStats.limit}`,
+    );
 
     // Priority Gating: Limit live YouTube search to top 8 priority topics per refresh
-    this.logger.log(`[refreshTrends] Phase 5: Entity extraction + YouTube search for top ${Math.min(deduplicatedTopics.length, 8)} priority topics`);
+    this.logger.log(
+      `[refreshTrends] Phase 5: Entity extraction + YouTube search for top ${Math.min(deduplicatedTopics.length, 8)} priority topics`,
+    );
     const priorityEnriched = await Promise.all(
-      deduplicatedTopics.slice(0, 8).map(topic =>
-        this.matchYouTubeVideo(topic, twentyOneDaysAgo, channelId)
-      )
+      deduplicatedTopics
+        .slice(0, 8)
+        .map((topic) =>
+          this.matchYouTubeVideo(topic, twentyOneDaysAgo, channelId),
+        ),
     );
 
     // Remaining topics (#9 to #20) are preserved as Open Gap news topics (0 extra YouTube quota cost)
-    const remainingEnriched = deduplicatedTopics.slice(8).map(topic => ({
+    const remainingEnriched = deduplicatedTopics.slice(8).map((topic) => ({
       ...topic,
-      extractedEntity: topic.title ? topic.title.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 5).join(' ') : null,
+      extractedEntity: topic.title
+        ? topic.title
+            .replace(/[^\w\s]/g, '')
+            .split(/\s+/)
+            .filter(Boolean)
+            .slice(0, 5)
+            .join(' ')
+        : null,
       youtubeVideoId: null,
       youtubeThumbnailUrl: null,
       youtubeChannelTitle: null,
@@ -306,49 +473,86 @@ Use these recent videos as a reference for what topics and angles this channel c
 
     const enrichedTopics = [...priorityEnriched, ...remainingEnriched];
     enrichedTopics.forEach((t, i) => {
-      this.logger.log(`[refreshTrends] Phase 5:   [${i}] "${t.title}" entity="${t.extractedEntity}" youtubeVideoId=${t.youtubeVideoId ?? 'null'}`);
+      this.logger.log(
+        `[refreshTrends] Phase 5:   [${i}] "${t.title}" entity="${t.extractedEntity}" youtubeVideoId=${t.youtubeVideoId ?? 'null'}`,
+      );
     });
 
     // Search demand: get autocomplete suggestions for each entity
-    const entities = enrichedTopics.map(t => t.extractedEntity).filter(Boolean) as string[];
-    this.logger.log(`[refreshTrends] Phase 6: Search demand scoring for ${entities.length} entities: [${entities.join(', ')}]`);
+    const entities = enrichedTopics
+      .map((t) => t.extractedEntity)
+      .filter(Boolean) as string[];
+    this.logger.log(
+      `[refreshTrends] Phase 6: Search demand scoring for ${entities.length} entities: [${entities.join(', ')}]`,
+    );
     let searchDemandMap = new Map<string, number>();
     try {
       searchDemandMap = await this.suggestionsService.getSearchDemand(entities);
-      this.logger.log(`[refreshTrends] Phase 6: search demand results: ${JSON.stringify(Object.fromEntries(searchDemandMap))}`);
+      this.logger.log(
+        `[refreshTrends] Phase 6: search demand results: ${JSON.stringify(Object.fromEntries(searchDemandMap))}`,
+      );
     } catch (error) {
-      this.logger.warn(`[refreshTrends] Phase 6: search demand FAILED: ${error.message}`);
+      this.logger.warn(
+        `[refreshTrends] Phase 6: search demand FAILED: ${error.message}`,
+      );
     }
 
     // Channel fit: RAG similarity against video catalog
     this.logger.log(`[refreshTrends] Phase 7: Channel fit scoring (RAG)`);
     for (const topic of enrichedTopics) {
-      topic.searchDemand = searchDemandMap.get(topic.extractedEntity || '') || 0;
+      topic.searchDemand =
+        searchDemandMap.get(topic.extractedEntity || '') || 0;
       try {
-        topic.channelFit = await this.calculateChannelFit(topic.title, topic.summary);
+        topic.channelFit = await this.calculateChannelFit(
+          topic.title,
+          topic.summary,
+        );
       } catch {
         topic.channelFit = 50; // Neutral fallback
       }
     }
     enrichedTopics.forEach((t, i) => {
-      this.logger.log(`[refreshTrends] Phase 7:   [${i}] "${t.title}" searchDemand=${t.searchDemand} channelFit=${t.channelFit}`);
+      this.logger.log(
+        `[refreshTrends] Phase 7:   [${i}] "${t.title}" searchDemand=${t.searchDemand} channelFit=${t.channelFit}`,
+      );
     });
 
-    const matchedVideoIds = enrichedTopics.filter(t => t.youtubeVideoId).map(t => t.youtubeVideoId!);
-    this.logger.log(`[refreshTrends] Phase 8: View counts for ${matchedVideoIds.length} matched videos`);
-    const viewCounts = await this.batchGetViewCounts(matchedVideoIds, channelId);
-    const avgChannelViews = channel ? Math.round(Number(channel.totalViews) / Math.max(channel.totalVideos, 1)) : 50000;
-    this.logger.log(`[refreshTrends] Phase 8: avgChannelViews=${avgChannelViews}`);
+    const matchedVideoIds = enrichedTopics
+      .filter((t) => t.youtubeVideoId)
+      .map((t) => t.youtubeVideoId!);
+    this.logger.log(
+      `[refreshTrends] Phase 8: View counts for ${matchedVideoIds.length} matched videos`,
+    );
+    const viewCounts = await this.batchGetViewCounts(
+      matchedVideoIds,
+      channelId,
+    );
+    const avgChannelViews = channel
+      ? Math.round(
+          Number(channel.totalViews) / Math.max(channel.totalVideos, 1),
+        )
+      : 50000;
+    this.logger.log(
+      `[refreshTrends] Phase 8: avgChannelViews=${avgChannelViews}`,
+    );
 
-    this.logger.log(`[refreshTrends] Phase 9: Opportunity scoring & badge calculation`);
+    this.logger.log(
+      `[refreshTrends] Phase 9: Opportunity scoring & badge calculation`,
+    );
     for (const topic of enrichedTopics) {
-      const { score, label, badge } = this.calculateOpportunityScore(topic, viewCounts, avgChannelViews);
+      const { score, label, badge } = this.calculateOpportunityScore(
+        topic,
+        viewCounts,
+        avgChannelViews,
+      );
       topic.opportunityScore = score;
       topic.opportunityLabel = label;
       topic.badge = badge;
     }
     enrichedTopics.forEach((t, i) => {
-      this.logger.log(`[refreshTrends] Phase 9:   [${i}] "${t.title}" score=${t.opportunityScore} label="${t.opportunityLabel}" badge="${t.badge ?? 'none'}"`);
+      this.logger.log(
+        `[refreshTrends] Phase 9:   [${i}] "${t.title}" score=${t.opportunityScore} label="${t.opportunityLabel}" badge="${t.badge ?? 'none'}"`,
+      );
     });
 
     // Deduplicate against existing DB topics (same channel, same day)
@@ -356,54 +560,104 @@ Use these recent videos as a reference for what topics and angles this channel c
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const oid = new Types.ObjectId(channelId);
-    const existingTopics = await this.trendingTopicModel.find({
-      $or: [{ channelId: oid }, { channelId }],
-      fetchedAt: { $gte: todayStart },
-    }).select('title').lean();
-    const existingTitles = new Set(existingTopics.map(t => t.title.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 60)));
-    this.logger.log(`[refreshTrends] Phase 10: ${existingTopics.length} existing topics in DB for today`);
+    const existingTopics = await this.trendingTopicModel
+      .find({
+        $or: [{ channelId: oid }, { channelId }],
+        fetchedAt: { $gte: todayStart },
+      })
+      .select('title')
+      .lean();
+    const existingTitles = new Set(
+      existingTopics.map((t) =>
+        t.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .substring(0, 60),
+      ),
+    );
+    this.logger.log(
+      `[refreshTrends] Phase 10: ${existingTopics.length} existing topics in DB for today`,
+    );
 
-    const newTopics = enrichedTopics.filter(topic => {
-      const key = (topic.title || '').toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 60);
+    const newTopics = enrichedTopics.filter((topic) => {
+      const key = (topic.title || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .substring(0, 60);
       return !existingTitles.has(key);
     });
 
     if (newTopics.length === 0) {
-      this.logger.log(`[refreshTrends] Phase 10: All ${enrichedTopics.length} topics already exist in DB — returning empty`);
+      this.logger.log(
+        `[refreshTrends] Phase 10: All ${enrichedTopics.length} topics already exist in DB — returning empty`,
+      );
       return [];
     }
-    this.logger.log(`[refreshTrends] Phase 10: ${newTopics.length} new topics to create`);
+    this.logger.log(
+      `[refreshTrends] Phase 10: ${newTopics.length} new topics to create`,
+    );
 
-    this.logger.log(`[refreshTrends] Phase 11: Storing ${newTopics.length} topics in MongoDB`);
-    const created = await Promise.all(newTopics.map(topic =>
-      this.trendingTopicModel.create({
-        channelId: new Types.ObjectId(channelId), title: topic.title || 'Untitled Topic', summary: topic.summary || '',
-        source: topic.source, sourceUrl: topic.sourceUrl, publishedAt: topic.publishedAt ? new Date(topic.publishedAt) : null,
-        youtubeVideoId: topic.youtubeVideoId, youtubeThumbnailUrl: topic.youtubeThumbnailUrl,
-        youtubeChannelTitle: topic.youtubeChannelTitle, youtubeVideoUrl: topic.youtubeVideoUrl,
-        extractedEntity: topic.extractedEntity, opportunityScore: topic.opportunityScore, opportunityLabel: topic.opportunityLabel,
-        searchDemand: topic.searchDemand || 0, channelFit: topic.channelFit || 50, sourceType: topic.sourceType || 'web_search',
-        badge: topic.badge || undefined,
-      }),
-    ));
-    this.logger.log(`[refreshTrends] Phase 11: stored ${created.length} topics in MongoDB`);
+    this.logger.log(
+      `[refreshTrends] Phase 11: Storing ${newTopics.length} topics in MongoDB`,
+    );
+    const created = await Promise.all(
+      newTopics.map((topic) =>
+        this.trendingTopicModel.create({
+          channelId: new Types.ObjectId(channelId),
+          title: topic.title || 'Untitled Topic',
+          summary: topic.summary || '',
+          source: topic.source,
+          sourceUrl: topic.sourceUrl,
+          publishedAt: topic.publishedAt ? new Date(topic.publishedAt) : null,
+          youtubeVideoId: topic.youtubeVideoId,
+          youtubeThumbnailUrl: topic.youtubeThumbnailUrl,
+          youtubeChannelTitle: topic.youtubeChannelTitle,
+          youtubeVideoUrl: topic.youtubeVideoUrl,
+          extractedEntity: topic.extractedEntity,
+          opportunityScore: topic.opportunityScore,
+          opportunityLabel: topic.opportunityLabel,
+          searchDemand: topic.searchDemand || 0,
+          channelFit: topic.channelFit || 50,
+          sourceType: topic.sourceType || 'web_search',
+          badge: topic.badge || undefined,
+        }),
+      ),
+    );
+    this.logger.log(
+      `[refreshTrends] Phase 11: stored ${created.length} topics in MongoDB`,
+    );
 
     // Store in ChromaDB
-    this.logger.log(`[refreshTrends] Phase 12: ChromaDB upsert for ${created.length} topics`);
+    this.logger.log(
+      `[refreshTrends] Phase 12: ChromaDB upsert for ${created.length} topics`,
+    );
     for (const topic of created) {
       try {
-        await this.chromaService.upsert('trending_topics', topic._id.toString(),
+        await this.chromaService.upsert(
+          'trending_topics',
+          topic._id.toString(),
           `Title: ${topic.title}\nSummary: ${topic.summary}`,
-          { channelId, title: topic.title, opportunityScore: topic.opportunityScore });
-      } catch { /* RAG optional */ }
+          {
+            channelId,
+            title: topic.title,
+            opportunityScore: topic.opportunityScore,
+          },
+        );
+      } catch {
+        /* RAG optional */
+      }
     }
 
-    const pruneBefore = new Date(Date.now() - TREND_HISTORY_DAYS * 24 * 60 * 60 * 1000);
+    const pruneBefore = new Date(
+      Date.now() - TREND_HISTORY_DAYS * 24 * 60 * 60 * 1000,
+    );
     const pruned = await this.trendingTopicModel.deleteMany({
       $or: [{ channelId: oid }, { channelId }],
       fetchedAt: { $lt: pruneBefore },
     });
-    this.logger.log(`[refreshTrends] Phase 13: pruned ${pruned.deletedCount} old topics (>${TREND_HISTORY_DAYS} days)`);
+    this.logger.log(
+      `[refreshTrends] Phase 13: pruned ${pruned.deletedCount} old topics (>${TREND_HISTORY_DAYS} days)`,
+    );
 
     // Invalidate Redis cache keys for this channel
     try {
@@ -411,11 +665,17 @@ Use these recent videos as a reference for what topics and angles this channel c
       await this.redisService.del(`trends:channel:${channelId}:days:3`);
       await this.redisService.del(`trends:channel:${channelId}:days:5`);
       await this.redisService.del(`trends:channel:${channelId}:days:14`);
-      this.logger.log(`[refreshTrends] Invalidated Redis cache keys for channelId=${channelId}`);
-    } catch { /* Cache invalidation optional */ }
+      this.logger.log(
+        `[refreshTrends] Invalidated Redis cache keys for channelId=${channelId}`,
+      );
+    } catch {
+      /* Cache invalidation optional */
+    }
 
     const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-    this.logger.log(`[refreshTrends] ✅ DONE channelId=${channelId} — ${created.length} topics created in ${elapsed}s`);
+    this.logger.log(
+      `[refreshTrends] ✅ DONE channelId=${channelId} — ${created.length} topics created in ${elapsed}s`,
+    );
 
     return created;
   }
@@ -423,18 +683,35 @@ Use these recent videos as a reference for what topics and angles this channel c
   private deduplicateTopics(topics: any[]): any[] {
     const seen = new Map<string, any>();
     for (const topic of topics) {
-      const key = topic.title.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 60);
+      const key = topic.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .substring(0, 60);
       if (!seen.has(key)) seen.set(key, topic);
     }
     return Array.from(seen.values());
   }
 
-  private async matchYouTubeVideo(topic: any, twentyOneDaysAgo: Date, channelId: string): Promise<any> {
+  private async matchYouTubeVideo(
+    topic: any,
+    twentyOneDaysAgo: Date,
+    channelId: string,
+  ): Promise<any> {
     const base: any = {
-      title: topic.title, summary: topic.summary, source: topic.source, sourceUrl: topic.sourceUrl,
-      publishedAt: topic.publishedAt, youtubeVideoId: null, youtubeThumbnailUrl: null,
-      youtubeChannelTitle: null, youtubeVideoUrl: null, extractedEntity: null,
-      opportunityScore: 0, opportunityLabel: null, searchDemand: 0, channelFit: 50,
+      title: topic.title,
+      summary: topic.summary,
+      source: topic.source,
+      sourceUrl: topic.sourceUrl,
+      publishedAt: topic.publishedAt,
+      youtubeVideoId: null,
+      youtubeThumbnailUrl: null,
+      youtubeChannelTitle: null,
+      youtubeVideoUrl: null,
+      extractedEntity: null,
+      opportunityScore: 0,
+      opportunityLabel: null,
+      searchDemand: 0,
+      channelFit: 50,
       sourceType: topic.sourceType || 'web_search',
     };
 
@@ -445,33 +722,45 @@ Use these recent videos as a reference for what topics and angles this channel c
         const oembedRes = await fetch(oembedUrl);
         if (oembedRes.ok) {
           const oembed: any = await oembedRes.json();
-          const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+          const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(
+            oembed.title || '',
+          );
           if (!hasCJK) {
-            const videoIdMatch = topic.youtubeVideoUrl.match(/(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})/);
+            const videoIdMatch = topic.youtubeVideoUrl.match(
+              /(?:v=|\/embed\/|\/watch\?v=|youtu\.be\/|\/v\/)([a-zA-Z0-9_-]{11})/,
+            );
             const videoId = videoIdMatch ? videoIdMatch[1] : null;
             if (videoId) {
               base.youtubeVideoId = videoId;
               base.youtubeThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-              base.youtubeChannelTitle = oembed.author_name || topic.youtubeChannelName || 'YouTube';
+              base.youtubeChannelTitle =
+                oembed.author_name || topic.youtubeChannelName || 'YouTube';
               base.youtubeVideoUrl = topic.youtubeVideoUrl;
               base.extractedEntity = topic.title;
               return base;
             }
           }
         }
-      } catch { /* Fall through to entity extraction and search */ }
+      } catch {
+        /* Fall through to entity extraction and search */
+      }
     }
 
     let extractedEntity: string | null = null;
     try {
-      const extractionPrompt = buildEntityExtractionPrompt({ title: topic.title, summary: topic.summary });
+      const extractionPrompt = buildEntityExtractionPrompt({
+        title: topic.title,
+        summary: topic.summary,
+      });
       extractedEntity = await this.openaiService.chatFast({
         systemPrompt: extractionPrompt.system,
         userMessage: extractionPrompt.user,
         maxCompletionTokens: 50,
       });
       base.extractedEntity = extractedEntity;
-    } catch { return base; }
+    } catch {
+      return base;
+    }
 
     if (!extractedEntity) return base;
     const validation = validateExtractedEntity(extractedEntity);
@@ -480,12 +769,20 @@ Use these recent videos as a reference for what topics and angles this channel c
     // 24-hour entity search cache check (0 quota units)
     try {
       const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-      const safeRegexPattern = extractedEntity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const cachedMatch = await this.trendingTopicModel.findOne({
-        extractedEntity: { $regex: new RegExp(`^${safeRegexPattern}$`, 'i') },
-        youtubeVideoId: { $ne: null },
-        fetchedAt: { $gte: twentyFourHoursAgo },
-      }).select('youtubeVideoId youtubeThumbnailUrl youtubeChannelTitle youtubeVideoUrl').lean();
+      const safeRegexPattern = extractedEntity.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&',
+      );
+      const cachedMatch = await this.trendingTopicModel
+        .findOne({
+          extractedEntity: { $regex: new RegExp(`^${safeRegexPattern}$`, 'i') },
+          youtubeVideoId: { $ne: null },
+          fetchedAt: { $gte: twentyFourHoursAgo },
+        })
+        .select(
+          'youtubeVideoId youtubeThumbnailUrl youtubeChannelTitle youtubeVideoUrl',
+        )
+        .lean();
 
       if (cachedMatch && cachedMatch.youtubeVideoId) {
         base.youtubeVideoId = cachedMatch.youtubeVideoId;
@@ -494,13 +791,18 @@ Use these recent videos as a reference for what topics and angles this channel c
         base.youtubeVideoUrl = cachedMatch.youtubeVideoUrl;
         return base;
       }
-    } catch { /* Cache optional */ }
+    } catch {
+      /* Cache optional */
+    }
 
     const quota = await this.quota.canUse();
     if (!quota.allowed) return base;
 
     try {
-      const channel = await this.channelModel.findById(channelId).select('userId').lean();
+      const channel = await this.channelModel
+        .findById(channelId)
+        .select('userId')
+        .lean();
       if (!channel?.userId) return base;
       const results = await this.youtubeService.searchVideos({
         userId: channel.userId.toString(),
@@ -511,18 +813,30 @@ Use these recent videos as a reference for what topics and angles this channel c
       });
       await this.quota.use();
       await this.quotaService.logCall({
-        channelId, endpoint: 'refreshTrends (search.list)', quotaCost: 100, success: true,
+        channelId,
+        endpoint: 'refreshTrends (search.list)',
+        quotaCost: 100,
+        success: true,
       });
 
       // Filter out reaction/commentary channels to prioritize primary coverage
-      const reactionPatterns = ['reacts', 'reaction', 'reacting', 'review', 'commentary'];
-      const nonReactionResults = results.filter(r => {
+      const reactionPatterns = [
+        'reacts',
+        'reaction',
+        'reacting',
+        'review',
+        'commentary',
+      ];
+      const nonReactionResults = results.filter((r) => {
         const titleLower = (r.title || '').toLowerCase();
         const chLower = (r.channelTitle || '').toLowerCase();
-        return !reactionPatterns.some(p => titleLower.includes(p) || chLower.includes(p));
+        return !reactionPatterns.some(
+          (p) => titleLower.includes(p) || chLower.includes(p),
+        );
       });
 
-      let chosen: any = nonReactionResults.length > 0 ? nonReactionResults[0] : null;
+      let chosen: any =
+        nonReactionResults.length > 0 ? nonReactionResults[0] : null;
 
       // Verify chosen candidate via oEmbed (free, 0 quota units)
       if (chosen) {
@@ -530,21 +844,33 @@ Use these recent videos as a reference for what topics and angles this channel c
           const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${chosen.videoId}&format=json`;
           const oembedRes = await fetch(oembedUrl);
           if (!oembedRes.ok) {
-            this.logger.log(`[refreshTrends] oEmbed: video ${chosen.videoId} returned ${oembedRes.status}, resetting candidate`);
+            this.logger.log(
+              `[refreshTrends] oEmbed: video ${chosen.videoId} returned ${oembedRes.status}, resetting candidate`,
+            );
             chosen = null;
           } else {
             const oembed: any = await oembedRes.json();
-            const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+            const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(
+              oembed.title || '',
+            );
             if (hasCJK) {
-              this.logger.log(`[refreshTrends] oEmbed: non-English CJK video rejected: "${oembed.title}"`);
+              this.logger.log(
+                `[refreshTrends] oEmbed: non-English CJK video rejected: "${oembed.title}"`,
+              );
               chosen = null;
             }
           }
-        } catch { /* oembed network issue, proceed */ }
+        } catch {
+          /* oembed network issue, proceed */
+        }
       }
 
       // Conditional niche creator search: only for breaking/viral topics if primary candidate failed or is null
-      const isBreakingOrViral = (topic.publishedAt && (Date.now() - new Date(topic.publishedAt).getTime() < 24 * 60 * 60 * 1000)) || topic.sourceType === 'rss_news';
+      const isBreakingOrViral =
+        (topic.publishedAt &&
+          Date.now() - new Date(topic.publishedAt).getTime() <
+            24 * 60 * 60 * 1000) ||
+        topic.sourceType === 'rss_news';
       if (!chosen && isBreakingOrViral) {
         const nicheQuota = await this.quota.canUse();
         if (nicheQuota.allowed) {
@@ -559,7 +885,10 @@ Use these recent videos as a reference for what topics and angles this channel c
             });
             await this.quota.use();
             await this.quotaService.logCall({
-              channelId, endpoint: 'refreshTrends (niche search.list)', quotaCost: 100, success: true,
+              channelId,
+              endpoint: 'refreshTrends (niche search.list)',
+              quotaCost: 100,
+              success: true,
             });
             if (nicheResults.length > 0) {
               const nicheCandidate = nicheResults[0];
@@ -568,7 +897,10 @@ Use these recent videos as a reference for what topics and angles this channel c
                 const oembedRes = await fetch(oembedUrl);
                 if (oembedRes.ok) {
                   const oembed: any = await oembedRes.json();
-                  const hasCJK = /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(oembed.title || '');
+                  const hasCJK =
+                    /[\u4e00-\u9fff\u3040-\u30ff\uac00-\ud7af]/.test(
+                      oembed.title || '',
+                    );
                   if (!hasCJK) {
                     chosen = nicheCandidate;
                   }
@@ -577,7 +909,9 @@ Use these recent videos as a reference for what topics and angles this channel c
                 chosen = nicheCandidate;
               }
             }
-          } catch { /* niche search optional */ }
+          } catch {
+            /* niche search optional */
+          }
         }
       }
 
@@ -587,55 +921,107 @@ Use these recent videos as a reference for what topics and angles this channel c
         base.youtubeChannelTitle = chosen.channelTitle;
         base.youtubeVideoUrl = `https://www.youtube.com/watch?v=${chosen.videoId}`;
       }
-    } catch (error) { this.logger.warn(`YouTube search failed: ${error.message}`); }
+    } catch (error) {
+      this.logger.warn(`YouTube search failed: ${error.message}`);
+    }
     return base;
   }
 
-  private async batchGetViewCounts(videoIds: string[], channelId: string): Promise<Map<string, number>> {
+  private async batchGetViewCounts(
+    videoIds: string[],
+    channelId: string,
+  ): Promise<Map<string, number>> {
     const viewMap = new Map<string, number>();
     if (videoIds.length === 0) return viewMap;
-    const channel = await this.channelModel.findById(channelId).select('userId').lean();
+    const channel = await this.channelModel
+      .findById(channelId)
+      .select('userId')
+      .lean();
     if (!channel?.userId) return viewMap;
-    const accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
+    const accessToken = await this.youtubeService.getValidAccessToken(
+      channel.userId.toString(),
+    );
     const BATCH_SIZE = 50;
     for (let i = 0; i < videoIds.length; i += BATCH_SIZE) {
       try {
-        const details = await this.youtubeService.getVideoDetails(accessToken, videoIds.slice(i, i + BATCH_SIZE));
+        const details = await this.youtubeService.getVideoDetails(
+          accessToken,
+          videoIds.slice(i, i + BATCH_SIZE),
+        );
         for (const d of details) viewMap.set(d.videoId, d.viewCount);
         await this.quotaService.logCall({
-          channelId, endpoint: 'videos.list (batchGetViewCounts)', quotaCost: 1, success: true,
+          channelId,
+          endpoint: 'videos.list (batchGetViewCounts)',
+          quotaCost: 1,
+          success: true,
         });
-      } catch (error) { this.logger.warn(`Batch view count failed: ${error.message}`); }
+      } catch (error) {
+        this.logger.warn(`Batch view count failed: ${error.message}`);
+      }
     }
     return viewMap;
   }
 
-  private calculateOpportunityScore(topic: any, viewCounts: Map<string, number>, avgChannelViews: number): { score: number; label: string; badge?: string } {
-    const isBreaking = (topic.publishedAt && (Date.now() - new Date(topic.publishedAt).getTime() < 24 * 60 * 60 * 1000)) || topic.sourceType === 'rss_news';
+  private calculateOpportunityScore(
+    topic: any,
+    viewCounts: Map<string, number>,
+    avgChannelViews: number,
+  ): { score: number; label: string; badge?: string } {
+    const isBreaking =
+      (topic.publishedAt &&
+        Date.now() - new Date(topic.publishedAt).getTime() <
+          24 * 60 * 60 * 1000) ||
+      topic.sourceType === 'rss_news';
 
     if (!topic.youtubeVideoId) {
-      if (!topic.extractedEntity) return { score: 30, label: 'Unknown', badge: isBreaking ? 'breaking' : undefined };
-      return { score: 50, label: 'Unverified', badge: isBreaking ? 'breaking' : undefined };
+      if (!topic.extractedEntity)
+        return {
+          score: 30,
+          label: 'Unknown',
+          badge: isBreaking ? 'breaking' : undefined,
+        };
+      return {
+        score: 50,
+        label: 'Unverified',
+        badge: isBreaking ? 'breaking' : undefined,
+      };
     }
 
     const topViews = viewCounts.get(topic.youtubeVideoId) || 0;
-    if (topViews === 0) return { score: 75, label: 'Low Competition', badge: 'gap' };
+    if (topViews === 0)
+      return { score: 75, label: 'Low Competition', badge: 'gap' };
 
     const viewRatio = Math.min(1, avgChannelViews / (topViews + 1));
-    const recencyBoost = topic.publishedAt ? Math.max(0, 1 - (Date.now() - new Date(topic.publishedAt).getTime()) / (21 * 24 * 60 * 60 * 1000)) : 0;
+    const recencyBoost = topic.publishedAt
+      ? Math.max(
+          0,
+          1 -
+            (Date.now() - new Date(topic.publishedAt).getTime()) /
+              (21 * 24 * 60 * 60 * 1000),
+        )
+      : 0;
     const searchDemand = (topic.searchDemand || 0) / 100;
     const channelFit = (topic.channelFit || 50) / 100;
 
-    const score = Math.min(100, Math.round(
-      searchDemand * 30 +    // Real search behavior (autocomplete)
-      viewRatio * 25 +        // Competition analysis (YouTube data)
-      recencyBoost * 20 +     // Time sensitivity
-      channelFit * 25         // Niche fit (RAG similarity)
-    ));
+    const score = Math.min(
+      100,
+      Math.round(
+        searchDemand * 30 + // Real search behavior (autocomplete)
+          viewRatio * 25 + // Competition analysis (YouTube data)
+          recencyBoost * 20 + // Time sensitivity
+          channelFit * 25, // Niche fit (RAG similarity)
+      ),
+    );
 
-    const badge = (score >= 80 || topViews > 50000) ? 'viral' : (isBreaking ? 'breaking' : undefined);
+    const badge =
+      score >= 80 || topViews > 50000
+        ? 'viral'
+        : isBreaking
+          ? 'breaking'
+          : undefined;
 
-    if (score >= 80) return { score, label: 'High Opportunity', badge: 'viral' };
+    if (score >= 80)
+      return { score, label: 'High Opportunity', badge: 'viral' };
     if (score >= 50) return { score, label: 'Medium Opportunity', badge };
     return { score, label: 'Low Opportunity', badge };
   }
@@ -644,13 +1030,21 @@ Use these recent videos as a reference for what topics and angles this channel c
    * Calculate channel fit using ChromaDB RAG similarity against video catalog.
    * Free, consistent, deterministic — no extra API call.
    */
-  private async calculateChannelFit(title: string, summary: string): Promise<number> {
+  private async calculateChannelFit(
+    title: string,
+    summary: string,
+  ): Promise<number> {
     try {
       const queryText = `Title: ${title}\nSummary: ${summary}`;
-      const results = await this.chromaService.query('video_metadata', queryText, 5);
+      const results = await this.chromaService.query(
+        'video_metadata',
+        queryText,
+        5,
+      );
       if (results.length === 0) return 50; // No data, neutral score
 
-      const avgDistance = results.reduce((sum, r) => sum + r.distance, 0) / results.length;
+      const avgDistance =
+        results.reduce((sum, r) => sum + r.distance, 0) / results.length;
       const similarity = Math.max(0, 1 - avgDistance); // distance → similarity
       return Math.round(similarity * 100);
     } catch {
@@ -677,7 +1071,11 @@ Use these recent videos as a reference for what topics and angles this channel c
     const compoundQuery = `("federal indictment" | "rapper sentenced" | "criminal case update" | "prison sentence") ${currentYear}`;
     let allSearchResults: any[] = [];
     try {
-      await this.quotaService.checkQuota(channelId, 'refreshTrendsLite (search)', 100);
+      await this.quotaService.checkQuota(
+        channelId,
+        'refreshTrendsLite (search)',
+        100,
+      );
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
       const results = await this.youtubeService.searchVideos({
         userId: channel.userId.toString(),
@@ -688,14 +1086,22 @@ Use these recent videos as a reference for what topics and angles this channel c
       allSearchResults.push(...results);
 
       await this.quotaService.logCall({
-        channelId, endpoint: 'refreshTrendsLite (search)', quotaCost: 100, success: true,
+        channelId,
+        endpoint: 'refreshTrendsLite (search)',
+        quotaCost: 100,
+        success: true,
       });
     } catch (error: any) {
       this.logger.warn(`Lite refresh: search failed: ${error.message}`);
-      await this.quotaService.logCall({
-        channelId, endpoint: 'refreshTrendsLite (search)', quotaCost: 100,
-        success: false, errorMessage: error.message,
-      }).catch(() => {});
+      await this.quotaService
+        .logCall({
+          channelId,
+          endpoint: 'refreshTrendsLite (search)',
+          quotaCost: 100,
+          success: false,
+          errorMessage: error.message,
+        })
+        .catch(() => {});
       return [];
     }
 
@@ -705,39 +1111,70 @@ Use these recent videos as a reference for what topics and angles this channel c
     }
 
     // Step 2: Filter out music videos, deduplicate, and apply relevance gate
-    const musicVideoPatterns = ['official video', 'official music video', 'official audio'];
+    const musicVideoPatterns = [
+      'official video',
+      'official music video',
+      'official audio',
+    ];
     const TIER1_LITE = [
-      'indicted', 'convicted', 'sentenced', 'federal', 'prison', 'inmate',
-      'racketeering', 'trafficking', 'guilty', 'plea', 'verdict', 'murder',
-      'homicide', 'solitary', 'probation', 'parole', 'incarceration',
-      'arrested', 'charges', 'felony', 'conspiracy', 'cartel',
+      'indicted',
+      'convicted',
+      'sentenced',
+      'federal',
+      'prison',
+      'inmate',
+      'racketeering',
+      'trafficking',
+      'guilty',
+      'plea',
+      'verdict',
+      'murder',
+      'homicide',
+      'solitary',
+      'probation',
+      'parole',
+      'incarceration',
+      'arrested',
+      'charges',
+      'felony',
+      'conspiracy',
+      'cartel',
     ];
     const seen = new Set<string>();
-    const relevant = allSearchResults.filter(v => {
-      const titleLower = v.title.toLowerCase();
-      if (musicVideoPatterns.some(p => titleLower.includes(p))) return false;
-      const key = titleLower.replace(/[^a-z0-9]/g, '').substring(0, 60);
-      if (seen.has(key)) return false;
-      seen.add(key);
-      // Relevance gate: must contain at least one Tier 1 criminal keyword
-      if (!TIER1_LITE.some(kw => titleLower.includes(kw))) return false;
-      return true;
-    }).slice(0, 8);
+    const relevant = allSearchResults
+      .filter((v) => {
+        const titleLower = v.title.toLowerCase();
+        if (musicVideoPatterns.some((p) => titleLower.includes(p)))
+          return false;
+        const key = titleLower.replace(/[^a-z0-9]/g, '').substring(0, 60);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        // Relevance gate: must contain at least one Tier 1 criminal keyword
+        if (!TIER1_LITE.some((kw) => titleLower.includes(kw))) return false;
+        return true;
+      })
+      .slice(0, 8);
 
     if (relevant.length === 0) {
-      this.logger.log('Lite refresh: no niche-relevant videos found in search results');
+      this.logger.log(
+        'Lite refresh: no niche-relevant videos found in search results',
+      );
       return [];
     }
 
     // Step 3: Autocomplete for search demand — free
-    const demandQueries = relevant.map(v => {
+    const demandQueries = relevant.map((v) => {
       // Extract key entity from title (first 5 words)
-      const words = v.title.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean);
+      const words = v.title
+        .replace(/[^\w\s]/g, '')
+        .split(/\s+/)
+        .filter(Boolean);
       return words.slice(0, 5).join(' ');
     });
     let searchDemandMap = new Map<string, number>();
     try {
-      searchDemandMap = await this.suggestionsService.getSearchDemand(demandQueries);
+      searchDemandMap =
+        await this.suggestionsService.getSearchDemand(demandQueries);
     } catch (error) {
       this.logger.warn(`Lite refresh: autocomplete failed: ${error.message}`);
     }
@@ -746,59 +1183,97 @@ Use these recent videos as a reference for what topics and angles this channel c
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
     const oid = new Types.ObjectId(channelId);
-    const existingTopics = await this.trendingTopicModel.find({
-      $or: [{ channelId: oid }, { channelId }],
-      fetchedAt: { $gte: todayStart },
-    }).select('title').lean();
+    const existingTopics = await this.trendingTopicModel
+      .find({
+        $or: [{ channelId: oid }, { channelId }],
+        fetchedAt: { $gte: todayStart },
+      })
+      .select('title')
+      .lean();
     const existingTitles = new Set(
-      existingTopics.map(t => t.title.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 60))
+      existingTopics.map((t) =>
+        t.title
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, '')
+          .substring(0, 60),
+      ),
     );
 
-    const newRelevant = relevant.filter(v => {
-      const key = v.title.toLowerCase().replace(/[^a-z0-9]/g, '').substring(0, 60);
+    const newRelevant = relevant.filter((v) => {
+      const key = v.title
+        .toLowerCase()
+        .replace(/[^a-z0-9]/g, '')
+        .substring(0, 60);
       return !existingTitles.has(key);
     });
 
     if (newRelevant.length === 0) {
-      this.logger.log(`Lite refresh: all ${relevant.length} topics already exist in DB for today`);
+      this.logger.log(
+        `Lite refresh: all ${relevant.length} topics already exist in DB for today`,
+      );
       return [];
     }
 
     // Step 5: Store in DB — use consistent scoring with full refresh
-    const avgChannelViews = channel ? Math.round(Number(channel.totalViews) / Math.max(channel.totalVideos, 1)) : 50000;
-    const created = await Promise.all(newRelevant.map(v => {
-      const entity = v.title.replace(/[^\w\s]/g, '').split(/\s+/).filter(Boolean).slice(0, 5).join(' ');
-      const searchDemand = searchDemandMap.get(entity) || 0;
-      // Use simplified multi-factor scoring consistent with full refresh
-      // Lite doesn't have competition data, so viewRatio = 0, recencyBoost based on publishedAt
-      const recencyBoost = v.publishedAt
-        ? Math.max(0, 1 - (Date.now() - new Date(v.publishedAt).getTime()) / (21 * 24 * 60 * 60 * 1000))
-        : 0;
-      const score = Math.min(100, Math.round(
-        (searchDemand / 100) * 50 +   // Search demand (50% weight — higher since no competition data)
-        recencyBoost * 25 +             // Recency (25%)
-        0.5 * 25                        // Neutral channel fit (25%)
-      ));
-      const label = score >= 80 ? 'High Opportunity' : score >= 50 ? 'Medium Opportunity' : 'Low Opportunity';
-      const badge: 'viral' | 'gap' | 'breaking' | undefined = score >= 80 ? 'viral' : recencyBoost > 0.7 ? 'breaking' : 'gap';
-      return this.trendingTopicModel.create({
-        channelId: new Types.ObjectId(channelId),
-        title: v.title,
-        summary: `Trending on YouTube — ${(v.viewCount || 0).toLocaleString()} views by ${v.channelTitle || 'YouTube'}`,
-        source: v.channelTitle,
-        publishedAt: v.publishedAt ? new Date(v.publishedAt) : null,
-        youtubeVideoId: v.videoId,
-        youtubeThumbnailUrl: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
-        youtubeChannelTitle: v.channelTitle,
-        youtubeVideoUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
-        opportunityScore: score,
-        opportunityLabel: label,
-        searchDemand,
-        channelFit: 50,
-        sourceType: 'lite',
-        badge,
-      });
-    }));
+    const avgChannelViews = channel
+      ? Math.round(
+          Number(channel.totalViews) / Math.max(channel.totalVideos, 1),
+        )
+      : 50000;
+    const created = await Promise.all(
+      newRelevant.map((v) => {
+        const entity = v.title
+          .replace(/[^\w\s]/g, '')
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 5)
+          .join(' ');
+        const searchDemand = searchDemandMap.get(entity) || 0;
+        // Use simplified multi-factor scoring consistent with full refresh
+        // Lite doesn't have competition data, so viewRatio = 0, recencyBoost based on publishedAt
+        const recencyBoost = v.publishedAt
+          ? Math.max(
+              0,
+              1 -
+                (Date.now() - new Date(v.publishedAt).getTime()) /
+                  (21 * 24 * 60 * 60 * 1000),
+            )
+          : 0;
+        const score = Math.min(
+          100,
+          Math.round(
+            (searchDemand / 100) * 50 + // Search demand (50% weight — higher since no competition data)
+              recencyBoost * 25 + // Recency (25%)
+              0.5 * 25, // Neutral channel fit (25%)
+          ),
+        );
+        const label =
+          score >= 80
+            ? 'High Opportunity'
+            : score >= 50
+              ? 'Medium Opportunity'
+              : 'Low Opportunity';
+        const badge: 'viral' | 'gap' | 'breaking' | undefined =
+          score >= 80 ? 'viral' : recencyBoost > 0.7 ? 'breaking' : 'gap';
+        return this.trendingTopicModel.create({
+          channelId: new Types.ObjectId(channelId),
+          title: v.title,
+          summary: `Trending on YouTube — ${(v.viewCount || 0).toLocaleString()} views by ${v.channelTitle || 'YouTube'}`,
+          source: v.channelTitle,
+          publishedAt: v.publishedAt ? new Date(v.publishedAt) : null,
+          youtubeVideoId: v.videoId,
+          youtubeThumbnailUrl: `https://i.ytimg.com/vi/${v.videoId}/hqdefault.jpg`,
+          youtubeChannelTitle: v.channelTitle,
+          youtubeVideoUrl: `https://www.youtube.com/watch?v=${v.videoId}`,
+          opportunityScore: score,
+          opportunityLabel: label,
+          searchDemand,
+          channelFit: 50,
+          sourceType: 'lite',
+          badge,
+        });
+      }),
+    );
 
     this.logger.log(`Lite refresh complete: ${created.length} topics stored`);
 
@@ -808,11 +1283,17 @@ Use these recent videos as a reference for what topics and angles this channel c
       await this.redisService.del(`trends:channel:${channelId}:days:3`);
       await this.redisService.del(`trends:channel:${channelId}:days:5`);
       await this.redisService.del(`trends:channel:${channelId}:days:14`);
-      this.logger.log(`Lite refresh: Invalidated Redis cache keys for channelId=${channelId}`);
-    } catch { /* Cache invalidation optional */ }
+      this.logger.log(
+        `Lite refresh: Invalidated Redis cache keys for channelId=${channelId}`,
+      );
+    } catch {
+      /* Cache invalidation optional */
+    }
 
     // Prune old lite topics
-    const pruneBefore = new Date(Date.now() - TREND_HISTORY_DAYS * 24 * 60 * 60 * 1000);
+    const pruneBefore = new Date(
+      Date.now() - TREND_HISTORY_DAYS * 24 * 60 * 60 * 1000,
+    );
     await this.trendingTopicModel.deleteMany({
       $or: [{ channelId: oid }, { channelId }],
       sourceType: 'lite',
@@ -824,20 +1305,31 @@ Use these recent videos as a reference for what topics and angles this channel c
 
   async seedThread(channelId: string, topicId: string) {
     const oid = new Types.ObjectId(channelId);
-    const topic = await this.trendingTopicModel.findOne({ _id: topicId, $or: [{ channelId: oid }, { channelId }] }).lean();
-    if (!topic) throw new Error('Trending topic not found or does not belong to this channel');
+    const topic = await this.trendingTopicModel
+      .findOne({ _id: topicId, $or: [{ channelId: oid }, { channelId }] })
+      .lean();
+    if (!topic)
+      throw new Error(
+        'Trending topic not found or does not belong to this channel',
+      );
 
     const thread = await this.chatService.createThread(channelId, {
-      title: `Trends: ${topic.title}`, type: 'standalone',
+      title: `Trends: ${topic.title}`,
+      type: 'standalone',
     });
 
     let context = `Topic: ${topic.title}\n\nContext: ${topic.summary}\n\nSource: ${topic.source || 'No source available'}`;
     if (topic.publishedAt) {
-      const daysAgo = Math.round((Date.now() - new Date(topic.publishedAt).getTime()) / (24 * 60 * 60 * 1000));
+      const daysAgo = Math.round(
+        (Date.now() - new Date(topic.publishedAt).getTime()) /
+          (24 * 60 * 60 * 1000),
+      );
       context += `\n\nPublished: ${new Date(topic.publishedAt).toISOString().split('T')[0]} (${daysAgo} days ago)`;
     }
-    if (topic.opportunityLabel) context += `\n\nOpportunity Score: ${topic.opportunityScore}/100 — ${topic.opportunityLabel}`;
-    if (topic.youtubeVideoId) context += `\n\nExisting YouTube coverage: ${topic.youtubeVideoUrl}\nChannel: ${topic.youtubeChannelTitle}`;
+    if (topic.opportunityLabel)
+      context += `\n\nOpportunity Score: ${topic.opportunityScore}/100 — ${topic.opportunityLabel}`;
+    if (topic.youtubeVideoId)
+      context += `\n\nExisting YouTube coverage: ${topic.youtubeVideoUrl}\nChannel: ${topic.youtubeChannelTitle}`;
 
     await this.chatService.sendMessage(thread.id.toString(), {
       content: `I want to make a video about this trending story:\n\n${context}\n\nScore the idea using the 8-criteria system. Suggest a title and thumbnail text.`,
@@ -852,7 +1344,10 @@ Use these recent videos as a reference for what topics and angles this channel c
    */
   private extractCleanJsonArray(text: string): any[] {
     // 1. Remove markdown code fences
-    let cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
+    let cleaned = text
+      .replace(/```json\s*/gi, '')
+      .replace(/```\s*/gi, '')
+      .trim();
 
     // 2. Extract content between first '[' and last ']'
     const firstBracket = cleaned.indexOf('[');
@@ -860,7 +1355,9 @@ Use these recent videos as a reference for what topics and angles this channel c
     if (firstBracket !== -1 && lastBracket > firstBracket) {
       cleaned = cleaned.substring(firstBracket, lastBracket + 1);
     } else {
-      throw new Error('No JSON array brackets "[" and "]" found in AI text response.');
+      throw new Error(
+        'No JSON array brackets "[" and "]" found in AI text response.',
+      );
     }
 
     // 3. Clean up common markdown citations embedded by search model, e.g. [1], [CNN](url)
