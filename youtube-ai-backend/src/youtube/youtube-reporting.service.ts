@@ -22,8 +22,8 @@ export interface VideoReachMetrics {
 export class YoutubeReportingService {
   private readonly logger = new Logger(YoutubeReportingService.name);
   private readonly REACH_REPORT_TYPE = 'channel_reach_basic_a1';
-  /** YouTube Reporting docs: thumbnail CTR is a percentage (0–100), not a 0–1 fraction. */
-  private readonly CTR_UNIT = 'percent_0_100';
+  /** YouTube Reporting API delivers thumbnail CTR as a 0.0–1.0 decimal fraction (e.g. 0.0277... = 2.78%). */
+  private readonly CTR_UNIT = 'percent_0_100_converted_from_fraction';
 
   constructor(
     private readonly youtubeService: YouTubeService,
@@ -193,11 +193,11 @@ export class YoutubeReportingService {
   }
 
   /**
-   * Parse reach CSV. Logs full header when columns are missing so prod can diagnose.
-   * CTR unit: percentage 0–100 (YouTube Reporting docs). Values in (0,1] stay as-is
-   * (e.g. 0.8 → 0.8%), never ×100 (that would show 80%).
+   * Parse reach CSV.
+   * YouTube Reporting API delivers CTR as a decimal fraction (e.g. 0.02777... = 2.78%).
+   * Multiplies by 100 to convert to percentage without pre-rounding, preserving precision for multi-day merge.
    */
-  private parseReachCsv(csv: string, filterIds?: string[]): VideoReachMetrics[] {
+  public parseReachCsv(csv: string, filterIds?: string[]): VideoReachMetrics[] {
     const lines = csv.split(/\r?\n/).filter((l) => l.trim());
     if (lines.length < 2) {
       this.logger.warn(`[Reach] CSV too short (lines=${lines.length}) — need header + rows`);
@@ -240,12 +240,12 @@ export class YoutubeReportingService {
       if (!videoId) continue;
       if (want && !want.has(videoId)) continue;
       const impressions = idx.imp >= 0 ? Number(cols[idx.imp] || 0) || 0 : 0;
-      const ctrRaw = idx.ctr >= 0 ? Number(cols[idx.ctr] || 0) || 0 : 0;
-      // FIXED RULE: Reporting CTR is already percent 0–100. Do not scale ≤1 up by 100.
-      const ctr = Math.round(ctrRaw * 100) / 100;
+      const ctrFraction = idx.ctr >= 0 ? Number(cols[idx.ctr] || 0) || 0 : 0;
+      // Convert fraction to percentage without early rounding (e.g. 0.0277... -> 2.7777...)
+      const ctr = ctrFraction * 100;
       if (!loggedSample) {
         this.logger.log(
-          `[Reach] row sample video=${videoId} raw_ctr=${ctrRaw} => ctr%=${ctr} imp=${impressions} unit=${this.CTR_UNIT} (compare vs Studio)`,
+          `[Reach] row sample video=${videoId} raw_fraction=${ctrFraction} => ctr%=${ctr.toFixed(2)}% imp=${impressions} unit=${this.CTR_UNIT} (compare vs Studio)`,
         );
         loggedSample = true;
       }

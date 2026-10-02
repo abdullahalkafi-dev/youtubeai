@@ -128,23 +128,61 @@ export class VideosService {
           totalViews: { $sum: '$viewCount' },
           totalLikes: { $sum: '$likeCount' },
           totalRevenue: { $sum: '$estimatedRevenue' },
-          avgCtr: { $avg: '$ctr' },
           avgWatchTime: { $avg: '$avgWatchTime' },
           avgRetention: { $avg: '$retentionPercent' },
+          totalReachImpressions: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gt: ['$impressions', 0] },
+                    { $isNumber: '$ctr' },
+                  ],
+                },
+                '$impressions',
+                0,
+              ],
+            },
+          },
+          weightedCtrSum: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $gt: ['$impressions', 0] },
+                    { $isNumber: '$ctr' },
+                  ],
+                },
+                { $multiply: ['$ctr', '$impressions'] },
+                0,
+              ],
+            },
+          },
         },
       },
     ]);
 
     const s = stats[0] || {};
+    const avgCtr =
+      s.totalReachImpressions > 0
+        ? Math.round((s.weightedCtrSum / s.totalReachImpressions) * 100) / 100
+        : 0;
     return {
       totalVideos: s.totalVideos || 0,
       totalViews: s.totalViews || 0,
       totalLikes: s.totalLikes || 0,
       totalRevenue: s.totalRevenue || 0,
-      avgCtr: s.avgCtr || 0,
+      avgCtr,
       avgWatchTime: s.avgWatchTime || 0,
       avgRetention: s.avgRetention || 0,
     };
+  }
+
+  async resetChannelCtr(channelId: string) {
+    return this.videoModel.updateMany(
+      { channelId: new Types.ObjectId(channelId) },
+      { $unset: { ctr: '' } },
+    );
   }
 
   async fetchVideoAnalytics(videoId: string, userId: string) {
@@ -159,26 +197,30 @@ export class VideosService {
     if (!analytics) return null;
 
     // Thumbnail CTR lives only in Reporting API reach reports
-    let impressions = analytics.impressions || 0;
-    let ctr = analytics.impressionsClickThroughRate || 0;
+    let impressions: number | null = null;
+    let ctr: number | null = null;
     try {
       const reach = await this.youtubeReportingService.getReachMetrics(userId, [video.youtubeId]);
       const r = reach.find((x) => x.videoId === video.youtubeId);
       if (r) {
-        impressions = r.impressions || impressions;
-        ctr = r.ctr || ctr;
+        impressions = r.impressions;
+        ctr = r.ctr;
       }
     } catch { /* reach optional */ }
 
+    const updateFields: any = {
+      avgWatchTime: analytics.averageViewDuration,
+      retentionPercent: analytics.averageViewPercentage,
+      estimatedRevenue: analytics.estimatedRevenue,
+      lastAnalyticsSync: new Date(),
+      ctr, // null if no reach data in window, avoiding false 0s
+    };
+    if (impressions !== null) {
+      updateFields.impressions = impressions;
+    }
+
     const updated = await this.videoModel.findByIdAndUpdate(new Types.ObjectId(videoId), {
-      $set: {
-        avgWatchTime: analytics.averageViewDuration,
-        retentionPercent: analytics.averageViewPercentage,
-        estimatedRevenue: analytics.estimatedRevenue,
-        impressions,
-        ctr,
-        lastAnalyticsSync: new Date(),
-      },
+      $set: updateFields,
     }, { new: true }).lean();
     return leanDoc(updated);
   }

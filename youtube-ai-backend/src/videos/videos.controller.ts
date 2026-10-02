@@ -33,6 +33,11 @@ export class VideosController {
     return this.videosService.getChannelStats(channelId);
   }
 
+  @Post('channels/:channelId/videos/reset-ctr')
+  resetChannelCtr(@Param('channelId') channelId: string) {
+    return this.videosService.resetChannelCtr(channelId);
+  }
+
   @Get('channels/:channelId/videos/drifted')
   getDriftedVideos(@Param('channelId') channelId: string) {
     return this.videosService.getDriftedVideos(channelId);

@@ -775,14 +775,14 @@ export class PerformanceContextService {
             life && ((life as any).impressions = selfReach.impressions);
             life && ((life as any).impressionsClickThroughRate = selfReach.ctr);
           }
-          // Channel baseline CTR = impression-weighted mean of positive video CTRs
-          const positive = reachRows.filter(
-            (r) => r.ctr > 0 && r.impressions > 0,
+          // Channel baseline CTR = impression-weighted mean of videos with measured reach (allowing true 0% CTR)
+          const withReach = reachRows.filter(
+            (r) => typeof r.ctr === 'number' && r.impressions >= 100,
           );
-          if (positive.length && baseline.impressionsClickThroughRate <= 0) {
+          if (withReach.length && baseline.impressionsClickThroughRate <= 0) {
             let impSum = 0;
             let ctrWeighted = 0;
-            for (const r of positive) {
+            for (const r of withReach) {
               const imp = Number(r.impressions) || 0;
               impSum += imp;
               ctrWeighted += r.ctr * imp;
@@ -790,7 +790,7 @@ export class PerformanceContextService {
             const weighted =
               impSum > 0
                 ? ctrWeighted / impSum
-                : positive.reduce((s, r) => s + r.ctr, 0) / positive.length;
+                : withReach.reduce((s, r) => s + r.ctr, 0) / withReach.length;
             baseline.impressionsClickThroughRate =
               Math.round(weighted * 100) / 100;
             let impAll = 0;
@@ -843,7 +843,7 @@ export class PerformanceContextService {
                 ? ` | imp ${Math.round(r.impressions).toLocaleString()}`
                 : '';
             const ctrPart =
-              r.ctr > 0
+              typeof r.ctr === 'number'
                 ? ` | CTR ${r.ctr.toFixed(1)}%`
                 : ' | CTR not measured yet';
             lines.push(
@@ -858,19 +858,20 @@ export class PerformanceContextService {
           (r) => r.videoId === video.youtubeId,
         );
         if (selfRow) {
+          const selfHasReach = typeof selfRow.ctr === 'number' && selfRow.impressions > 0;
           const impPart =
             selfRow.impressions > 0
               ? ` | imp ${Math.round(selfRow.impressions).toLocaleString()}`
               : '';
           const ctrPart =
-            selfRow.ctr > 0
+            selfHasReach
               ? ` | CTR ${selfRow.ctr.toFixed(1)}%`
               : ' | CTR not measured yet';
           lines.push(
             `THIS VIDEO (28d window): ${selfRow.views.toLocaleString()} views${impPart}${ctrPart} | ${Math.round(selfRow.averageViewPercentage)}% viewed`,
           );
-          const ctrDelta = selfRow.ctr - baseline.impressionsClickThroughRate;
-          if (baseline.impressionsClickThroughRate > 0 && selfRow.ctr > 0) {
+          const ctrDelta = selfHasReach ? selfRow.ctr - baseline.impressionsClickThroughRate : null;
+          if (baseline.impressionsClickThroughRate > 0 && selfHasReach && ctrDelta !== null) {
             lines.push(
               `CTR vs baseline: ${ctrDelta >= 0 ? '+' : ''}${ctrDelta.toFixed(1)} pts (${ctrDelta < -0.5 ? 'BELOW baseline — packaging is a lever' : ctrDelta > 0.5 ? 'above baseline' : 'near baseline'})`,
             );
@@ -881,7 +882,7 @@ export class PerformanceContextService {
               { _id: video._id },
               {
                 $set: {
-                  ctr: selfRow.ctr,
+                  ctr: selfHasReach ? selfRow.ctr : null,
                   impressions: Math.round(selfRow.impressions),
                   retentionPercent: Math.round(selfRow.averageViewPercentage),
                   lastAnalyticsSync: new Date(),
@@ -1042,27 +1043,37 @@ export class PerformanceContextService {
       lines.push(moves.length ? moves.join('\n') : '(no source moved ≥10%)');
 
       if (rows.length) {
-        const byCtr = [...rows].sort((a, b) => b.ctr - a.ctr);
         lines.push('');
         lines.push('TOP PERFORMERS (28d by views):');
         rows.slice(0, 3).forEach((r, i) => {
+          const ctrLabel =
+            typeof r.ctr === 'number'
+              ? `CTR ${r.ctr.toFixed(1)}%`
+              : 'CTR not measured yet';
           lines.push(
-            `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed | imp ${Math.round(r.impressions).toLocaleString()}`,
+            `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | ${ctrLabel} | ${Math.round(r.averageViewPercentage)}% viewed | imp ${Math.round(r.impressions).toLocaleString()}`,
           );
         });
-        lines.push('BOTTOM / LOW CTR (repackage candidates):');
-        const low = [...rows]
-          .filter((r) => r.views > 0)
-          .sort((a, b) => a.ctr - b.ctr)
-          .slice(0, 3);
-        low.forEach((r, i) => {
-          lines.push(
-            `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${r.ctr.toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed`,
-          );
-        });
-        lines.push(
-          `Highest CTR reference: "${byCtr[0]?.title}" at ${byCtr[0]?.ctr.toFixed(1)}%`,
+
+        // Repackage candidates: videos with meaningful impressions (>= 100) and measured CTR (allowing true 0% CTR!)
+        const measuredReachRows = rows.filter(
+          (r) => typeof r.ctr === 'number' && r.impressions >= 100 && r.views > 0,
         );
+        if (measuredReachRows.length) {
+          lines.push('BOTTOM / LOW CTR (repackage candidates):');
+          const low = [...measuredReachRows]
+            .sort((a, b) => (a.ctr ?? 0) - (b.ctr ?? 0))
+            .slice(0, 3);
+          low.forEach((r, i) => {
+            lines.push(
+              `${i + 1}. "${r.title}" — ${r.views.toLocaleString()} views | CTR ${(r.ctr ?? 0).toFixed(1)}% | ${Math.round(r.averageViewPercentage)}% viewed`,
+            );
+          });
+          const byCtr = [...measuredReachRows].sort((a, b) => b.ctr - a.ctr);
+          lines.push(
+            `Highest CTR reference: "${byCtr[0]?.title}" at ${(byCtr[0]?.ctr ?? 0).toFixed(1)}%`,
+          );
+        }
       }
 
       if (searchTerms.length) {
