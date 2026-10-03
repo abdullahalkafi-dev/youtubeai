@@ -132,7 +132,7 @@ Also require (from full thumbnail system):
 - MULTI-CHARACTER CONTRAST when multiple figures
 - REAL SUBJECT likeness (official names, demographics, negatives)
 - Broken glass ONLY for betrayal/confession stories
-- Headline in left third / top-left; bottom-right reserved for host sticker
+- Headline in left third / top-left; keep bottom-right corner free of headline text
 - GPT-IMAGE-2 camera-ready physical description only (no meta disclaimers)
 - Keep "**Text overlay:** [WORDS]" on a single line
 
@@ -150,7 +150,7 @@ Also require (from full thumbnail system):
 ## THUMBNAIL STYLE
 - Real photo documentary look, not cartoon
 - 2–4 uppercase overlay words, two-tone
-- Bottom-right reserved for host sticker (do not describe logo paint)
+- Keep bottom-right corner free of headline text (do not describe overlays or logos)
 - Negatives for wrong age/look on real people
 - Camera-ready physical description only (no meta disclaimers)
 `;

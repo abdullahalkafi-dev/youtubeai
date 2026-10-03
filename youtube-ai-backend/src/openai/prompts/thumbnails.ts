@@ -39,7 +39,7 @@ RULES FOR THUMBNAIL CONCEPTS:
    - Describe tangible, visible elements that a 35mm film camera can photograph.
    - STRICTLY FORBIDDEN: NEVER include meta-disclaimers or conversational phrases (DO NOT WRITE: "legally sourced image", "from a verified courtroom image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
 6. COLOR SCHEME: Specify 2-3 dominant colors (e.g. "Cold deep blue, slate black, high-contrast white, crimson red accent").
-7. BRANDING: Do NOT mention any logos, channel names, watermarks, or brand badges (Sharp adds official logo and host cutout automatically unless client excludes them).
+7. BRANDING/OVERLAY: Do NOT mention any logos, channel names, watermarks, brand badges, host stickers, cutouts, or "Unique Mecca" host references in the description (Sharp adds the official logo and host cutout automatically unless client excludes them). Never mention the bottom-right or top-right corners as reserved space — just describe the scene.
 8. STYLE: Cinematic dark, high-contrast photography, criminal breakdown aesthetic. Realistic photo look, NOT AI cartoon or 3D render.
 
 Return ONLY valid JSON:

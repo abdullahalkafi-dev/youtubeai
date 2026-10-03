@@ -294,7 +294,7 @@ When recommending, proposing, generating, or iterating on thumbnail concepts for
 - HEADLINE TYPOGRAPHY & OVERLAY CLEARANCE:
   * Use bold, 2-4 uppercase word headlines ("HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?").
   * Use two-tone color pairing: Line 1 White, Line 2 Yellow or Red.
-  * Keep headline text in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
+  * Keep headline text in the left third or top-left. Never place headline text in the bottom-right corner.
 - CLIENT DIRECTIVE SENSITIVITY:
   * If the client says "no host", "remove me", or "without me", omit host placement.
   * If the client says "no logo" or "remove logo", do not include or reserve space for logos.

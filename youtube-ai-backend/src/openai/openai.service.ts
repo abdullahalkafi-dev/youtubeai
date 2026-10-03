@@ -1034,12 +1034,17 @@ export class OpenAIService {
     referenceImageUrls?: string[];
   }): Promise<{ imageUrl: string; cleanBackgroundUrl?: string; revisedPrompt: string }> {
     let cleanDescription = params.concept.description || '';
-    // 1. Strip logo/brand references so OpenAI doesn't paint duplicate logos
+    // 1. Strip logo/brand/host references so OpenAI doesn't paint duplicate overlays
+    // (the real host sticker + logo are composited locally by Sharp afterwards —
+    // naming them here makes the diffusion model paint its own fake versions)
     cleanDescription = cleanDescription
       .replace(/add the \*\*?mae[^*]*\*\*? logo[^\.]*/gi, '')
       .replace(/add the logo[^\.]*/gi, '')
-      .replace(/\blogo\b/gi, '')
-      .replace(/\bbrand badge\b/gi, '')
+      // Drop any clause/segment that mentions an overlay object or the reserved corners
+      .replace(
+        /[^.,;:!?|]*\b(?:host\s+(?:sticker|photo|portrait|cutout)|cutout\s+sticker|creator\s+cutout|channel\s+badge|brand\s+badge|watermark|unique\s+mecca\s+host|sticker|badge|logo)\b[^.,;:!?|]*[.,;:!?|]?/gi,
+        ' ',
+      )
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -1070,13 +1075,15 @@ export class OpenAIService {
     const isVertical = params.aspectRatio === '9:16';
     const targetRatioLabel = isVertical ? '9:16 vertical YouTube Shorts' : '16:9 cinematic YouTube';
 
+    // NOTE: never name the overlay object here ("sticker", "badge", "logo") —
+    // diffusion models paint whatever object is mentioned instead of honoring "reserved for".
     const hostDirective = params.excludeHost
       ? '- Do NOT reserve space or include creator host photo (client directive: no host).'
-      : '- Bottom-Right Corner: Keep deep in shadow and completely clear of faces (reserved for creator cutout sticker).';
+      : '- Bottom-Right Corner: deep shadow — completely EMPTY. NO person, NO face, NO portrait, NO figure, NO text in this corner.';
 
     const logoDirective = params.excludeLogo
-      ? '- Do NOT include any brand logos, channel badges, or watermarks.'
-      : '- Top-Right Corner: Keep dark and clear of key visual elements (reserved for channel badge).';
+      ? '- Do NOT include any brand marks, channel emblems, or watermarks.'
+      : '- Top-Right Corner: dark and empty — NO emblem, NO graphic, NO symbol, NO text in this corner.';
 
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
 
