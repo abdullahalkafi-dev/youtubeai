@@ -113,6 +113,7 @@ export function MessageRenderer({
                     messageId={messageId}
                     messageImages={messageImages}
                     onStartGenerate={onStartGenerate}
+                    onFinishGenerate={onFinishGenerate}
                     onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
                       onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription)}
                     videoTitle={effectiveTopic}
@@ -205,6 +206,7 @@ export function MessageRenderer({
           messageId={messageId}
           messageImages={messageImages}
           onStartGenerate={onStartGenerate}
+          onFinishGenerate={onFinishGenerate}
           onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition) =>
             onEditImage?.(url, 'thumbnail', cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition)}
           videoTitle={effectiveTopic}

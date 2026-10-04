@@ -328,6 +328,19 @@ export default function ChatPage() {
     }
   }, [allImages.length, expectedImageCount, isRefetchingImages])
 
+  // Safety net: the "Generating..." skeleton must never stick forever.
+  // Clears as soon as the expected image lands in the gallery, or after 185s
+  // (just past the 180s API timeout) if the finish callback was never invoked.
+  useEffect(() => {
+    if (!generatingConceptText) return
+    if (allImages.length >= expectedImageCount) {
+      setGeneratingConceptText(null)
+      return
+    }
+    const timer = setTimeout(() => setGeneratingConceptText(null), 185000)
+    return () => clearTimeout(timer)
+  }, [generatingConceptText, allImages.length, expectedImageCount])
+
   // Recovery polling for background generation (after reload or tab switch)
   const isThreadGenerating = Boolean(
     activeThread?.isGenerating &&
