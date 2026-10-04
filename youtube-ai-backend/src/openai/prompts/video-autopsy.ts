@@ -5,7 +5,7 @@
  * DYNAMIC: numbers come from PerformanceContextService (not this file).
  */
 
-export const VIDEO_AUTOPSY_PROMPT_VERSION = 'm1.1';
+export const VIDEO_AUTOPSY_PROMPT_VERSION = 'm1.2';
 
 export const VIDEO_AUTOPSY_SYSTEM_PROMPT = `You are the Unique Mecca Audio Performance Agent. You diagnose why a YouTube video underperformed and ship a PASTE-READY repackage kit for UNIQUE MECCA AUDIO only.
 
@@ -101,39 +101,47 @@ Use the FULL production thumbnail spec below (same quality as the dedicated Thum
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
 - Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Lawyer confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
+- Emotion (Tier N — [Matrix Name]): [Physical cues from the 6-tier emotion matrix — MUST match the story's factual stakes]
 - Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status, facial hair, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
 - Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
-- Lighting & Camera: [35mm documentary photography, 85mm lens, directional rim lighting, deep chiaroscuro].
-**Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
+- Lighting & Camera: [85mm portrait lens, bright HDR studio lighting, rich midtones, luminous rim highlights — NO dark voids].
+**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
 **Why it clicks:** [1-sentence psychological rationale tied to the autopsy]
 
 ### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
 **Visual concept:**
-- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with intense emotional gaze under directional spotlight.
+- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with a clearly readable emotion under a bright directional HDR spotlight.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives as needed].
-- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; deep atmospheric courtroom in dim backdrop].
-- Lighting & Camera: [High-contrast 35mm film photography, 85mm portrait lens, sharp natural skin texture].
+- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; richly lit courtroom backdrop with visible detail].
+- Lighting & Camera: [High-contrast HDR studio photography, 85mm portrait lens, sharp natural skin texture].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 
 ### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
 **Visual concept:**
-- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject reacting in dramatic shadow and background courtroom spectators.
+- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject showing a clearly readable emotion and background courtroom spectators.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name and physical demographics].
-- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject in profile shadow; Background: jury box].
-- Lighting & Camera: [Moody dramatic documentary lighting, 35mm film look].
+- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject with legible expression; Background: jury box].
+- Lighting & Camera: [Bright HDR documentary studio lighting, 35mm film look].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->
 
 Also require (from full thumbnail system):
+- 6-TIER EMOTION MATRIX: Every concept picks the ONE tier matching the story's factual stakes — 1 Severe Agony & Regret / 2 Paranoia & High Tension / 3 Pure Shock & Disbelief / 4 Cold Defiance & Mockery / 5 Explosive Relief & Triumph / 6 Hardened Stoic Tension — and writes its physical cues into the "- Emotion (Tier N ...)" bullet.
+- CRITICAL EMOTION RULE: Never a smiling/laughing face for serious prison terms, tragic events, or murder trials unless the story documents contempt of court. Never a crying/defeated face for legal triumphs or bail releases. Expression MUST match the factual stakes.
+- EMOTION PLACEMENT: The "- Emotion" bullet MUST stay INSIDE "**Visual concept:**" (before "**Color scheme:**") — the pipeline extracts that block and sends it directly to the image model; anything outside it is silently dropped.
 - MULTI-CHARACTER CONTRAST when multiple figures
 - REAL SUBJECT likeness (official names, demographics, negatives)
 - Broken glass ONLY for betrayal/confession stories
-- Headline in left third / top-left; keep bottom-right corner free of headline text
-- GPT-IMAGE-2 camera-ready physical description only (no meta disclaimers)
+- Headline in left third / top-left; keep bottom-right corner free of headline text (host anchor zone)
+- BRIGHT HDR STUDIO LIGHTING only — never "dark", "chiaroscuro", "crushed blacks", or "deep shadow"
+- TYPOGRAPHY: Line 1 WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600) — never crimson/red
+- GPT-IMAGE camera-ready physical description only (no meta disclaimers)
 - Keep "**Text overlay:** [WORDS]" on a single line
 
 ### APPLY ORDER
@@ -181,9 +189,15 @@ export function buildVideoAutopsyUserPrompt(params: {
   const parts: string[] = [];
   if (params.currentDate) parts.push(`Current Date: ${params.currentDate}`);
   parts.push('');
-  parts.push('Run VIDEO AUTOPSY + REPACKAGE KIT for the video described below.');
-  parts.push('Use ONLY numbers from the performance context. Base the kit on the REAL title/topic in that context.');
-  parts.push('Output the two sections in order (skip the kit if identity is unresolved).');
+  parts.push(
+    'Run VIDEO AUTOPSY + REPACKAGE KIT for the video described below.',
+  );
+  parts.push(
+    'Use ONLY numbers from the performance context. Base the kit on the REAL title/topic in that context.',
+  );
+  parts.push(
+    'Output the two sections in order (skip the kit if identity is unresolved).',
+  );
   parts.push('');
   parts.push(params.userMessage);
   return parts.join('\n');

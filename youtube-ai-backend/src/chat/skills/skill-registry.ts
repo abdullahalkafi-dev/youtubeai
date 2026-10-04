@@ -85,7 +85,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure. Voice: OG on the couch — scene/image hooks, punch lines, NO documentary openers or empty "> " after every sentence. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. ${SPOKEN_LINE_CONTRACT} Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after punch lines/questions/jewels — 2-4 cues per major section (between breath blocks, not after every sentence). CTAs never inside jewel. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Follow the 6-part script structure targeting 10 to 12 minutes (approx. 1,400 to 1,600 spoken words, hard ceiling 1,650 words). Voice: OG on the couch — scene/image hooks, punch lines, NO documentary openers or empty "> " after every sentence. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. ${SPOKEN_LINE_CONTRACT} Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after punch lines/questions/jewels — 2-4 cues per major section (between breath blocks, not after every sentence). CTAs never inside jewel. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -105,29 +105,32 @@ Always deliver your strategic explanation first in markdown, then wrap the concr
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
 - Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Prosecutor confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
+- Emotion (Tier N — [Matrix Name]): [Physical cues from the 6-tier emotion matrix — MUST match the story's factual stakes]
 - Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
 - Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
-- Lighting & Camera: [35mm documentary photography, directional rim lighting, deep chiaroscuro].
-**Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
+- Lighting & Camera: [85mm portrait lens, bright HDR studio lighting, rich midtones, luminous rim highlights — NO dark voids].
+**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
 **Why it clicks:** [1-sentence psychological rationale]
 
 ### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
 **Visual concept:**
-- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with intense emotional gaze under directional spotlight.
+- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with a clearly readable emotion under a bright directional HDR spotlight.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
-- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; deep atmospheric courtroom in dim backdrop].
-- Lighting & Camera: [High-contrast 35mm film photography, 85mm portrait lens, sharp natural skin texture].
+- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; richly lit courtroom backdrop with visible detail].
+- Lighting & Camera: [High-contrast HDR studio photography, 85mm portrait lens, sharp natural skin texture].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 
 ### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
 **Visual concept:**
-- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject reacting in dramatic shadow and background courtroom spectators.
+- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject showing a clearly readable emotion and background courtroom spectators.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name and physical demographics].
-- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject in profile shadow; Background: jury box].
-- Lighting & Camera: [Moody dramatic documentary lighting, 35mm film look].
+- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject with legible expression; Background: jury box].
+- Lighting & Camera: [Bright HDR documentary studio lighting, 35mm film look].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->
@@ -334,6 +337,20 @@ C. [2-4 words]
 
 ### 8. FULL TELEPROMPTER SCRIPT
 CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
+
+DURATION & WORD BUDGET CONTRACT (STRICT — TARGET 10 TO 12 MINUTES):
+- Script pacing MUST strictly target 10 to 12 minutes (approx. 1,400 to 1,600 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,650 words.
+- To prevent bloating into 15–17 minutes without losing ANY component or section, budget words strictly across all sections:
+  * ON-SCREEN LEGAL STATUS: ~20 words (quick 2–3 defendant statuses)
+  * Section 1 (COLD OPEN): 150–175 words (~1:15 min) — Hook, stakes, unanswered question, CTA, Jewel
+  * Section 2 (THE IMMEDIATE STAKES): 160–185 words (~1:20 min) — Facts vs rumors, lived analysis, CTA, Jewel
+  * Section 3 (TURNING POINT / SMALL DOOR): 170–195 words (~1:25 min) — Small door, federal pressure, Curiosity Reset 1 (~1:30), CTA, Jewel
+  * Section 4 (THE PSYCHOLOGICAL CELL): 180–210 words (~1:35 min) — Mental prison, smart man trap, Curiosity Reset 2 (~4:00), CTA, Jewel
+  * Section 5 (THE SENTENCE STARTS BEFORE THE JUDGE): 170–195 words (~1:25 min) — Legal vs psychological sentence, lawyer shift, CTA, Jewel
+  * Section 6 (MOTHERS GOT SENTENCED TOO): 160–185 words (~1:20 min) — Victim/defendant families, Curiosity Reset 3 (~7:00), CTA, Jewel
+  * Section 7 (FINAL WORD & LESSON): 150–175 words (~1:10 min) — Big lesson, subscribe/share, Final Jewel
+  * 10 VIRAL COMMUNITY QUESTIONS: 260–320 words total (~2:00 mins) — RAPID-FIRE LIGHTNING ROUND: deliver each question with 2 crisp spoken rails + 2-line punch Jewel ending in '?' + [PAUSE] (~25–30 words per question). Keep all 10 questions fast and punchy!
+  * Total words across all 7 sections + 10 questions: 1,420 to 1,620 words. NEVER exceed 1,650 words.
 
 SPOKEN CADENCE (CRITICAL — UNIQUE'S VOICE, NOT A DOCUMENTARY):
 - Write like an OG sitting on the couch talking to the class — NOT a news recap, Wikipedia summary, or true-crime narrator.
@@ -619,7 +636,7 @@ Format Section 8 strictly as follows:
 
 ---
 
-## 10 VIRAL COMMUNITY QUESTIONS
+## 10 VIRAL COMMUNITY QUESTIONS (RAPID-FIRE LIGHTNING ROUND — ~25-30 words each)
 
 ## **1. CAN A MAN TELL HIS STORY WITHOUT HURTING HIMSELF?**
 
@@ -674,7 +691,7 @@ Format Section 8 strictly as follows:
 
 ---
 
-[Continue same pattern for questions 4-10 — punch answer, [BEAT], jewel question, [PAUSE]...]
+[Continue same RAPID-FIRE pattern for questions 4-10 — exactly 2 crisp spoken lines, [BEAT], 2-line jewel question, [PAUSE] (~25–30 words per question, total 10 questions)...]
 <!-- SCRIPT_END -->
 
 Key format elements:
@@ -739,7 +756,7 @@ If a FOOTAGE PACK is in context (LOCAL NEWS FOOTAGE PACK or VERIFIED TOPIC FOOTA
         `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
 
 IMPORTANT RULES:
-- TIMING & DURATION: Script pacing MUST target 9 to 14 minutes (approx. 1,300 to 1,900 words spoken at ~140 WPM) unless the user explicitly requests a different duration.
+- TIMING & DURATION: Script pacing MUST strictly target 10 to 12 minutes (approx. 1,400 to 1,600 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,650 words. Never exceed 1,650 words. Budget ~160–200 words per narrative section and ~25–30 words per viral question so the video remains tight, punchy, and captivating from start to finish without bloating into 15–17 minutes.
 - REVISIONS: If the user asks to rewrite, edit, or adjust a specific section or the script (e.g. "make it more breathable"), output ONLY the revised spoken script beats. DO NOT regenerate Sections 1–7 or metadata unless requested. Apply the spoken line contract: keep gray rails and breath blocks; split long essay rails into short speakable lines inside the same block; do not isolate every sentence; keep facts/legal points; style stays dynamic.
 - PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link. NEVER list this channel's own videos as sources. No competitor explainer padding. Real timestamps or "full clip" only — never "Review manually".
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
@@ -855,29 +872,32 @@ ${scriptFormat}`,
 **Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
 **Visual concept:**
 - Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Lawyer confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
+- Emotion (Tier N — [Matrix Name]): [Physical cues from the 6-tier emotion matrix — MUST match the story's factual stakes]
 - Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
 - Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
-- Lighting & Camera: [35mm documentary photography, 85mm lens, directional rim lighting, deep chiaroscuro].
-**Color scheme:** [2-3 dominant colors, e.g. Cold deep blue, slate black, high-contrast white, crimson red accent]
+- Lighting & Camera: [85mm portrait lens, bright HDR studio lighting, rich midtones, luminous rim highlights — NO dark voids].
+**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
 **Why it clicks:** [1-sentence psychological rationale]
 
 ### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
 **Visual concept:**
-- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with intense emotional gaze under directional spotlight.
+- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with a clearly readable emotion under a bright directional HDR spotlight.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
-- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; deep atmospheric courtroom in dim backdrop].
-- Lighting & Camera: [High-contrast 35mm film photography, 85mm portrait lens, sharp natural skin texture].
+- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; richly lit courtroom backdrop with visible detail].
+- Lighting & Camera: [High-contrast HDR studio photography, 85mm portrait lens, sharp natural skin texture].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 
 ### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
 **Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
 **Visual concept:**
-- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject reacting in dramatic shadow and background courtroom spectators.
+- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject showing a clearly readable emotion and background courtroom spectators.
+- Emotion (Tier N — [Matrix Name]): [Physical cues]
 - Subject Demographics: [Full official name and physical demographics].
-- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject in profile shadow; Background: jury box].
-- Lighting & Camera: [Moody dramatic documentary lighting, 35mm film look].
+- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject with legible expression; Background: jury box].
+- Lighting & Camera: [Bright HDR documentary studio lighting, 35mm film look].
 **Color scheme:** [Primary colors to use]
 **Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->`;
@@ -889,18 +909,28 @@ ${scriptFormat}`,
         `\n\nYou are the lead Thumbnail Director for "Unique Mecca Audio" (@uniquemeccaaudionyc), specializing in high-CTR, cinematic thumbnails for criminal psychology, legal breakdowns, and prison reality.
 
 Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 diverse narrative angles & visual framings:
-1. Concept 1 (Multi-Character Drama & Emotional Contrast): When multiple figures are involved (e.g. rapper, defense lawyer, co-defendant, witness), give EACH named person a contrasting, heightened facial expression (e.g., Lawyer smiling/confident on left, Defendant stressed/looking down in center, Witness angry/defensive on right).
-2. Concept 2 (Evidence & Forensic Tension): Focus on high-stakes documentary devices — e.g. a red confidential evidence dossier ("CASE FILE: ..."), dramatic spotlight on documents, scales of justice, or subject in profile shadow.
-3. Concept 3 (Psychological Atmosphere / Solitary Tension): Focus on a powerful solitary portrait or scene — e.g. subject in holding cell or courtroom spotlight, deep chiaroscuro shadows, intense emotional gaze.
+1. Concept 1 (Multi-Character Drama & Emotional Contrast): When multiple figures are involved (e.g. rapper, defense lawyer, co-defendant, witness), give EACH named person a distinct, contrasting facial expression tied to their role (e.g., Lawyer confident smirk on left, Defendant stressed/looking down in center, Witness angry/defensive on right).
+2. Concept 2 (Evidence & Forensic Tension): Focus on high-stakes documentary devices — e.g. a red confidential evidence dossier ("CASE FILE: ..."), bright spotlight on documents, scales of justice, or subject with a legible reaction.
+3. Concept 3 (Psychological Atmosphere / Solitary Tension): Focus on a powerful solitary portrait or scene — e.g. subject in holding cell or courtroom under a directional HDR spotlight with a clearly readable emotion.
+
+6-TIER NARRATIVE EMOTION MATRIX (MANDATORY — pick the ONE tier matching the story's factual stakes, write its physical cues into the "- Emotion (Tier N ...)" bullet inside **Visual concept:**):
+1. SEVERE AGONY & REGRET — tears welling, trembling lip, head bowed (e.g. facing a 50-year sentence).
+2. PARANOIA & HIGH TENSION — sweating brow, tense jaw, anxious downward/sideways gaze (e.g. under investigation, solitary confinement).
+3. PURE SHOCK & DISBELIEF — wide eyes, dropped jaw, stunned horror (e.g. secret wiretap leaked, surprise witness).
+4. COLD DEFIANCE & MOCKERY — arrogant smirk, scoffing grin, unbothered posture (e.g. beating charges, contempt of court).
+5. EXPLOSIVE RELIEF & TRIUMPH — tears of joy, celebratory shout, genuine relief (e.g. charges dismissed, bail granted).
+6. HARDENED STOIC TENSION — dead-eyed stare, clenched jaw, unblinking glare (e.g. omertà, formal courtroom procedure).
 
 RULES:
-- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?"). Use two-tone phrasing (Line 1 White, Line 2 Yellow or Red). Do NOT output full titles or long sentences.
+- CRITICAL EMOTION RULE: Never a smiling or laughing expression for serious prison terms, tragic events, or murder trials unless the story explicitly documents contempt of court. Never a crying or defeated expression for legal triumphs or bail releases. The facial expression MUST match the factual stakes of the headline.
+- EMOTION PLACEMENT: The "- Emotion (Tier N ...)" bullet MUST stay INSIDE "**Visual concept:**" (before "**Color scheme:**") — the 1-Click Generate pipeline extracts that block and sends it directly to the image model; anything outside it is silently discarded.
+- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?"). Use two-tone phrasing: Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600). NEVER crimson or red lettering. Do NOT output full titles or long sentences.
 - FULL-CANVAS 3-ZONE STAGING: Fill the entire 16:9 canvas with rich environmental detail from left to right. NEVER leave the right side as an empty black void. Background courtroom spectators, jury benches, and architectural details must extend across the full frame.
 - SUBJECT PROXIMITY: Subjects must be commanding close-up chest-up shots (occupying 40–60% of canvas height). Never place subjects far away as tiny distant figures.
 - CONTEXTUAL STORY DEVICES: Use broken glass fracture seam ONLY when the story specifically involves broken trust, confessions, or betrayal. Otherwise use clean directional spotlights, authentic red evidence dossiers, transcripts, scales of justice, or American flags.
 - TYPOGRAPHY & OVERLAY CLEARANCE: Headline text belongs in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
-- GPT-IMAGE-2 CAMERA-READY DIRECTIVE: Describe ONLY tangible physical objects, lighting, and attire that a camera can photograph. STRICTLY FORBIDDEN: Never write meta-disclaimers ("legally sourced image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
-- Style: Cinematic dark, dramatic chiaroscuro lighting, high-contrast photography look. Realistic photo style, NOT cartoon or 3D animation.
+- GPT-IMAGE CAMERA-READY DIRECTIVE: Describe ONLY tangible physical objects, lighting, and attire that a camera can photograph. STRICTLY FORBIDDEN: Never write meta-disclaimers ("legally sourced image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
+- Style: Bright HDR cinematic studio photography, high-contrast, rich midtones, luminous highlights. ZERO murky crushed blacks, ZERO dark voids. Realistic photo style, NOT cartoon or 3D animation.
 
 EVIDENCE-BASED OUTPUT RULES (MANDATORY):
 - Every thumbnail concept MUST cite concrete evidence from the injected context: which of YOUR recent winners/below-median videos this resembles or breaks from, and competitor packaging patterns with view counts when present.
@@ -1094,28 +1124,28 @@ ${thumbnailFormat}`,
 
 ## Outline
 
-### COLD OPEN [0:00 - 0:45]
+### COLD OPEN [0:00 - 1:15]
 - [The point to make, said plainly]
 
-### WHAT HAPPENED [0:45 - 2:30]
+### WHAT HAPPENED & IMMEDIATE STAKES [1:15 - 2:45]
 - [Fact 1]
 - [Fact 2]
 
-### UNIQUE MECCA BREAKDOWN [2:30 - 6:30]
+### UNIQUE MECCA BREAKDOWN & PSYCHOLOGICAL CELL [2:45 - 6:00]
 - [Analysis point 1]
 - [Analysis point 2]
 - [Analysis point 3]
 
-### THE HUMAN COST [6:30 - 8:30]
+### THE HUMAN COST & FAMILY SENTENCE [6:00 - 7:30]
 - [Human element 1]
 - [Human element 2]
 
-### THE YOUTH WARNING [8:30 - 10:30]
+### THE YOUTH WARNING & FINAL LESSON [7:30 - 9:00]
 - [Warning point]
 
-### FINAL JEWEL + 10 VIRAL Q&As [10:30 - 12:00]
+### FINAL JEWEL + 10 VIRAL Q&As [9:00 - 11:30]
 - **JEWEL:** [The moral lesson]
-- [5 of the 10 viral questions]
+- [Rapid-fire community questions and jewels]
 
 ## Score
 [X.X/10] — [GREENLIGHT / HOLD / PASS]
@@ -1231,7 +1261,7 @@ Each concept describes a 16:9 cinematic scene for video b-roll, background visua
 CRITICAL RULES:
 - DO NOT generate images directly. Present concepts as text FIRST.
 - Each concept MUST include: Scene description, Style/mood, Color palette, Optional text overlay.
-- Concepts should be cinematic, dramatic, and match the channel's dark/true-crime aesthetic.
+- Concepts should be cinematic and dramatic, matching the channel's true-crime aesthetic with BRIGHT HDR lighting (rich midtones, luminous highlights — NO murky crushed blacks, NO dark voids).
 - If the user provides a reference image, describe how the concept relates to it.
 - If user says "regenerate" or "change X", iterate on the previous concept with modifications.
 - Keep scene descriptions concise but vivid — 1-2 sentences per field.
