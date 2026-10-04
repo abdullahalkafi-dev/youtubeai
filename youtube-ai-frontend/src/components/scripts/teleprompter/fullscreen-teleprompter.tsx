@@ -13,6 +13,8 @@ import {
   Minus,
   Plus,
   Highlighter,
+  Sun,
+  Moon,
 } from 'lucide-react'
 import { parseScriptSections, calculateTeleprompterStats, isSourceCitationLine } from '@/lib/teleprompter-parser'
 
@@ -141,6 +143,7 @@ interface SectionBodyRendererProps {
   activeSentenceId: string | null
   sentenceRefs: React.MutableRefObject<Map<string, HTMLElement>>
   handleSentenceClick: (id: string) => void
+  isDark: boolean
 }
 
 function SectionBodyRenderer({
@@ -151,6 +154,7 @@ function SectionBodyRenderer({
   activeSentenceId,
   sentenceRefs,
   handleSentenceClick,
+  isDark,
 }: SectionBodyRendererProps) {
   const blocks = groupBodyIntoBlocks(body)
 
@@ -163,7 +167,11 @@ function SectionBodyRenderer({
         if (block.type === 'cue') {
           return (
             <div key={key} className="py-1.5 flex items-center justify-center">
-              <span className="px-3 py-0.5 rounded-full text-[11px] font-mono font-black uppercase tracking-widest bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner">
+              <span className={`px-3 py-0.5 rounded-full text-[11px] font-mono font-black uppercase tracking-widest ${
+                isDark
+                  ? 'bg-zinc-800 text-amber-400 border border-zinc-700 shadow-inner'
+                  : 'bg-amber-100/80 text-amber-900 border border-amber-300 shadow-xs'
+              }`}>
                 {block.lines[0]}
               </span>
             </div>
@@ -174,11 +182,13 @@ function SectionBodyRenderer({
         if (block.type === 'jewel') {
           return (
             <div key={key} className="flex items-center space-x-2 pt-1 pb-0.5">
-              <div className="flex-1 h-px bg-amber-500/30" />
-              <span className="text-amber-400 font-black text-[11px] sm:text-xs uppercase tracking-widest">
+              <div className={`flex-1 h-px ${isDark ? 'bg-amber-500/30' : 'bg-amber-500/40'}`} />
+              <span className={`font-black text-[11px] sm:text-xs uppercase tracking-widest ${
+                isDark ? 'text-amber-400' : 'text-amber-700'
+              }`}>
                 {block.lines[0]}
               </span>
-              <div className="flex-1 h-px bg-amber-500/30" />
+              <div className={`flex-1 h-px ${isDark ? 'bg-amber-500/30' : 'bg-amber-500/40'}`} />
             </div>
           )
         }
@@ -186,10 +196,10 @@ function SectionBodyRenderer({
         // ── LEGAL STATUS header ────────────────────────────────────────────
         if (block.type === 'legalheader') {
           return (
-            <div key={key} className="py-1 border-b border-zinc-700/60 mb-1">
+            <div key={key} className={`py-1 border-b mb-1 ${isDark ? 'border-zinc-700/60' : 'border-zinc-200'}`}>
               <span
                 style={{ fontSize: `${Math.max(11, fontSize * 0.6)}px` }}
-                className="font-black uppercase tracking-[0.2em] text-zinc-500"
+                className={`font-black uppercase tracking-[0.2em] ${isDark ? 'text-zinc-500' : 'text-zinc-400'}`}
               >
                 {block.lines[0]}
               </span>
@@ -215,8 +225,12 @@ function SectionBodyRenderer({
               style={{ fontSize: `${fontSize * 1.05}px`, lineHeight: '1.5' }}
               className={`font-extrabold tracking-tight pt-2 cursor-pointer rounded-lg px-2 -mx-2 transition-all duration-200 ${
                 isSubActive
-                  ? 'text-amber-300 bg-amber-500/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 scale-[1.015] origin-left'
-                  : 'text-white hover:text-amber-200'
+                  ? isDark
+                    ? 'text-amber-300 bg-amber-500/15 shadow-[0_0_25px_rgba(245,158,11,0.25)] ring-1 ring-amber-400/40 scale-[1.015] origin-left'
+                    : 'text-amber-950 font-black bg-amber-200 shadow-sm ring-1 ring-amber-400 scale-[1.015] origin-left'
+                  : isDark
+                  ? 'text-white hover:text-amber-200'
+                  : 'text-zinc-900 hover:text-amber-700'
               }`}
             >
               {block.lines[0]}
@@ -229,7 +243,9 @@ function SectionBodyRenderer({
           return (
             <div
               key={key}
-              className="pl-4 sm:pl-5 border-l-[3px] border-zinc-600/70 space-y-1"
+              className={`pl-4 sm:pl-5 border-l-[3px] space-y-1 ${
+                isDark ? 'border-zinc-600/70' : 'border-zinc-300'
+              }`}
             >
               {block.lines.map((spokenLine, lIdx) => {
                 if (!spokenLine) {
@@ -250,10 +266,14 @@ function SectionBodyRenderer({
                       handleSentenceClick(lineId)
                     }}
                     style={{ fontSize: `${fontSize}px`, lineHeight: '1.6' }}
-                    className={`cursor-pointer rounded-md transition-all duration-200 font-medium ${
+                    className={`cursor-pointer rounded-md transition-all duration-200 ${
                       isActive
-                        ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-2 py-0.5 -mx-2 scale-[1.015] inline-block origin-left'
-                        : 'text-zinc-200 hover:text-white hover:bg-zinc-800/30'
+                        ? isDark
+                          ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-2 py-0.5 -mx-2 scale-[1.015] inline-block origin-left'
+                          : 'text-zinc-950 font-black bg-amber-200/95 shadow-sm ring-1 ring-amber-400 px-2 py-0.5 -mx-2 scale-[1.015] inline-block origin-left'
+                        : isDark
+                        ? 'font-medium text-zinc-200 hover:text-white hover:bg-zinc-800/30'
+                        : 'font-semibold text-zinc-900 hover:text-black hover:bg-zinc-100'
                     }`}
                   >
                     {spokenLine}
@@ -270,7 +290,7 @@ function SectionBodyRenderer({
           <div
             key={key}
             style={{ fontSize: `${fontSize}px`, lineHeight: '1.7' }}
-            className="font-medium text-zinc-400"
+            className={`font-medium ${isDark ? 'text-zinc-400' : 'text-zinc-700'}`}
           >
             {sentences.map((sent, sIdx) => {
               const sentenceId = `${key}-s-${sIdx}`
@@ -288,8 +308,12 @@ function SectionBodyRenderer({
                   }}
                   className={`cursor-pointer rounded-md transition-all duration-200 ${
                     isActive
-                      ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
-                      : 'text-zinc-300 hover:text-white hover:bg-zinc-800/40'
+                      ? isDark
+                        ? 'text-amber-300 font-bold bg-amber-400/15 shadow-[0_0_20px_rgba(251,191,36,0.22)] ring-1 ring-amber-400/40 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
+                        : 'text-zinc-950 font-black bg-amber-200/95 shadow-sm ring-1 ring-amber-400 px-1.5 py-0.5 -mx-1 scale-[1.015] inline-block origin-left'
+                      : isDark
+                      ? 'text-zinc-300 hover:text-white hover:bg-zinc-800/40'
+                      : 'text-zinc-700 hover:text-zinc-950 hover:bg-zinc-100'
                   }`}
                 >
                   {sent}{' '}
@@ -328,6 +352,21 @@ export function FullscreenTeleprompter({
   const [activeSentenceId, setActiveSentenceId] = useState<string | null>(null)
   const [isHighlightEnabled, setIsHighlightEnabled] = useState<boolean>(true)
   const isHighlightEnabledRef = useRef<boolean>(true)
+
+  // Scoped Teleprompter Theme: Always defaults to Light Mode on open
+  const [theme, setTheme] = useState<'light' | 'dark'>('light')
+  const isDark = theme === 'dark'
+
+  // Reset to Light Mode every time the teleprompter modal is opened
+  useEffect(() => {
+    if (isOpen) {
+      setTheme('light')
+    }
+  }, [isOpen])
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => (prev === 'light' ? 'dark' : 'light'))
+  }, [])
 
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const sectionRefs = useRef<(HTMLDivElement | null)[]>([])
@@ -522,6 +561,9 @@ export function FullscreenTeleprompter({
       } else if (e.code === 'KeyH') {
         e.preventDefault()
         toggleHighlight()
+      } else if (e.code === 'KeyT') {
+        e.preventDefault()
+        toggleTheme()
       } else if (e.code === 'Escape') {
         e.preventDefault()
         onClose()
@@ -610,49 +652,71 @@ export function FullscreenTeleprompter({
   return (
     <div
       onMouseMove={handleMouseMove}
-      className="fixed inset-0 z-[100] bg-black text-white flex flex-col select-none overflow-hidden"
+      className={`fixed inset-0 z-[100] flex flex-col select-none overflow-hidden transition-colors duration-200 ${
+        isDark ? 'bg-black text-white' : 'bg-white text-zinc-900'
+      }`}
     >
       {/* Top Floating Responsive Control Bar */}
       <div
         className={`absolute top-0 left-0 right-0 z-20 transition-all duration-300 ${
           showControls ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
-        } bg-gradient-to-b from-black/95 via-black/80 to-transparent p-2.5 sm:p-4 flex items-center justify-between border-b border-zinc-800/60 backdrop-blur-md gap-2`}
+        } ${
+          isDark
+            ? 'bg-gradient-to-b from-black/95 via-black/85 to-transparent border-zinc-800/60'
+            : 'bg-gradient-to-b from-white/95 via-white/85 to-transparent border-zinc-200 shadow-xs'
+        } p-2.5 sm:p-4 flex items-center justify-between border-b backdrop-blur-md gap-1.5 sm:gap-2`}
       >
         {/* Left: Close + Title */}
-        <div className="flex items-center space-x-2 sm:space-x-3 min-w-0 max-w-[40%]">
+        <div className="flex items-center space-x-1.5 sm:space-x-3 min-w-0 max-w-[32%] sm:max-w-[40%]">
           <button
             onClick={onClose}
-            className="p-1.5 sm:p-2 rounded-xl bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white transition shrink-0"
+            className={`p-1.5 sm:p-2 rounded-xl transition shrink-0 ${
+              isDark
+                ? 'bg-zinc-900/80 hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900 border border-zinc-200'
+            }`}
             title="Exit Teleprompter (Esc)"
           >
             <X className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
           <div className="truncate min-w-0">
-            <h2 className="text-xs sm:text-sm font-bold text-zinc-100 truncate">{title}</h2>
-            <p className="hidden md:block text-[11px] text-zinc-400 truncate">
-              {displayDuration}m read · {displayWordCount} words · Space to Play · H to Highlight
+            <h2 className={`text-xs sm:text-sm font-bold truncate ${isDark ? 'text-zinc-100' : 'text-zinc-900'}`}>
+              {title}
+            </h2>
+            <p className={`hidden md:block text-[11px] truncate ${isDark ? 'text-zinc-400' : 'text-zinc-500'}`}>
+              {displayDuration}m read · {displayWordCount} words · Space to Play · H to Highlight · T for Theme
             </p>
           </div>
         </div>
 
         {/* Right: Responsive Controls */}
-        <div className="flex items-center space-x-1.5 sm:space-x-2 shrink-0">
+        <div className="flex items-center space-x-1 sm:space-x-2 shrink-0">
           {/* Speed Stepper / Slider */}
-          <div className="flex items-center space-x-1 sm:space-x-1.5 bg-zinc-900/90 border border-zinc-800/90 px-2 py-1 rounded-xl">
-            <Gauge className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <div className={`flex items-center space-x-1 sm:space-x-1.5 px-2 py-1 rounded-xl ${
+            isDark
+              ? 'bg-zinc-900/90 border border-zinc-800/90'
+              : 'bg-zinc-100/90 border border-zinc-200'
+          }`}>
+            <Gauge className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
             <button
               onClick={() => setWpm((p) => Math.max(50, p - 5))}
-              className="p-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+              className={`p-0.5 rounded transition ${
+                isDark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200'
+              }`}
               title="Decrease Speed (-5 WPM)"
             >
               <Minus className="w-3 h-3" />
             </button>
-            <span className="text-[11px] sm:text-xs font-semibold text-zinc-200 min-w-[3.5rem] text-center font-mono">
+            <span className={`text-[11px] sm:text-xs font-semibold min-w-[3.2rem] sm:min-w-[3.5rem] text-center font-mono ${
+              isDark ? 'text-zinc-200' : 'text-zinc-800'
+            }`}>
               {wpm} WPM
             </span>
             <button
               onClick={() => setWpm((p) => Math.min(1000, p + 5))}
-              className="p-0.5 rounded text-zinc-400 hover:text-white hover:bg-zinc-800 transition"
+              className={`p-0.5 rounded transition ${
+                isDark ? 'text-zinc-400 hover:text-white hover:bg-zinc-800' : 'text-zinc-600 hover:text-zinc-900 hover:bg-zinc-200'
+              }`}
               title="Increase Speed (+5 WPM)"
             >
               <Plus className="w-3 h-3" />
@@ -664,23 +728,33 @@ export function FullscreenTeleprompter({
               step={5}
               value={wpm}
               onChange={(e) => setWpm(Number(e.target.value))}
-              className="hidden lg:block w-20 accent-amber-500 cursor-pointer h-1 bg-zinc-700 rounded-lg ml-1"
+              className={`hidden lg:block w-16 xl:w-20 accent-amber-500 cursor-pointer h-1 rounded-lg ml-1 ${
+                isDark ? 'bg-zinc-700' : 'bg-zinc-300'
+              }`}
             />
           </div>
 
           {/* Font Size Stepper */}
-          <div className="flex items-center space-x-1 bg-zinc-900/90 border border-zinc-800/90 px-1.5 sm:px-2 py-1 rounded-xl">
+          <div className={`flex items-center space-x-1 px-1.5 sm:px-2 py-1 rounded-xl ${
+            isDark ? 'bg-zinc-900/90 border border-zinc-800/90' : 'bg-zinc-100/90 border border-zinc-200'
+          }`}>
             <button
               onClick={() => setFontSize((prev) => Math.max(16, prev - 2))}
-              className="px-1.5 py-0.5 text-xs font-bold text-zinc-400 hover:text-white rounded"
+              className={`px-1.5 py-0.5 text-xs font-bold rounded ${
+                isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-600 hover:text-zinc-900'
+              }`}
               title="Decrease Font Size"
             >
               A-
             </button>
-            <span className="text-[11px] sm:text-xs text-zinc-400 px-0.5 font-mono">{fontSize}px</span>
+            <span className={`text-[11px] sm:text-xs px-0.5 font-mono ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+              {fontSize}px
+            </span>
             <button
               onClick={() => setFontSize((prev) => Math.min(48, prev + 2))}
-              className="px-1.5 py-0.5 text-xs font-bold text-zinc-400 hover:text-white rounded"
+              className={`px-1.5 py-0.5 text-xs font-bold rounded ${
+                isDark ? 'text-zinc-400 hover:text-white' : 'text-zinc-600 hover:text-zinc-900'
+              }`}
               title="Increase Font Size"
             >
               A+
@@ -688,13 +762,19 @@ export function FullscreenTeleprompter({
           </div>
 
           {/* Column Width Selector (Compact cycle toggle on < md, full segmented on >= md) */}
-          <div className="hidden md:flex items-center space-x-1 bg-zinc-900/90 border border-zinc-800/90 p-0.5 rounded-xl text-xs">
+          <div className={`hidden md:flex items-center space-x-1 p-0.5 rounded-xl text-xs ${
+            isDark ? 'bg-zinc-900/90 border border-zinc-800/90' : 'bg-zinc-100/90 border border-zinc-200'
+          }`}>
             {(['narrow', 'medium', 'wide'] as const).map((w) => (
               <button
                 key={w}
                 onClick={() => setColumnWidth(w)}
                 className={`px-2 py-0.5 rounded-lg capitalize font-medium text-[11px] transition ${
-                  columnWidth === w ? 'bg-amber-500 text-black font-bold' : 'text-zinc-400 hover:text-white'
+                  columnWidth === w
+                    ? 'bg-amber-500 text-black font-bold shadow-xs'
+                    : isDark
+                    ? 'text-zinc-400 hover:text-white'
+                    : 'text-zinc-600 hover:text-zinc-900'
                 }`}
               >
                 {w}
@@ -706,7 +786,9 @@ export function FullscreenTeleprompter({
               const next = columnWidth === 'narrow' ? 'medium' : columnWidth === 'medium' ? 'wide' : 'narrow'
               setColumnWidth(next)
             }}
-            className="md:hidden px-2 py-1 bg-zinc-900/90 border border-zinc-800/90 rounded-xl text-[11px] font-mono text-zinc-300 capitalize"
+            className={`md:hidden px-2 py-1 rounded-xl text-[11px] font-mono capitalize ${
+              isDark ? 'bg-zinc-900/90 border border-zinc-800/90 text-zinc-300' : 'bg-zinc-100/90 border border-zinc-200 text-zinc-700'
+            }`}
             title="Toggle Column Width"
           >
             {columnWidth}
@@ -717,8 +799,12 @@ export function FullscreenTeleprompter({
             onClick={toggleHighlight}
             className={`p-1.5 sm:px-2.5 sm:py-1 rounded-xl border transition flex items-center space-x-1.5 text-xs font-semibold ${
               isHighlightEnabled
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                : 'bg-zinc-900/90 border-zinc-800/90 text-zinc-400 hover:text-white'
+                ? isDark
+                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                  : 'bg-amber-100 border-amber-400 text-amber-900 shadow-xs'
+                : isDark
+                ? 'bg-zinc-900/90 border-zinc-800/90 text-zinc-400 hover:text-white'
+                : 'bg-zinc-100/90 border-zinc-200 text-zinc-600 hover:text-zinc-900'
             }`}
             title="Toggle Sentence Highlight (H)"
           >
@@ -731,19 +817,47 @@ export function FullscreenTeleprompter({
             onClick={() => setShowMinimap((prev) => !prev)}
             className={`p-1.5 sm:px-2.5 sm:py-1 rounded-xl border transition flex items-center space-x-1.5 text-xs font-semibold ${
               showMinimap
-                ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
-                : 'bg-zinc-900/90 border-zinc-800/90 text-zinc-400 hover:text-white'
+                ? isDark
+                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-300'
+                  : 'bg-amber-100 border-amber-400 text-amber-900 shadow-xs'
+                : isDark
+                ? 'bg-zinc-900/90 border-zinc-800/90 text-zinc-400 hover:text-white'
+                : 'bg-zinc-100/90 border-zinc-200 text-zinc-600 hover:text-zinc-900'
             }`}
             title="Toggle Minimap / Beats Jump View (M)"
           >
-            <Navigation className="w-3.5 h-3.5" />
+            <Navigation className="w-3.5 h-3.5 shrink-0" />
             <span className="hidden xl:inline text-[11px]">Outline (M)</span>
+          </button>
+
+          {/* Scoped Teleprompter Theme Toggle (Light / Dark) */}
+          <button
+            onClick={toggleTheme}
+            className={`p-1.5 sm:px-2.5 sm:py-1 rounded-xl border transition flex items-center space-x-1.5 text-xs font-semibold shrink-0 ${
+              isDark
+                ? 'bg-zinc-900/90 border-zinc-800/90 text-amber-300 hover:text-amber-200 hover:bg-zinc-800'
+                : 'bg-zinc-100/90 border-zinc-200 text-zinc-700 hover:text-zinc-900 hover:bg-zinc-200'
+            }`}
+            title={isDark ? "Switch to Light Mode (T)" : "Switch to Dark Mode (T)"}
+          >
+            {isDark ? (
+              <Sun className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+            ) : (
+              <Moon className="w-3.5 h-3.5 text-zinc-700 shrink-0" />
+            )}
+            <span className="hidden xl:inline text-[11px]">
+              {isDark ? 'Light' : 'Dark'} (T)
+            </span>
           </button>
 
           {/* Reset to Top */}
           <button
             onClick={resetToTop}
-            className="p-1.5 sm:p-2 rounded-xl bg-zinc-900/90 border border-zinc-800/90 hover:bg-zinc-800 text-zinc-400 hover:text-white transition shrink-0"
+            className={`p-1.5 sm:p-2 rounded-xl transition shrink-0 ${
+              isDark
+                ? 'bg-zinc-900/90 border border-zinc-800/90 hover:bg-zinc-800 text-zinc-400 hover:text-white'
+                : 'bg-zinc-100/90 border border-zinc-200 hover:bg-zinc-200 text-zinc-600 hover:text-zinc-900'
+            }`}
             title="Reset to Top (Home)"
           >
             <RotateCcw className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
@@ -761,27 +875,39 @@ export function FullscreenTeleprompter({
         <div className={`w-full ${widthClasses} transition-all duration-300 space-y-6 sm:space-y-8`}>
           {/* Eyeline Indicator Guide Line (Clean laser line, NO text collision in center on small/half screens) */}
           <div className="fixed top-[40%] left-0 right-0 pointer-events-none z-10 flex items-center">
-            <div className="w-4 h-4 text-amber-400/50 -ml-0.5">
+            <div className={`w-4 h-4 -ml-0.5 ${isDark ? 'text-amber-400/50' : 'text-amber-600/70'}`}>
               <ChevronRight className="w-4 h-4" />
             </div>
-            <div className="flex-1 h-[1px] bg-gradient-to-r from-amber-500/30 via-amber-400/20 to-amber-500/30" />
-            <span className="hidden lg:inline-block absolute left-8 -top-3 text-[10px] tracking-wider uppercase font-mono text-amber-400/60 bg-zinc-950/90 border border-amber-500/20 px-2 py-0.5 rounded-full backdrop-blur-sm">
+            <div className={`flex-1 h-[1px] ${
+              isDark
+                ? 'bg-gradient-to-r from-amber-500/30 via-amber-400/20 to-amber-500/30'
+                : 'bg-gradient-to-r from-amber-500/40 via-amber-500/60 to-amber-500/40'
+            }`} />
+            <span className={`hidden lg:inline-block absolute left-8 -top-3 text-[10px] tracking-wider uppercase font-mono px-2 py-0.5 rounded-full backdrop-blur-sm ${
+              isDark
+                ? 'text-amber-400/60 bg-zinc-950/90 border border-amber-500/20'
+                : 'text-amber-800 bg-white/95 border border-amber-400/50 shadow-xs'
+            }`}>
               Eyeline Guide
             </span>
-            <div className="w-4 h-4 text-amber-400/50 -mr-0.5">
+            <div className={`w-4 h-4 -mr-0.5 ${isDark ? 'text-amber-400/50' : 'text-amber-600/70'}`}>
               <ChevronLeft className="w-4 h-4" />
             </div>
           </div>
 
           {/* Title Header */}
-          <div className="text-center pb-6 sm:pb-8 border-b border-zinc-800">
+          <div className={`text-center pb-6 sm:pb-8 border-b ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
             <h1
               style={{ fontSize: `${Math.max(22, fontSize * 1.25)}px` }}
-              className="font-black text-amber-400 tracking-tight leading-tight uppercase mb-3"
+              className={`font-black tracking-tight leading-tight uppercase mb-3 ${
+                isDark ? 'text-amber-400' : 'text-amber-600'
+              }`}
             >
               {title}
             </h1>
-            <p className="text-xs sm:text-sm font-medium text-zinc-500 tracking-wide uppercase">
+            <p className={`text-xs sm:text-sm font-medium tracking-wide uppercase ${
+              isDark ? 'text-zinc-500' : 'text-zinc-600'
+            }`}>
               {displayDuration} MINUTE TARGET · {displayWordCount} WORDS
             </p>
           </div>
@@ -796,10 +922,12 @@ export function FullscreenTeleprompter({
               className="space-y-3 pt-2"
             >
               {section.header && !section.isJewel && (
-                <div className="py-1 border-b border-zinc-800/80">
+                <div className={`py-1 border-b ${isDark ? 'border-zinc-800/80' : 'border-zinc-200'}`}>
                   <h2
                     style={{ fontSize: `${Math.max(16, fontSize * 1.05)}px` }}
-                    className="font-extrabold text-zinc-200 uppercase tracking-wide"
+                    className={`font-extrabold uppercase tracking-wide ${
+                      isDark ? 'text-zinc-200' : 'text-zinc-900'
+                    }`}
                   >
                     {section.header}
                   </h2>
@@ -807,14 +935,20 @@ export function FullscreenTeleprompter({
               )}
 
               {section.isJewel ? (
-                <div className="p-4 sm:p-6 rounded-2xl bg-amber-950/30 border-2 border-amber-500/50 space-y-3 sm:space-y-4">
-                  <div className="flex items-center space-x-2 text-amber-400 font-black tracking-widest text-xs sm:text-sm uppercase">
+                <div className={`p-4 sm:p-6 rounded-2xl border-2 space-y-3 sm:space-y-4 ${
+                  isDark
+                    ? 'bg-amber-950/30 border-amber-500/50'
+                    : 'bg-amber-50/90 border-amber-400 shadow-xs'
+                }`}>
+                  <div className={`flex items-center space-x-2 font-black tracking-widest text-xs sm:text-sm uppercase ${
+                    isDark ? 'text-amber-400' : 'text-amber-800'
+                  }`}>
                     <span>💎 JEWEL LESSON</span>
                   </div>
                   {/* Stack each `>` line on its own row (Claude-style). Do not join into one paragraph. */}
                   <div
                     style={{ fontSize: `${fontSize}px`, lineHeight: '1.65' }}
-                    className="font-bold text-amber-200 space-y-1.5"
+                    className={`font-bold space-y-1.5 ${isDark ? 'text-amber-200' : 'text-amber-950'}`}
                   >
                     {section.body.split('\n').map((rawLine, lIdx) => {
                       const clean = rawLine
@@ -837,8 +971,12 @@ export function FullscreenTeleprompter({
                           }}
                           className={`cursor-pointer rounded-md transition-all duration-200 ${
                             isActive
-                              ? 'text-amber-200 font-black bg-amber-400/25 shadow-[0_0_25px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60 px-2 py-0.5 -mx-2 scale-[1.015] origin-left'
-                              : 'text-amber-300/85 hover:text-amber-100 hover:bg-amber-500/10'
+                              ? isDark
+                                ? 'text-amber-200 font-black bg-amber-400/25 shadow-[0_0_25px_rgba(251,191,36,0.3)] ring-1 ring-amber-400/60 px-2 py-0.5 -mx-2 scale-[1.015] origin-left'
+                                : 'text-zinc-950 font-black bg-amber-200/95 shadow-sm ring-1 ring-amber-400 px-2 py-0.5 -mx-2 scale-[1.015] origin-left'
+                              : isDark
+                              ? 'text-amber-300/85 hover:text-amber-100 hover:bg-amber-500/10'
+                              : 'text-amber-900 hover:text-amber-950 hover:bg-amber-100/50'
                           }`}
                         >
                           {clean}
@@ -856,13 +994,16 @@ export function FullscreenTeleprompter({
                   activeSentenceId={activeSentenceId}
                   sentenceRefs={sentenceRefs}
                   handleSentenceClick={handleSentenceClick}
+                  isDark={isDark}
                 />
               )}
             </div>
           ))}
 
           {/* Padding block so user can scroll past the bottom */}
-          <div className="h-[45vh] flex items-center justify-center text-zinc-600 text-xs sm:text-sm font-mono uppercase tracking-widest">
+          <div className={`h-[45vh] flex items-center justify-center text-xs sm:text-sm font-mono uppercase tracking-widest ${
+            isDark ? 'text-zinc-600' : 'text-zinc-400'
+          }`}>
             — End of Teleprompter Script —
           </div>
         </div>
@@ -871,19 +1012,27 @@ export function FullscreenTeleprompter({
       {/* VS Code-style Minimap / Beat Jump Drawer */}
       {showMinimap && sections.length > 0 && (
         <aside
-          className={`fixed right-2 sm:right-4 top-16 sm:top-20 bottom-24 w-48 sm:w-56 2xl:w-60 z-40 flex flex-col bg-zinc-950/90 backdrop-blur-2xl border border-zinc-800/90 rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ${
+          className={`fixed right-2 sm:right-4 top-16 sm:top-20 bottom-24 w-48 sm:w-56 2xl:w-60 z-40 flex flex-col backdrop-blur-2xl rounded-2xl shadow-2xl overflow-hidden transition-all duration-300 ${
+            isDark ? 'bg-zinc-950/90 border border-zinc-800/90' : 'bg-white/95 border border-zinc-200 text-zinc-800'
+          } ${
             showControls ? 'opacity-100 translate-x-0' : 'opacity-40 hover:opacity-100'
           }`}
         >
           {/* Header */}
-          <div className="p-2.5 sm:p-3 border-b border-zinc-800/80 flex items-center justify-between shrink-0 bg-zinc-900/60">
+          <div className={`p-2.5 sm:p-3 border-b flex items-center justify-between shrink-0 ${
+            isDark ? 'border-zinc-800/80 bg-zinc-900/60' : 'border-zinc-200 bg-zinc-50/80'
+          }`}>
             <div className="flex items-center space-x-2 min-w-0">
-              <Navigation className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-300 truncate">
+              <Navigation className={`w-3.5 h-3.5 shrink-0 ${isDark ? 'text-amber-400' : 'text-amber-600'}`} />
+              <span className={`text-[11px] font-bold uppercase tracking-wider truncate ${
+                isDark ? 'text-zinc-300' : 'text-zinc-800'
+              }`}>
                 Jump Outline
               </span>
             </div>
-            <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-zinc-800 text-zinc-400 shrink-0">
+            <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded shrink-0 ${
+              isDark ? 'bg-zinc-800 text-zinc-400' : 'bg-zinc-200 text-zinc-700'
+            }`}>
               {sections.length} Beats
             </span>
           </div>
@@ -903,31 +1052,39 @@ export function FullscreenTeleprompter({
                   onClick={() => jumpToSection(idx)}
                   className={`w-full text-left p-2 rounded-xl transition-all flex flex-col space-y-1 group relative ${
                     isActive
-                      ? 'bg-amber-500/20 border border-amber-500/60 shadow-lg shadow-amber-500/10'
-                      : 'hover:bg-zinc-800/60 border border-transparent text-zinc-400 hover:text-zinc-200'
+                      ? isDark
+                        ? 'bg-amber-500/20 border border-amber-500/60 shadow-lg shadow-amber-500/10'
+                        : 'bg-amber-100 border border-amber-400 text-amber-950 shadow-xs'
+                      : isDark
+                      ? 'hover:bg-zinc-800/60 border border-transparent text-zinc-400 hover:text-zinc-200'
+                      : 'hover:bg-zinc-100 border border-transparent text-zinc-600 hover:text-zinc-900'
                   }`}
                 >
                   {isActive && (
-                    <div className="absolute left-0 top-1 bottom-1 w-1 bg-amber-400 rounded-r-full" />
+                    <div className={`absolute left-0 top-1 bottom-1 w-1 rounded-r-full ${
+                      isDark ? 'bg-amber-400' : 'bg-amber-500'
+                    }`} />
                   )}
 
                   <div className="flex items-center justify-between w-full pl-1">
                     <span
                       className={`text-[10px] font-bold uppercase tracking-wider truncate flex-1 ${
                         isActive
-                          ? 'text-amber-300 font-extrabold'
+                          ? isDark ? 'text-amber-300 font-extrabold' : 'text-amber-950 font-black'
                           : isJewel
-                          ? 'text-amber-400/90'
+                          ? isDark ? 'text-amber-400/90' : 'text-amber-700 font-bold'
                           : isColdOpen
-                          ? 'text-indigo-300'
+                          ? isDark ? 'text-indigo-300' : 'text-indigo-600 font-semibold'
                           : isQuestions
-                          ? 'text-cyan-300'
-                          : 'text-zinc-300'
+                          ? isDark ? 'text-cyan-300' : 'text-cyan-700 font-semibold'
+                          : isDark ? 'text-zinc-300' : 'text-zinc-700 font-medium'
                       }`}
                     >
                       {sec.header || `Section ${idx + 1}`}
                     </span>
-                    <span className="text-[9px] font-mono text-zinc-500 shrink-0 ml-1">
+                    <span className={`text-[9px] font-mono shrink-0 ml-1 ${
+                      isDark ? 'text-zinc-500' : 'text-zinc-500'
+                    }`}>
                       {words}w
                     </span>
                   </div>
@@ -936,10 +1093,10 @@ export function FullscreenTeleprompter({
                   <div className="w-full pl-1 flex flex-col space-y-0.5 pointer-events-none opacity-40 group-hover:opacity-80 transition">
                     <div
                       className={`h-0.5 rounded-full ${
-                        isActive ? 'bg-amber-400' : isJewel ? 'bg-amber-500' : 'bg-zinc-600'
+                        isActive ? (isDark ? 'bg-amber-400' : 'bg-amber-500') : isJewel ? (isDark ? 'bg-amber-500' : 'bg-amber-600') : (isDark ? 'bg-zinc-600' : 'bg-zinc-300')
                       } w-4/5`}
                     />
-                    <div className="h-0.5 rounded-full bg-zinc-700 w-3/5" />
+                    <div className={`h-0.5 rounded-full ${isDark ? 'bg-zinc-700' : 'bg-zinc-200'} w-3/5`} />
                   </div>
                 </button>
               )
@@ -947,9 +1104,11 @@ export function FullscreenTeleprompter({
           </div>
 
           {/* Minimap Footer - Progress */}
-          <div className="p-2 border-t border-zinc-800/80 bg-zinc-900/60 flex items-center justify-between text-[10px] text-zinc-400 shrink-0">
+          <div className={`p-2 border-t flex items-center justify-between text-[10px] shrink-0 ${
+            isDark ? 'border-zinc-800/80 bg-zinc-900/60 text-zinc-400' : 'border-zinc-200 bg-zinc-50/80 text-zinc-600'
+          }`}>
             <span className="font-mono">Progress</span>
-            <span className="font-bold text-amber-400 font-mono">{progress}%</span>
+            <span className={`font-bold font-mono ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>{progress}%</span>
           </div>
         </aside>
       )}
@@ -960,11 +1119,17 @@ export function FullscreenTeleprompter({
           showControls ? 'opacity-100 translate-y-0' : 'opacity-40 hover:opacity-100 translate-y-0'
         } pointer-events-auto`}
       >
-        <div className="flex items-center bg-zinc-950/90 backdrop-blur-2xl border border-zinc-800/90 p-1.5 sm:p-2 rounded-full shadow-[0_12px_36px_rgba(0,0,0,0.85)] space-x-2 sm:space-x-3">
+        <div className={`flex items-center backdrop-blur-2xl p-1.5 sm:p-2 rounded-full space-x-2 sm:space-x-3 ${
+          isDark
+            ? 'bg-zinc-950/90 border border-zinc-800/90 shadow-[0_12px_36px_rgba(0,0,0,0.85)]'
+            : 'bg-white/95 border border-zinc-200 shadow-[0_12px_36px_rgba(0,0,0,0.12)]'
+        }`}>
           {/* Quick Restart */}
           <button
             onClick={resetToTop}
-            className="p-2 rounded-full hover:bg-zinc-800 text-zinc-400 hover:text-white transition shrink-0"
+            className={`p-2 rounded-full transition shrink-0 ${
+              isDark ? 'hover:bg-zinc-800 text-zinc-400 hover:text-white' : 'hover:bg-zinc-100 text-zinc-500 hover:text-zinc-900'
+            }`}
             title="Restart from Beginning (Home)"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -975,7 +1140,9 @@ export function FullscreenTeleprompter({
             onClick={() => setIsPlaying((prev) => !prev)}
             className={`px-5 py-2 sm:px-7 sm:py-2.5 rounded-full flex items-center space-x-2 text-xs sm:text-sm font-black uppercase tracking-wider transition-all transform active:scale-95 shadow-xl shrink-0 ${
               isPlaying
-                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 shadow-amber-500/10'
+                ? isDark
+                  ? 'bg-amber-500/20 text-amber-300 border border-amber-500/50 hover:bg-amber-500/30 shadow-amber-500/10'
+                  : 'bg-amber-100 text-amber-900 border border-amber-400 hover:bg-amber-200 shadow-xs'
                 : 'bg-gradient-to-r from-amber-500 to-amber-400 text-black hover:brightness-110 shadow-amber-500/30'
             }`}
           >
@@ -993,9 +1160,11 @@ export function FullscreenTeleprompter({
           </button>
 
           {/* Integrated Mini Stats / Progress */}
-          <div className="flex items-center space-x-2 px-2 py-1 text-[11px] font-mono text-zinc-400 border-l border-zinc-800/80">
-            <span className="text-amber-400 font-bold">{progress}%</span>
-            <span className="text-zinc-600 hidden sm:inline">·</span>
+          <div className={`flex items-center space-x-2 px-2 py-1 text-[11px] font-mono border-l ${
+            isDark ? 'text-zinc-400 border-zinc-800/80' : 'text-zinc-600 border-zinc-200'
+          }`}>
+            <span className={`font-bold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>{progress}%</span>
+            <span className={`hidden sm:inline ${isDark ? 'text-zinc-600' : 'text-zinc-400'}`}>·</span>
             <span className="hidden sm:inline">{wpm} WPM</span>
           </div>
         </div>
