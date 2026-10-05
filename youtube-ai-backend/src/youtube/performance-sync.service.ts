@@ -36,12 +36,55 @@ const num = (v: string | undefined): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/**
+ * Report CSV date column is YYYYMMDD (e.g. "20260901") — normalize to
+ * YYYY-MM-DD so window comparisons ("date >= cutoff") work lexicographically.
+ * A raw YYYYMMDD string would otherwise ALWAYS compare >= "2026-09-28"
+ * (digit '0' > '-'), silently widening the 7-day window to the full file set.
+ */
+const toIsoDate = (raw: string): string => {
+  if (raw && /^\d{8}$/.test(raw)) {
+    return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+  }
+  return raw;
+};
+
+/** Numeric traffic_source_type codes → human labels (YouTube Reporting enum). */
+const TRAFFIC_SOURCE_LABELS: Record<string, string> = {
+  '0': 'Direct / Unknown',
+  '1': 'YouTube Ads',
+  '3': 'Browse / Home',
+  '4': 'Channels',
+  '5': 'YouTube Search',
+  '7': 'Suggested Videos',
+  '8': 'Other YouTube',
+  '9': 'External Websites',
+  '11': 'Cards / Annotations',
+  '14': 'Playlists',
+  '17': 'Notifications',
+  '18': 'Playlist Pages',
+  '20': 'End Screens',
+  '23': 'Stories',
+  '24': 'Shorts',
+  '25': 'Product Pages',
+  '26': 'Hashtag Pages',
+  '27': 'Sound Pages',
+  '28': 'Live Redirect',
+  '29': 'Podcasts',
+  '30': 'Remixes',
+  '31': 'Vertical Live',
+  '32': 'Shorts Related',
+};
+
+const trafficLabel = (code: string): string =>
+  TRAFFIC_SOURCE_LABELS[code] || `Source ${code}`;
+
 const prettyAge = (raw: string): string => {
   const m = /^AGE_(\d+)_(\d+)$/.exec(raw);
   if (m) return `${m[1]}–${m[2]}`;
-  if (raw === 'AGE_65_PLUS') return '65+';
+  if (raw === 'AGE_65_' || raw === 'AGE_65_PLUS') return '65+';
   if (raw === 'AGE_UNKNOWN') return 'Unknown';
-  return raw.replace(/^AGE_/, '').replace(/_/g, ' ').toLowerCase();
+  return raw.replace(/^AGE_/, '').replace(/_/g, ' ').trim();
 };
 
 const prettyGender = (raw: string): string => {
@@ -209,19 +252,20 @@ export class PerformanceSyncService {
             if (!ytId) return;
             const imp = num(impS);
             if (imp <= 0) return;
+            const d = toIsoDate(date);
             const clicks = imp * num(ctrS); // Reporting API delivers CTR as 0..1 fraction
             let life = lifetimeReach.get(ytId);
             if (!life) { life = { imp: 0, clicks: 0 }; lifetimeReach.set(ytId, life); }
             life.imp += imp;
             life.clicks += clicks;
-            if (date >= freshCutoff) {
+            if (d >= freshCutoff) {
               let f = freshReach.get(ytId);
               if (!f) { f = { imp: 0, clicks: 0 }; freshReach.set(ytId, f); }
               f.imp += imp;
               f.clicks += clicks;
             }
-            if (date >= snapshotCutoff) {
-              const c = dayCell(ytId, date);
+            if (d >= snapshotCutoff) {
+              const c = dayCell(ytId, d);
               c.impressions += imp;
               c.clicks += clicks;
             }
@@ -244,6 +288,7 @@ export class PerformanceSyncService {
           (date, [ytId, country, viewsS, watchS, likesS, commentsS, subsGS, subsLS, pctS]) => {
             if (country) countryViews.set(country, (countryViews.get(country) || 0) + num(viewsS));
             if (!ytId) return;
+            const d = toIsoDate(date);
             const views = num(viewsS);
             const pct = num(pctS);
             let b = basic.get(ytId);
@@ -259,8 +304,8 @@ export class PerformanceSyncService {
             b.subsLost += num(subsLS);
             b.retentionNum += views * pct;
             b.retentionDen += views;
-            if (date >= snapshotCutoff) {
-              const c = dayCell(ytId, date);
+            if (d >= snapshotCutoff) {
+              const c = dayCell(ytId, d);
               c.views += views;
               c.watchMinutes += num(watchS);
               c.likes += num(likesS);
@@ -285,9 +330,10 @@ export class PerformanceSyncService {
           ['video_id', 'traffic_source_type', 'views'],
           (date, [ytId, sourceCol, viewsS]) => {
             if (!ytId || !sourceCol) return;
+            const label = trafficLabel(sourceCol); // numeric enum → human label
             let t = traffic.get(ytId);
             if (!t) { t = new Map(); traffic.set(ytId, t); }
-            t.set(sourceCol, (t.get(sourceCol) || 0) + num(viewsS));
+            t.set(label, (t.get(label) || 0) + num(viewsS));
           },
         );
         filesUsed += res.files;
