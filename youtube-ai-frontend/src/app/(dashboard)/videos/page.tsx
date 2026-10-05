@@ -5,7 +5,7 @@ import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchVideos, setFilters } from '@/store/slices/videos-slice'
 import { VideoTable } from '@/components/videos/video-table'
 import { VideoFilters } from '@/components/videos/video-filters'
-import { api } from '@/lib/api'
+import { api, ApiError } from '@/lib/api'
 import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
@@ -15,7 +15,6 @@ export default function VideosPage() {
   const channelId = useAppSelector(s => s.auth.activeChannelId)
   const { loading, pagination, filters } = useAppSelector(s => s.videos)
   const [syncing, setSyncing] = useState(false)
-  const [perfSyncing, setPerfSyncing] = useState(false)
   const initialFetchDone = useRef(false)
 
   // Initial fetch on mount only
@@ -36,43 +35,42 @@ export default function VideosPage() {
     if (!channelId || syncing) return
     setSyncing(true)
     try {
-      toast.info("Syncing channel...")
+      toast.info('Syncing videos & performance data...')
+      // 1) Metadata sync (titles, drift, views) — the original behaviour
       const result = await api.syncChannel(channelId)
       const parts = [`${result.synced} processed`, `${result.new} new`, `${result.updated} updated`]
       if (result.deleted > 0) parts.push(`${result.deleted} deleted`)
       if (result.drifted > 0) parts.push(`${result.drifted} drifted`)
 
+      // 2) Performance refresh (CTR, impressions, traffic mix, audience) —
+      //    quota-free, ~25s. Failures never invalidate the metadata sync.
+      let perfNote = ''
+      try {
+        const perf = await api.syncPerformance(channelId)
+        perfNote =
+          perf.errors && perf.errors.length > 0
+            ? `· performance refreshed with warnings: ${perf.errors[0]}`
+            : `· performance refreshed: ${perf.videosUpdated.toLocaleString()} videos (CTR · ${perf.windowDays ?? 7}-day window)`
+      } catch (perfErr: unknown) {
+        const status = perfErr instanceof ApiError ? perfErr.statusCode : 0
+        if (status === 409 || /already running/i.test((perfErr as Error)?.message || '')) {
+          perfNote = '· performance sync already in progress'
+        } else {
+          perfNote = '· performance will refresh automatically tomorrow 6 AM'
+        }
+      }
+
+      const summary = `Synced! ${parts.join(', ')} ${perfNote}`
       if (result.errors && result.errors.length > 0) {
         toast.warning(`Synced with warnings: ${result.errors[0]}`)
       } else {
-        toast.success(`Synced! ${parts.join(', ')}`)
+        toast.success(summary)
       }
       dispatch(fetchVideos({ channelId, page: 1, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
     } catch (err: unknown) {
-      showApiErrorToast(err, "Sync Channel Failed")
+      showApiErrorToast(err, 'Sync Channel Failed')
     } finally {
       setSyncing(false)
-    }
-  }
-
-  const handlePerfSync = async () => {
-    if (!channelId || perfSyncing) return
-    setPerfSyncing(true)
-    try {
-      toast.info('Syncing performance data from YouTube...')
-      const r = await api.syncPerformance(channelId)
-      if (r.errors && r.errors.length > 0) {
-        toast.warning(`Performance synced with warnings: ${r.errors[0]}`)
-      } else {
-        toast.success(
-          `Performance synced! ${r.videosUpdated} videos updated · ${r.snapshotRows} daily rows · ${r.filesUsed} report files (${Math.round(r.durationMs / 1000)}s)`,
-        )
-      }
-      dispatch(fetchVideos({ channelId, page: 1, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
-    } catch (err: unknown) {
-      showApiErrorToast(err, 'Performance Sync Failed')
-    } finally {
-      setPerfSyncing(false)
     }
   }
 
@@ -109,18 +107,10 @@ export default function VideosPage() {
             <option value="likes">Most Likes</option>
           </select>
           <button
-            onClick={handlePerfSync}
-            disabled={perfSyncing}
-            className="bg-emerald-600 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 transition shadow-sm shadow-emerald-500/20 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            title="Refresh CTR, impressions, traffic mix and audience from YouTube"
-          >
-            {perfSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-            {perfSyncing ? 'Syncing CTR...' : 'Sync Performance'}
-          </button>
-          <button
             onClick={handleSync}
             disabled={syncing}
             className="bg-indigo-500 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-indigo-600 transition shadow-sm shadow-indigo-500/20 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Refresh video titles/metadata AND performance data (CTR, impressions, traffic, audience)"
           >
             {syncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
             {syncing ? 'Syncing...' : 'Sync Channel'}

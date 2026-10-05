@@ -229,6 +229,7 @@ class ApiClient {
   async syncPerformance(id: string) {
     return this.post<{
       ok: boolean
+      windowDays?: number
       videosUpdated: number
       clearedStale: number
       snapshotRows: number
