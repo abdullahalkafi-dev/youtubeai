@@ -21,7 +21,11 @@ interface PackHost {
     needsResearch: boolean,
     trendTitles?: string[],
   ): Promise<LocalScenePack | null>;
-  detectNeedsResearch(message: string, category?: string): boolean;
+  detectNeedsResearch(
+    message: string,
+    category?: string,
+    threadMessages?: Array<{ role?: string; content?: string; metadata?: any }>,
+  ): boolean;
   localNewsService: LocalNewsService;
   skillRegistry: SkillRegistry;
   logger: { warn(msg: string): void; log(msg: string): void };
@@ -541,5 +545,55 @@ describe('detectNeedsResearch — Rule-0 recommendation asks fire research', () 
     expect(
       host2.detectNeedsResearch('what should I post next', 'analysis'),
     ).toBe(false);
+  });
+
+  type ThreadMsg = { role?: string; content?: string; metadata?: any };
+  const researchedThread: ThreadMsg[] = [
+    { role: 'user', content: 'why is the Rihanna video failing' },
+    {
+      role: 'assistant',
+      content: 'Researched answer about the Rihanna home shooting case.',
+      metadata: { sources: [{ title: 'LA Times', url: 'x' }] },
+    },
+  ];
+
+  it('seo SKIPS research when the topic was already researched in this thread', () => {
+    expect(
+      host2.detectNeedsResearch(
+        'give me title and description for Rihanna home shooting . high ctr and seo',
+        'seo',
+        researchedThread,
+      ),
+    ).toBe(false);
+  });
+
+  it('seo RESEARCHES when the message names a NEW topic', () => {
+    expect(
+      host2.detectNeedsResearch(
+        'give me title for Rick Ross case . high ctr and seo',
+        'seo',
+        researchedThread,
+      ),
+    ).toBe(true);
+  });
+
+  it('seo skips "for this" when the thread already researched something', () => {
+    expect(
+      host2.detectNeedsResearch(
+        'give me title and description for this . high ctr and seo',
+        'seo',
+        researchedThread,
+      ),
+    ).toBe(false);
+  });
+
+  it('seo researches "for this" when the thread never researched anything', () => {
+    expect(
+      host2.detectNeedsResearch(
+        'give me title and description for this . high ctr and seo',
+        'seo',
+        [{ role: 'user', content: 'hello' }],
+      ),
+    ).toBe(true);
   });
 });

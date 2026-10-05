@@ -413,9 +413,32 @@ export class ChatService {
       ragContext +
       performanceLookup;
 
+    // P1 package unity: when the SEO skill runs, the title must complete the
+    // thumbnail's curiosity loop (75/25 rule). Fail-open: no thumbnail in this
+    // thread → context identical to previous behaviour (zero regression risk).
+    let seoThumbnailUrl: string | undefined;
+    if (resolvedSkill === 'seo') {
+      const thumb = this.extractLatestThumbnail(updatedThread.messages);
+      const headline =
+        thumb?.textOverlay ||
+        this.extractThumbnailHeadline(updatedThread.messages);
+      if (thumb || headline) {
+        seoThumbnailUrl = thumb?.url;
+        dynamicContext +=
+          '\n\nTHUMBNAIL ALREADY DESIGNED' +
+          (headline ? `: "${headline}"` : ' (image attached)') +
+          ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
+          '\nEnd your response with exactly one line: **Package check:** [how well the title and this thumbnail promise match + one fix if they do not].';
+      }
+    }
+
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
-    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+    let needsResearch = this.detectNeedsResearch(
+      dto.content,
+      resolvedSkill,
+      updatedThread.messages,
+    );
     // Autopsy/diagnosis are metrics-first — skip web search noise
     if (analysisMode || resolvedSkill === 'analysis') {
       needsResearch = false;
@@ -479,12 +502,14 @@ export class ChatService {
       aiResponse = { content: searchResult.content, usage: searchResult.usage };
       sources = searchResult.sources;
     } else {
-      const autopsyImages =
+      const visionImages =
         analysisMode === 'autopsy'
           ? ([lookupThumbnailUrl, lookupReferenceUrl].filter(
               Boolean,
             ) as string[])
-          : [];
+          : resolvedSkill === 'seo' && seoThumbnailUrl
+            ? [seoThumbnailUrl]
+            : [];
       const chatParams = {
         messages: [{ role: 'user' as const, content: dto.content }],
         channel: (channel || undefined) as any,
@@ -499,11 +524,11 @@ export class ChatService {
       try {
         aiResponse = await this.openaiService.chat({
           ...chatParams,
-          imageUrl: autopsyImages[0],
-          imageUrls: autopsyImages.slice(1),
+          imageUrl: visionImages[0],
+          imageUrls: visionImages.slice(1),
         });
       } catch (err: any) {
-        if (!autopsyImages.length) throw err;
+        if (!visionImages.length) throw err;
         // Vision payload rejected (bad URL / model) → never lose the answer: retry text-only
         this.logger.warn(
           `Chat vision failed (${err?.message || err}) — retrying without images`,
@@ -725,9 +750,32 @@ export class ChatService {
       ragContext +
       performanceLookup;
 
+    // P1 package unity: when the SEO skill runs, the title must complete the
+    // thumbnail's curiosity loop (75/25 rule). Fail-open: no thumbnail in this
+    // thread → context identical to previous behaviour (zero regression risk).
+    let seoThumbnailUrl: string | undefined;
+    if (resolvedSkill === 'seo') {
+      const thumb = this.extractLatestThumbnail(updatedThread.messages);
+      const headline =
+        thumb?.textOverlay ||
+        this.extractThumbnailHeadline(updatedThread.messages);
+      if (thumb || headline) {
+        seoThumbnailUrl = thumb?.url;
+        dynamicContext +=
+          '\n\nTHUMBNAIL ALREADY DESIGNED' +
+          (headline ? `: "${headline}"` : ' (image attached)') +
+          ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
+          '\nEnd your response with exactly one line: **Package check:** [how well the title and this thumbnail promise match + one fix if they do not].';
+      }
+    }
+
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
-    let needsResearch = this.detectNeedsResearch(dto.content, resolvedSkill);
+    let needsResearch = this.detectNeedsResearch(
+      dto.content,
+      resolvedSkill,
+      updatedThread.messages,
+    );
     if (analysisMode || resolvedSkill === 'analysis') {
       needsResearch = false;
     }
@@ -841,12 +889,14 @@ export class ChatService {
           return;
         }
       } else {
-        const autopsyImages =
+        const visionImages =
           analysisMode === 'autopsy'
             ? ([lookupThumbnailUrl, lookupReferenceUrl].filter(
                 Boolean,
               ) as string[])
-            : [];
+            : resolvedSkill === 'seo' && seoThumbnailUrl
+              ? [seoThumbnailUrl]
+              : [];
         const streamParams = {
           messages: [{ role: 'user' as const, content: dto.content }],
           channel: (channel || undefined) as any,
@@ -858,18 +908,18 @@ export class ChatService {
           // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
           maxCompletionTokens: 12000,
         };
-        // Attempt 1 with vision (current + reference thumbnail); on vision
+        // Attempt 1 with vision (autopsy pair or SEO thumbnail); on vision
         // failure retry text-only so the answer is never lost to a bad image.
-        const attempts = autopsyImages.length ? [true, false] : [true];
+        const attempts = visionImages.length ? [true, false] : [true];
         for (const withImages of attempts) {
           const checkpoint = fullContent.length;
           try {
             for await (const chunk of this.openaiService.chatStream({
               ...streamParams,
-              ...(withImages && autopsyImages.length
+              ...(withImages && visionImages.length
                 ? {
-                    imageUrl: autopsyImages[0],
-                    imageUrls: autopsyImages.slice(1),
+                    imageUrl: visionImages[0],
+                    imageUrls: visionImages.slice(1),
                   }
                 : {}),
             })) {
@@ -883,7 +933,7 @@ export class ChatService {
           } catch (error: any) {
             // Drop any partial text from the failed attempt before retrying
             fullContent = fullContent.slice(0, checkpoint);
-            if (withImages && autopsyImages.length) {
+            if (withImages && visionImages.length) {
               this.logger.warn(
                 `Stream vision failed (${error?.message || error}) — retrying without images`,
               );
@@ -1933,7 +1983,69 @@ Hard rules:
    * Detect if the user message needs web search / research.
    * Triggers for: outline/script/trends/thumbnail/ideas skills, legal/crime keywords, and research-oriented questions.
    */
-  private detectNeedsResearch(message: string, category?: string): boolean {
+  /**
+   * Latest thumbnail generated in THIS thread (1-Click Generate flow).
+   * `mode: 'thumbnail'` is the precise discriminator — never picks up subject
+   * reference photos or scene images. Newest-first scan = always fresh, so a
+   * regenerated thumbnail is picked up on the very next request (no staleness).
+   */
+  private extractLatestThumbnail(
+    messages: Array<{ metadata?: any }>,
+  ): { url: string; textOverlay: string } | null {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const images = messages[i]?.metadata?.images;
+      if (!Array.isArray(images)) continue;
+      for (let j = images.length - 1; j >= 0; j--) {
+        const img = images[j];
+        if (img?.mode === 'thumbnail' && typeof img.url === 'string' && img.url) {
+          return {
+            url: img.url,
+            textOverlay:
+              typeof img.textOverlay === 'string' ? img.textOverlay.trim() : '',
+          };
+        }
+      }
+    }
+    return null;
+  }
+
+  /** Headline fallback: parse the THUMBNAILS_START concept block in history. */
+  private extractThumbnailHeadline(
+    messages: Array<{ role?: string; content?: string }>,
+  ): string {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i];
+      if (m?.role !== 'assistant' || !m.content?.includes('THUMBNAILS_START')) {
+        continue;
+      }
+      const match = /\*\*Text overlay:\*\*\s*"([^"]{1,60})"/i.exec(m.content);
+      if (match?.[1]) return match[1].trim();
+    }
+    return '';
+  }
+
+  /** Capitalized name sequences (e.g. "Rihanna", "Rick Ross") — SEO topic detection. */
+  private extractNamedEntities(message: string): string[] {
+    const STOP = new Set([
+      'The', 'This', 'That', 'These', 'Those', 'Give', 'Title', 'Description',
+      'High', 'Ctr', 'Seo', 'For', 'And', 'New', 'Best', 'Good', 'Make',
+      'Write', 'My', 'Video', 'Thumbnail', 'Thumbnails', 'Tags', 'Hashtags',
+      'A', 'An', 'Me', 'Please', 'Need', 'Want', 'Some', 'More', 'With',
+      'From', 'Today', 'Chat', 'System', 'Hey', 'Hello', 'Okay',
+    ]);
+    const matches: string[] = message.match(/\b[A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+){0,2}\b/g) || [];
+    return [
+      ...new Set(
+        matches.filter((m) => !m.split(' ').every((w) => STOP.has(w))),
+      ),
+    ];
+  }
+
+  private detectNeedsResearch(
+    message: string,
+    category?: string,
+    threadMessages?: Array<{ role?: string; content?: string; metadata?: any }>,
+  ): boolean {
     // Performance analysis is metrics-first — never force web search
     if (category === 'analysis') return false;
 
@@ -1951,6 +2063,48 @@ Hard rules:
       category === 'competitor'
     ) {
       return true;
+    }
+
+    // SEO requests: research ONLY when the topic is NEW to this thread — if the
+    // same entity was already researched here, reuse it (no wasted latency).
+    if (category === 'seo') {
+      const history = (threadMessages || []).filter(
+        (m) => (m.content || '').trim() !== message.trim(),
+      );
+      const priorText = history
+        .map((m) => m.content || '')
+        .join(' ')
+        .toLowerCase();
+      const researchedText = history
+        .filter(
+          (m) =>
+            m.role === 'assistant' &&
+            Array.isArray(m.metadata?.sources) &&
+            m.metadata.sources.length > 0,
+        )
+        .map((m) => m.content || '')
+        .join(' ')
+        .toLowerCase();
+      const entities = this.extractNamedEntities(message);
+      if (entities.length === 0) {
+        // "give me title for this" → topic = this thread; research only if
+        // this thread has never researched anything yet.
+        return researchedText.trim().length === 0;
+      }
+      if (!researchedText.trim()) {
+        // Named topic but the thread never ran a web search → verify facts.
+        return true;
+      }
+      // Thread has research: skip only when every entity was already discussed
+      // (i.e. part of the researched conversation). Any unseen entity = new topic.
+      const unseen = entities.filter((e) => {
+        const words = e
+          .split(' ')
+          .filter((w) => w.length >= 4 && !/^(title|description|thumbnail)$/i.test(w));
+        if (!words.length) return false;
+        return !words.some((w) => priorText.includes(w.toLowerCase()));
+      });
+      return unseen.length > 0;
     }
 
     const lower = message.trim().toLowerCase();
