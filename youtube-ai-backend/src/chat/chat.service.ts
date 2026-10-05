@@ -428,7 +428,7 @@ export class ChatService {
           '\n\nTHUMBNAIL ALREADY DESIGNED' +
           (headline ? `: "${headline}"` : ' (image attached)') +
           ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
-          '\nEnd your response with exactly one line: **Package check:** [how well the title and this thumbnail promise match + one fix if they do not].';
+          '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
 
@@ -765,7 +765,7 @@ export class ChatService {
           '\n\nTHUMBNAIL ALREADY DESIGNED' +
           (headline ? `: "${headline}"` : ' (image attached)') +
           ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
-          '\nEnd your response with exactly one line: **Package check:** [how well the title and this thumbnail promise match + one fix if they do not].';
+          '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
 

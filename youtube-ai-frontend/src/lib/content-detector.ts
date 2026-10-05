@@ -5,6 +5,8 @@ export interface SeoContent {
   description: string
   tags: string[]
   hashtags: string[]
+  /** Pre-publish title↔thumbnail congruence verdict (chat "Package check" line). */
+  packageCheck?: string
 }
 
 export interface ThumbnailConcept {
@@ -176,7 +178,14 @@ function extractSection(content: string, header: string): string {
 function parseSeoContent(content: string): SeoContent | null {
   // Prefer REPACKAGE KIT section when present (tighter headers)
   const kitMatch = content.match(/##\s*REPACKAGE KIT[\s\S]*$/i)
-  const scope = kitMatch?.[0] || content
+  let scope = kitMatch?.[0] || content
+
+  // Extract the trailing "Package check" verdict FIRST and remove it —
+  // otherwise it bleeds into the Hashtags section (no header follows it)
+  // and every word of it becomes a fake hashtag.
+  const pkgMatch = /^\s*(?:\*\*)?Package check:?(?:\*\*)?\s*:?\s*(.+)$/im.exec(scope)
+  const packageCheck = pkgMatch?.[1]?.replace(/\*\*/g, '').trim() || ''
+  if (pkgMatch?.[0]) scope = scope.replace(pkgMatch[0], '')
 
   let title = extractSection(scope, 'Title')
   const description = extractSection(scope, 'Description')
@@ -213,11 +222,24 @@ function parseSeoContent(content: string): SeoContent | null {
         .map((t) => t.trim())
         .filter(Boolean)
     : []
-  const hashtags = hashtagsRaw
-    ? hashtagsRaw.split(/[\s,]+/).map((h) => h.replace(/^#/, '').trim()).filter(Boolean)
+  const hashtagTokens = hashtagsRaw
+    ? hashtagsRaw.split(/[\s,]+/).map((h) => h.trim()).filter(Boolean)
     : []
+  // Only real #-prefixed tokens become hashtags — trailing prose (e.g. a
+  // Package check line) can never be turned into fake hashtags. Fallback to
+  // bare tokens only when the model emitted a list with no '#' at all.
+  const taggedTokens = hashtagTokens.filter((t) => t.startsWith('#'))
+  const hashtags = (taggedTokens.length ? taggedTokens : hashtagTokens)
+    .map((h) => h.replace(/^#/, ''))
+    .filter(Boolean)
 
-  return { title, description: desc, tags, hashtags }
+  return {
+    title,
+    description: desc,
+    tags,
+    hashtags,
+    ...(packageCheck ? { packageCheck } : {}),
+  }
 }
 
 function parseThumbnailContent(content: string): ThumbnailConcept[] | null {

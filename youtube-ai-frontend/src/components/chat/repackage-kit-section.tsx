@@ -34,6 +34,18 @@ function extractKitBlocks(content: string): KitBlock[] {
   grab('tags', 'Tags', /###\s*TAGS\b[^\n]*\n/i, /\n###\s+/i)
   grab('hashtags', 'Hashtags', /###\s*HASHTAGS\b[^\n]*\n/i, /\n###\s+/i)
 
+  // Harden: only #-prefixed tokens stay hashtags (trailing prose in the last
+  // block must never become fake hashtags). Fallback for bare-word lists.
+  const hashtagsBlock = blocks.find((b) => b.key === 'hashtags')
+  if (hashtagsBlock) {
+    const tokens = hashtagsBlock.body
+      .split(/[\s,\n]+/)
+      .map((t) => t.trim())
+      .filter(Boolean)
+    const tagged = tokens.filter((t) => t.startsWith('#'))
+    hashtagsBlock.body = (tagged.length ? tagged : tokens).join(' ')
+  }
+
   const bundleMatch = kit.match(/###\s*COPY BUNDLE[\s\S]*?```([\s\S]*?)```/i)
   if (bundleMatch?.[1]?.trim()) {
     blocks.push({ key: 'bundle', label: 'Copy full package', body: bundleMatch[1].trim() })

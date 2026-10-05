@@ -26,7 +26,8 @@ export function SeoCard({ content }: SeoCardProps) {
   }
 
   const handleCopyAll = async () => {
-    const all = `Title: ${content.title}\n\nDescription: ${content.description}\n\nTags: ${content.tags.join(', ')}\n\nHashtags: ${content.hashtags.map(h => `#${h}`).join(' ')}`
+    const pkg = content.packageCheck ? `\n\nPackage check: ${content.packageCheck}` : ''
+    const all = `Title: ${content.title}\n\nDescription: ${content.description}\n\nTags: ${content.tags.join(', ')}\n\nHashtags: ${content.hashtags.map(h => `#${h}`).join(' ')}${pkg}`
     await handleCopy(all, 'All')
   }
 
@@ -49,6 +50,25 @@ export function SeoCard({ content }: SeoCardProps) {
           <p className="text-[10px] text-gray-400 mt-1">{content.title.length} characters</p>
         </div>
       </div>
+
+      {/* Package check — pre-publish title ↔ thumbnail congruence verdict */}
+      {content.packageCheck && (
+        <div className="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/20 rounded-xl p-3.5">
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] font-semibold text-amber-700 dark:text-amber-400 uppercase tracking-wider">
+              Package check — title ↔ thumbnail
+            </label>
+            <button
+              onClick={() => handleCopy(content.packageCheck!, 'Package check')}
+              className="text-[10px] text-amber-600 dark:text-amber-400 hover:text-amber-700 font-medium flex items-center gap-1 transition"
+            >
+              {copiedField === 'Package check' ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+              Copy
+            </button>
+          </div>
+          <p className="text-xs text-amber-900 dark:text-amber-200 leading-relaxed">{content.packageCheck}</p>
+        </div>
+      )}
 
       {/* Description */}
       <div>
