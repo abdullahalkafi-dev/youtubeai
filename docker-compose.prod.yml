@@ -6,7 +6,7 @@ services:
       args:
         NEXT_PUBLIC_API_URL: https://meccaaudio.com
     ports:
-      - '3000:3000'
+      - '127.0.0.1:3000:3000'
     env_file:
       - ./youtube-ai-frontend/.env.prod
     environment:
@@ -20,7 +20,7 @@ services:
       context: ./youtube-ai-backend
       target: production
     ports:
-      - '5001:5001'
+      - '127.0.0.1:5001:5001'
     env_file:
       - ./youtube-ai-backend/.env.prod
     environment:
@@ -42,8 +42,6 @@ services:
   mongodb:
     image: mongo:7
     command: ['mongod', '--replSet', 'rs0', '--bind_ip_all', '--wiredTigerCacheSizeGB', '1.5']
-    ports:
-      - '27017:27017'
     volumes:
       - mongo_data:/data/db
     healthcheck:
@@ -65,8 +63,6 @@ services:
 
   chromadb:
     image: chromadb/chroma:latest
-    ports:
-      - '8000:8000'
     volumes:
       - chroma_data:/chroma/chroma
     healthcheck:
@@ -78,8 +74,6 @@ services:
 
   redis:
     image: redis:7-alpine
-    ports:
-      - '6379:6379'
     volumes:
       - redis_data:/data
     healthcheck:
@@ -92,8 +86,7 @@ services:
   minio:
     image: minio/minio
     ports:
-      - '9000:9000'
-      - '9001:9001'
+      - '127.0.0.1:9000:9000'
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
