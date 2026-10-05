@@ -986,7 +986,9 @@ export class OpenAIService {
       ],
       response_format: { type: 'json_object' as const },
       temperature: 0.8,
-      max_completion_tokens: 768,
+      // 768 was too low for the v4 prompt — 3 detailed concepts truncated at the
+      // cap, yielding invalid JSON and silently empty results.
+      max_completion_tokens: 3000,
     });
 
     const response = await retryWithBackoff(
@@ -1008,7 +1010,10 @@ export class OpenAIService {
         }>;
       };
       return { thumbnails: parsed.thumbnails || [], usage };
-    } catch {
+    } catch (parseErr: any) {
+      this.logger.warn(
+        `Thumbnail concepts JSON parse failed (${parseErr?.message}): ${content.slice(0, 160)}`,
+      );
       return { thumbnails: [], usage };
     }
   }
