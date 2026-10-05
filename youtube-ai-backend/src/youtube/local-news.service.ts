@@ -265,29 +265,122 @@ export class LocalNewsService {
 
   /**
    * Strip chat chrome so YouTube search gets a real subject, not
-   * "write me a script about local news footage for…".
+   * "write me a script about local news footage for…". Returns '' when the
+   * remainder is only a reference ("this video", "that topic", "the script") —
+   * '' means "resolve the subject from the thread or load nothing", never
+   * "search for this junk".
    */
   extractSearchTopic(message: string): string {
     let t = (message || '').trim();
+    // Leading request chrome: "can you please give me", "i want to get"…
     t = t.replace(
-      /^(?:please\s+)?(?:can\s+you\s+)?(?:write\s+(?:me\s+)?a\s+)?(?:full\s+)?(?:10[- ]?minute\s+)?(?:video\s+)?script\s+(?:about|on|for)\s+/i,
+      /^(?:please\s+)?(?:can|could|would)\s+you\s+(?:please\s+)?(?:give|find|get|show|send)?\s*(?:me\s+)?/i,
       '',
     );
     t = t.replace(
-      /^(?:find|get|show|give\s+me|search\s+for)?\s*(?:me\s+)?(?:some\s+)?(?:local\s+news\s+)?(?:footage|clips?|b-?roll|video\s+clips?)\s*(?:for|about|on|of)?\s+/i,
+      /^(?:i\s+)?(?:need|want|would like)\s+(?:to\s+)?(?:get|find|see)?\s*/i,
+      '',
+    );
+    t = t.replace(/^give\s+me\s+/i, '');
+    t = t.replace(
+      /^(?:write\s+(?:me\s+)?a\s+)?(?:full\s+)?(?:10[- ]?minute\s+)?(?:video\s+)?script\s+(?:about|on|for)\s+/i,
+      '',
+    );
+    t = t.replace(
+      /^(?:find|get|show|search\s+for)?\s*(?:some\s+)?(?:local\s+news\s+|news\s+)?(?:footage|clips?|b-?roll|video\s+clips?)\s*(?:for|about|on|of)?\s+/i,
       '',
     );
     t = t.replace(
       /^(?:i\s+)?(?:need|want)\s+(?:local\s+)?(?:news\s+)?(?:footage|clips?|b-?roll)\s+(?:for|about|on|of)\s+/i,
       '',
     );
+    // Bare local-news phrasing → keep the subject after for/about/on/in, else
+    // ''. "give me local news for Miami" → "Miami"; "give me local news" → ''.
+    t = t.replace(
+      /^(?:some\s+)?(?:latest\s+|recent\s+)?local\s+news\s*(?:for|about|on|of|in)?\s*/i,
+      '',
+    );
     t = t.replace(/\s+/g, ' ').trim();
     if (t.length > 100) t = t.slice(0, 100).trim();
-    return t || (message || '').trim().slice(0, 80);
+    if (!t) return '';
+    // Anaphoric leftovers are references, not subjects.
+    if (
+      /^(?:(?:for|about|on|of|to)\s+)?(?:this|that|these|those|it|they|them)(?:\s+(?:one|thing|topic|subject|story|case|video|script|post|clip|clips|title))?$/i.test(
+        t,
+      ) ||
+      /^(?:the\s+)?(?:one|thing|topic|subject|story|case|video|script|post|clip|clips|title)(?:\s+(?:video|footage))?$/i.test(
+        t,
+      ) ||
+      /^the\s+[a-z]+$/.test(t)
+    ) {
+      return '';
+    }
+    return t;
+  }
+
+  /**
+   * Significant tokens for relevance gating: len ≥3, stopwords excluded so a
+   * gate word ("news", "video") can never self-match every title.
+   */
+  private static readonly GATE_STOPWORDS = new Set([
+    'news',
+    'video',
+    'videos',
+    'local',
+    'latest',
+    'today',
+    'breaking',
+    'update',
+    'updates',
+    'clip',
+    'clips',
+    'footage',
+    'watch',
+    'live',
+    'from',
+    'with',
+    'that',
+    'this',
+    'have',
+    'been',
+    'will',
+    'what',
+    'when',
+    'where',
+    'which',
+    'them',
+    'they',
+    'their',
+    'about',
+    'after',
+    'before',
+    'into',
+    'over',
+  ]);
+
+  private significantTokens(s: string): Set<string> {
+    return new Set(
+      (s || '')
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, ' ')
+        .split(/\s+/)
+        .filter(
+          (w) => w.length >= 3 && !LocalNewsService.GATE_STOPWORDS.has(w),
+        ),
+    );
+  }
+
+  /** Count subject tokens present in a title (relevance gate). */
+  private overlapCount(title: string, subject: Set<string>): number {
+    let n = 0;
+    for (const w of this.significantTokens(title)) if (subject.has(w)) n++;
+    return n;
   }
 
   /**
    * Find short local-news YouTube clips for a story (≤ maxSeconds).
+   * topic may be '' for an explicit bare "local news" ask → clean
+   * market-specific queries (station/city + news), never raw chat chrome.
    * Quota: at most 2 search.list calls + 1 videos.list batch.
    */
   async findFootagePack(params: {
@@ -298,7 +391,6 @@ export class LocalNewsService {
     maxSeconds?: number;
   }): Promise<LocalScenePack | null> {
     const topic = (params.topic || '').trim().slice(0, 120);
-    if (!topic) return null;
 
     const market = this.resolveMarket(params.locationHint, topic);
     if (!market) {
@@ -314,12 +406,28 @@ export class LocalNewsService {
       Date.now() - SEARCH_LOOKBACK_DAYS * 24 * 60 * 60 * 1000,
     );
 
-    // Market-first queries (max 2 — search.list is expensive)
+    // Queries are always SPECIFIC: station/city + subject. A subject that is
+    // just the market name collapses to market-only recent news (never
+    // "Miami news Miami"); no subject → market-only recent news.
     const primaryStation = market.stations[0];
-    const queries = [
-      `${primaryStation} ${topic}`,
-      `${market.label.split(',')[0]} news ${topic}`,
-    ];
+    const city = market.label.split(',')[0];
+    const subjectSig = this.significantTokens(topic);
+    const citySig = this.significantTokens(city);
+    const subjectIsMarketOnly =
+      subjectSig.size === 0 ||
+      (subjectSig.size === citySig.size &&
+        [...subjectSig].every((w) => citySig.has(w)));
+    const queries = subjectIsMarketOnly
+      ? [`${primaryStation} ${city} news`, `${city} news latest`]
+      : [`${primaryStation} ${topic}`, `${city} news ${topic}`];
+    // Relevance gate: a real multi-token subject demands ≥1 token in the
+    // title — Boeing/Trump noise can never pass "Rick Ross". Single-token
+    // subjects stay ungated (newsroom titles often omit the city).
+    const gateNeed = subjectSig.size >= 2 && !subjectIsMarketOnly ? 1 : 0;
+    this.logger.log(
+      `[LocalNews] market=${market.label} queries=${JSON.stringify(queries)} ` +
+        `topic=${topic ? JSON.stringify(topic.slice(0, 60)) : 'none'} gate=${gateNeed}`,
+    );
 
     const found = new Map<
       string,
@@ -378,13 +486,24 @@ export class LocalNewsService {
     }
 
     const ids = [...found.keys()].slice(0, 25);
-    const details = await this.youtubeService.getVideoDetails(
+    type VideoDetail = {
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      videoUrl: string;
+      durationSeconds: number;
+      viewCount: number;
+      thumbnailUrl: string;
+      publishedAt: string;
+    };
+    const details = (await this.youtubeService.getVideoDetails(
       await this.youtubeService.getValidAccessToken(params.userId),
       ids,
-    );
+    )) as VideoDetail[];
 
     const stationNames = market.stations.map((s) => s.toLowerCase());
     const clips: LocalClip[] = [];
+    let gateDropped = 0;
     for (const d of details) {
       if (
         !d.videoId ||
@@ -403,6 +522,14 @@ export class LocalNewsService {
       );
       const isNews = /news|tv|abc|nbc|cbs|fox|cw|nbc/i.test(channel);
       if (!isLocalStation && !isNews) continue;
+      // Relevance gate — loosely-related titles never survive a real subject.
+      if (
+        gateNeed > 0 &&
+        this.overlapCount(d.title || '', subjectSig) < gateNeed
+      ) {
+        gateDropped++;
+        continue;
+      }
       clips.push({
         videoId: d.videoId,
         title: d.title,
@@ -434,7 +561,8 @@ export class LocalNewsService {
 
     const top = clips.slice(0, maxClips);
     this.logger.log(
-      `[LocalNews] pack market=${market.label} clips=${top.length}/${clips.length} topic="${topic.slice(0, 50)}"`,
+      `[LocalNews] pack market=${market.label} clips=${top.length}/${clips.length} ` +
+        `gateDropped=${gateDropped} topic="${topic.slice(0, 50)}"`,
     );
 
     return {
@@ -447,7 +575,7 @@ export class LocalNewsService {
       note:
         top.length > 0
           ? `Local news clips (≤${maxSeconds}s) for ${market.label}. Use as B-roll only; verify rights/editorial before monetized use.`
-          : 'No short local clips passed duration filter. Do not invent stations or video IDs.',
+          : 'No local clips passed the relevance/duration filters. Do not invent stations or video IDs.',
     };
   }
 
@@ -457,7 +585,8 @@ export class LocalNewsService {
    * - search.list FIRST (allowlist filters results; it is not the source)
    * - query 1 = leading core (≤4 words) for long topics / "<topic> news" for
    *   short ones; query 2 (only if <3 survive) = "<topic> courthouse"
-   * - long-topic result titles must share ≥2 tokens with the query
+   * - relevance gate: long topics ≥2 query tokens; short subjects ≥1
+   *   significant subject token (stopword-filtered)
    * - publishedAfter ~30d, maxResults=50 (same price per call)
    * - denylist (own + competitors) always wins; commentary titles skipped
    * - Tier 2 only when Tier 1 yields <2, capped at 3, labeled
@@ -497,13 +626,20 @@ export class LocalNewsService {
     );
     // Trend/summary titles run long; newsroom titles are short. For long
     // topics q1 uses the leading core so allowlisted coverage surfaces, and
-    // results must overlap the query (≥2 tokens) to stay on-topic. Short
-    // topics keep the original "<topic> news" phrasing (gate parity).
+    // results must overlap the query (≥2 tokens) to stay on-topic. SHORT
+    // subjects gate too — ≥1 significant subject token in the title — so a
+    // fuzzy "Rick Ross news" match can never return unrelated allowlisted
+    // stories (stopword-filtered so "news"/"video" can't self-match).
     const topicWords = topic.split(/\s+/);
     const longTopic = topicWords.length > 4;
     const queries = longTopic
       ? [topicWords.slice(0, 4).join(' '), `${topic} courthouse`]
       : [`${topic} news`, `${topic} courthouse`];
+    const shortSig = longTopic ? null : this.significantTokens(topic);
+    this.logger.log(
+      `[TopicPack] topic="${topic.slice(0, 50)}" ` +
+        `queries=${JSON.stringify(queries)} gate=${longTopic ? 'long:2' : 'short:1'}`,
+    );
     const tokens = (s: string) =>
       new Set(
         (s || '')
@@ -530,6 +666,17 @@ export class LocalNewsService {
     const tier2: Row[] = [];
     let searchesRun = 0;
     let stopReason = '';
+    let gateDropped = 0;
+
+    const passesGate = (title: string, query: string): boolean => {
+      const ok = longTopic
+        ? overlapsQuery(title, tokens(query))
+        : !shortSig ||
+          shortSig.size === 0 ||
+          this.overlapCount(title, shortSig) >= 1;
+      if (!ok) gateDropped++;
+      return ok;
+    };
 
     const absorb = (rows: Row[]) => {
       for (const row of rows) {
@@ -587,12 +734,7 @@ export class LocalNewsService {
           success: true,
           relatedId: query.slice(0, 80),
         });
-        const qTokens = longTopic ? tokens(query) : null;
-        absorb(
-          qTokens
-            ? (rows as Row[]).filter((r) => overlapsQuery(r.title, qTokens))
-            : rows,
-        );
+        absorb((rows as Row[]).filter((r) => passesGate(r.title, query)));
       } catch (err: any) {
         this.logger.warn(
           `[TopicPack] search failed "${query}": ${err?.message || err}`,
@@ -701,7 +843,7 @@ export class LocalNewsService {
 
     this.cacheTopicPack(cacheKey, pack, false);
     this.logger.log(
-      `[TopicPack] pack topic="${topic.slice(0, 50)}" clips=${pack.clips.length} (t1=${tier1.length} t2=${tier2.length} q=${searchesRun})`,
+      `[TopicPack] pack topic="${topic.slice(0, 50)}" clips=${pack.clips.length} (t1=${tier1.length} t2=${tier2.length} q=${searchesRun} gateDropped=${gateDropped})`,
     );
     return pack;
   }

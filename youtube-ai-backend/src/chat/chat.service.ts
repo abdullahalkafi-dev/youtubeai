@@ -1424,26 +1424,42 @@ export class ChatService {
    * Capped (last 6 msgs × 500 chars) — used only for market/city matching,
    * not as model context.
    */
+  /**
+   * Conversation window for footage-pack subject/market resolution. The NEWEST
+   * messages matter most (the latest proposal heading lives near the top of
+   * its message), so walk newest→oldest, head-cap each message at 1500 chars,
+   * keep up to 6000 total — then re-join chronologically so "latest heading
+   * match" still means the newest proposal. This string never reaches the
+   * model, so the budget is a pure accuracy/cost tradeoff on our side.
+   */
   private buildRecentThreadText(
     messages: Array<{ role: string; content: string }>,
   ): string {
     if (!messages?.length) return '';
-    return messages
-      .slice(-6)
-      .map((m) => m.content || '')
-      .join('\n')
-      .slice(0, 4000);
+    const BUDGET = 6000;
+    const PER_MESSAGE = 1500;
+    const picked: string[] = [];
+    let used = 0;
+    for (let i = messages.length - 1; i >= 0 && used < BUDGET; i--) {
+      const head = (messages[i].content || '').slice(0, PER_MESSAGE);
+      if (!head) continue;
+      picked.push(head);
+      used += head.length;
+    }
+    return picked.reverse().join('\n');
   }
 
   /**
    * Load a footage pack for this message (Phase 2 lite).
-   * - Topic resolution: message entity → stripped footage phrasing → the
-   *   thread's established subject ("script for this" follow-ups) → top trend
-   *   (Rule-0 recommendation asks only).
-   * - Precedence: a subject the USER named → local market pack first when a
-   *   market resolves (market-story asks). A subject taken from the thread or
-   *   trends is story-specific → topic pack ONLY (never generic local clips);
-   *   empty coverage renders the honest thin note.
+   * - Topic resolution: message entity → stripped footage phrasing → anaphora
+   *   ("script for this" / "local news for that topic") → the thread's latest
+   *   proposal heading → top trend (Rule-0 recommendation asks only).
+   * - Market: message-named city first; conversation only as fallback.
+   * - Precedence: user-named/absent subject → local market pack first when a
+   *   market resolves. Thread/trend subjects → topic pack only, EXCEPT an
+   *   explicit "local news" ask, which gets local coverage of that subject
+   *   first with topic-pack fallback. Subject-less non-footage asks load
+   *   nothing (honest absence beats random clips).
    * Returns null when nothing should load (behavior identical to pre-pack).
    */
   private async loadFootagePack(
@@ -1458,13 +1474,23 @@ export class ChatService {
       if (!channel?.userId) return null;
 
       const wantsFootage = this.localNewsService.isFootageRequest(message);
+      const wantsLocalNews = /\blocal\s+news\b/i.test(message || '');
       const topicCat = ['general', 'ideas', 'script', 'outline'].includes(
         category,
       );
-      const haystack = `${message || ''}\n${conversationText || ''}`;
-      const marketResolved =
-        this.localNewsService.resolveMarket(undefined, haystack) != null;
-      const wantsLocal = wantsFootage || (topicCat && marketResolved);
+      // Market priority: a city the USER typed beats anything the conversation
+      // merely mentions (discussing Chicago must not hijack a Miami ask).
+      const marketMsg = this.localNewsService.resolveMarket(undefined, message);
+      const marketConv = marketMsg
+        ? null
+        : this.localNewsService.resolveMarket(undefined, conversationText);
+      const market = marketMsg || marketConv;
+      const marketFrom: 'message' | 'conversation' | 'none' = marketMsg
+        ? 'message'
+        : marketConv
+          ? 'conversation'
+          : 'none';
+      const wantsLocal = wantsFootage || (topicCat && market != null);
 
       // Topic resolution: explicit footage ask → stripped phrasing; entity-bearing
       // message → entity window; follow-up anaphora ("script for this") → the
@@ -1488,21 +1514,37 @@ export class ChatService {
           topicSrc = 'message-search';
         }
       }
-      // "give me script for this" / "clips for the script" name no subject —
-      // the client never restates it; take it from the thread's last proposal.
+      // Anaphora — "script for this", "clips for the script", "news for that
+      // topic". The subject is a REFERENCE, not a name: substring match so
+      // "local news for that topic" resolves too (the old full-string test
+      // missed it and the raw sentence went to YouTube as the query).
       const anaphoric =
         !topic ||
         /^(?:this|that|it|the\s+(?:script|video|post|story|case|clip|clips|one|thing))\s*$/i.test(
           topic,
-        );
+        ) ||
+        /\b(?:this|that|it|them|they|these|those)\b/i.test(topic) ||
+        /\b(?:for|about|on|of)\s+(?:this|that|it|these|those)\b/i.test(topic);
+      let ctxResult: 'hit' | 'miss' | 'skip' = 'skip';
       if (anaphoric && !topicRecAsk) {
         const ctx = this.extractContextTopic(conversationText);
         if (ctx) {
+          ctxResult = 'hit';
           topic = ctx;
           topicSrc = 'conversation-heading';
-        } else if (topic && anaphoric && topic !== '') {
-          topic = ''; // junk subject ("the script") — never search for it
-          topicSrc = 'none';
+        } else {
+          ctxResult = 'miss';
+          if (topic && topic !== '') {
+            topic = ''; // reference only ("that topic") — never search for it
+            topicSrc = 'none';
+          }
+          const firstHeading = (conversationText || '')
+            .split('\n')
+            .find((l) => /^#{1,4}\s/.test(l));
+          this.logger.log(
+            `[FootagePack] ctx=miss scanned=${(conversationText || '').length}chars ` +
+              `firstHeading=${JSON.stringify((firstHeading || '').slice(0, 80))}`,
+          );
         }
       }
       let topicFromTrends = false;
@@ -1523,20 +1565,29 @@ export class ChatService {
         return null;
       }
 
-      // Precedence: only a user-named (or absent) subject may rank the local
-      // market pack first; thread/trend subjects are story-specific.
+      // Precedence: a user-named (or absent) subject ranks the local market
+      // pack first. Thread/trend subjects are story-specific → topic pack
+      // only — UNLESS the user explicitly asked for "local news", which means
+      // market-specific coverage of that subject (local first, topic fallback).
       const localFirst =
         topicSrc === 'none' ||
         topicSrc === 'message' ||
-        topicSrc === 'message-search';
+        topicSrc === 'message-search' ||
+        (topicSrc === 'conversation-heading' && wantsLocalNews);
       let pack: LocalScenePack | null = null;
 
       // 1) Local market pack — market-story asks (user-named subject or bare).
-      if (wantsLocal && marketResolved && localFirst) {
+      //    Subject-less non-footage asks never reach here: no subject, no pack
+      //    (an honest absence beats random clips).
+      const runLocal =
+        wantsLocal && market != null && localFirst && (!!topic || wantsFootage);
+      if (runLocal) {
         pack = await this.localNewsService.findFootagePack({
           userId: channel.userId.toString(),
-          topic: this.localNewsService.extractSearchTopic(message),
-          locationHint: haystack,
+          // The RESOLVED subject, not the raw sentence — "WSVN Rick Ross",
+          // never "WSVN can you give me script for this video".
+          topic: topic || '',
+          locationHint: marketMsg ? message : conversationText,
           maxClips: 5,
           maxSeconds: 360,
         });
@@ -1626,8 +1677,9 @@ export class ChatService {
 
       this.logger.log(
         `[FootagePack] cat=${category} src=${topicSrc} ` +
-          `topic=${topic ? JSON.stringify(String(topic).slice(0, 60)) : 'none'} ` +
-          `market=${marketResolved ? 'yes' : 'no'} → ` +
+          `anaphoric=${anaphoric ? 'yes' : 'no'} ctx=${ctxResult} ` +
+          `marketFrom=${marketFrom} ` +
+          `topic=${topic ? JSON.stringify(String(topic).slice(0, 60)) : 'none'} → ` +
           (pack
             ? `${pack.kind || 'unknown'}(${pack.clips.length} clips)`
             : 'none'),
@@ -1680,21 +1732,42 @@ export class ChatService {
   }
 
   /**
-   * The subject a follow-up like "script for this" refers back to: the thread's
-   * latest proposal heading, e.g.
-   * "## Best Next Post: **Rihanna Home Shooting — The Competency Question…**"
-   * → "Rihanna Home Shooting" (caption tail after the dash dropped; the short
-   * core is what newsroom search matches on).
+   * The subject a follow-up like "script for this" refers back to — the thread's
+   * latest proposal heading. Models aren't pinned to one template, so four
+   * shapes are recognized (the latest match by position wins):
+   *   1. "## Best Next Post: **Rihanna Home Shooting — …**"
+   *   2. "## Make This Video Today" followed by "# **Rick Ross: …**"
+   *   3. "## Best Title" followed by the title line
+   *   4. any generic "# **bold subject**" heading
+   * Caption tails after the dash/colon are dropped; the short core is what
+   * newsroom search matches on ("Rick Ross: Fame Can't…" → "Rick Ross").
    */
   private extractContextTopic(conversationText: string): string | null {
     const text = conversationText || '';
     if (!text) return null;
-    const matches = [
-      ...text.matchAll(/^#{0,3}\s*best next post[:* ]+\**([^*\n]{3,90})/gim),
-    ];
-    if (!matches.length) return null;
-    const raw = matches[matches.length - 1][1];
+    const candidates: Array<{ idx: number; raw: string }> = [];
+
+    for (const m of text.matchAll(
+      /^#{0,3}\s*best next post[:* ]+\**([^*\n]{3,90})/gim,
+    )) {
+      candidates.push({ idx: m.index ?? 0, raw: m[1] });
+    }
+    // "Make This Video Today" / "Best Title" → subject is the next real line.
+    for (const m of text.matchAll(
+      /^#{0,3}\s*(?:make this video today|best title)\b[^\n]*\n+([^\n]{3,90})/gim,
+    )) {
+      candidates.push({ idx: m.index ?? 0, raw: m[1] });
+    }
+    // Generic bold heading: "# **Rick Ross: When Celebrity…**"
+    for (const m of text.matchAll(/^#{1,4}\s+\*\*([^*\n]{3,90})\*\*/gm)) {
+      candidates.push({ idx: m.index ?? 0, raw: m[1] });
+    }
+
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => a.idx - b.idx);
+    const raw = candidates[candidates.length - 1].raw;
     const subject = raw
+      .replace(/^[#\s*]+/, '')
       .split(/\s+[—–-]\s+/)[0]
       .split(/[:,]/)[0]
       .replace(/\*\*/g, '')

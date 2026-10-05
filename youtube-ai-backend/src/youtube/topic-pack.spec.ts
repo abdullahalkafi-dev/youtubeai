@@ -188,8 +188,24 @@ describe('findTopicFootagePack — pre-deploy regression gate (6 verdict IDs)', 
   });
 
   it('runs the second reworded query when <3 survive the first', async () => {
+    // Query-2 rows must pass the short-subject relevance gate ("obscure case"
+    // → titles need "obscure" or "case").
+    const caseRows: Row[] = (
+      [
+        ['c1', 'Obscure case ends in surprise verdict'],
+        ['c2', 'Inside the obscure case nobody covered'],
+        ['c3', 'Jurors react during the obscure case trial'],
+        ['c4', 'Closing arguments in the obscure case'],
+      ] as const
+    ).map(([videoId, title]) => ({
+      videoId,
+      title,
+      channelTitle: 'ABC7',
+      channelId: ABC7,
+      thumbnailUrl: '',
+    }));
     const { svc, searchCalls } = makeService({
-      searchResults: [[], gateRows], // query 1: nothing allowlisted; query 2: hits
+      searchResults: [[], caseRows], // query 1: nothing allowlisted; query 2: hits
     });
     const pack = await svc.findTopicFootagePack({
       userId: 'u1',
@@ -198,6 +214,44 @@ describe('findTopicFootagePack — pre-deploy regression gate (6 verdict IDs)', 
     expect(searchCalls.length).toBe(2);
     expect(searchCalls[1]).toContain('courthouse');
     expect(pack!.clips.length).toBeGreaterThanOrEqual(3);
+  });
+
+  it('short-subject gate drops allowlisted titles that miss the subject', async () => {
+    const { svc } = makeService({
+      searchResults: [
+        [
+          {
+            videoId: 'ross01',
+            title: 'Rick Ross arrested in Miami Beach on battery charges',
+            channelTitle: 'ABC7',
+            channelId: ABC7,
+            thumbnailUrl: '',
+          },
+          {
+            videoId: 'noise01',
+            title: 'Boeing 767 overruns runway at MIA',
+            channelTitle: 'ABC7',
+            channelId: ABC7,
+            thumbnailUrl: '',
+          },
+          {
+            videoId: 'noise02',
+            title: 'Trump threatens Strait of Hormuz blockade',
+            channelTitle: 'NBCLA',
+            channelId: NBCLA,
+            thumbnailUrl: '',
+          },
+        ],
+      ],
+    });
+    const pack = await svc.findTopicFootagePack({
+      userId: 'u1',
+      topic: 'Rick Ross',
+    });
+    const ids = pack!.clips.map((c) => c.videoId);
+    expect(ids).toContain('ross01');
+    expect(ids).not.toContain('noise01');
+    expect(ids).not.toContain('noise02');
   });
 });
 

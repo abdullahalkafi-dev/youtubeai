@@ -117,9 +117,11 @@ describe('Phase 2c — loadFootagePack triggers', () => {
     youtubeChannelId: 'UC-own',
   };
   type TopicParams = Parameters<LocalNewsService['findTopicFootagePack']>[0];
+  type LocalParams = Parameters<LocalNewsService['findFootagePack']>[0];
   let topicSpy: jest.SpyInstance<Promise<LocalScenePack | null>, [TopicParams]>;
-  let localSpy: jest.SpyInstance;
+  let localSpy: jest.SpyInstance<Promise<LocalScenePack | null>, [LocalParams]>;
   let denySpy: jest.SpyInstance;
+  let logMock: jest.Mock;
 
   beforeEach(() => {
     topicSpy = jest
@@ -143,7 +145,8 @@ describe('Phase 2c — loadFootagePack triggers', () => {
       {} as any,
       {} as any,
     );
-    host.logger = { warn: jest.fn(), log: jest.fn() };
+    logMock = jest.fn();
+    host.logger = { warn: jest.fn(), log: logMock };
   });
 
   afterEach(() => jest.restoreAllMocks());
@@ -304,6 +307,66 @@ describe('Phase 2c — loadFootagePack triggers', () => {
     expect(topics.join(' | ')).not.toContain('Chicago man gets');
     expect(pack?.clips.length).toBe(6);
   });
+
+  it('nested "local news for that topic" → local pack with the thread subject', async () => {
+    localSpy.mockResolvedValue(makePack([clip('miami1')], 'local'));
+    const pack = await load(
+      'give me local news for that topic',
+      'general',
+      true,
+      '## Make This Video Today\n\n# **Rick Ross: When Celebrity Can’t Stop the Courtroom Pressure**\nMiami-Dade coverage developing.',
+      ['Some unrelated trend'],
+    );
+    expect(localSpy).toHaveBeenCalledTimes(1);
+    expect(localSpy.mock.calls[0][0].topic).toContain('Rick Ross');
+    expect(pack?.kind).toBe('local');
+    expect(logMock).toHaveBeenCalledWith(expect.stringContaining('ctx=hit'));
+    expect(logMock).toHaveBeenCalledWith(
+      expect.stringContaining('marketFrom=conversation'),
+    );
+  });
+
+  it('subject-less non-footage ask with a conversation market loads NOTHING', async () => {
+    const pack = await load(
+      'hello there',
+      'general',
+      true,
+      'Miami-Dade story developing.',
+    );
+    expect(pack).toBeNull();
+    expect(localSpy).not.toHaveBeenCalled();
+    expect(topicSpy).not.toHaveBeenCalled();
+  });
+
+  it('bare "give me local news" → market-only local pack (topic "")', async () => {
+    localSpy.mockResolvedValue(makePack([clip('m1')], 'local'));
+    const pack = await load(
+      'give me local news',
+      'general',
+      true,
+      'Miami-Dade coverage.',
+    );
+    expect(localSpy).toHaveBeenCalledTimes(1);
+    expect(localSpy.mock.calls[0][0].topic).toBe('');
+    expect(pack?.kind).toBe('local');
+  });
+
+  it('a city named in the message beats the conversation market', async () => {
+    localSpy.mockResolvedValue(makePack([clip('miami1')], 'local'));
+    await load(
+      'give me local news in Miami',
+      'general',
+      true,
+      '## Best Next Post: **Chicago School Shooting — Day Two**\nChicago coverage.',
+    );
+    const call = localSpy.mock.calls[0][0];
+    expect(call.topic).toBe('Miami');
+    expect(call.locationHint).toContain('Miami');
+    expect(call.locationHint).not.toContain('Chicago');
+    expect(logMock).toHaveBeenCalledWith(
+      expect.stringContaining('marketFrom=message'),
+    );
+  });
 });
 
 describe('extractContextTopic — thread proposal heading parsing', () => {
@@ -330,6 +393,66 @@ describe('extractContextTopic — thread proposal heading parsing', () => {
   it('returns null without a proposal heading', () => {
     expect(h.extractContextTopic('no heading here')).toBeNull();
     expect(h.extractContextTopic('')).toBeNull();
+  });
+
+  it('parses "Make This Video Today" proposals (bold H1 subject)', () => {
+    expect(
+      h.extractContextTopic(
+        '## Make This Video Today\n\n# **Rick Ross: When Celebrity Can’t Stop the Courtroom Pressure**\n\nBody…',
+      ),
+    ).toBe('Rick Ross');
+  });
+
+  it('parses "Best Title" proposals (title on the next line)', () => {
+    expect(
+      h.extractContextTopic(
+        '## Best Title\nRick Ross: Fame Can’t Stop the Courtroom Pressure\n\n## Backup Titles',
+      ),
+    ).toBe('Rick Ross');
+  });
+
+  it('parses generic bold headings', () => {
+    expect(h.extractContextTopic('# **Diddy Trial Opens in Brooklyn**')).toBe(
+      'Diddy Trial Opens in Brooklyn',
+    );
+  });
+
+  it('picks the LATEST heading across mixed formats', () => {
+    expect(
+      h.extractContextTopic(
+        '## Make This Video Today\n# **Old Topic One**\nbody\n## Best Title\nRick Ross: New Title',
+      ),
+    ).toBe('Rick Ross');
+  });
+});
+
+describe('buildRecentThreadText — newest messages always inside the window', () => {
+  const h = Object.create(ChatService.prototype) as {
+    buildRecentThreadText(
+      msgs: Array<{ role: string; content: string }>,
+    ): string;
+  };
+
+  it('keeps the newest proposal heading and joins chronologically', () => {
+    const msgs = [
+      { role: 'user', content: `old message ${'x'.repeat(2000)}` },
+      { role: 'assistant', content: `old reply ${'y'.repeat(2000)}` },
+      { role: 'user', content: 'which topic today' },
+      {
+        role: 'assistant',
+        content: `## Make This Video Today\n# **Rick Ross: Courtroom Pressure**\n${'z'.repeat(3000)}`,
+      },
+    ];
+    const out = h.buildRecentThreadText(msgs);
+    expect(out).toContain('Rick Ross: Courtroom Pressure');
+    // Chronological order preserved (latest heading is near the END)
+    expect(out.indexOf('old message')).toBeLessThan(out.indexOf('Rick Ross'));
+    // Per-message head-cap: only the first 1500 chars of the long reply
+    expect((out.match(/z/g) || []).length).toBeLessThanOrEqual(1500);
+  });
+
+  it('empty input → ""', () => {
+    expect(h.buildRecentThreadText([])).toBe('');
   });
 });
 

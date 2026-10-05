@@ -85,3 +85,164 @@ describe('LocalNewsService.isFootageRequest', () => {
     expect(svc.isFootageRequest('what should I post next?')).toBe(false);
   });
 });
+
+describe('LocalNewsService.extractSearchTopic — chat chrome & references', () => {
+  let svc: LocalNewsService;
+
+  beforeAll(() => {
+    svc = new LocalNewsService(
+      null as unknown as YouTubeService,
+      null as unknown as QuotaService,
+    );
+  });
+
+  it('strips request chrome down to the subject', () => {
+    expect(
+      svc.extractSearchTopic(
+        'can you please give me clips for the Miami hearing',
+      ),
+    ).toBe('the Miami hearing'); // leading "the" kept (strip would break "The Game")
+    expect(svc.extractSearchTopic('give me local news for Miami')).toBe(
+      'Miami',
+    );
+    expect(
+      svc.extractSearchTopic('find some news clips for the Lil Durk verdict'),
+    ).toBe('the Lil Durk verdict');
+  });
+
+  it('returns "" for bare local-news asks (market-only queries downstream)', () => {
+    expect(svc.extractSearchTopic('give me local news')).toBe('');
+    expect(svc.extractSearchTopic('local news')).toBe('');
+  });
+
+  it('returns "" for anaphoric leftovers — never raw chat as a query', () => {
+    expect(
+      svc.extractSearchTopic('can you give me script for this video'),
+    ).toBe('');
+    expect(svc.extractSearchTopic('local news for that topic')).toBe('');
+    expect(svc.extractSearchTopic('news clips for the script')).toBe('');
+    expect(svc.extractSearchTopic('give me b-roll for it')).toBe('');
+  });
+});
+
+describe('LocalNewsService.findFootagePack — specific queries + relevance gate', () => {
+  type Row = {
+    videoId: string;
+    title: string;
+    channelTitle: string;
+    thumbnailUrl: string;
+  };
+
+  function makeSvc(rows: Row[]) {
+    const searchCalls: string[] = [];
+    const youtube = {
+      searchVideos: jest.fn((p: { query: string }) => {
+        searchCalls.push(p.query);
+        return Promise.resolve(rows);
+      }),
+      getVideoDetails: jest.fn((_t: string, ids: string[]) =>
+        Promise.resolve(
+          ids.map((id) => {
+            const row = rows.find((r) => r.videoId === id);
+            return {
+              videoId: id,
+              title: row?.title || `V ${id}`,
+              channelTitle: row?.channelTitle || 'WPLG',
+              videoUrl: `https://www.youtube.com/watch?v=${id}`,
+              durationSeconds: 90,
+              viewCount: 5000,
+              embeddable: true,
+              publishedAt: new Date().toISOString(),
+            };
+          }),
+        ),
+      ),
+      getValidAccessToken: jest.fn(() => Promise.resolve('t')),
+    };
+    const quota = {
+      countEndpointCallsToday: jest.fn(() => Promise.resolve(0)),
+      checkQuota: jest.fn(() => Promise.resolve(undefined)),
+      logCall: jest.fn(() => Promise.resolve(undefined)),
+    };
+    return {
+      svc: new LocalNewsService(youtube as any, quota as any),
+      searchCalls,
+    };
+  }
+
+  const ROSS: Row = {
+    videoId: 'ross01',
+    title: 'Rick Ross arrested in Miami Beach on battery charges',
+    channelTitle: 'WPLG',
+    thumbnailUrl: '',
+  };
+  const BOEING: Row = {
+    videoId: 'noise01',
+    title: 'Boeing 767 overruns runway at MIA',
+    channelTitle: 'WPLG',
+    thumbnailUrl: '',
+  };
+  const TRUMP: Row = {
+    videoId: 'noise02',
+    title: 'Trump threatens Strait of Hormuz blockade',
+    channelTitle: 'WTVJ',
+    thumbnailUrl: '',
+  };
+
+  it('queries station/city + the SUBJECT (never the raw sentence)', async () => {
+    const { svc, searchCalls } = makeSvc([ROSS]);
+    const pack = await svc.findFootagePack({
+      userId: 'u1',
+      topic: 'Rick Ross',
+      locationHint: 'Miami',
+    });
+    expect(searchCalls).toEqual(['WPLG Rick Ross', 'Miami news Rick Ross']);
+    expect(pack?.clips.map((c) => c.videoId)).toContain('ross01');
+  });
+
+  it('gates out loosely-related titles that share no subject token', async () => {
+    const { svc } = makeSvc([ROSS, BOEING, TRUMP]);
+    const pack = await svc.findFootagePack({
+      userId: 'u1',
+      topic: 'Rick Ross',
+      locationHint: 'Miami',
+    });
+    const ids = pack?.clips.map((c) => c.videoId) || [];
+    expect(ids).toContain('ross01');
+    expect(ids).not.toContain('noise01');
+    expect(ids).not.toContain('noise02');
+  });
+
+  it('bare ask (no subject) → market-only queries, no gate', async () => {
+    const { svc, searchCalls } = makeSvc([ROSS, BOEING]);
+    const pack = await svc.findFootagePack({
+      userId: 'u1',
+      topic: '',
+      locationHint: 'Miami',
+    });
+    expect(searchCalls).toEqual(['WPLG Miami news', 'Miami news latest']);
+    // No subject → no relevance gate; station+duration filters still apply.
+    expect(pack?.clips.length).toBe(2);
+  });
+
+  it('a subject that is just the city collapses to market-only queries', async () => {
+    const { svc, searchCalls } = makeSvc([ROSS]);
+    await svc.findFootagePack({
+      userId: 'u1',
+      topic: 'Miami',
+      locationHint: 'Miami',
+    });
+    expect(searchCalls).toEqual(['WPLG Miami news', 'Miami news latest']);
+  });
+
+  it('returns null when no market resolves', async () => {
+    const { svc, searchCalls } = makeSvc([ROSS]);
+    const pack = await svc.findFootagePack({
+      userId: 'u1',
+      topic: 'Rick Ross',
+      locationHint: 'no location at all in this story',
+    });
+    expect(pack).toBeNull();
+    expect(searchCalls.length).toBe(0);
+  });
+});
