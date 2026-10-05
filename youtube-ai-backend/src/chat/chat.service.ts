@@ -1733,46 +1733,60 @@ export class ChatService {
 
   /**
    * The subject a follow-up like "script for this" refers back to — the thread's
-   * latest proposal heading. Models aren't pinned to one template, so four
-   * shapes are recognized (the latest match by position wins):
-   *   1. "## Best Next Post: **Rihanna Home Shooting — …**"
-   *   2. "## Make This Video Today" followed by "# **Rick Ross: …**"
-   *   3. "## Best Title" followed by the title line
-   *   4. any generic "# **bold subject**" heading
-   * Caption tails after the dash/colon are dropped; the short core is what
-   * newsroom search matches on ("Rick Ross: Fame Can't…" → "Rick Ross").
+   * latest proposal heading. Models paraphrase headings freely ("Best Next
+   * Post:", "Post Next:", "Make This Video Today", "Best Title"), so matching
+   * literals is whack-a-mole: instead take ANY heading line carrying a bold
+   * segment, plus the two next-line shapes, then score:
+   *  - reject section labels: single word ("JEWEL"), numbered ("1. COLD OPEN")
+   *  - tier A (proposal-shaped): has a caption separator (" — ", ":") or ≥5
+   *    words; tier B otherwise. Latest tier A wins, else latest tier B —
+   *    script/answer sections can never outrank the actual proposal title.
+   * Caption tails after the dash/colon are dropped ("Rick Ross: Fame Can't…"
+   * → "Rick Ross").
    */
   private extractContextTopic(conversationText: string): string | null {
     const text = conversationText || '';
     if (!text) return null;
-    const candidates: Array<{ idx: number; raw: string }> = [];
+    const candidates: Array<{ idx: number; raw: string; tier: 1 | 2 }> = [];
+    const push = (idx: number, raw0: string) => {
+      const raw = (raw0 || '')
+        .replace(/^[#\s*]+/, '')
+        .replace(/\*\*/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (raw.length < 3) return;
+      if (/^\d/.test(raw)) return; // numbered script sections ("1. COLD OPEN")
+      const words = raw.split(/\s+/).length;
+      if (words < 2) return; // single-word section labels ("JEWEL")
+      const tier: 1 | 2 = /\s[—–-]\s|:/.test(raw) || words >= 5 ? 1 : 2;
+      candidates.push({ idx, raw, tier });
+    };
 
+    // Any heading line carrying a bold segment — "## Post Next: **…**",
+    // "## Best Next Post: **…**", "## **Title**".
     for (const m of text.matchAll(
-      /^#{0,3}\s*best next post[:* ]+\**([^*\n]{3,90})/gim,
+      /^#{1,4}\s+[^\n]{0,70}?\*\*([^*\n]{3,90})\*\*/gm,
     )) {
-      candidates.push({ idx: m.index ?? 0, raw: m[1] });
+      push(m.index ?? 0, m[1]);
     }
-    // "Make This Video Today" / "Best Title" → subject is the next real line.
+    // Proposal sub-headings whose subject is the next line.
     for (const m of text.matchAll(
       /^#{0,3}\s*(?:make this video today|best title)\b[^\n]*\n+([^\n]{3,90})/gim,
     )) {
-      candidates.push({ idx: m.index ?? 0, raw: m[1] });
-    }
-    // Generic bold heading: "# **Rick Ross: When Celebrity…**"
-    for (const m of text.matchAll(/^#{1,4}\s+\*\*([^*\n]{3,90})\*\*/gm)) {
-      candidates.push({ idx: m.index ?? 0, raw: m[1] });
+      push(m.index ?? 0, m[1]);
     }
 
     if (!candidates.length) return null;
     candidates.sort((a, b) => a.idx - b.idx);
-    const raw = candidates[candidates.length - 1].raw;
-    const subject = raw
-      .replace(/^[#\s*]+/, '')
+    const best =
+      candidates.filter((c) => c.tier === 1).pop() ?? candidates.pop();
+    if (!best) return null;
+    const subject = best.raw
       .split(/\s+[—–-]\s+/)[0]
       .split(/[:,]/)[0]
-      .replace(/\*\*/g, '')
       .trim();
-    return subject.length >= 3 ? subject.slice(0, 120) : null;
+    const words = subject.split(/\s+/).length;
+    return subject.length >= 3 && words >= 2 ? subject.slice(0, 120) : null;
   }
 
   /**

@@ -424,6 +424,28 @@ describe('extractContextTopic — thread proposal heading parsing', () => {
       ),
     ).toBe('Rick Ross');
   });
+
+  it('parses the live "Post Next:" paraphrase', () => {
+    expect(
+      h.extractContextTopic(
+        '## Post Next: **Rihanna Home Shooting — The Competency Trap**',
+      ),
+    ).toBe('Rihanna Home Shooting');
+  });
+
+  it('script section headings never outrank the proposal title', () => {
+    expect(
+      h.extractContextTopic(
+        '## Post Next: **Rihanna Home Shooting — The Competency Trap**\n' +
+          '## **1. COLD OPEN**\nbody\n### **JEWEL**\nbody\n## **2. THE IMMEDIATE STAKES**',
+      ),
+    ).toBe('Rihanna Home Shooting');
+  });
+
+  it('rejects lone section labels (single word / numbered)', () => {
+    expect(h.extractContextTopic('### **JEWEL**\nbody')).toBeNull();
+    expect(h.extractContextTopic('## **1. COLD OPEN**\nbody')).toBeNull();
+  });
 });
 
 describe('buildRecentThreadText — newest messages always inside the window', () => {
