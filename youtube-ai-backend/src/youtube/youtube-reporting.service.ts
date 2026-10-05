@@ -41,12 +41,16 @@ export class YoutubeReportingService {
     return factory({ version: 'v1', auth: oauth2Client });
   }
 
-  /** Ensure a reach job exists; return jobId. */
-  async ensureReachJob(userId: string): Promise<string | null> {
+  /** Ensure a report job exists for the given report type; return jobId. */
+  async ensureJob(
+    userId: string,
+    reportType: string,
+    name: string,
+  ): Promise<string | null> {
     try {
       const accessToken = await this.youtubeService.getValidAccessToken(userId);
       if (!accessToken) {
-        this.logger.warn('[Reach] ensureReachJob: no access token');
+        this.logger.warn(`[Reporting] ensureJob(${reportType}): no access token`);
         return null;
       }
       const reporting = this.getClient(accessToken);
@@ -54,42 +58,176 @@ export class YoutubeReportingService {
       const list = await reporting.jobs.list({ includeSystemManaged: true });
       const jobs = list.data.jobs || [];
       this.logger.log(
-        `[Reach] jobs.list: ${jobs.length} job(s) types=${jobs.map((j: any) => j.reportTypeId).join('|') || 'none'}`,
+        `[Reporting] jobs.list: ${jobs.length} job(s) types=${jobs.map((j: any) => j.reportTypeId).join('|') || 'none'}`,
       );
       const existing = jobs.find(
-        (j: any) => j.reportTypeId === this.REACH_REPORT_TYPE,
+        (j: any) => j.reportTypeId === reportType,
       );
       if (existing?.id) {
-        this.logger.log(`[Reach] using existing job id=${existing.id}`);
+        this.logger.log(`[Reporting] using existing job id=${existing.id} type=${reportType}`);
         return existing.id;
       }
 
       const created = await reporting.jobs.create({
         requestBody: {
-          reportTypeId: this.REACH_REPORT_TYPE,
-          name: 'MAE reach (thumbnail CTR)',
+          reportTypeId: reportType,
+          name,
         },
       });
-      this.logger.log(`[Reach] Created job id=${created.data.id} type=${this.REACH_REPORT_TYPE} (data lags 24–48h)`);
+      this.logger.log(`[Reporting] Created job id=${created.data.id} type=${reportType} (data lags 24–48h)`);
       return created.data.id || null;
     } catch (err: any) {
-      this.logger.warn(`[Reach] ensureReachJob failed: ${err?.message || err}`);
+      this.logger.warn(`[Reporting] ensureJob(${reportType}) failed: ${err?.message || err}`);
       return null;
     }
+  }
+
+  /** Ensure a reach job exists; return jobId. */
+  async ensureReachJob(userId: string): Promise<string | null> {
+    return this.ensureJob(userId, this.REACH_REPORT_TYPE, 'MAE reach (thumbnail CTR)');
+  }
+
+  /**
+   * List report files for a report type: paginated, filtered to the last
+   * `sinceDays` days, de-duplicated per day (YouTube reissues same-day files —
+   * keeping only the last one prevents double-counting impressions), capped
+   * at `maxFiles`. Returns oldest-first.
+   */
+  async listReportFiles(
+    userId: string,
+    reportType: string,
+    sinceDays = 7,
+    maxFiles = 40,
+  ): Promise<any[]> {
+    const jobId = await this.ensureJob(
+      userId,
+      reportType,
+      `MAE ${reportType}`,
+    );
+    if (!jobId) return [];
+
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    if (!accessToken) return [];
+    const reporting = this.getClient(accessToken);
+
+    const all: any[] = [];
+    let pageToken: string | undefined;
+    do {
+      const res: any = await reporting.jobs.reports.list({
+        jobId,
+        pageSize: 100,
+        pageToken,
+      });
+      all.push(...(res.data.reports || []));
+      pageToken = res.data.nextPageToken;
+    } while (pageToken && all.length < 1000);
+
+    const cutoff = Date.now() - sinceDays * 24 * 60 * 60 * 1000;
+    const inWindow = all.filter(
+      (r) =>
+        r.downloadUrl &&
+        new Date(r.startTime || 0).getTime() >= cutoff,
+    );
+
+    // Day-dedupe: same-day reissues are full replacements → keep the last one
+    const byDay = new Map<string, any>();
+    for (const r of inWindow) {
+      byDay.set(String(r.startTime || ''), r);
+    }
+    const deduped = [...byDay.values()].sort((a, b) =>
+      String(a.startTime || '').localeCompare(String(b.startTime || '')),
+    );
+
+    const capped = deduped.slice(-maxFiles);
+    this.logger.log(
+      `[Reporting] ${reportType}: files all=${all.length} inWindow(${sinceDays}d)=${inWindow.length} deduped=${deduped.length} using=${capped.length}` +
+        (capped.length
+          ? ` range=${capped[0].startTime}..${capped[capped.length - 1].startTime}`
+          : ''),
+    );
+    return capped;
+  }
+
+  /**
+   * Download report files and stream parsed rows to a callback (memory-safe for
+   * large reports like channel_basic_a3 with country×subscribed dimensions).
+   * Only the requested columns are resolved per file header.
+   */
+  async streamReport(
+    userId: string,
+    reportType: string,
+    sinceDays: number,
+    wantedColumns: string[],
+    onRow: (date: string, values: Array<string | undefined>) => void,
+    maxFiles = 40,
+  ): Promise<{ files: number; missing: string[] }> {
+    const files = await this.listReportFiles(userId, reportType, sinceDays, maxFiles);
+    if (!files.length) return { files: 0, missing: wantedColumns };
+
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    if (!accessToken) return { files: 0, missing: wantedColumns };
+
+    const missing = new Set<string>();
+    let ok = 0;
+    for (const report of files) {
+      try {
+        const res = await fetch(report.downloadUrl, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!res.ok) {
+          this.logger.warn(
+            `[Reporting] ${reportType} download HTTP ${res.status} for ${report.id}`,
+          );
+          continue;
+        }
+        const text = await res.text();
+        const lines = text.split(/\r?\n/).filter((l) => l.trim());
+        if (lines.length < 2) continue;
+        const header = lines[0].split(',').map((h) => h.trim().replace(/^"|"$/g, ''));
+        const idx = wantedColumns.map((c) => this.findCol(header, [c]));
+        idx.forEach((i, n) => {
+          if (i < 0) missing.add(wantedColumns[n]);
+        });
+        const dateIdx = this.findCol(header, ['date', 'day']);
+        for (let i = 1; i < lines.length; i++) {
+          const cols = this.splitCsvLine(lines[i]);
+          const date = dateIdx >= 0 ? (cols[dateIdx] || '').replace(/^"|"$/g, '') : '';
+          onRow(
+            date,
+            idx.map((ci) => (ci >= 0 ? (cols[ci] || '').replace(/^"|"$/g, '') : undefined)),
+          );
+        }
+        ok++;
+      } catch (dlErr: any) {
+        this.logger.warn(
+          `[Reporting] ${reportType} download error: ${dlErr?.message || dlErr}`,
+        );
+      }
+    }
+    return { files: ok, missing: [...missing] };
   }
 
   /**
    * Reach rows (per video) from recent daily reports, impressions summed
    * and CTR impression-weighted across days. Optional videoId filter.
+   * Window defaults to the last 7 days (same-day reissues de-duplicated).
    */
   async getReachMetrics(
     userId: string,
     videoIds?: string[],
+    opts?: { sinceDays?: number; maxFiles?: number },
   ): Promise<VideoReachMetrics[]> {
     try {
-      const jobId = await this.ensureReachJob(userId);
-      if (!jobId) {
-        this.logger.warn('[Reach] getReachMetrics: no jobId (see ensureReachJob log)');
+      const sinceDays = opts?.sinceDays ?? 7;
+      const maxFiles = opts?.maxFiles ?? 40;
+      const reports = await this.listReportFiles(
+        userId,
+        this.REACH_REPORT_TYPE,
+        sinceDays,
+        maxFiles,
+      );
+      if (!reports.length) {
+        this.logger.warn('[Reach] no report files in window (job may still be warming up — data lags 24–48h)');
         return [];
       }
 
@@ -98,36 +236,15 @@ export class YoutubeReportingService {
         this.logger.warn('[Reach] getReachMetrics: no access token');
         return [];
       }
-      const reporting = this.getClient(accessToken);
 
-      const reports = await reporting.jobs.reports.list({
-        jobId,
-        pageSize: 10,
-      });
-      const items = reports.data.reports || [];
-      this.logger.log(`[Reach] reports.list job=${jobId} count=${items.length}`);
-      if (!items.length) {
-        this.logger.warn('[Reach] no reports yet — data can lag 24–48h after job create');
-        return [];
-      }
-
-      // Newest first (list is typically newest first; sort defensively)
-      const sorted = [...items].sort((a, b) =>
-        String(b.startTime || '').localeCompare(String(a.startTime || '')),
-      );
-      const usable = sorted.filter((r: any) => r.downloadUrl).slice(0, 7);
-      if (!usable.length) {
-        this.logger.warn('[Reach] reports have no downloadUrl yet');
-        return [];
-      }
       this.logger.log(
-        `[Reach] downloading ${usable.length} report file(s) range=${usable[usable.length - 1]?.startTime || '?'}..${usable[0]?.startTime || '?'}`,
+        `[Reach] downloading ${reports.length} report file(s) range=${reports[0]?.startTime || '?'}..${reports[reports.length - 1]?.startTime || '?'}`,
       );
 
       // Merge days: sum impressions, impression-weighted CTR
       const merged = new Map<string, { impressions: number; ctrWeighted: number }>();
       let downloaded = 0;
-      for (const report of usable) {
+      for (const report of reports) {
         try {
           const res = await fetch(report.downloadUrl, {
             headers: { Authorization: `Bearer ${accessToken}` },
@@ -165,7 +282,7 @@ export class YoutubeReportingService {
         });
       }
       this.logger.log(
-        `[Reach] merged rows=${out.length} files=${downloaded}/${usable.length} filter=${videoIds?.length ? videoIds.join(',') : 'none'} unit=${this.CTR_UNIT}`,
+        `[Reach] merged rows=${out.length} files=${downloaded}/${reports.length} filter=${videoIds?.length ? videoIds.join(',') : 'none'} unit=${this.CTR_UNIT}`,
       );
       if (out.length > 0) {
         const sample = out.slice(0, 5).map((r) => `${r.videoId}:imp=${r.impressions},ctr=${r.ctr}`).join(' | ');

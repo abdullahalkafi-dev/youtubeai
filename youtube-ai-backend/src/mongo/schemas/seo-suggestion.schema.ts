@@ -40,6 +40,10 @@ export class SeoSuggestion {
 
   @Prop({ type: Types.ObjectId, ref: 'AutomationBatch', sparse: true })
   batchId?: Types.ObjectId;
+
+  /** 3 thumbnail concepts generated alongside the title (package unity). */
+  @Prop({ type: [Object], default: [] })
+  suggestedThumbnails?: Array<{ text: string; description: string; colors: string }>;
 }
 
 export const SeoSuggestionSchema = SchemaFactory.createForClass(SeoSuggestion);

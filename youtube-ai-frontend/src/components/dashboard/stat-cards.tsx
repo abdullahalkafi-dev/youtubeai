@@ -27,22 +27,39 @@ export function StatCards() {
   ]
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {cards.map((stat) => (
-        <Card key={stat.label} className="hover:shadow-md transition-shadow">
-          <CardContent className="p-4">
-            <div className="flex items-center justify-between mb-2">
-              <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{stat.label}</span>
-              <Badge variant={stat.badgeVariant}>{stat.badge}</Badge>
-            </div>
-            <div className="flex items-baseline gap-1">
-              <p className="text-2xl font-bold text-gray-900 dark:text-white font-heading">
-                {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      ))}
+    <div className="mb-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {cards.map((stat) => (
+          <Card key={stat.label} className="hover:shadow-md transition-shadow">
+            <CardContent className="p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-gray-400 dark:text-gray-500 uppercase tracking-wider">{stat.label}</span>
+                <Badge variant={stat.badgeVariant}>{stat.badge}</Badge>
+              </div>
+              <div className="flex items-baseline gap-1">
+                <p className="text-2xl font-bold text-gray-900 dark:text-white font-heading">
+                  {typeof stat.value === 'number' ? formatNumber(stat.value) : stat.value}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+      {channel?.performanceSync?.lastRunAt && (
+        <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
+          <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+          YouTube performance data synced{' '}
+          {new Date(channel.performanceSync.lastRunAt).toLocaleString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })}
+          {' · '}CTR window: last {channel.performanceSync.windowDays || 7} days
+          {typeof channel.performanceSync.videosUpdated === 'number' &&
+            ` · ${formatNumber(channel.performanceSync.videosUpdated)} videos`}
+        </p>
+      )}
     </div>
   )
 }

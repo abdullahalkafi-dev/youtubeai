@@ -103,6 +103,37 @@ export class Video {
   @Prop()
   lastAnalyticsSync?: Date;
 
+  // Rolling-window performance (populated by PerformanceSyncService, 7-day window)
+  @Prop()
+  lifetimeCtr?: number;
+
+  @Prop()
+  lifetimeImpressions?: number;
+
+  @Prop()
+  views7d?: number;
+
+  @Prop()
+  watchMinutes7d?: number;
+
+  @Prop()
+  likes7d?: number;
+
+  @Prop()
+  comments7d?: number;
+
+  @Prop()
+  subsGained7d?: number;
+
+  @Prop()
+  subsLost7d?: number;
+
+  @Prop({ type: [Object] })
+  trafficSourceBreakdown?: Array<{ source: string; views: number; sharePct: number }>;
+
+  @Prop()
+  performanceSyncedAt?: Date;
+
   // SEO
   @Prop({ type: [String], default: [] })
   tags: string[];

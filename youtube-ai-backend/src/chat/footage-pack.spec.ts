@@ -144,6 +144,7 @@ describe('Phase 2c — loadFootagePack triggers', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
     logMock = jest.fn();
     host.logger = { warn: jest.fn(), log: logMock };
@@ -480,6 +481,7 @@ describe('buildRecentThreadText — newest messages always inside the window', (
 
 describe('prompt contracts (Phase 1c + 2d)', () => {
   const registry = new SkillRegistry(
+    {} as any,
     {} as any,
     {} as any,
     {} as any,

@@ -7,7 +7,7 @@
  *   and related series videos.
  */
 
-export const SEO_PROMPT_VERSION = 'v3.7';
+export const SEO_PROMPT_VERSION = 'v3.8';
 
 /**
  * Static system prompt — stable prefix for OpenAI caching.
@@ -26,18 +26,14 @@ CHANNEL IDENTITY:
 STRICT PRIVACY / NEGATIVE BRANDING RULE:
 - NEVER mention, write, or include "Wainsworth", "Wainsworth Hall", or "Hall" in any title, description, tags, hashtags, bio, or content under ANY circumstances. The host and channel brand is exclusively "Unique Mecca Audio" or "Unique".
 
-STRICT TITLE RULES (SPECIFIC STORY HOOK & HIGH CTR):
+STRICT TITLE RULES (DATA-DRIVEN REASONING & HIGH CTR):
 - MUST be under 65 characters so it never truncates on mobile screens (YouTube platform limit is 100 chars).
 - DO NOT prepend generic formulaic prefixes like "Brutal Truth:", "Dark Secret:", "Shocking Reality:", "Truth:". They lower CTR and look AI-generated.
 - DO NOT append generic ending suffixes like "Explained", "Breakdown", "Detailed Analysis".
-- DO NOT output generic subtitles like "What They Didn't Show You in Court" or "The Truth About..." without including the specific story hook word (e.g. Money, Sweat Equity, Death Row, Scandal, Secret, Trap).
-- Pair [Subject/Case Name] WITH the SPECIFIC UNIQUE STORY HOOK:
-  1. Specific Angle Hook: "[Subject]: The Death Penalty Money Nobody Talks About"
-  2. Scandal / Secret Hook: "[Subject]: Inside the Sweat Equity Scandal"
-  3. Curiosity Question: "Why Money Couldn't Save [Subject]"
-  4. Hidden Aspect: "The Hidden Money Trail Behind the [Subject] Trial"
-  5. Real Reason: "The Real Reason [Subject] Faced Capital Charges"
-  6. Cold Investigation: "Inside Federal Prison Reality: The [Subject] Case"
+- SYNTACTIC REASONING OVER STATIC TEMPLATES:
+  Study the PROVEN HIGH-CTR WINNERS provided in the context. Note how they place the primary subject/entity and pair it with a concrete consequence, tension point, or curiosity trigger (Money, Trap, Sentence, Betrayal, Confession).
+  Craft a title that actively borrows the successful syntax and emotional cadence of the channel's top winners, while explicitly avoiding the passive, flat structures of the LOW-CTR MISSES.
+- Pair [Subject/Case Name] WITH the SPECIFIC UNIQUE STORY HOOK (e.g. Money, Sweat Equity, Death Row, Scandal, Secret, Trap, Plea Deal).
 - FORBIDDEN CHARACTERS: NEVER include '<' or '>' angle brackets in title or description.
 
 STRICT TAG RULES (350-450 CHARS TOTAL / HIGH-INTENT PHRASES):
@@ -114,6 +110,22 @@ export function buildSeoPrompt(params: {
     views: number;
     tags?: string[];
   }>;
+  highCtrWinners?: Array<{
+    title: string;
+    views: number;
+    ctr?: number;
+    impressions?: number;
+    tags?: string[];
+  }>;
+  lowCtrMisses?: Array<{
+    title: string;
+    views: number;
+    ctr?: number;
+    impressions?: number;
+  }>;
+  channelBaselineCtr?: number;
+  dataWindowLabel?: string;
+  trafficMix?: Array<{ source: string; sharePct: number }>;
   trendingTopics?: string[];
   videoPerformance?: {
     views: number;
@@ -207,8 +219,30 @@ export function buildSeoPrompt(params: {
     userParts.push(params.channelStats);
   }
 
-  // Top performing videos
-  if (params.topPerformingVideos && params.topPerformingVideos.length > 0) {
+  // High-CTR Winning Videos (Data-Driven Pattern Learning)
+  if (params.highCtrWinners && params.highCtrWinners.length > 0) {
+    userParts.push('');
+    userParts.push(
+      `PROVEN HIGH-CTR WINNING VIDEOS (Last 30–60 days — study their title syntax, curiosity hooks, and entity placement):`,
+    );
+    if (params.dataWindowLabel) {
+      userParts.push(params.dataWindowLabel);
+    }
+    if (params.channelBaselineCtr) {
+      userParts.push(`Channel Baseline CTR Target: ${params.channelBaselineCtr.toFixed(1)}%`);
+    }
+    params.highCtrWinners.forEach((v, i) => {
+      const ctrPart =
+        typeof v.ctr === 'number' && v.ctr > 0 ? ` | CTR: ${v.ctr.toFixed(1)}%` : '';
+      const impPart =
+        v.impressions && v.impressions > 0 ? ` | ${Math.round(v.impressions).toLocaleString()} imp` : '';
+      const tagsStr =
+        v.tags && v.tags.length > 0 ? ` — tags: [${v.tags.slice(0, 4).join(', ')}]` : '';
+      userParts.push(
+        `${i + 1}. "${v.title}" — ${v.views.toLocaleString()} views${ctrPart}${impPart}${tagsStr}`,
+      );
+    });
+  } else if (params.topPerformingVideos && params.topPerformingVideos.length > 0) {
     userParts.push('');
     userParts.push(
       `TOP PERFORMING VIDEOS (last 30 days — study successful title patterns):`,
@@ -222,6 +256,37 @@ export function buildSeoPrompt(params: {
         `${i + 1}. "${v.title}" — ${v.views.toLocaleString()} views${tagsStr}`,
       );
     });
+  }
+
+  // Low-CTR Misses (Anti-Patterns to Avoid)
+  if (params.lowCtrMisses && params.lowCtrMisses.length > 0) {
+    userParts.push('');
+    userParts.push(
+      `LOW-CTR TITLES TO AVOID (Underperformed channel baseline — DO NOT repeat these passive syntax patterns or weak angles):`,
+    );
+    params.lowCtrMisses.forEach((v, i) => {
+      const ctrPart =
+        typeof v.ctr === 'number' && v.ctr > 0 ? ` | CTR: ${v.ctr.toFixed(1)}%` : '';
+      const impPart =
+        v.impressions && v.impressions > 0 ? ` | ${Math.round(v.impressions).toLocaleString()} imp` : '';
+      userParts.push(
+        `${i + 1}. "${v.title}" — ${v.views.toLocaleString()} views${ctrPart}${impPart}`,
+      );
+    });
+    userParts.push(
+      `CRITICAL INSTRUCTION: Analyze why the top winners converted clicks (e.g. active verbs, concrete high-stakes consequences, curiosity gap) and why the misses failed (e.g. passive reporting, generic labels). Directly mirror the winning formula and strictly avoid the phrasing in the misses.`,
+    );
+  }
+
+  // Traffic mix — decides whether the title wins the home feed or search
+  if (params.trafficMix && params.trafficMix.length > 0) {
+    userParts.push('');
+    userParts.push(
+      `CHANNEL TRAFFIC MIX (last 7 days): ${params.trafficMix.map((t) => `${t.source} ${t.sharePct}%`).join(' · ')}`,
+    );
+    userParts.push(
+      'TRAFFIC IMPLICATION: If Browse/Home dominates, the title+thumbnail must win the home feed (emotion and stakes readable at a glance). If Search dominates, front-load the searchable entity (person/case names) at the START of the title. If Suggested dominates, keep an open curiosity loop that makes the click irresistible next to the neighbouring video.',
+    );
   }
 
   // Trending topics

@@ -263,11 +263,39 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
       )}
 
       {/* Analytics Metric Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
         <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
           <CardContent className="p-4">
             <span className="text-xs font-medium text-gray-400">Views</span>
             <p className="text-xl font-bold text-gray-900 dark:text-white mt-1 font-heading">{formatNumber(video.viewCount)}</p>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
+          <CardContent className="p-4">
+            <span className="text-xs font-medium text-gray-400">CTR (7d)</span>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1 font-heading">
+              {video.performanceSyncedAt && video.ctr != null && (video.impressions ?? 0) >= 100
+                ? `${video.ctr.toFixed(1)}%`
+                : '—'}
+            </p>
+            <span className="text-[10px] text-gray-400">
+              {video.performanceSyncedAt && (video.impressions ?? 0) > 0 && (video.impressions ?? 0) < 100
+                ? 'too little data'
+                : 'thumbnail clicks / impressions'}
+            </span>
+          </CardContent>
+        </Card>
+
+        <Card className="bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800">
+          <CardContent className="p-4">
+            <span className="text-xs font-medium text-gray-400">Impressions (7d)</span>
+            <p className="text-xl font-bold text-gray-900 dark:text-white mt-1 font-heading">
+              {video.performanceSyncedAt && video.impressions != null
+                ? formatNumber(video.impressions)
+                : '—'}
+            </p>
+            <span className="text-[10px] text-gray-400">times your thumbnail showed</span>
           </CardContent>
         </Card>
 
@@ -298,6 +326,20 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
           </CardContent>
         </Card>
       </div>
+
+      {/* Live sync proof — the system is connected to YouTube */}
+      {(video.performanceSyncedAt || video.lastAnalyticsSync) && (
+        <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
+          <span className="inline-flex items-center gap-1.5 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-medium">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+            Live-synced with YouTube
+          </span>
+          {video.performanceSyncedAt && (
+            <span>CTR/impressions: {formatDate(video.performanceSyncedAt)}</span>
+          )}
+          {video.lastAnalyticsSync && <span>· watch/retention: {formatDate(video.lastAnalyticsSync)}</span>}
+        </div>
+      )}
 
       {/* Visual Timeline & SEO View Velocity */}
       <VideoAnalyticsTimeline videoId={video.id || (video as any)._id || id} publishedAt={video.publishedAt} />
@@ -437,6 +479,32 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                       ))}
                     </div>
                   </div>
+                  {(video.suggestedSeo.suggestedThumbnails?.length ?? 0) > 0 && (
+                    <div>
+                      <label className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
+                        Thumbnail Concepts (matches this title — 75% of the click)
+                      </label>
+                      <div className="space-y-2 mt-1.5">
+                        {video.suggestedSeo.suggestedThumbnails!.map((t, i) => (
+                          <div key={i} className="bg-white dark:bg-gray-800/80 border border-emerald-100 dark:border-emerald-500/20 rounded-xl p-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-xs font-bold text-gray-900 dark:text-white">“{t.text}”</span>
+                              <button
+                                onClick={() => handleCopyField(`${t.text} | ${t.description}`, `AI Thumbnail Concept ${i + 1}`)}
+                                className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 font-medium flex items-center gap-1 transition shrink-0"
+                                title="Copy concept"
+                              >
+                                <Copy className="w-3 h-3" />
+                                Copy
+                              </button>
+                            </div>
+                            <p className="text-[11px] text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">{t.description}</p>
+                            {t.colors && <p className="text-[10px] text-gray-400 mt-1">Palette: {t.colors}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <p className="text-xs text-gray-400 italic">No suggestions yet</p>

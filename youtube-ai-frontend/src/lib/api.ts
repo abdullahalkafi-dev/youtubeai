@@ -225,6 +225,19 @@ class ApiClient {
     )
   }
 
+  /** Daily performance sync: refresh CTR/impressions/traffic/audience from YouTube. */
+  async syncPerformance(id: string) {
+    return this.post<{
+      ok: boolean
+      videosUpdated: number
+      clearedStale: number
+      snapshotRows: number
+      filesUsed: number
+      durationMs: number
+      errors: string[]
+    }>(`/api/channels/${id}/performance-sync`)
+  }
+
   async updateChannelSeoSettings(id: string, data: { dailyUpdateCap?: number; cronInterval?: number; autoPauseAtLimit?: boolean }) {
     return this.patch<Channel>(`/api/channels/${id}/seo-settings`, data)
   }

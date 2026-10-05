@@ -15,6 +15,7 @@ export default function VideosPage() {
   const channelId = useAppSelector(s => s.auth.activeChannelId)
   const { loading, pagination, filters } = useAppSelector(s => s.videos)
   const [syncing, setSyncing] = useState(false)
+  const [perfSyncing, setPerfSyncing] = useState(false)
   const initialFetchDone = useRef(false)
 
   // Initial fetch on mount only
@@ -54,6 +55,27 @@ export default function VideosPage() {
     }
   }
 
+  const handlePerfSync = async () => {
+    if (!channelId || perfSyncing) return
+    setPerfSyncing(true)
+    try {
+      toast.info('Syncing performance data from YouTube...')
+      const r = await api.syncPerformance(channelId)
+      if (r.errors && r.errors.length > 0) {
+        toast.warning(`Performance synced with warnings: ${r.errors[0]}`)
+      } else {
+        toast.success(
+          `Performance synced! ${r.videosUpdated} videos updated · ${r.snapshotRows} daily rows · ${r.filesUsed} report files (${Math.round(r.durationMs / 1000)}s)`,
+        )
+      }
+      dispatch(fetchVideos({ channelId, page: 1, limit: pagination.limit, search: filters.search, status: filters.status, sort: filters.sort }))
+    } catch (err: unknown) {
+      showApiErrorToast(err, 'Performance Sync Failed')
+    } finally {
+      setPerfSyncing(false)
+    }
+  }
+
   return (
     <div className="p-4 lg:p-6 2xl:p-8 max-w-[1600px] mx-auto">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-6">
@@ -86,6 +108,15 @@ export default function VideosPage() {
             <option value="views">Most Views</option>
             <option value="likes">Most Likes</option>
           </select>
+          <button
+            onClick={handlePerfSync}
+            disabled={perfSyncing}
+            className="bg-emerald-600 text-white font-semibold text-xs px-4 py-2 rounded-lg hover:bg-emerald-700 transition shadow-sm shadow-emerald-500/20 flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Refresh CTR, impressions, traffic mix and audience from YouTube"
+          >
+            {perfSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+            {perfSyncing ? 'Syncing CTR...' : 'Sync Performance'}
+          </button>
           <button
             onClick={handleSync}
             disabled={syncing}

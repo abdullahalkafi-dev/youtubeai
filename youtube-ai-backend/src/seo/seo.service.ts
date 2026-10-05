@@ -20,6 +20,7 @@ import { OpenAIService } from '../openai/openai.service';
 import { YouTubeService } from '../youtube/youtube.service';
 import { YouTubeSuggestionsService } from '../youtube/youtube-suggestions.service';
 import { YouTubeTranscriptService } from '../youtube/youtube-transcript.service';
+import { SeoDataService } from '../youtube/seo-data.service';
 import { QuotaService, QuotaExceededException } from '../quota/quota.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { AutomationService } from '../automation/automation.service';
@@ -45,6 +46,7 @@ export class SeoService {
     private readonly transcriptService: YouTubeTranscriptService,
     private readonly quotaService: QuotaService,
     private readonly chromaService: ChromaService,
+    private readonly seoDataService: SeoDataService,
     @Inject(forwardRef(() => AutomationService))
     @Optional()
     private readonly automationService?: AutomationService,
@@ -78,15 +80,17 @@ export class SeoService {
     await this.videoModel.findByIdAndUpdate(dto.videoId, { $set: { seoStatus: 'processing' } });
 
     try {
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
-      const topVideos = await this.videoModel.find({
-        channelId: video.channelId,
-        publishedAt: { $gte: thirtyDaysAgo },
-        _id: { $ne: video._id },
-        deletedFromYoutube: { $ne: true },
-      }).sort({ viewCount: -1 }).limit(8).select('title viewCount tags').lean();
+      // Data-driven winners / misses / baseline / traffic mix — same helper the
+      // chat SEO skill and the daily batch use, so every surface agrees.
+      const seoPatterns = await this.seoDataService.getSeoPatternContext(
+        video.channelId,
+        video._id,
+      );
+      const { highCtrWinners, lowCtrMisses, channelBaselineCtr } = seoPatterns;
+
+      const topVideos = highCtrWinners;
 
       const channelStats = channel
         ? buildChannelContext({ name: channel.name, handle: channel.handle, subscriberCount: channel.subscriberCount, totalVideos: channel.totalVideos, totalViews: channel.totalViews, totalWatchHours: channel.totalWatchHours, estimatedRevenue: channel.estimatedRevenue })
@@ -308,7 +312,12 @@ export class SeoService {
         showType: video.showType || undefined,
         transcriptAnchors,
         channelStats: (channelStats || '') + approvedPatterns,
-        topPerformingVideos: topVideos.map(v => ({ title: v.title, views: v.viewCount, tags: v.tags })),
+        topPerformingVideos: topVideos.map(v => ({ title: v.title, views: v.views, tags: v.tags })),
+        highCtrWinners,
+        lowCtrMisses,
+        channelBaselineCtr,
+        dataWindowLabel: seoPatterns.windowLabel,
+        trafficMix: seoPatterns.trafficMix,
         trendingTopics: trendingTopics.map(t => t.title),
         videoPerformance,
         liveSearchSuggestions,
@@ -326,6 +335,28 @@ export class SeoService {
       const { usage: _usage, ...seoData } = result;
       seoData.title = cleanTitle;
 
+      // Package unity: ship 3 thumbnail concepts matching THIS title so the
+      // creator publishes a cohesive title+thumbnail package (75/25 rule).
+      let suggestedThumbnails: Array<{
+        text: string;
+        description: string;
+        colors: string;
+      }> = [];
+      try {
+        const thumbs = await this.openaiService.generateThumbnailConcepts({
+          videoTitle: cleanInputTitle,
+          showType: video.showType || undefined,
+        });
+        suggestedThumbnails = thumbs.thumbnails || [];
+      } catch (thumbErr: any) {
+        this.logger.warn(
+          `Thumbnail concepts skipped for ${dto.videoId}: ${thumbErr?.message || thumbErr}`,
+        );
+      }
+      if (suggestedThumbnails.length) {
+        (seoData as any).suggestedThumbnails = suggestedThumbnails;
+      }
+
       // Mark any existing pending suggestions for this video as superseded only after generation succeeds
       await this.seoSuggestionModel.updateMany(
         { videoId: video._id, status: 'pending' },
@@ -342,6 +373,7 @@ export class SeoService {
         showType: video.showType || undefined,
         tone: 'dark_direct',
         source: validSource,
+        suggestedThumbnails,
       });
 
       await this.videoModel.findByIdAndUpdate(dto.videoId, {

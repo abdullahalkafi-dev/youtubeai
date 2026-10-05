@@ -80,4 +80,11 @@ export class ChannelsController {
   syncChannel(@Param('id') id: string, @CurrentUser('id') userId: string) {
     return this.channelsService.syncChannel(id, userId);
   }
+
+  /** Manual daily-performance sync (CTR/impressions/traffic/audience refresh). */
+  @UseGuards(ChannelOwnershipGuard)
+  @Post(':id/performance-sync')
+  performanceSync(@Param('id') id: string, @CurrentUser('id') userId: string) {
+    return this.channelsService.syncPerformance(id, userId);
+  }
 }

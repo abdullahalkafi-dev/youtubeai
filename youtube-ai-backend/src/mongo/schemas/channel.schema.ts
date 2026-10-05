@@ -83,6 +83,28 @@ export class Channel {
 
   @Prop()
   lastBatchHeartbeatAt?: Date;
+
+  // Daily performance sync (PerformanceSyncService) — proves the system is live-synced with YouTube
+  @Prop({ type: Object })
+  audienceProfile?: {
+    ageGroups?: Array<{ label: string; sharePct: number }>;
+    genderSplit?: Array<{ label: string; sharePct: number }>;
+    windowDays?: number;
+    syncedAt?: Date;
+  };
+
+  @Prop({ type: Object })
+  performanceSync?: {
+    lastRunAt?: Date;
+    windowDays?: number;
+    videosUpdated?: number;
+    snapshotRows?: number;
+    filesUsed?: number;
+    durationMs?: number;
+    errors?: string[];
+    nextRunAt?: Date;
+    source?: string;
+  };
 }
 
 export const ChannelSchema = SchemaFactory.createForClass(Channel);

@@ -189,6 +189,22 @@ export class OpenAIService {
       views: number;
       tags?: string[];
     }>;
+    highCtrWinners?: Array<{
+      title: string;
+      views: number;
+      ctr?: number;
+      impressions?: number;
+      tags?: string[];
+    }>;
+    lowCtrMisses?: Array<{
+      title: string;
+      views: number;
+      ctr?: number;
+      impressions?: number;
+    }>;
+    channelBaselineCtr?: number;
+    dataWindowLabel?: string;
+    trafficMix?: Array<{ source: string; sharePct: number }>;
     trendingTopics?: string[];
     videoPerformance?: {
       views: number;
@@ -224,6 +240,11 @@ export class OpenAIService {
       currentDate: new Date().toISOString().split('T')[0],
       channelStats: params.channelStats,
       topPerformingVideos: params.topPerformingVideos,
+      highCtrWinners: params.highCtrWinners,
+      lowCtrMisses: params.lowCtrMisses,
+      channelBaselineCtr: params.channelBaselineCtr,
+      dataWindowLabel: params.dataWindowLabel,
+      trafficMix: params.trafficMix,
       trendingTopics: params.trendingTopics,
       videoPerformance: params.videoPerformance,
       liveSearchSuggestions: params.liveSearchSuggestions,
@@ -245,7 +266,7 @@ export class OpenAIService {
       ],
       response_format: { type: 'json_object' as const },
       temperature: 0.7,
-      max_completion_tokens: 5000,
+      max_completion_tokens: 6000,
     });
 
     const response = await retryWithBackoff(
@@ -372,14 +393,14 @@ export class OpenAIService {
     dynamicContext?: string;
     temperature?: number;
     maxCompletionTokens?: number;
+    imageUrl?: string;
+    /** Additional reference images (e.g. highest-CTR sibling thumbnail). */
+    imageUrls?: string[];
   }): Promise<{
     content: string;
     usage?: TokenUsage;
   }> {
-    let messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>;
+    let messages: any[];
 
     if (params.systemPromptOverride) {
       // Use the provided system prompt (from skills)
@@ -395,7 +416,23 @@ export class OpenAIService {
       const fullUserContent = params.dynamicContext
         ? `${params.dynamicContext}\n\n${userContent}`
         : userContent;
-      messages.push({ role: 'user', content: fullUserContent });
+      const imageParts = [
+        ...(params.imageUrl
+          ? [{ type: 'image_url', image_url: { url: params.imageUrl } }]
+          : []),
+        ...(params.imageUrls || []).map((url) => ({
+          type: 'image_url',
+          image_url: { url },
+        })),
+      ];
+      if (imageParts.length) {
+        messages.push({
+          role: 'user',
+          content: [{ type: 'text', text: fullUserContent }, ...imageParts],
+        });
+      } else {
+        messages.push({ role: 'user', content: fullUserContent });
+      }
     } else {
       const channelStats = params.channel
         ? buildCompactChannelContext(params.channel)
@@ -768,11 +805,11 @@ export class OpenAIService {
     dynamicContext?: string;
     temperature?: number;
     maxCompletionTokens?: number;
+    imageUrl?: string;
+    /** Additional reference images (e.g. highest-CTR sibling thumbnail). */
+    imageUrls?: string[];
   }): AsyncGenerator<{ chunk: string; usage?: TokenUsage }> {
-    let messages: Array<{
-      role: 'system' | 'user' | 'assistant';
-      content: string;
-    }>;
+    let messages: any[];
 
     if (params.systemPromptOverride) {
       messages = [{ role: 'system', content: params.systemPromptOverride }];
@@ -787,7 +824,23 @@ export class OpenAIService {
       const fullUserContent = params.dynamicContext
         ? `${params.dynamicContext}\n\n${userContent}`
         : userContent;
-      messages.push({ role: 'user', content: fullUserContent });
+      const imageParts = [
+        ...(params.imageUrl
+          ? [{ type: 'image_url', image_url: { url: params.imageUrl } }]
+          : []),
+        ...(params.imageUrls || []).map((url) => ({
+          type: 'image_url',
+          image_url: { url },
+        })),
+      ];
+      if (imageParts.length) {
+        messages.push({
+          role: 'user',
+          content: [{ type: 'text', text: fullUserContent }, ...imageParts],
+        });
+      } else {
+        messages.push({ role: 'user', content: fullUserContent });
+      }
     } else {
       const channelStats = params.channel
         ? buildCompactChannelContext(params.channel)

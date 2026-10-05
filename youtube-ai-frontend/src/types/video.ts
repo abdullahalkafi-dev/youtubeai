@@ -7,6 +7,8 @@ export interface SeoData {
   description: string
   tags: string[]
   hashtags: string[]
+  /** 3 thumbnail concepts generated with the title (package unity) */
+  suggestedThumbnails?: Array<{ text: string; description: string; colors: string }>
 }
 
 export interface VideoVersion {
@@ -64,6 +66,12 @@ export interface Video {
   // Analytics
   lastAnalyticsSync: string | null
   impressions: number | null
+  /** Daily performance sync (CTR window: last 7 days) */
+  performanceSyncedAt?: string | null
+  lifetimeCtr?: number | null
+  lifetimeImpressions?: number | null
+  views7d?: number | null
+  trafficSourceBreakdown?: Array<{ source: string; views: number; sharePct: number }> | null
   // Drift detection — what YouTube last reported
   youtubeTitle: string | null
   youtubeDescription: string | null

@@ -323,6 +323,8 @@ export class ChatService {
     // On-demand performance lookup (Analytics + local catalog) when asked about views / this video
     let performanceLookup = '';
     let analysisMode: 'autopsy' | 'diagnosis' | 'public' | undefined;
+    let lookupThumbnailUrl: string | undefined;
+    let lookupReferenceUrl: string | undefined;
     try {
       const q = cleanUserPrompt || dto.content;
       const uid = channel?.userId?.toString();
@@ -347,6 +349,9 @@ export class ChatService {
             updatedThread.videoId || undefined,
           );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+        if (lookup?.thumbnailUrl) lookupThumbnailUrl = lookup.thumbnailUrl;
+        if (lookup?.referenceThumbnailUrl)
+          lookupReferenceUrl = lookup.referenceThumbnailUrl;
         if (lookup?.mode === 'public') analysisMode = 'public';
         else if (PerformanceContextService.isVideoAutopsyQuery(q))
           analysisMode = 'autopsy';
@@ -474,9 +479,15 @@ export class ChatService {
       aiResponse = { content: searchResult.content, usage: searchResult.usage };
       sources = searchResult.sources;
     } else {
-      aiResponse = await this.openaiService.chat({
-        messages: [{ role: 'user', content: dto.content }],
-        channel: channel || undefined,
+      const autopsyImages =
+        analysisMode === 'autopsy'
+          ? ([lookupThumbnailUrl, lookupReferenceUrl].filter(
+              Boolean,
+            ) as string[])
+          : [];
+      const chatParams = {
+        messages: [{ role: 'user' as const, content: dto.content }],
+        channel: (channel || undefined) as any,
         conversationHistory: contextMessages.slice(0, -1),
         threadId: threadId.toString(),
         systemPromptOverride: systemPrompt,
@@ -484,7 +495,21 @@ export class ChatService {
         temperature: skill.getTemperature?.() ?? 0.7,
         // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
         maxCompletionTokens: 12000,
-      });
+      };
+      try {
+        aiResponse = await this.openaiService.chat({
+          ...chatParams,
+          imageUrl: autopsyImages[0],
+          imageUrls: autopsyImages.slice(1),
+        });
+      } catch (err: any) {
+        if (!autopsyImages.length) throw err;
+        // Vision payload rejected (bad URL / model) → never lose the answer: retry text-only
+        this.logger.warn(
+          `Chat vision failed (${err?.message || err}) — retrying without images`,
+        );
+        aiResponse = await this.openaiService.chat(chatParams);
+      }
     }
 
     // Phase 3: backend-rendered clip list — server-appended so the model cannot
@@ -639,6 +664,8 @@ export class ChatService {
     // On-demand performance lookup for stream path
     let performanceLookup = '';
     let analysisMode: 'autopsy' | 'diagnosis' | 'public' | undefined;
+    let lookupThumbnailUrl: string | undefined;
+    let lookupReferenceUrl: string | undefined;
     try {
       const q = dto.content;
       const uid = channel?.userId?.toString();
@@ -665,6 +692,9 @@ export class ChatService {
             updatedThread.videoId || undefined,
           );
         if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+        if (lookup?.thumbnailUrl) lookupThumbnailUrl = lookup.thumbnailUrl;
+        if (lookup?.referenceThumbnailUrl)
+          lookupReferenceUrl = lookup.referenceThumbnailUrl;
         if (lookup?.mode === 'public') analysisMode = 'public';
         else if (PerformanceContextService.isVideoAutopsyQuery(q))
           analysisMode = 'autopsy';
@@ -811,33 +841,63 @@ export class ChatService {
           return;
         }
       } else {
-        try {
-          for await (const chunk of this.openaiService.chatStream({
-            messages: [{ role: 'user', content: dto.content }],
-            channel: channel || undefined,
-            conversationHistory,
-            threadId: threadId.toString(),
-            systemPromptOverride: systemPrompt,
-            dynamicContext,
-            temperature: skill.getTemperature?.() ?? 0.7,
-            // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
-            maxCompletionTokens: 12000,
-          })) {
-            if (chunk.chunk) {
-              fullContent += chunk.chunk;
-              yield { type: 'chunk', content: chunk.chunk };
+        const autopsyImages =
+          analysisMode === 'autopsy'
+            ? ([lookupThumbnailUrl, lookupReferenceUrl].filter(
+                Boolean,
+              ) as string[])
+            : [];
+        const streamParams = {
+          messages: [{ role: 'user' as const, content: dto.content }],
+          channel: (channel || undefined) as any,
+          conversationHistory,
+          threadId: threadId.toString(),
+          systemPromptOverride: systemPrompt,
+          dynamicContext,
+          temperature: skill.getTemperature?.() ?? 0.7,
+          // 12,000 cap (probed OK on gpt-5.6-terra) — ceiling, not a charge; fixes truncated packages
+          maxCompletionTokens: 12000,
+        };
+        // Attempt 1 with vision (current + reference thumbnail); on vision
+        // failure retry text-only so the answer is never lost to a bad image.
+        const attempts = autopsyImages.length ? [true, false] : [true];
+        for (const withImages of attempts) {
+          const checkpoint = fullContent.length;
+          try {
+            for await (const chunk of this.openaiService.chatStream({
+              ...streamParams,
+              ...(withImages && autopsyImages.length
+                ? {
+                    imageUrl: autopsyImages[0],
+                    imageUrls: autopsyImages.slice(1),
+                  }
+                : {}),
+            })) {
+              if (chunk.chunk) {
+                fullContent += chunk.chunk;
+                yield { type: 'chunk', content: chunk.chunk };
+              }
+              if (chunk.usage) finalUsage = chunk.usage;
             }
-            if (chunk.usage) finalUsage = chunk.usage;
+            break; // streamed cleanly
+          } catch (error: any) {
+            // Drop any partial text from the failed attempt before retrying
+            fullContent = fullContent.slice(0, checkpoint);
+            if (withImages && autopsyImages.length) {
+              this.logger.warn(
+                `Stream vision failed (${error?.message || error}) — retrying without images`,
+              );
+              continue;
+            }
+            this.logger.warn(
+              `Stream error for thread ${threadId}: ${error?.message || error}`,
+            );
+            yield {
+              type: 'error',
+              content: 'Stream interrupted. Please try again.',
+            };
+            return;
           }
-        } catch (error) {
-          this.logger.warn(
-            `Stream error for thread ${threadId}: ${error.message}`,
-          );
-          yield {
-            type: 'error',
-            content: 'Stream interrupted. Please try again.',
-          };
-          return;
         }
       }
 

@@ -14,6 +14,7 @@ import { SyncLog, SyncLogDocument } from '../mongo/schemas/sync-log.schema';
 import { SeoVersion, SeoVersionDocument } from '../mongo/schemas/seo-version.schema';
 import { YouTubeService } from '../youtube/youtube.service';
 import { YoutubeAnalyticsService } from '../youtube/youtube-analytics.service';
+import { PerformanceSyncService } from '../youtube/performance-sync.service';
 import { QuotaService } from '../quota/quota.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { AutoReplyPolicyService } from '../videos/auto-reply-policy.service';
@@ -48,7 +49,13 @@ export class ChannelsService {
     private readonly quotaService: QuotaService,
     private readonly chromaService: ChromaService,
     private readonly autoReplyPolicy: AutoReplyPolicyService,
+    private readonly performanceSyncService: PerformanceSyncService,
   ) {}
+
+  /** Manual trigger for the daily performance sync (CTR/impressions/traffic/audience). */
+  async syncPerformance(channelId: string, userId: string) {
+    return this.performanceSyncService.syncChannelNow(channelId, userId);
+  }
 
   async findAllByUser(userId: string): Promise<any[]> {
     const user = await this.userModel.findById(userId).select('role').lean();

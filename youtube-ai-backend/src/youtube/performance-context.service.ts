@@ -26,6 +26,10 @@ export interface PerformanceBundleText {
   };
   /** When set, chat should run Autopsy + Repackage Kit format. */
   mode?: 'autopsy' | 'public';
+  /** Attached thumbnail image URL for vision inspection */
+  thumbnailUrl?: string;
+  /** Highest-CTR sibling thumbnail — attached as a positive vision reference */
+  referenceThumbnailUrl?: string;
 }
 
 /**
@@ -478,7 +482,7 @@ export class PerformanceContextService {
     const candidates = await this.videoModel
       .find({ channelId: cId, deletedFromYoutube: { $ne: true } })
       .select(
-        'title youtubeId publishedAt viewCount description avgWatchTime retentionPercent',
+        'title youtubeId publishedAt viewCount description avgWatchTime retentionPercent seoStatus thumbnailUrl',
       )
       .sort({ publishedAt: -1 })
       .limit(200)
@@ -735,6 +739,7 @@ export class PerformanceContextService {
       }
 
       // Packaging baseline + peer set (for autopsy / repackage)
+      let referenceThumbnailUrl: string | undefined;
       try {
         const { startDate: baseStart, endDate: baseEnd } = this.dateWindow(28);
         const [baseline, packagingRows, reachRows] = await Promise.all([
@@ -891,6 +896,22 @@ export class PerformanceContextService {
             )
             .catch(() => {});
         }
+
+        // Positive vision reference: the sibling with the highest measured CTR
+        const bestPeer = packagingRows
+          .filter(
+            (r) =>
+              r.videoId !== video.youtubeId &&
+              typeof r.ctr === 'number' &&
+              r.impressions >= 100,
+          )
+          .sort((a, b) => b.ctr - a.ctr)[0];
+        if (bestPeer) {
+          referenceThumbnailUrl = `https://i.ytimg.com/vi/${bestPeer.videoId}/hqdefault.jpg`;
+          lines.push(
+            `REFERENCE WINNER (highest-CTR sibling, CTR ${bestPeer.ctr.toFixed(1)}%): "${bestPeer.title}" — thumbnail: ${referenceThumbnailUrl}`,
+          );
+        }
       } catch (pkgErr: any) {
         this.logger.warn(
           `Packaging context skipped: ${pkgErr?.message || pkgErr}`,
@@ -914,11 +935,37 @@ export class PerformanceContextService {
       lines.push(
         'Use these numbers to answer “what is this video getting” — do not say you cannot see analytics.',
       );
-      lines.push(
-        'If asked why this video failed or for a repackage, output the VIDEO AUTOPSY + REPACKAGE KIT format (metrics first, paste-ready SEO + thumbs). Never ask the user for Studio screenshots.',
-      );
+      const thumbnailUrl =
+        video.thumbnailUrl ||
+        (video.youtubeId
+          ? `https://i.ytimg.com/vi/${video.youtubeId}/hqdefault.jpg`
+          : undefined);
 
-      return { text: lines.join('\n'), ok: true, mode: 'autopsy' };
+      if (video.seoStatus === 'approved') {
+        lines.push(
+          'AI SEO PROVENANCE: This video’s current metadata was previously optimized and approved by the AI system. Treat the autopsy as an iterative audience A/B performance update, NOT as a critique of the creator.',
+        );
+      }
+      if (thumbnailUrl) {
+        lines.push(`THUMBNAIL ATTACHED FOR VISION INSPECTION: ${thumbnailUrl}`);
+        lines.push(
+          'Inspect the attached thumbnail image directly: evaluate visual contrast, mobile text readability (< 4 words), and facial emotion stakes.',
+        );
+      }
+      const lastRunAt = (channel as any)?.performanceSync?.lastRunAt;
+      if (lastRunAt) {
+        lines.push(
+          `DATA FRESHNESS: all metrics synced from YouTube at ${new Date(lastRunAt).toISOString()} by the daily performance sync (CTR window: last 7 days). Tell the creator the data is live-synced, not a guess.`,
+        );
+      }
+
+      return {
+        text: lines.join('\n'),
+        ok: true,
+        mode: 'autopsy',
+        thumbnailUrl,
+        referenceThumbnailUrl,
+      };
     } catch (err: any) {
       this.logger.warn(
         `Video performance lookup failed: ${err?.message || err}`,

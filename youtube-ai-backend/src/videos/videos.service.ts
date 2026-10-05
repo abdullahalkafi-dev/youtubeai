@@ -213,8 +213,12 @@ export class VideosService {
       retentionPercent: analytics.averageViewPercentage,
       estimatedRevenue: analytics.estimatedRevenue,
       lastAnalyticsSync: new Date(),
-      ctr, // null if no reach data in window, avoiding false 0s
     };
+    // Never clobber daily-synced CTR with null when this particular fetch found
+    // no reach row — PerformanceSyncService owns the fresh ctr/impressions fields.
+    if (ctr !== null) {
+      updateFields.ctr = ctr;
+    }
     if (impressions !== null) {
       updateFields.impressions = impressions;
     }

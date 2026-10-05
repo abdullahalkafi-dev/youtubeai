@@ -19,6 +19,7 @@ import {
 import { ChromaService } from '../../chroma/chroma.service';
 import { YoutubeAnalyticsService } from '../../youtube/youtube-analytics.service';
 import { PerformanceContextService } from '../../youtube/performance-context.service';
+import { SeoDataService } from '../../youtube/seo-data.service';
 import { CompetitorsService } from '../../competitors/competitors.service';
 import { buildCompactChannelContext } from '../../openai/prompts/context';
 import {
@@ -55,6 +56,7 @@ export class SkillRegistry {
     private readonly analyticsService: YoutubeAnalyticsService,
     private readonly performanceContext: PerformanceContextService,
     private readonly competitorsService: CompetitorsService,
+    private readonly seoDataService: SeoDataService,
   ) {
     this.registerDefaults();
   }
@@ -838,13 +840,26 @@ ${scriptFormat}`,
             /* RAG optional */
           }
         }
-        const topVideos = await this.videoModel
-          .find({ channelId: this.oid(channelId) })
-          .sort({ viewCount: -1 })
-          .limit(8)
-          .select('title viewCount tags')
-          .lean();
-        base.topVideos = topVideos;
+        // Data-driven winners / misses / baseline / traffic mix — the SAME
+        // helper the details-page SEO and daily batch use (7d CTR sync).
+        let patternsLoaded = false;
+        try {
+          base.seoPatterns = await this.seoDataService.getSeoPatternContext(
+            this.oid(channelId),
+          );
+          patternsLoaded = base.seoPatterns.highCtrWinners.length > 0;
+        } catch {
+          /* patterns optional — fall back below */
+        }
+        if (!patternsLoaded) {
+          const topVideos = await this.videoModel
+            .find({ channelId: this.oid(channelId) })
+            .sort({ viewCount: -1 })
+            .limit(8)
+            .select('title viewCount tags')
+            .lean();
+          base.topVideos = topVideos;
+        }
         return base;
       },
       getFormatInstructions:
@@ -1616,6 +1631,37 @@ ${imageFormat}`,
       parts.push(
         `VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map((v) => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`,
       );
+    }
+    if (context.seoPatterns && context.seoPatterns.highCtrWinners.length > 0) {
+      const p = context.seoPatterns;
+      const baselineLabel = p.channelBaselineCtr
+        ? ` · channel baseline ${p.channelBaselineCtr.toFixed(1)}%`
+        : '';
+      parts.push(
+        `PROVEN HIGH-CTR WINNING VIDEOS (${p.windowLabel}${baselineLabel} — study their title syntax, entity placement, and stakes):\n${p.highCtrWinners
+          .map(
+            (v, i) =>
+              `${i + 1}. "${v.title}" — ${v.views.toLocaleString()} views${
+                typeof v.ctr === 'number' ? ` | CTR ${v.ctr.toFixed(1)}%` : ''
+              }${v.impressions ? ` | ${Math.round(v.impressions).toLocaleString()} imp` : ''}`,
+          )
+          .join('\n')}`,
+      );
+      if (p.lowCtrMisses.length > 0) {
+        parts.push(
+          `LOW-CTR TITLES TO AVOID (below baseline — this audience ignores these structures):\n${p.lowCtrMisses
+            .map(
+              (v) =>
+                `- "${v.title}" — CTR ${v.ctr?.toFixed(1)}% on ${Math.round(v.impressions || 0).toLocaleString()} imp`,
+            )
+            .join('\n')}\nINSTRUCTION: Mirror the winners' syntax (active verbs, concrete high-stakes consequences, curiosity gap) and strictly avoid the phrasing in the misses.`,
+        );
+      }
+      if (p.trafficMix && p.trafficMix.length > 0) {
+        parts.push(
+          `CHANNEL TRAFFIC MIX (7d): ${p.trafficMix.map((t) => `${t.source} ${t.sharePct}%`).join(' · ')} — Browse-heavy means the title+thumbnail must win the home feed; Search-heavy means front-load the searchable entity name.`,
+        );
+      }
     }
     if (context.topVideos && context.topVideos.length > 0) {
       parts.push(

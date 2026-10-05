@@ -3,6 +3,30 @@ export interface SkillContext {
   videoMetadata?: any;
   trendingTopics?: any[];
   topVideos?: any[];
+  /**
+   * Data-driven SEO patterns from the daily CTR sync (winners / misses /
+   * baseline / traffic mix) — same source the details-page SEO uses.
+   */
+  seoPatterns?: {
+    highCtrWinners: Array<{
+      title: string;
+      description?: string;
+      views: number;
+      ctr?: number;
+      impressions?: number;
+      tags?: string[];
+    }>;
+    lowCtrMisses: Array<{
+      title: string;
+      views: number;
+      ctr?: number;
+      impressions?: number;
+    }>;
+    channelBaselineCtr?: number;
+    measuredCount: number;
+    windowLabel: string;
+    trafficMix?: Array<{ source: string; sharePct: number }>;
+  };
   approvedSeoPatterns?: string;
   rejectedSeoPatterns?: string;
   recentActivity?: string;
