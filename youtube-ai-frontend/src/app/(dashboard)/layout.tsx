@@ -45,14 +45,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    <div className="flex h-screen w-full max-w-full overflow-hidden">
       <Sidebar />
       <MobileSidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 max-w-full overflow-hidden">
         <Topbar />
         <main
           className={cn(
-            'flex-1 bg-gray-50 dark:bg-gray-950',
+            'flex-1 bg-gray-50 dark:bg-gray-950 min-w-0 max-w-full',
             isChatRoute
               ? 'overflow-hidden flex flex-col min-h-0 pb-14 lg:pb-0'
               : 'overflow-y-auto pb-16 lg:pb-0'

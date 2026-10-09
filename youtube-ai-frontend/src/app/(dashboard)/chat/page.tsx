@@ -15,7 +15,7 @@ import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { useAudioVisualizer } from '@/lib/hooks/use-audio-visualizer'
 import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone, User, UserX } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone, User, UserX, MessageSquare } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -205,6 +205,13 @@ export default function ChatPage() {
       dispatch(selectThread(activeThreadId))
     }
   }, [activeThreadId, activeThread, dispatch])
+
+  // Auto-select latest thread when threads load and none is selected
+  useEffect(() => {
+    if (!activeThreadId && !urlThreadId && !urlVideoId && !urlNewScriptId && threads.length > 0 && !threadsLoading) {
+      handleSelectThread(threads[0].id)
+    }
+  }, [activeThreadId, urlThreadId, urlVideoId, urlNewScriptId, threads, threadsLoading])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -753,11 +760,11 @@ export default function ChatPage() {
         ) : (
           threads.map((thread) => {
             return (
-              <div key={thread.id} className="group relative">
+              <div key={thread.id} className="group relative min-w-0 w-full">
                 <button
                   onClick={() => handleSelectThread(thread.id)}
                   className={cn(
-                    'w-full text-left rounded-lg transition border',
+                    'w-full text-left rounded-lg transition border min-w-0 overflow-hidden',
                     sidebarCollapsed ? 'px-1.5 py-2 flex justify-center' : 'px-2.5 py-2',
                     thread.id === activeThreadId
                       ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10'
@@ -770,13 +777,13 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex items-center gap-1.5 min-w-0">
                         {thread.type === 'video' ? <Video className="w-3 h-3 text-indigo-500 shrink-0" /> : <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />}
-                        <p className={cn('text-xs font-medium truncate', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
+                        <p className={cn('text-xs font-medium truncate flex-1 min-w-0', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
                           {thread.title}
                         </p>
                       </div>
-                      <div className="flex items-center gap-1.5 mt-0.5 ml-4.5">
+                      <div className="flex items-center gap-1.5 mt-0.5 ml-4.5 min-w-0">
                         <span className="text-xs text-gray-400">{thread.messageCount} msgs</span>
                       </div>
                     </>
@@ -894,14 +901,14 @@ export default function ChatPage() {
   return (
     <>
     <div className={cn(
-      "flex overflow-hidden transition-all duration-150",
+      "flex overflow-hidden transition-all duration-150 min-w-0 max-w-full",
       isFocusMode
         ? "fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 h-screen w-screen"
         : "h-full min-h-0 w-full max-w-[1600px] mx-auto"
     )}>
       {/* Desktop Thread List Sidebar */}
       <div className={cn(
-        "hidden md:flex bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200",
+        "hidden md:flex bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200 min-w-0",
         sidebarCollapsed ? "w-12" : "w-56"
       )}>
         {threadList}
@@ -933,9 +940,9 @@ export default function ChatPage() {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
+      <div className="flex-1 flex flex-col min-w-0 max-w-full bg-gray-50 dark:bg-gray-950 overflow-hidden">
         {/* Unified Streamlined Header */}
-        <div className="px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px]">
+        <div className="px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px] min-w-0 max-w-full">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button onClick={() => dispatch(toggleMobileSidebar())} className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1 shrink-0" title="Main Navigation">
               <Menu className="w-4 h-4" />
@@ -1014,9 +1021,9 @@ export default function ChatPage() {
           </div>
         </div>
 
-        <div className="flex-1 flex min-h-0">
+        <div className="flex-1 flex min-h-0 min-w-0 max-w-full overflow-hidden">
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden p-2.5 sm:p-4 lg:p-5">
+          <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 p-2.5 sm:p-4 lg:p-5">
             {/* Script Context Banner */}
             {activeScriptContext && (
               <div className="max-w-4xl mx-auto mb-4 px-4 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-between text-xs text-amber-700 dark:text-amber-300 shadow-sm animate-in fade-in slide-in-from-top-1">
@@ -1038,6 +1045,24 @@ export default function ChatPage() {
             {/* Empty State */}
             {!hasMessages && !sending && activeThread && (
               <EmptyState category={currentSkill} onSuggestionClick={handleSuggestionClick} />
+            )}
+
+            {/* Fallback Empty State when no thread is selected */}
+            {!activeThread && !threadsLoading && (
+              <div className="h-full min-h-[300px] flex items-center justify-center text-center p-8 text-gray-400">
+                <div className="max-w-md mx-auto space-y-3">
+                  <div className="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 text-indigo-500 flex items-center justify-center mx-auto shadow-sm">
+                    <MessageSquare className="w-6 h-6" />
+                  </div>
+                  <h3 className="text-base font-semibold text-gray-900 dark:text-white">Select a Conversation</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+                    Pick a thread from the list or click below to start a new chat about video scripts, SEO, or thumbnail concepts.
+                  </p>
+                  <Button onClick={handleCreateThread} size="sm" className="gap-1.5 text-xs bg-indigo-600 hover:bg-indigo-700 text-white">
+                    <Plus className="w-3.5 h-3.5" /> New Thread
+                  </Button>
+                </div>
+              </div>
             )}
 
             {hasMessages && activeThread && (
@@ -1179,8 +1204,8 @@ export default function ChatPage() {
         </div>
 
         {/* Input */}
-        <div className="px-2.5 sm:px-4 py-2 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0">
-          <div className="max-w-4xl mx-auto space-y-2">
+        <div className="px-2.5 sm:px-4 py-2 bg-white dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800 shrink-0 min-w-0 max-w-full">
+          <div className="max-w-4xl mx-auto space-y-2 min-w-0">
             {/* Quick Action Prompt Chips for Active Script */}
             {activeScriptContext && (
               <div className="flex items-center gap-1.5 overflow-x-auto pb-1 no-scrollbar text-xs">

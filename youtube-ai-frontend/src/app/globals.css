@@ -284,6 +284,7 @@ button:active:not(:disabled) {
 /* Mobile responsiveness & horizontal overflow containment */
 html,
 body {
-  overflow-x: hidden;
-  max-width: 100vw;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: clip;
 }
