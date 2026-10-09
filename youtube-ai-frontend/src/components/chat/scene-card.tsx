@@ -119,7 +119,7 @@ export function SceneCard({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0 max-w-full overflow-hidden">
       <div className="flex items-center gap-2 mb-2">
         <Film className="w-4 h-4 text-pink-500" />
         <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
@@ -128,10 +128,10 @@ export function SceneCard({
       </div>
 
       {/* Context Anchor */}
-      <div className="flex items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/50 rounded-lg px-3 py-2 mb-1">
-        <span>Target Subject: {videoTitle || 'Not set'}</span>
-        <span>&middot;</span>
-        <span>Video Context: {threadTitle || 'General'}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/50 rounded-lg px-3 py-2 mb-1 min-w-0 overflow-hidden">
+        <span className="truncate max-w-[200px] sm:max-w-none">Target Subject: {videoTitle || 'Not set'}</span>
+        <span className="hidden sm:inline">&middot;</span>
+        <span className="truncate max-w-[200px] sm:max-w-none">Video Context: {threadTitle || 'General'}</span>
       </div>
 
       <div className="grid gap-3">
@@ -143,9 +143,9 @@ export function SceneCard({
           return (
             <div
               key={idx}
-              className="bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 rounded-xl p-4 space-y-3"
+              className="bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 rounded-xl p-3 sm:p-4 space-y-3 min-w-0 overflow-hidden"
             >
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="w-6 h-6 rounded-full bg-pink-500 text-white text-xs font-bold flex items-center justify-center">
                     {idx + 1}
@@ -155,7 +155,7 @@ export function SceneCard({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                   <div className="flex gap-1 shrink-0">
                     {(['top-right', 'none'] as const).map((pos) => (
                       <button
@@ -175,7 +175,7 @@ export function SceneCard({
                   <button
                     onClick={() => handleGenerateScene(concept, idx)}
                     disabled={isGenerating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 disabled:bg-pink-400 text-white text-xs font-medium transition shadow-sm shrink-0"
+                    className="flex-1 sm:flex-initial justify-center flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 disabled:bg-pink-400 text-white text-xs font-medium transition shadow-sm shrink-0"
                   >
                     {isGenerating ? (
                       <>

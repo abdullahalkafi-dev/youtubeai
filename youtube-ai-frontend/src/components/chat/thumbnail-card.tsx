@@ -172,17 +172,17 @@ export function ThumbnailCard({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-3 min-w-0 max-w-full overflow-hidden">
       {/* Header & Aspect Ratio Selector */}
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <div className="flex items-center gap-2 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
+        <div className="flex items-center gap-2 min-w-0 flex-wrap">
           <Image className="w-4 h-4 text-violet-500 shrink-0" />
           <span className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider shrink-0">
             Thumbnail Concepts
           </span>
           {videoTitle && (
             <span
-              className="text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-500/10 dark:bg-violet-500/20 px-2 py-0.5 rounded-full truncate max-w-[140px] sm:max-w-[260px]"
+              className="text-[11px] font-medium text-violet-600 dark:text-violet-400 bg-violet-500/10 dark:bg-violet-500/20 px-2 py-0.5 rounded-full truncate max-w-[120px] sm:max-w-[260px]"
               title={videoTitle}
             >
               {videoTitle}
@@ -190,7 +190,7 @@ export function ThumbnailCard({
           )}
         </div>
 
-        <div className="flex items-center bg-gray-200 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-300 dark:border-gray-700 shrink-0">
+        <div className="flex items-center bg-gray-200 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-300 dark:border-gray-700 shrink-0 self-start sm:self-auto">
           <button
             type="button"
             onClick={() => setSelectedAspectRatio('16:9')}
@@ -219,10 +219,10 @@ export function ThumbnailCard({
       </div>
 
       {/* Context Anchor */}
-      <div className="flex flex-wrap items-center gap-2 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/50 rounded-lg px-3 py-2 mb-1">
-        <span className="truncate max-w-full">Target Subject: {videoTitle || 'Not set'}</span>
-        <span>&middot;</span>
-        <span className="truncate max-w-full">Video Context: {threadTitle || 'General'}</span>
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-800/50 rounded-lg px-3 py-2 mb-1 min-w-0 overflow-hidden">
+        <span className="truncate max-w-[200px] sm:max-w-none">Target Subject: {videoTitle || 'Not set'}</span>
+        <span className="hidden sm:inline">&middot;</span>
+        <span className="truncate max-w-[200px] sm:max-w-none">Video Context: {threadTitle || 'General'}</span>
       </div>
 
       <div className="grid gap-3">
@@ -239,10 +239,10 @@ export function ThumbnailCard({
           return (
             <div
               key={idx}
-              className="bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20 rounded-xl p-4 space-y-3"
+              className="bg-violet-50 dark:bg-violet-500/10 border border-violet-200 dark:border-violet-500/20 rounded-xl p-3 sm:p-4 space-y-3 min-w-0 overflow-hidden"
             >
               {/* Header */}
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2 shrink-0">
                   <span className="w-6 h-6 rounded-full bg-violet-500 text-white text-xs font-bold flex items-center justify-center">
                     {idx + 1}
@@ -256,11 +256,11 @@ export function ThumbnailCard({
                 </div>
 
                 {/* Generate Buttons */}
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="flex items-center gap-2 flex-wrap w-full sm:w-auto">
                   <button
                     onClick={() => setModalState({ isOpen: true, concept, idx })}
                     disabled={isGenerating}
-                    className="px-2.5 py-1.5 rounded-lg border border-violet-300 dark:border-violet-600/40 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/20 disabled:opacity-50 text-xs font-medium transition shrink-0"
+                    className="flex-1 sm:flex-initial text-center justify-center px-2.5 py-1.5 rounded-lg border border-violet-300 dark:border-violet-600/40 text-violet-700 dark:text-violet-300 hover:bg-violet-100 dark:hover:bg-violet-500/20 disabled:opacity-50 text-xs font-medium transition shrink-0"
                   >
                     Select Host & Logo
                   </button>
@@ -268,7 +268,7 @@ export function ThumbnailCard({
                   <button
                     onClick={() => handleGenerateImage(concept, idx)}
                     disabled={isGenerating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-xs font-medium transition shadow-sm shrink-0"
+                    className="flex-1 sm:flex-initial justify-center flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 disabled:bg-violet-400 text-white text-xs font-medium transition shadow-sm shrink-0"
                   >
                     {isGenerating ? (
                       <>

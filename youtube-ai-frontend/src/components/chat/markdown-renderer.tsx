@@ -37,7 +37,7 @@ function YouTubeCard({ url, title, videoId }: { url: string; title?: string; vid
   }
 
   return (
-    <div className="my-3 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition group max-w-lg">
+    <div className="my-3 rounded-xl overflow-hidden border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shadow-sm hover:shadow-md transition group max-w-lg min-w-0">
       <div className="relative aspect-video bg-gray-950 overflow-hidden cursor-pointer" onClick={() => setIsPlaying(true)}>
         <img
           src={thumbUrl}
@@ -53,9 +53,9 @@ function YouTubeCard({ url, title, videoId }: { url: string; title?: string; vid
           </div>
         </div>
       </div>
-      <div className="p-3 flex items-center justify-between gap-3 bg-gray-50/70 dark:bg-gray-800/40">
-        <div className="min-w-0">
-          <p className="text-xs font-semibold text-gray-900 dark:text-white truncate">
+      <div className="p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2 sm:gap-3 bg-gray-50/70 dark:bg-gray-800/40">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold text-gray-900 dark:text-white line-clamp-2 sm:truncate">
             {title && title !== url ? title : 'YouTube Video Reference'}
           </p>
           <span className="text-[10px] text-gray-500 dark:text-gray-400">Click to play in chat</span>
@@ -65,7 +65,7 @@ function YouTubeCard({ url, title, videoId }: { url: string; title?: string; vid
           target="_blank"
           rel="noopener noreferrer"
           onClick={(e) => e.stopPropagation()}
-          className="shrink-0 flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-950/50"
+          className="self-start sm:self-auto shrink-0 flex items-center gap-1 text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:underline px-2 py-1 rounded bg-indigo-50 dark:bg-indigo-950/50"
         >
           Watch on YouTube <ExternalLink className="w-3 h-3" />
         </a>

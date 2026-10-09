@@ -38,13 +38,20 @@ export function CategorySelector({ value, onChange }: CategorySelectorProps) {
         const Icon = ICON_MAP[color.icon] || MessageSquare
         const isActive = cat === value || (cat === 'general' && !VISIBLE_CATEGORIES.includes(value))
 
+        const displayName = cat === 'image' ? (
+          <>
+            <span className="hidden sm:inline">Generate </span>
+            <span>Image</span>
+          </>
+        ) : color.name
+
         return (
           <button
             key={cat}
             type="button"
             onClick={() => onChange(cat)}
             className={cn(
-              'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all duration-150 shrink-0',
+              'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-lg text-[11px] sm:text-xs font-medium sm:font-semibold transition-all duration-150 shrink-0 whitespace-nowrap',
               isActive
                 ? cn(
                     'bg-white dark:bg-gray-900 shadow-sm border border-gray-200/80 dark:border-gray-700',
@@ -55,7 +62,7 @@ export function CategorySelector({ value, onChange }: CategorySelectorProps) {
             title={CATEGORY_DESCRIPTIONS[cat]}
           >
             <Icon className={cn('w-3.5 h-3.5 shrink-0', isActive ? `${color.text} ${color.textDark}` : 'text-gray-400')} />
-            <span className="truncate">{color.name}</span>
+            <span>{displayName}</span>
           </button>
         )
       })}
