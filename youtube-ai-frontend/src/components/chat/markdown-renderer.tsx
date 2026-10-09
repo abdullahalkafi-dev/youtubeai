@@ -5,6 +5,7 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Play, ExternalLink, ShieldCheck, Maximize2, X, Image as ImageIcon } from 'lucide-react'
 import { collapseDuplicateYouTubeCards, extractYouTubeId } from '@/lib/youtube-markdown'
+import { cn } from '@/lib/utils'
 
 interface MarkdownRendererProps {
   content: string
@@ -147,7 +148,7 @@ export function MarkdownRenderer({ content }: MarkdownRendererProps) {
   const safeContent = collapseDuplicateYouTubeCards(content)
 
   return (
-    <div className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-white prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-p:leading-relaxed prose-p:text-xs prose-strong:text-gray-800 dark:prose-strong:text-gray-200 prose-li:text-xs prose-li:text-gray-700 dark:prose-li:text-gray-300 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-indigo-300 dark:prose-blockquote:border-l-indigo-600 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 prose-code:text-xs prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-hr:border-gray-200 dark:prose-hr:border-gray-700">
+    <div className="prose prose-sm max-w-none dark:prose-invert break-words overflow-hidden prose-headings:font-semibold prose-headings:text-gray-900 dark:prose-headings:text-white prose-p:text-gray-700 dark:prose-p:text-gray-300 prose-p:leading-relaxed prose-p:text-xs prose-strong:text-gray-800 dark:prose-strong:text-gray-200 prose-li:text-xs prose-li:text-gray-700 dark:prose-li:text-gray-300 prose-a:text-indigo-600 dark:prose-a:text-indigo-400 prose-a:no-underline hover:prose-a:underline prose-blockquote:border-l-indigo-300 dark:prose-blockquote:border-l-indigo-600 prose-blockquote:text-gray-600 dark:prose-blockquote:text-gray-400 prose-code:text-xs prose-code:bg-gray-100 dark:prose-code:bg-gray-800 prose-code:px-1.5 prose-code:py-0.5 prose-code:rounded prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-hr:border-gray-200 dark:prose-hr:border-gray-700">
       <Markdown
         remarkPlugins={[remarkGfm]}
         components={{

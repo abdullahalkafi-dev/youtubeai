@@ -4,6 +4,7 @@ import {
   Logger,
   forwardRef,
   Inject,
+  Optional,
   BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -46,6 +47,7 @@ import { SkillRegistry } from './skills/skill-registry';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { TrendsService } from '../trends/trends.service';
+import { FootageIntentService } from './footage-intent.service';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
 const THREAD_EXPIRY_DAYS = 7;
@@ -74,6 +76,8 @@ export class ChatService {
     private readonly skillRegistry: SkillRegistry,
     private readonly performanceContext: PerformanceContextService,
     private readonly localNewsService: LocalNewsService,
+    @Optional()
+    private readonly footageIntentService: FootageIntentService,
     @Inject(forwardRef(() => TrendsService))
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
@@ -1583,14 +1587,38 @@ export class ChatService {
     try {
       if (!channel?.userId) return null;
 
-      const wantsFootage = this.localNewsService.isFootageRequest(message);
-      const wantsLocalNews = /\blocal\s+news\b/i.test(message || '');
+      // 0. Middle-layer AI intent & entity extractor (graceful fallback to regex)
+      const footageIntent = this.footageIntentService
+        ? await this.footageIntentService.extractIntent({
+            message,
+            conversationText,
+            trendTitles,
+          })
+        : null;
+
+      const wantsFootage =
+        (footageIntent?.hasFootageIntent ?? false) ||
+        this.localNewsService.isFootageRequest(message);
+      const wantsLocalNews =
+        /\blocal\s+news\b/i.test(message || '') ||
+        (footageIntent?.hasFootageIntent &&
+          footageIntent.requestTypes.includes('news'));
+      const wantsBroll =
+        (footageIntent?.hasFootageIntent &&
+          footageIntent.requestTypes.includes('broll')) ||
+        /\b(b-?roll|clips?|shorts?|reels?|lifestyle|moments)\b/i.test(message);
+      const wantsBrollOnly =
+        footageIntent?.hasFootageIntent &&
+        footageIntent.requestTypes.includes('broll') &&
+        !footageIntent.requestTypes.includes('news');
+
       const topicCat = ['general', 'ideas', 'script', 'outline'].includes(
         category,
       );
       // Market priority: a city the USER typed beats anything the conversation
       // merely mentions (discussing Chicago must not hijack a Miami ask).
-      const marketMsg = this.localNewsService.resolveMarket(undefined, message);
+      const marketHint = footageIntent?.locationHint || message;
+      const marketMsg = this.localNewsService.resolveMarket(undefined, marketHint);
       const marketConv = marketMsg
         ? null
         : this.localNewsService.resolveMarket(undefined, conversationText);
@@ -1600,7 +1628,8 @@ export class ChatService {
         : marketConv
           ? 'conversation'
           : 'none';
-      const wantsLocal = wantsFootage || (topicCat && market != null);
+      const wantsLocal =
+        (wantsFootage && !wantsBrollOnly) || (topicCat && market != null);
 
       // Topic resolution: explicit footage ask → stripped phrasing; entity-bearing
       // message → entity window; follow-up anaphora ("script for this") → the
@@ -1617,6 +1646,12 @@ export class ChatService {
         | 'conversation-heading'
         | 'trends'
         | 'none' = topic ? 'message' : 'none';
+
+      if (!topic && footageIntent?.primaryEntity) {
+        topic = footageIntent.primaryEntity;
+        topicSrc = 'message';
+      }
+
       if (!topic && wantsFootage) {
         const stripped = this.localNewsService.extractSearchTopic(message);
         if (stripped) {
@@ -1628,13 +1663,18 @@ export class ChatService {
       // topic". The subject is a REFERENCE, not a name: substring match so
       // "local news for that topic" resolves too (the old full-string test
       // missed it and the raw sentence went to YouTube as the query).
+      const isAnaphoricTopic = (t: string | null): boolean => {
+        if (!t) return true;
+        return (
+          /^(?:this|that|it|the\s+(?:script|video|post|story|case|clip|clips|one|thing))\s*$/i.test(
+            t,
+          ) ||
+          /\b(?:this|that|it|them|they|these|those)\b/i.test(t) ||
+          /\b(?:for|about|on|of)\s+(?:this|that|it|these|those)\b/i.test(t)
+        );
+      };
       const anaphoric =
-        !topic ||
-        /^(?:this|that|it|the\s+(?:script|video|post|story|case|clip|clips|one|thing))\s*$/i.test(
-          topic,
-        ) ||
-        /\b(?:this|that|it|them|they|these|those)\b/i.test(topic) ||
-        /\b(?:for|about|on|of)\s+(?:this|that|it|these|those)\b/i.test(topic);
+        !footageIntent?.primaryEntity && isAnaphoricTopic(topic);
       let ctxResult: 'hit' | 'miss' | 'skip' = 'skip';
       if (anaphoric && !topicRecAsk) {
         const ctx = this.extractContextTopic(conversationText);
@@ -1668,7 +1708,7 @@ export class ChatService {
       }
 
       const wantsTopic = wantsFootage || (topicCat && needsResearch && !!topic);
-      if (!wantsLocal && !wantsTopic) {
+      if (!wantsLocal && !wantsTopic && !wantsBroll) {
         this.logger.log(
           `[FootagePack] cat=${category} skip: no market and no subject`,
         );
@@ -1690,14 +1730,13 @@ export class ChatService {
       //    Subject-less non-footage asks never reach here: no subject, no pack
       //    (an honest absence beats random clips).
       const runLocal =
-        wantsLocal && market != null && localFirst && (!!topic || wantsFootage);
+        wantsLocal && market != null && localFirst && (!!topic || wantsFootage) && !wantsBrollOnly;
       if (runLocal) {
         pack = await this.localNewsService.findFootagePack({
           userId: channel.userId.toString(),
-          // The RESOLVED subject, not the raw sentence — "WSVN Rick Ross",
-          // never "WSVN can you give me script for this video".
           topic: topic || '',
           locationHint: marketMsg ? message : conversationText,
+          queries: footageIntent?.newsQueries,
           maxClips: 5,
           maxSeconds: 360,
         });
@@ -1708,7 +1747,8 @@ export class ChatService {
       const runTopicPack =
         wantsTopic &&
         !!topic &&
-        (!localFirst || !pack || pack.clips.length === 0);
+        (!localFirst || !pack || pack.clips.length === 0) &&
+        !wantsBrollOnly;
       if (runTopicPack && topic) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
         // Trend-derived topics are a ranked list and the top story can have
@@ -1772,6 +1812,7 @@ export class ChatService {
             userId: channel.userId.toString(),
             channelId: channel._id?.toString(),
             topic: t,
+            queries: footageIntent?.newsQueries,
             denyChannelIds,
           });
           if (!topicPack) continue;
@@ -1785,13 +1826,45 @@ export class ChatService {
         if (!pack) pack = fallback || thin;
       }
 
+      // 3) Raw celebrity B-roll clips (5–7 clips, strict anti-commentary filter)
+      let brollPack: LocalScenePack | null = null;
+      const brollSubject = (footageIntent?.primaryEntity || topic || '').trim();
+      if (wantsBroll && brollSubject) {
+        const denyChannelIds = await this.getFootageDenyChannelIds(channel);
+        brollPack = await this.localNewsService.findCelebrityBrollPack({
+          userId: channel.userId.toString(),
+          entity: brollSubject,
+          queries: footageIntent?.brollQueries,
+          denyChannelIds,
+          maxClips: 7,
+          maxSeconds: 180,
+        });
+      }
+
+      if (pack && brollPack && brollPack.clips.length > 0 && !wantsBrollOnly) {
+        pack = {
+          market: pack.market || 'News & B-Roll',
+          locationLabel: pack.locationLabel || 'Verified Footage',
+          topic: topic || brollPack.topic,
+          stations: [...new Set([...pack.stations, ...brollPack.stations])],
+          clips: pack.clips,
+          brollClips: brollPack.clips,
+          note: `${pack.note}\nRaw B-roll clips: ${brollPack.clips.length} clean visual cutaway clips.`,
+          kind: 'combined',
+        };
+      } else if (wantsBrollOnly && brollPack) {
+        pack = brollPack;
+      } else if (!pack && brollPack) {
+        pack = brollPack;
+      }
+
       this.logger.log(
         `[FootagePack] cat=${category} src=${topicSrc} ` +
           `anaphoric=${anaphoric ? 'yes' : 'no'} ctx=${ctxResult} ` +
           `marketFrom=${marketFrom} ` +
           `topic=${topic ? JSON.stringify(String(topic).slice(0, 60)) : 'none'} → ` +
           (pack
-            ? `${pack.kind || 'unknown'}(${pack.clips.length} clips)`
+            ? `${pack.kind || 'unknown'}(${pack.clips.length} clips${pack.brollClips ? `, ${pack.brollClips.length} broll` : ''})`
             : 'none'),
       );
       return pack;
@@ -1905,7 +1978,10 @@ export class ChatService {
    */
   private buildFootagePackBlock(pack: LocalScenePack | null): string {
     if (!pack) return '';
-    if (!pack.clips || pack.clips.length === 0) {
+    if (
+      (!pack.clips || pack.clips.length === 0) &&
+      (!pack.brollClips || pack.brollClips.length === 0)
+    ) {
       return [
         '## 🎬 FOOTAGE PACK',
         '',
@@ -1913,6 +1989,49 @@ export class ChatService {
         '',
       ].join('\n');
     }
+
+    if (pack.kind === 'broll') {
+      const lines = pack.clips.map((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`;
+      });
+      return [
+        `## 🎬 RAW CELEBRITY B-ROLL CLIPS (${pack.topic})`,
+        '',
+        ...lines,
+        '',
+        pack.note,
+        '',
+      ].join('\n');
+    }
+
+    if (pack.kind === 'combined' && pack.brollClips && pack.brollClips.length > 0) {
+      const newsLines = (pack.clips || []).map((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`;
+      });
+      const brollLines = pack.brollClips.map((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`;
+      });
+      return [
+        '## 🎬 VERIFIED FOOTAGE PACK',
+        '',
+        '### 📰 News Coverage',
+        ...(newsLines.length ? newsLines : ['> No newsroom clips found.']),
+        '',
+        '### 🎥 Raw Celebrity B-Roll Clips (Visual Cutaways)',
+        ...brollLines,
+        '',
+        pack.note,
+        '',
+      ].join('\n');
+    }
+
     const lines = pack.clips.map((c, i) => {
       const mins = Math.floor(c.durationSeconds / 60);
       const secs = c.durationSeconds % 60;

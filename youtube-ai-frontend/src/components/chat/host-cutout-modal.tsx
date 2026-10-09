@@ -342,18 +342,18 @@ export function HostCutoutModal({
 
               {/* Case 1: Active Custom Host Saved */}
               {!rawImageSrc && currentCustomUrl && (
-                <div className="p-4 rounded-xl border-2 border-emerald-500/40 bg-emerald-50/30 dark:bg-emerald-950/20 flex items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
+                <div className="p-4 rounded-xl border-2 border-emerald-500/40 bg-emerald-50/30 dark:bg-emerald-950/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                     {/* Checkerboard container */}
-                    <div className="w-20 h-20 rounded-xl border border-emerald-200 dark:border-emerald-800/60 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[size:8px_8px] shrink-0 flex items-center justify-center shadow-inner">
+                    <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-xl border border-emerald-200 dark:border-emerald-800/60 overflow-hidden bg-[radial-gradient(#cbd5e1_1px,transparent_1px)] dark:bg-[radial-gradient(#334155_1px,transparent_1px)] bg-[size:8px_8px] shrink-0 flex items-center justify-center shadow-inner">
                       <img
                         src={formatAssetUrl(currentCustomUrl)}
                         alt="Custom Host Cutout"
                         className="w-full h-full object-contain"
                       />
                     </div>
-                    <div>
-                      <div className="flex items-center gap-2">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
                         <h4 className="text-sm font-semibold text-gray-900 dark:text-white">
                           Active Custom Host Cutout
                         </h4>
@@ -367,7 +367,7 @@ export function HostCutoutModal({
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto">
                     <button
                       type="button"
                       onClick={() => fileInputRef.current?.click()}

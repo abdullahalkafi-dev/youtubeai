@@ -4,6 +4,7 @@ import { QuotaService } from '../quota/quota.service';
 import {
   TIER2_LABEL,
   COMMENTARY_TITLE_SKIP,
+  BROLL_REACTION_TITLE_SKIP,
   getAllowedChannel,
 } from './news-channels';
 
@@ -19,6 +20,7 @@ export interface LocalClip {
   market?: string;
   /** Provenance label for Tier-2 clips ("urban news outlet"). */
   tierLabel?: string;
+  clipType?: 'news' | 'broll';
 }
 
 export interface LocalScenePack {
@@ -27,9 +29,10 @@ export interface LocalScenePack {
   topic: string;
   stations: string[];
   clips: LocalClip[];
+  brollClips?: LocalClip[];
   note: string;
-  /** 'local' = market/affiliate pack; 'topic' = marketless allowlist search pack. */
-  kind?: 'local' | 'topic';
+  /** 'local' = market/affiliate pack; 'topic' = marketless allowlist search pack; 'broll' = raw celebrity clips; 'combined' = news + broll */
+  kind?: 'local' | 'topic' | 'broll' | 'combined';
 }
 
 type MarketDef = {
@@ -387,6 +390,7 @@ export class LocalNewsService {
     userId: string;
     topic: string;
     locationHint?: string;
+    queries?: string[];
     maxClips?: number;
     maxSeconds?: number;
   }): Promise<LocalScenePack | null> {
@@ -417,9 +421,10 @@ export class LocalNewsService {
       subjectSig.size === 0 ||
       (subjectSig.size === citySig.size &&
         [...subjectSig].every((w) => citySig.has(w)));
-    const queries = subjectIsMarketOnly
+    const defaultQueries = subjectIsMarketOnly
       ? [`${primaryStation} ${city} news`, `${city} news latest`]
       : [`${primaryStation} ${topic}`, `${city} news ${topic}`];
+    const queries = params.queries?.length ? params.queries.slice(0, 2) : defaultQueries;
     // Relevance gate: a real multi-token subject demands ≥1 token in the
     // title — Boeing/Trump noise can never pass "Rick Ross". Single-token
     // subjects stay ungated (newsroom titles often omit the city).
@@ -602,6 +607,7 @@ export class LocalNewsService {
     /** Real channel _id — lets the shared search-bucket pre-check see true usage. */
     channelId?: string;
     topic: string;
+    queries?: string[];
     denyChannelIds?: string[];
     maxClips?: number;
     maxSeconds?: number;
@@ -632,9 +638,10 @@ export class LocalNewsService {
     // stories (stopword-filtered so "news"/"video" can't self-match).
     const topicWords = topic.split(/\s+/);
     const longTopic = topicWords.length > 4;
-    const queries = longTopic
+    const defaultQueries = longTopic
       ? [topicWords.slice(0, 4).join(' '), `${topic} courthouse`]
       : [`${topic} news`, `${topic} courthouse`];
+    const queries = params.queries?.length ? params.queries.slice(0, 2) : defaultQueries;
     const shortSig = longTopic ? null : this.significantTokens(topic);
     this.logger.log(
       `[TopicPack] topic="${topic.slice(0, 50)}" ` +
@@ -876,37 +883,221 @@ export class LocalNewsService {
     this.topicCache.set(key, { expiresAt: Date.now() + ttl, pack });
   }
 
+  /**
+   * Find raw celebrity/subject B-roll clips (5–7 clips, ≤maxSeconds).
+   * Strict anti-commentary/reaction filter to ensure clean lifestyle/visual moments
+   * (walking, eating, public appearances, YouTube shorts).
+   */
+  async findCelebrityBrollPack(params: {
+    userId: string;
+    entity: string;
+    queries?: string[];
+    denyChannelIds?: string[];
+    maxClips?: number;
+    maxSeconds?: number;
+  }): Promise<LocalScenePack | null> {
+    const entity = (params.entity || '').trim().slice(0, 80);
+    if (!entity) return null;
+
+    const maxClips = params.maxClips ?? 7;
+    const maxSeconds = params.maxSeconds ?? 180; // 3 minutes max for B-roll cutaways
+    const deny = new Set(params.denyChannelIds || []);
+
+    const queries = params.queries?.length
+      ? params.queries.slice(0, 2)
+      : [`${entity} lifestyle clips`, `${entity} moments shorts`];
+
+    const found = new Map<
+      string,
+      {
+        videoId: string;
+        title: string;
+        channelTitle: string;
+        channelId: string;
+        thumbnailUrl: string;
+      }
+    >();
+
+    const publishedAfter = new Date(
+      Date.now() - 730 * 24 * 60 * 60 * 1000,
+    );
+
+    for (const query of queries) {
+      try {
+        const rows = await this.youtubeService.searchVideos({
+          userId: params.userId,
+          query,
+          publishedAfter,
+          maxResults: 25,
+        });
+        if (this.quotaService) {
+          await this.quotaService
+            .logCall({
+              channelId: 'broll-pack',
+              endpoint: 'search.list (broll)',
+              quotaCost: 100,
+              success: true,
+              relatedId: query.slice(0, 80),
+            })
+            .catch(() => {});
+        }
+
+        for (const r of (rows as any[]) || []) {
+          if (!r.videoId || found.has(r.videoId)) continue;
+          if (deny.has(r.channelId)) continue;
+          // Strict anti-commentary / anti-reaction title filter
+          if (BROLL_REACTION_TITLE_SKIP.test(r.title)) continue;
+          found.set(r.videoId, {
+            videoId: r.videoId,
+            title: r.title,
+            channelTitle: r.channelTitle,
+            channelId: r.channelId,
+            thumbnailUrl: r.thumbnailUrl,
+          });
+        }
+      } catch (err: any) {
+        this.logger.warn(
+          `[BrollPack] search failed "${query}": ${err?.message || err}`,
+        );
+      }
+    }
+
+    if (found.size === 0) {
+      return {
+        market: 'Celebrity B-Roll',
+        locationLabel: 'Raw Celebrity Footage',
+        topic: entity,
+        stations: [],
+        clips: [],
+        note: `No clean raw B-roll clips found for "${entity}". Do not invent video IDs.`,
+        kind: 'broll',
+      };
+    }
+
+    const ids = [...found.keys()].slice(0, 20);
+    type VideoDetail = {
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      videoUrl: string;
+      durationSeconds: number;
+      viewCount: number;
+      thumbnailUrl: string;
+      publishedAt: string;
+    };
+
+    let details: VideoDetail[] = [];
+    try {
+      details = (await this.youtubeService.getVideoDetails(
+        await this.youtubeService.getValidAccessToken(params.userId),
+        ids,
+      )) as VideoDetail[];
+    } catch (err: any) {
+      this.logger.warn(`[BrollPack] getVideoDetails failed: ${err?.message || err}`);
+    }
+
+    const clips: LocalClip[] = [];
+    for (const d of details) {
+      if (
+        !d.videoId ||
+        d.durationSeconds <= 0 ||
+        d.durationSeconds > maxSeconds
+      ) {
+        continue;
+      }
+      if (BROLL_REACTION_TITLE_SKIP.test(d.title)) continue;
+
+      const meta = found.get(d.videoId);
+      clips.push({
+        videoId: d.videoId,
+        title: d.title,
+        channelTitle: d.channelTitle || meta?.channelTitle || '',
+        videoUrl: d.videoUrl || `https://www.youtube.com/watch?v=${d.videoId}`,
+        durationSeconds: d.durationSeconds,
+        viewCount: d.viewCount || 0,
+        thumbnailUrl: d.thumbnailUrl || meta?.thumbnailUrl,
+        publishedAt: d.publishedAt,
+        clipType: 'broll',
+      });
+    }
+
+    // Sort by views descending
+    clips.sort((a, b) => (b.viewCount || 0) - (a.viewCount || 0));
+    const top = clips.slice(0, maxClips);
+
+    return {
+      market: 'Celebrity B-Roll',
+      locationLabel: 'Raw Celebrity Footage',
+      topic: entity,
+      stations: [...new Set(top.map((c) => c.channelTitle))],
+      clips: top,
+      kind: 'broll',
+      note:
+        top.length > 0
+          ? `Raw celebrity B-roll clips (5–7 clips, ≤${maxSeconds}s) for ${entity}. Clean visual cutaways without third-party commentary.`
+          : `No raw B-roll clips passed anti-commentary/duration filters for "${entity}".`,
+    };
+  }
+
   /** Render pack for model dynamic context. */
   formatPack(pack: LocalScenePack): string {
     const lines: string[] = [];
-    lines.push(
-      pack.kind === 'topic'
-        ? `VERIFIED TOPIC FOOTAGE PACK`
-        : `LOCAL NEWS FOOTAGE PACK`,
-    );
+    if (pack.kind === 'broll') {
+      lines.push(`RAW CELEBRITY B-ROLL PACK (${pack.topic})`);
+    } else if (pack.kind === 'combined') {
+      lines.push(`VERIFIED FOOTAGE PACK (NEWS & B-ROLL) — ${pack.topic}`);
+    } else if (pack.kind === 'topic') {
+      lines.push(`VERIFIED TOPIC FOOTAGE PACK`);
+    } else {
+      lines.push(`LOCAL NEWS FOOTAGE PACK`);
+    }
+
     lines.push(`Market: ${pack.market} | Topic: ${pack.topic}`);
     if (pack.stations.length > 0) {
       lines.push(
-        pack.kind === 'topic'
+        pack.kind === 'topic' || pack.kind === 'broll'
           ? `Channels: ${pack.stations.join(', ')}`
           : `Stations to prefer: ${pack.stations.join(', ')}`,
       );
     }
-    if (pack.clips.length === 0) {
+    if (pack.clips.length === 0 && (!pack.brollClips || pack.brollClips.length === 0)) {
       lines.push(pack.note);
       return lines.join('\n');
     }
-    lines.push(
-      `Use these REAL YouTube clips (URL exactly once per clip) in §17 / B-roll:`,
-    );
-    pack.clips.forEach((c, i) => {
-      const mins = Math.floor(c.durationSeconds / 60);
-      const secs = c.durationSeconds % 60;
-      const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+
+    if (pack.kind === 'combined' && pack.brollClips && pack.brollClips.length > 0) {
+      lines.push(`### 📰 News Coverage:`);
+      pack.clips.forEach((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+        lines.push(
+          `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`,
+        );
+      });
+      lines.push(`\n### 🎥 Raw Celebrity B-Roll Clips:`);
+      pack.brollClips.forEach((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        lines.push(
+          `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`,
+        );
+      });
+    } else {
       lines.push(
-        `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`,
+        pack.kind === 'broll'
+          ? `Use these RAW YouTube B-roll clips (URL exactly once per clip) in §17 / visual cutaways:`
+          : `Use these REAL YouTube clips (URL exactly once per clip) in §17 / B-roll:`,
       );
-    });
+      pack.clips.forEach((c, i) => {
+        const mins = Math.floor(c.durationSeconds / 60);
+        const secs = c.durationSeconds % 60;
+        const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+        lines.push(
+          `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`,
+        );
+      });
+    }
     lines.push(pack.note);
     return lines.join('\n');
   }

@@ -68,7 +68,15 @@ export function isAllowedChannel(channelId: string): boolean {
  * (usable B-roll is reported footage, not reaction content).
  */
 export const COMMENTARY_TITLE_SKIP =
-  /\b(reaction|reacts?|breakdown|explained|responds?|reviews?|opinion|commentary|my take)\b/i;
+  /\b(reaction|reacts?|reacting|breakdown|explained|responds?|reviews?|opinion|commentary|my take)\b/i;
+
+/**
+ * Strict anti-reaction & commentary filter for raw celebrity B-roll clips.
+ * Drops talking heads, drama channels, video essays, podcasts, and react streamers.
+ */
+export const BROLL_REACTION_TITLE_SKIP =
+  /\b(reaction|reacts?|reacting|breakdown|commentary|opinion|review|responds?|explained|thoughts on|drama|tea|exposed|podcast|interview with|why he|why she|what happened to|my take|streamer|stream|talks about|exposes?|analysis|documentary|deep dive)\b/i;
 
 /** Rendered label for Tier-2 clips (Claude condition: mark provenance). */
 export const TIER2_LABEL = 'urban news outlet';
+

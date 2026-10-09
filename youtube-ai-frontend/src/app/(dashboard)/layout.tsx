@@ -1,18 +1,22 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
 import { fetchProfile, fetchChannels } from '@/store/slices/auth-slice'
 import { Sidebar } from '@/components/layout/sidebar'
 import { Topbar } from '@/components/layout/topbar'
 import { MobileNav } from '@/components/layout/mobile-nav'
 import { MobileSidebar } from '@/components/layout/mobile-sidebar'
+import { cn } from '@/lib/utils'
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter()
+  const pathname = usePathname()
   const dispatch = useAppDispatch()
   const { isAuthenticated, token } = useAppSelector(s => s.auth)
+
+  const isChatRoute = pathname === '/chat'
 
   useEffect(() => {
     if (!token) {
@@ -46,7 +50,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <MobileSidebar />
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <Topbar />
-        <main className="flex-1 overflow-y-auto bg-gray-50 dark:bg-gray-950 pb-16 lg:pb-0">
+        <main
+          className={cn(
+            'flex-1 bg-gray-50 dark:bg-gray-950',
+            isChatRoute
+              ? 'overflow-hidden flex flex-col min-h-0 pb-14 lg:pb-0'
+              : 'overflow-y-auto pb-16 lg:pb-0'
+          )}
+        >
           {children}
         </main>
         <MobileNav />

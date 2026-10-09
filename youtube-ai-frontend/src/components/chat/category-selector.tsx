@@ -32,7 +32,7 @@ const VISIBLE_CATEGORIES: ThreadCategory[] = ['general', 'thumbnail', 'image']
 
 export function CategorySelector({ value, onChange }: CategorySelectorProps) {
   return (
-    <div className="inline-flex items-center p-0.5 bg-gray-200/70 dark:bg-gray-800/80 rounded-xl border border-gray-200 dark:border-gray-700 shadow-inner">
+    <div className="inline-flex items-center p-0.5 bg-gray-200/70 dark:bg-gray-800/80 rounded-xl border border-gray-200 dark:border-gray-700 shadow-inner max-w-full overflow-x-auto no-scrollbar">
       {VISIBLE_CATEGORIES.map((cat) => {
         const color = getCategoryColor(cat)
         const Icon = ICON_MAP[color.icon] || MessageSquare
@@ -44,7 +44,7 @@ export function CategorySelector({ value, onChange }: CategorySelectorProps) {
             type="button"
             onClick={() => onChange(cat)}
             className={cn(
-              'flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all duration-150',
+              'flex items-center gap-1 sm:gap-1.5 px-2 sm:px-3 py-1 rounded-lg text-[11px] sm:text-xs font-semibold transition-all duration-150 shrink-0',
               isActive
                 ? cn(
                     'bg-white dark:bg-gray-900 shadow-sm border border-gray-200/80 dark:border-gray-700',
@@ -54,8 +54,8 @@ export function CategorySelector({ value, onChange }: CategorySelectorProps) {
             )}
             title={CATEGORY_DESCRIPTIONS[cat]}
           >
-            <Icon className={cn('w-3.5 h-3.5', isActive ? `${color.text} ${color.textDark}` : 'text-gray-400')} />
-            <span>{color.name}</span>
+            <Icon className={cn('w-3.5 h-3.5 shrink-0', isActive ? `${color.text} ${color.textDark}` : 'text-gray-400')} />
+            <span className="truncate">{color.name}</span>
           </button>
         )
       })}

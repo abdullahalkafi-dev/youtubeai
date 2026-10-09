@@ -145,8 +145,8 @@ export function SceneCard({
               key={idx}
               className="bg-pink-50 dark:bg-pink-500/10 border border-pink-200 dark:border-pink-500/20 rounded-xl p-4 space-y-3"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2 shrink-0">
                   <span className="w-6 h-6 rounded-full bg-pink-500 text-white text-xs font-bold flex items-center justify-center">
                     {idx + 1}
                   </span>
@@ -155,8 +155,8 @@ export function SceneCard({
                   </span>
                 </div>
 
-                <div className="flex items-center gap-2">
-                  <div className="flex gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex gap-1 shrink-0">
                     {(['top-right', 'none'] as const).map((pos) => (
                       <button
                         key={pos}
@@ -175,7 +175,7 @@ export function SceneCard({
                   <button
                     onClick={() => handleGenerateScene(concept, idx)}
                     disabled={isGenerating}
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 disabled:bg-pink-400 text-white text-xs font-medium transition shadow-sm"
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-pink-600 hover:bg-pink-700 disabled:bg-pink-400 text-white text-xs font-medium transition shadow-sm shrink-0"
                   >
                     {isGenerating ? (
                       <>

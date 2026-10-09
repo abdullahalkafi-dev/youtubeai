@@ -246,3 +246,71 @@ describe('LocalNewsService.findFootagePack — specific queries + relevance gate
     expect(searchCalls.length).toBe(0);
   });
 });
+
+describe('LocalNewsService.findCelebrityBrollPack — raw lifestyle clips & anti-commentary', () => {
+  it('strictly filters out reaction, commentary, breakdown, and podcast titles', async () => {
+    const rawClips = [
+      {
+        videoId: 'broll01',
+        title: 'Lil Durk walking out of court in Miami',
+        channelTitle: 'RapHub',
+        channelId: 'c1',
+        thumbnailUrl: 'https://img.com/1',
+      },
+      {
+        videoId: 'react01',
+        title: 'Lil Durk ARREST Breakdown & REACTION!',
+        channelTitle: 'DramaLive',
+        channelId: 'c2',
+        thumbnailUrl: 'https://img.com/2',
+      },
+      {
+        videoId: 'podcast01',
+        title: 'Why Lil Durk Got Caught - Full Podcast Analysis',
+        channelTitle: 'TalkPod',
+        channelId: 'c3',
+        thumbnailUrl: 'https://img.com/3',
+      },
+      {
+        videoId: 'broll02',
+        title: 'Lil Durk eating at restaurant with family',
+        channelTitle: 'HipHopMoments',
+        channelId: 'c4',
+        thumbnailUrl: 'https://img.com/4',
+      },
+    ];
+
+    const youtube = {
+      searchVideos: jest.fn(async () => rawClips),
+      getValidAccessToken: jest.fn(async () => 'token'),
+      getVideoDetails: jest.fn(async (_tok: any, ids: string[]) =>
+        ids.map((id) => ({
+          videoId: id,
+          title: rawClips.find((c) => c.videoId === id)?.title,
+          channelTitle: rawClips.find((c) => c.videoId === id)?.channelTitle,
+          videoUrl: `https://youtube.com/watch?v=${id}`,
+          durationSeconds: 65,
+          viewCount: 50000,
+          thumbnailUrl: 'https://img.com',
+          publishedAt: '2026-10-01T00:00:00Z',
+        })),
+      ),
+    };
+
+    const svc = new LocalNewsService(youtube as any, null as any);
+    const pack = await svc.findCelebrityBrollPack({
+      userId: 'u1',
+      entity: 'Lil Durk',
+      maxClips: 7,
+    });
+
+    expect(pack).not.toBeNull();
+    expect(pack?.kind).toBe('broll');
+    const ids = pack?.clips.map((c) => c.videoId) || [];
+    expect(ids).toContain('broll01');
+    expect(ids).toContain('broll02');
+    expect(ids).not.toContain('react01');
+    expect(ids).not.toContain('podcast01');
+  });
+});
+

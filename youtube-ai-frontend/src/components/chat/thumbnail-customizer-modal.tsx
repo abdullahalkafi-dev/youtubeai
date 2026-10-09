@@ -263,12 +263,12 @@ export function ThumbnailCustomizerModal({
 
           {/* Step 3: Select Unique Host Image */}
           <div className="pt-2 border-t border-gray-800">
-            <div className="flex items-center justify-between mb-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
               <label className="text-xs font-bold text-gray-200 uppercase tracking-wider flex items-center gap-2">
                 <User className="w-4 h-4 text-violet-400" />
                 3. Select Host Face Image
               </label>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <button
                   type="button"
                   onClick={() => setIsCutoutModalOpen(true)}
@@ -378,7 +378,7 @@ export function ThumbnailCustomizerModal({
               3. Brand Logo Position (MAE Logo)
             </label>
 
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
               {[
                 { id: 'top-right', label: 'Top-Right (Default)', desc: 'Official placement' },
                 { id: 'top-left', label: 'Top-Left', desc: 'Alternate placement' },

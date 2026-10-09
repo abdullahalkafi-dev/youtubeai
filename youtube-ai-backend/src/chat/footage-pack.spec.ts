@@ -4,6 +4,7 @@ import {
   LocalNewsService,
   LocalScenePack,
 } from '../youtube/local-news.service';
+import { FootageIntentService } from './footage-intent.service';
 
 /**
  * Private helpers via prototype (no DI constructor needed).
@@ -27,6 +28,7 @@ interface PackHost {
     threadMessages?: Array<{ role?: string; content?: string; metadata?: any }>,
   ): boolean;
   localNewsService: LocalNewsService;
+  footageIntentService?: any;
   skillRegistry: SkillRegistry;
   logger: { warn(msg: string): void; log(msg: string): void };
 }
@@ -81,6 +83,40 @@ describe('Phase 3 — backend-rendered clip block placement', () => {
   it('renders the explicit thin note when the pack has 0 clips', () => {
     const block = host.buildFootagePackBlock(makePack([]));
     expect(block).toContain('Footage thin this turn');
+  });
+
+  it('renders broll packs with RAW CELEBRITY B-ROLL CLIPS heading', () => {
+    const pack: LocalScenePack = {
+      market: 'Celebrity B-Roll',
+      locationLabel: 'Raw Celebrity Footage',
+      topic: 'Lil Durk',
+      stations: [],
+      clips: [clip('broll01')],
+      note: 'Clean visual cutaways without third-party commentary.',
+      kind: 'broll',
+    };
+    const block = host.buildFootagePackBlock(pack);
+    expect(block).toContain('## 🎬 RAW CELEBRITY B-ROLL CLIPS (Lil Durk)');
+    expect(block).toContain('https://www.youtube.com/watch?v=broll01');
+  });
+
+  it('renders combined packs with separate News Coverage and Raw B-Roll sections', () => {
+    const pack: LocalScenePack = {
+      market: 'News & B-Roll',
+      locationLabel: 'Verified Footage',
+      topic: 'Lil Durk',
+      stations: [],
+      clips: [clip('news01')],
+      brollClips: [clip('broll02')],
+      note: 'Verified news and B-roll.',
+      kind: 'combined',
+    };
+    const block = host.buildFootagePackBlock(pack);
+    expect(block).toContain('## 🎬 VERIFIED FOOTAGE PACK');
+    expect(block).toContain('### 📰 News Coverage');
+    expect(block).toContain('https://www.youtube.com/watch?v=news01');
+    expect(block).toContain('### 🎥 Raw Celebrity B-Roll Clips');
+    expect(block).toContain('https://www.youtube.com/watch?v=broll02');
   });
 
   it('inserts BEFORE the model Sources heading so extractSources cannot swallow clip links', () => {
@@ -597,3 +633,37 @@ describe('detectNeedsResearch — Rule-0 recommendation asks fire research', () 
     ).toBe(true);
   });
 });
+
+describe('FootageIntentService — natural language & speech quirks parsing', () => {
+  it('extracts Lil Durk entity and corrects Little Dart speech transcription', () => {
+    const svc = new FootageIntentService(null as any);
+    const res = svc.fallbackRegexExtraction('I need video for this Little Dart');
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.primaryEntity).toBe('Lil Durk');
+  });
+
+  it('detects news intent from "I need local news for Lil Durk this"', () => {
+    const svc = new FootageIntentService(null as any);
+    const res = svc.fallbackRegexExtraction('I need local news for Lil Durk this');
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('news');
+    expect(res.primaryEntity).toBe('Lil Durk');
+  });
+
+  it('detects broll intent from "give me clips of Lil Durk walking or eating for b-roll"', () => {
+    const svc = new FootageIntentService(null as any);
+    const res = svc.fallbackRegexExtraction('give me clips of Lil Durk walking or eating for b-roll');
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('broll');
+    expect(res.primaryEntity).toContain('Lil Durk');
+  });
+
+  it('handles "i need youtube video about lil durk getting arrested"', () => {
+    const svc = new FootageIntentService(null as any);
+    const res = svc.fallbackRegexExtraction('i need youtube video about lil durk getting arrested');
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.primaryEntity.toLowerCase()).toContain('lil durk');
+    expect(res.requestTypes).toContain('news');
+  });
+});
+

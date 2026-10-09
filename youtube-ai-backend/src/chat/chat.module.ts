@@ -19,6 +19,8 @@ import { CompetitorsModule } from '../competitors/competitors.module';
 import { SkillRegistry } from './skills/skill-registry';
 import { TrendsModule } from '../trends/trends.module';
 
+import { FootageIntentService } from './footage-intent.service';
+
 @Module({
   imports: [
     MongooseModule.forFeature([
@@ -40,7 +42,7 @@ import { TrendsModule } from '../trends/trends.module';
     forwardRef(() => TrendsModule),
   ],
   controllers: [ChatController],
-  providers: [ChatService, SkillRegistry],
-  exports: [ChatService],
+  providers: [ChatService, SkillRegistry, FootageIntentService],
+  exports: [ChatService, FootageIntentService],
 })
 export class ChatModule {}

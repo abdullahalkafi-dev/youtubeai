@@ -799,32 +799,136 @@ export default function ChatPage() {
     </div>
   )
 
+  const galleryContent = (
+    <div className="flex flex-col h-full overflow-hidden">
+      <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <Image className="w-4 h-4 text-indigo-500" />
+          <span className="text-sm font-semibold text-gray-900 dark:text-white">Generated Images</span>
+        </div>
+        <button onClick={() => setGalleryOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-3 space-y-3">
+        {(generatingConceptText || isRefetchingImages) && (
+          <div className="rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2.5 animate-pulse shadow-sm">
+            <div className="flex items-center justify-between">
+              <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-bold text-[10px]">
+                {generatingConceptText || 'Processing'}
+              </span>
+              <span className="text-[10px] text-violet-600 dark:text-violet-400 font-medium flex items-center gap-1">
+                <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> {isRefetchingImages ? 'Loading image...' : 'Generating...'}
+              </span>
+            </div>
+            <div className="aspect-video bg-violet-200/60 dark:bg-violet-900/40 rounded-md flex items-center justify-center">
+              <Sparkles className="w-6 h-6 text-violet-500 animate-bounce" />
+            </div>
+            <p className="text-[10px] text-violet-600 dark:text-violet-300 font-medium text-center">
+              {isRefetchingImages ? 'Adding to image gallery...' : 'Creating 16:9 HD AI Thumbnail...'}
+            </p>
+          </div>
+        )}
+
+        {allImages.length === 0 && !generatingConceptText && !isRefetchingImages ? (
+          <div className="text-center py-8">
+            <Image className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
+            <p className="text-xs text-gray-400">No images generated yet</p>
+          </div>
+        ) : (
+          allImages.map((img) => (
+            <div key={img.id} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+              <div className={`relative bg-gray-100 dark:bg-gray-800 ${
+                (img as any).aspectRatio === '9:16'
+                  ? 'aspect-[9/16] max-w-[200px] mx-auto'
+                  : 'aspect-video'
+              }`}>
+                <img src={formatAssetUrl(img.url)} alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'} className="w-full h-full object-cover" loading="lazy" />
+                <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
+                  {img.conceptTitle && (
+                    <span className="px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
+                      {img.conceptTitle}
+                    </span>
+                  )}
+                  <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-gray-200 font-semibold text-[8px] backdrop-blur-sm">
+                    {(img as any).aspectRatio === '9:16' ? '9:16 Reel' : '16:9'}
+                  </span>
+                </div>
+              </div>
+              <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
+                {img.textOverlay && (
+                  <div className="bg-gray-900 text-white text-[10px] font-black tracking-wide uppercase px-2 py-1 rounded text-center leading-tight">
+                    {img.textOverlay}
+                  </div>
+                )}
+                <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
+                <div className="flex gap-1.5 pt-0.5">
+                  <button
+                    onClick={() => setIteratingImage({
+                      url: img.url,
+                      mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
+                      cleanUrl: (img as any).cleanBackgroundUrl || img.url,
+                      selectedHostImage: (img as any).selectedHostImage,
+                      logoPosition: (img as any).logoPosition || 'top-right',
+                      aspectRatio: (img as any).aspectRatio || '16:9',
+                    })}
+                    className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
+                  >
+                    <Wand2 className="w-3 h-3" /> Edit
+                  </button>
+                  {activeThread?.videoId && (
+                    <button onClick={() => handleSetThumbnail(img)} className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1">
+                      <Star className="w-3 h-3" /> Set
+                    </button>
+                  )}
+                  <button onClick={() => handleDownload(img)} className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold px-2 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1">
+                    <Download className="w-3 h-3" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <>
     <div className={cn(
       "flex overflow-hidden transition-all duration-150",
       isFocusMode
         ? "fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 h-screen w-screen"
-        : "h-screen max-w-[1600px] mx-auto"
+        : "h-full min-h-0 w-full max-w-[1600px] mx-auto"
     )}>
-      {!isMobile && (
-        <div className={cn(
-          "bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200",
-          sidebarCollapsed ? "w-12" : "w-56"
-        )}>
-          {threadList}
-        </div>
-      )}
+      {/* Desktop Thread List Sidebar */}
+      <div className={cn(
+        "hidden md:flex bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200",
+        sidebarCollapsed ? "w-12" : "w-56"
+      )}>
+        {threadList}
+      </div>
 
-      {isMobile && drawerOpen && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/50" onClick={() => setDrawerOpen(false)} />
-          <aside className="absolute left-0 top-0 bottom-0 w-72 bg-white dark:bg-gray-900 shadow-xl">
-            <div className="flex items-center justify-between p-3 border-b border-gray-100 dark:border-gray-800">
+      {/* Mobile Thread List Drawer */}
+      {drawerOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-xs animate-in fade-in" onClick={() => setDrawerOpen(false)} />
+          <aside className="absolute left-0 top-0 bottom-0 w-72 max-w-[85vw] bg-white dark:bg-gray-900 shadow-xl flex flex-col animate-in slide-in-from-left duration-200">
+            <div className="flex items-center justify-between p-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
               <span className="text-sm font-semibold text-gray-900 dark:text-white">Threads</span>
               <button onClick={() => setDrawerOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
             </div>
-            {threadList}
+            <div className="flex-1 overflow-y-auto">
+              {threadList}
+            </div>
+          </aside>
+        </div>
+      )}
+
+      {/* Mobile Image Gallery Drawer */}
+      {galleryOpen && (
+        <div className="fixed inset-0 z-50 md:hidden">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-xs animate-in fade-in" onClick={() => setGalleryOpen(false)} />
+          <aside className="absolute right-0 top-0 bottom-0 w-80 max-w-[85vw] bg-white dark:bg-gray-900 shadow-2xl flex flex-col animate-in slide-in-from-right duration-200">
+            {galleryContent}
           </aside>
         </div>
       )}
@@ -832,19 +936,15 @@ export default function ChatPage() {
       <div className="flex-1 flex flex-col min-w-0 bg-gray-50 dark:bg-gray-950">
         {/* Unified Streamlined Header */}
         <div className="px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px]">
-          <div className="flex items-center gap-2.5 min-w-0">
-            {isMobile && (
-              <button onClick={() => dispatch(toggleMobileSidebar())} className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1">
-                <Menu className="w-4 h-4" />
-              </button>
-            )}
-            {isMobile && (
-              <Button variant="outline" size="sm" onClick={() => setDrawerOpen(true)} className="h-7 px-2 text-xs gap-1">
-                <Lightbulb className="w-3 h-3 text-amber-500" />
-                <span className="truncate max-w-[110px]">{activeThread?.title || 'Threads'}</span>
-              </Button>
-            )}
-            <div className="flex items-center gap-2 min-w-0">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <button onClick={() => dispatch(toggleMobileSidebar())} className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1 shrink-0" title="Main Navigation">
+              <Menu className="w-4 h-4" />
+            </button>
+            <Button variant="outline" size="sm" onClick={() => setDrawerOpen(true)} className="md:hidden h-7 px-2 text-xs gap-1 shrink-0">
+              <Lightbulb className="w-3 h-3 text-amber-500" />
+              <span>Threads</span>
+            </Button>
+            <div className="flex items-center gap-1.5 min-w-0 flex-1">
               <div className="hidden sm:flex items-center gap-1 text-[11px] text-gray-400 dark:text-gray-500 shrink-0">
                 <span>UMA</span>
                 <span>/</span>
@@ -852,18 +952,18 @@ export default function ChatPage() {
                 <span>/</span>
               </div>
               {isRenaming && activeThreadId ? (
-                <div className="flex items-center gap-1">
-                  <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false) }} className="h-6 text-xs font-semibold px-2 py-0" autoFocus />
-                  <button onClick={handleRename} className="text-green-500 p-0.5"><Check className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => setIsRenaming(false)} className="text-gray-400 p-0.5"><X className="w-3.5 h-3.5" /></button>
+                <div className="flex items-center gap-1 min-w-0 flex-1">
+                  <Input value={renameValue} onChange={e => setRenameValue(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') handleRename(); if (e.key === 'Escape') setIsRenaming(false) }} className="h-6 text-xs font-semibold px-2 py-0 min-w-0 flex-1" autoFocus />
+                  <button onClick={handleRename} className="text-green-500 p-0.5 shrink-0"><Check className="w-3.5 h-3.5" /></button>
+                  <button onClick={() => setIsRenaming(false)} className="text-gray-400 p-0.5 shrink-0"><X className="w-3.5 h-3.5" /></button>
                 </div>
               ) : (
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <h3 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white font-heading truncate max-w-[200px] sm:max-w-[320px] md:max-w-[450px]">
+                <div className="flex items-center gap-1.5 min-w-0 flex-1">
+                  <h3 className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-white font-heading truncate flex-1 min-w-0">
                     {activeThread?.title || 'Select a thread'}
                   </h3>
                   {activeThread && (
-                    <button onClick={() => { setRenameValue(activeThread.title); setIsRenaming(true) }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-0.5" title="Rename thread">
+                    <button onClick={() => { setRenameValue(activeThread.title); setIsRenaming(true) }} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-0.5 shrink-0" title="Rename thread">
                       <Pencil className="w-3 h-3" />
                     </button>
                   )}
@@ -950,9 +1050,9 @@ export default function ChatPage() {
                       </div>
                     )}
                     <div className={cn(
-                      'rounded-2xl px-4 py-3 shadow-sm',
+                      'rounded-2xl px-4 py-3 shadow-sm min-w-0 overflow-hidden',
                       msg.role === 'user'
-                        ? 'bg-indigo-500 text-white rounded-tr-md max-w-2xl'
+                        ? 'bg-indigo-500 text-white rounded-tr-md max-w-2xl break-words'
                         : 'bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-tl-md w-full max-w-4xl 2xl:max-w-5xl'
                     )}>
                       {msg.role === 'user' ? (
@@ -1070,97 +1170,10 @@ export default function ChatPage() {
             <div ref={messagesEndRef} />
           </div>
 
-          {/* Image Gallery Panel */}
+          {/* Desktop Image Gallery Panel */}
           {galleryOpen && (
-            <div className="w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shrink-0 flex flex-col">
-              <div className="px-4 py-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Image className="w-4 h-4 text-indigo-500" />
-                  <span className="text-sm font-semibold text-gray-900 dark:text-white">Generated Images</span>
-                </div>
-                <button onClick={() => setGalleryOpen(false)} className="text-gray-400 hover:text-gray-600 p-1"><X className="w-4 h-4" /></button>
-              </div>
-              <div className="flex-1 overflow-y-auto p-3 space-y-3">
-                {/* Skeleton Card during active image generation or refetching */}
-                {(generatingConceptText || isRefetchingImages) && (
-                  <div className="rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-violet-50/50 dark:bg-violet-950/20 p-3 space-y-2.5 animate-pulse shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="px-2 py-0.5 rounded-full bg-violet-600 text-white font-bold text-[10px]">
-                        {generatingConceptText || 'Processing'}
-                      </span>
-                      <span className="text-[10px] text-violet-600 dark:text-violet-400 font-medium flex items-center gap-1">
-                        <Loader2 className="w-3 h-3 animate-spin text-violet-500" /> {isRefetchingImages ? 'Loading image...' : 'Generating...'}
-                      </span>
-                    </div>
-                    <div className="aspect-video bg-violet-200/60 dark:bg-violet-900/40 rounded-md flex items-center justify-center">
-                      <Sparkles className="w-6 h-6 text-violet-500 animate-bounce" />
-                    </div>
-                    <p className="text-[10px] text-violet-600 dark:text-violet-300 font-medium text-center">
-                      {isRefetchingImages ? 'Adding to image gallery...' : 'Creating 16:9 HD AI Thumbnail...'}
-                    </p>
-                  </div>
-                )}
-
-                {allImages.length === 0 && !generatingConceptText && !isRefetchingImages ? (
-                  <div className="text-center py-8">
-                    <Image className="w-8 h-8 text-gray-300 dark:text-gray-600 mx-auto mb-2" />
-                    <p className="text-xs text-gray-400">No images generated yet</p>
-                  </div>
-                ) : (
-                  allImages.map((img) => (
-                    <div key={img.id} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-                      <div className={`relative bg-gray-100 dark:bg-gray-800 ${
-                        (img as any).aspectRatio === '9:16'
-                          ? 'aspect-[9/16] max-w-[200px] mx-auto'
-                          : 'aspect-video'
-                      }`}>
-                        <img src={formatAssetUrl(img.url)} alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'} className="w-full h-full object-cover" loading="lazy" />
-                        <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
-                          {img.conceptTitle && (
-                            <span className="px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
-                              {img.conceptTitle}
-                            </span>
-                          )}
-                          <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-gray-200 font-semibold text-[8px] backdrop-blur-sm">
-                            {(img as any).aspectRatio === '9:16' ? '9:16 Reel' : '16:9'}
-                          </span>
-                        </div>
-                      </div>
-                      <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
-                        {img.textOverlay && (
-                          <div className="bg-gray-900 text-white text-[10px] font-black tracking-wide uppercase px-2 py-1 rounded text-center leading-tight">
-                            {img.textOverlay}
-                          </div>
-                        )}
-                        <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
-                        <div className="flex gap-1.5 pt-0.5">
-                          <button
-                            onClick={() => setIteratingImage({
-                              url: img.url,
-                              mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
-                              cleanUrl: (img as any).cleanBackgroundUrl || img.url,
-                              selectedHostImage: (img as any).selectedHostImage,
-                              logoPosition: (img as any).logoPosition || 'top-right',
-                              aspectRatio: (img as any).aspectRatio || '16:9',
-                            })}
-                            className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
-                          >
-                            <Wand2 className="w-3 h-3" /> Edit
-                          </button>
-                          {activeThread?.videoId && (
-                            <button onClick={() => handleSetThumbnail(img)} className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1">
-                              <Star className="w-3 h-3" /> Set
-                            </button>
-                          )}
-                          <button onClick={() => handleDownload(img)} className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold px-2 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1">
-                            <Download className="w-3 h-3" />
-                          </button>
-                        </div>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+            <div className="hidden md:flex w-72 bg-white dark:bg-gray-900 border-l border-gray-200 dark:border-gray-800 shrink-0 flex-col">
+              {galleryContent}
             </div>
           )}
         </div>
@@ -1432,13 +1445,13 @@ export default function ChatPage() {
                   />
 
                   {/* Bottom Control Bar */}
-                  <div className="flex items-center justify-between pt-1 border-t border-gray-200/60 dark:border-gray-700/50">
-                    <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-1.5 pt-1 border-t border-gray-200/60 dark:border-gray-700/50">
+                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap min-w-0">
                       <CategorySelector value={currentSkill} onChange={(skill) => dispatch(setSelectedSkill(skill))} />
                       <input ref={fileInputRef} type="file" accept=".pdf,.txt,.md,.markdown,.jpg,.jpeg,.png,.webp,.gif" onChange={handleFileSelect} className="hidden" />
                       <button
                         onClick={() => fileInputRef.current?.click()}
-                        className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs cursor-pointer"
+                        className="p-1.5 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 rounded-lg hover:bg-gray-200/50 dark:hover:bg-gray-700/50 transition flex items-center gap-1 text-xs cursor-pointer shrink-0"
                         title="Attach file (.pdf, .txt, .md, images)"
                       >
                         <Paperclip className="w-4 h-4" />
@@ -1448,7 +1461,7 @@ export default function ChatPage() {
                           type="button"
                           onClick={handleVoiceToggle}
                           className={cn(
-                            'p-1.5 rounded-lg transition flex items-center text-xs cursor-pointer',
+                            'p-1.5 rounded-lg transition flex items-center text-xs cursor-pointer shrink-0',
                             isListening
                               ? 'text-white bg-red-500 hover:bg-red-600 animate-pulse shadow-sm shadow-red-500/30 ring-2 ring-red-400/50'
                               : 'text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 hover:bg-gray-200/50 dark:hover:bg-gray-700/50'
@@ -1460,7 +1473,7 @@ export default function ChatPage() {
                       )}
                     </div>
 
-                    <div>
+                    <div className="shrink-0 ml-auto">
                       {sending ? (
                         <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20 cursor-pointer">
                           <Square className="w-3.5 h-3.5" />
