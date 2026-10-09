@@ -137,6 +137,7 @@ export default function ChatPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const initialInputRef = useRef('')
+  const initialAutoSelectedRef = useRef(false)
 
   const cycleTheme = () => {
     const themes: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system']
@@ -196,7 +197,10 @@ export default function ChatPage() {
   const categoryColor = getCategoryColor(currentSkill)
 
   useEffect(() => {
-    if (channelId) dispatch(fetchThreads(channelId))
+    if (channelId) {
+      initialAutoSelectedRef.current = false
+      dispatch(fetchThreads(channelId))
+    }
   }, [channelId, dispatch])
 
   // Auto-load thread when activeThreadId is set but activeThread is null (e.g., after archive)
@@ -206,12 +210,19 @@ export default function ChatPage() {
     }
   }, [activeThreadId, activeThread, dispatch])
 
-  // Auto-select latest thread when threads load and none is selected
+  // Auto-select latest thread ONLY once on initial mount when threads load and none is selected
   useEffect(() => {
-    if (!activeThreadId && !urlThreadId && !urlVideoId && !urlNewScriptId && threads.length > 0 && !threadsLoading) {
+    if (initialAutoSelectedRef.current) return
+    if (isDraftThread) return
+    if (activeThreadId) {
+      initialAutoSelectedRef.current = true
+      return
+    }
+    if (!urlThreadId && !urlVideoId && !urlNewScriptId && threads.length > 0 && !threadsLoading) {
+      initialAutoSelectedRef.current = true
       handleSelectThread(threads[0].id)
     }
-  }, [activeThreadId, urlThreadId, urlVideoId, urlNewScriptId, threads, threadsLoading])
+  }, [activeThreadId, isDraftThread, urlThreadId, urlVideoId, urlNewScriptId, threads, threadsLoading])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
