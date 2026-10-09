@@ -733,21 +733,21 @@ export default function ChatPage() {
   const handleSuggestionClick = (text: string) => { setInput(text) }
 
   const threadList = (
-    <div className="flex flex-col h-full">
-      <div className="p-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between">
+    <div className="flex flex-col h-full w-full max-w-full min-w-0 overflow-hidden">
+      <div className="p-3 border-b border-gray-100 dark:border-gray-800 flex items-center justify-between shrink-0">
         {!sidebarCollapsed && (
-          <Button onClick={handleCreateThread} variant="outline" size="sm" className="flex-1 gap-1.5 text-xs">
-            <Plus className="w-3.5 h-3.5" />New Thread
+          <Button onClick={handleCreateThread} variant="outline" size="sm" className="flex-1 gap-1.5 text-xs truncate">
+            <Plus className="w-3.5 h-3.5 shrink-0" />New Thread
           </Button>
         )}
         <button
           onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-          className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition ml-1"
+          className="p-1.5 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-800 transition ml-1 shrink-0"
         >
           {sidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto py-2 px-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full min-w-0 py-2 px-2 space-y-0.5">
         {threadsLoading && threads.length === 0 ? (
           <div className="space-y-2 p-1">
             {[1, 2, 3, 4, 5].map((i) => (
@@ -760,12 +760,12 @@ export default function ChatPage() {
         ) : (
           threads.map((thread) => {
             return (
-              <div key={thread.id} className="group relative min-w-0 w-full">
+              <div key={thread.id} className="group relative w-full max-w-full min-w-0 overflow-hidden">
                 <button
                   onClick={() => handleSelectThread(thread.id)}
                   className={cn(
-                    'w-full text-left rounded-lg transition border min-w-0 overflow-hidden',
-                    sidebarCollapsed ? 'px-1.5 py-2 flex justify-center' : 'px-2.5 py-2',
+                    'w-full text-left rounded-lg transition border min-w-0 overflow-hidden block',
+                    sidebarCollapsed ? 'px-1.5 py-2 flex justify-center' : 'px-2.5 py-2 pr-7',
                     thread.id === activeThreadId
                       ? 'border-indigo-200 dark:border-indigo-800 bg-indigo-50 dark:bg-indigo-500/10'
                       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-800/50'
@@ -777,9 +777,9 @@ export default function ChatPage() {
                     </div>
                   ) : (
                     <>
-                      <div className="flex items-center gap-1.5 min-w-0">
+                      <div className="flex items-center gap-1.5 min-w-0 w-full overflow-hidden">
                         {thread.type === 'video' ? <Video className="w-3 h-3 text-indigo-500 shrink-0" /> : <Lightbulb className="w-3 h-3 text-amber-500 shrink-0" />}
-                        <p className={cn('text-xs font-medium truncate flex-1 min-w-0', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
+                        <p className={cn('text-xs font-medium truncate min-w-0 flex-1 block', thread.id === activeThreadId ? 'text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400')}>
                           {thread.title}
                         </p>
                       </div>
@@ -792,7 +792,7 @@ export default function ChatPage() {
                 {!sidebarCollapsed && (
                   <button
                     onClick={(e) => { e.stopPropagation(); setDeleteModalThread({ id: thread.id, title: thread.title }) }}
-                    className="absolute right-1 top-1 p-1 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition"
+                    className="absolute right-1 top-2 p-1 rounded opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-500/10 transition z-10"
                     title="Delete thread"
                   >
                     <Trash2 className="w-3 h-3" />
@@ -908,8 +908,8 @@ export default function ChatPage() {
     )}>
       {/* Desktop Thread List Sidebar */}
       <div className={cn(
-        "hidden md:flex bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200 min-w-0",
-        sidebarCollapsed ? "w-12" : "w-56"
+        "hidden md:flex flex-col bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-800 shrink-0 transition-all duration-200 min-w-0 overflow-hidden",
+        sidebarCollapsed ? "w-12 max-w-12" : "w-56 max-w-[14rem]"
       )}>
         {threadList}
       </div>
