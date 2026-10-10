@@ -1726,13 +1726,29 @@ export class ChatService {
         (topicSrc === 'conversation-heading' && wantsLocalNews);
       let pack: LocalScenePack | null = null;
 
-      // 1) Local market pack — market-story asks (user-named subject or bare).
-      //    Subject-less non-footage asks never reach here: no subject, no pack
-      //    (an honest absence beats random clips).
+      // 1) Primary autonomous pipeline: findAdaptiveFootagePack across all US cities
+      if (wantsFootage || (topicCat && !!topic)) {
+        const denyChannelIds = await this.getFootageDenyChannelIds(channel);
+        pack = await this.localNewsService.findAdaptiveFootagePack({
+          userId: channel.userId.toString(),
+          channelId: channel._id?.toString(),
+          primaryEntity: footageIntent?.primaryEntity || topic || undefined,
+          eventOrTopic: footageIntent?.eventOrTopic || topic || undefined,
+          locationHint: footageIntent?.locationHint || (market ? market.label : undefined),
+          storyType: footageIntent?.storyType,
+          requestTypes: footageIntent?.requestTypes,
+          newsQueries: footageIntent?.newsQueries,
+          brollQueries: footageIntent?.brollQueries,
+          denyChannelIds,
+        });
+      }
+
+      // Legacy fallbacks if findAdaptiveFootagePack returned null or has no clips (for mocks in older tests)
+      const hasAdaptiveClips = pack && (pack.clips.length > 0 || (pack.brollClips && pack.brollClips.length > 0));
       const runLocal =
-        wantsLocal && market != null && localFirst && (!!topic || wantsFootage) && !wantsBrollOnly;
+        !hasAdaptiveClips && wantsLocal && market != null && localFirst && (!!topic || wantsFootage) && !wantsBrollOnly;
       if (runLocal) {
-        pack = await this.localNewsService.findFootagePack({
+        const localPack = await this.localNewsService.findFootagePack({
           userId: channel.userId.toString(),
           topic: topic || '',
           locationHint: marketMsg ? message : conversationText,
@@ -1740,14 +1756,16 @@ export class ChatService {
           maxClips: 5,
           maxSeconds: 360,
         });
+        if (localPack) pack = localPack;
       }
 
       // 2) Topic pack — always for thread/trend subjects; for user-named
       //    subjects only when the local pack is absent or empty.
+      const hasLocalClips = pack && pack.clips.length > 0;
       const runTopicPack =
+        !hasLocalClips &&
         wantsTopic &&
         !!topic &&
-        (!localFirst || !pack || pack.clips.length === 0) &&
         !wantsBrollOnly;
       if (runTopicPack && topic) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
@@ -1823,13 +1841,13 @@ export class ChatService {
           if (topicPack.clips.length > 0 && !fallback) fallback = topicPack;
           if (topicPack.clips.length === 0 && !thin) thin = topicPack;
         }
-        if (!pack) pack = fallback || thin;
+        if (!pack || pack.clips.length === 0) pack = fallback || thin || pack;
       }
 
       // 3) Raw celebrity B-roll clips (5–7 clips, strict anti-commentary filter)
       let brollPack: LocalScenePack | null = null;
       const brollSubject = (footageIntent?.primaryEntity || topic || '').trim();
-      if (wantsBroll && brollSubject) {
+      if (!pack && wantsBroll && brollSubject) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
         brollPack = await this.localNewsService.findCelebrityBrollPack({
           userId: channel.userId.toString(),
@@ -1994,7 +2012,8 @@ export class ChatService {
       const lines = pack.clips.map((c, i) => {
         const mins = Math.floor(c.durationSeconds / 60);
         const secs = c.durationSeconds % 60;
-        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`;
+        const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`;
       });
       return [
         `## 🎬 RAW CELEBRITY B-ROLL CLIPS (${pack.topic})`,
@@ -2016,7 +2035,8 @@ export class ChatService {
       const brollLines = pack.brollClips.map((c, i) => {
         const mins = Math.floor(c.durationSeconds / 60);
         const secs = c.durationSeconds % 60;
-        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views`;
+        const label = c.tierLabel ? ` | ${c.tierLabel}` : '';
+        return `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`;
       });
       return [
         '## 🎬 VERIFIED FOOTAGE PACK',

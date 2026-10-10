@@ -2,11 +2,92 @@ import { Injectable, Logger } from '@nestjs/common';
 import { YouTubeService } from './youtube.service';
 import { QuotaService } from '../quota/quota.service';
 import {
+  TIER1_LABEL,
   TIER2_LABEL,
+  LIKELY_LOCAL_LABEL,
+  BROLL_LABEL,
   COMMENTARY_TITLE_SKIP,
   BROLL_REACTION_TITLE_SKIP,
   getAllowedChannel,
+  isAllowedChannel,
+  isTier1AllowedChannel,
+  isTier2AllowedChannel,
+  isLikelyBroadcastStation,
+  LOCAL_STATION_REGEX,
+  BROADCAST_CALLSIGN_REGEX,
 } from './news-channels';
+import type { StoryType } from '../chat/footage-intent.service';
+
+export function normalizeText(text: string): string {
+  return (text || '')
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .toLowerCase();
+}
+
+export function requiredMatches(n: number): number {
+  if (n <= 2) return n;
+  return Math.max(2, Math.ceil(0.6 * n));
+}
+
+export function escapeRegex(s: string): string {
+  return (s || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+export function rankAndCapNews(clips: LocalClip[]): LocalClip[] {
+  const getTierPriority = (c: LocalClip) => {
+    if (c.tierLabel === LIKELY_LOCAL_LABEL) return 2;
+    if (c.tierLabel === TIER2_LABEL) return 1;
+    return 3; // Tier 1 allowlist
+  };
+
+  return [...clips]
+    .sort((a, b) => {
+      const pDiff = getTierPriority(b) - getTierPriority(a);
+      if (pDiff !== 0) return pDiff;
+
+      const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      if (bTime !== aTime) return bTime - aTime;
+
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    })
+    .slice(0, 3);
+}
+
+export function rankAndCapBroll(clips: LocalClip[], entityTokens?: Set<string>): LocalClip[] {
+  const durationPenalty = (sec: number) => {
+    if (sec >= 15 && sec <= 120) return 0;
+    if (sec < 15) return 15 - sec;
+    return sec - 120;
+  };
+
+  const getEntityScore = (c: LocalClip) => {
+    if (!entityTokens || entityTokens.size === 0) return 0;
+    const norm = normalizeText(c.title);
+    let score = 0;
+    for (const t of entityTokens) {
+      if (norm.includes(t)) score++;
+    }
+    return score;
+  };
+
+  return [...clips]
+    .sort((a, b) => {
+      const scoreDiff = getEntityScore(b) - getEntityScore(a);
+      if (scoreDiff !== 0) return scoreDiff;
+
+      const penDiff = durationPenalty(a.durationSeconds) - durationPenalty(b.durationSeconds);
+      if (penDiff !== 0) return penDiff;
+
+      const aTime = a.publishedAt ? new Date(a.publishedAt).getTime() : 0;
+      const bTime = b.publishedAt ? new Date(b.publishedAt).getTime() : 0;
+      if (bTime !== aTime) return bTime - aTime;
+
+      return (b.viewCount || 0) - (a.viewCount || 0);
+    })
+    .slice(0, 2);
+}
 
 export interface LocalClip {
   videoId: string;
@@ -18,7 +99,7 @@ export interface LocalClip {
   thumbnailUrl?: string;
   publishedAt?: string;
   market?: string;
-  /** Provenance label for Tier-2 clips ("urban news outlet"). */
+  /** Provenance label for clips ("likely local station", "urban news outlet", "contextual B-roll"). */
   tierLabel?: string;
   clipType?: 'news' | 'broll';
 }
@@ -444,6 +525,13 @@ export class LocalNewsService {
       }
     >();
     for (const query of queries) {
+      if (this.quotaService) {
+        try {
+          await this.quotaService.checkQuota(params.userId, 'search.list (localNews)', 100);
+        } catch {
+          break;
+        }
+      }
       try {
         const rows = await this.youtubeService.searchVideos({
           userId: params.userId,
@@ -923,6 +1011,13 @@ export class LocalNewsService {
     );
 
     for (const query of queries) {
+      if (this.quotaService) {
+        try {
+          await this.quotaService.checkQuota(params.userId, 'search.list (broll)', 100);
+        } catch {
+          break;
+        }
+      }
       try {
         const rows = await this.youtubeService.searchVideos({
           userId: params.userId,
@@ -1039,6 +1134,388 @@ export class LocalNewsService {
     };
   }
 
+  /**
+   * Client-Centric Autonomous Video Footage Pipeline.
+   * Discovers broadcast news and contextual B-roll across any US city without hardcoded market gates.
+   * Gated by storyType, with independent news and B-roll branches.
+   * Strictly caps at max 3 news clips and max 2 B-roll clips.
+   */
+  async findAdaptiveFootagePack(params: {
+    userId: string;
+    channelId?: string;
+    primaryEntity?: string;
+    eventOrTopic?: string;
+    locationHint?: string;
+    storyType?: StoryType;
+    requestTypes?: Array<'news' | 'broll'>;
+    newsQueries?: string[];
+    brollQueries?: string[];
+    denyChannelIds?: string[];
+  }): Promise<LocalScenePack | null> {
+    const entity = (params.primaryEntity || '').trim().slice(0, 100);
+    const eventOrTopic = (params.eventOrTopic || '').trim().slice(0, 120);
+    const location = (params.locationHint || '').trim().slice(0, 80);
+    const storyType: StoryType = params.storyType || 'general';
+    const requestTypes = params.requestTypes && params.requestTypes.length > 0
+      ? params.requestTypes
+      : ['news'];
+
+    if (!entity && !eventOrTopic) return null;
+    const topic = eventOrTopic || entity;
+
+    // Composite cache key
+    const cacheKey = `${params.userId}::${entity.toLowerCase()}::${eventOrTopic.toLowerCase()}::${[...requestTypes].sort().join(',')}::${(location || 'none').toLowerCase()}`;
+    const hit = this.topicCache.get(cacheKey);
+    if (hit && hit.expiresAt > Date.now()) {
+      this.logger.log(`[AdaptiveFootagePack] cache hit key="${cacheKey}"`);
+      return hit.pack;
+    }
+
+    // Pre-check OAuth access token early
+    let accessToken = '';
+    try {
+      accessToken = await this.youtubeService.getValidAccessToken(params.userId);
+    } catch (err: any) {
+      this.logger.warn(`[AdaptiveFootagePack] auth check failed: ${err?.message || err}`);
+      return {
+        market: location || 'News & B-Roll',
+        locationLabel: location || 'Verified Footage',
+        topic,
+        stations: [],
+        clips: [],
+        note: 'YouTube account access required. Please reconnect your Google account in settings to fetch verified video clips.',
+        kind: 'combined',
+      };
+    }
+
+    // Check footage sub-cap (25/day)
+    if (this.quotaService) {
+      const usedToday = await this.quotaService.countEndpointCallsToday(FOOTAGE_ENDPOINT);
+      if (usedToday >= FOOTAGE_DAILY_SEARCH_CAP) {
+        return {
+          market: location || 'News & B-Roll',
+          locationLabel: location || 'Verified Footage',
+          topic,
+          stations: [],
+          clips: [],
+          note: `Footage search daily cap reached (${usedToday}/${FOOTAGE_DAILY_SEARCH_CAP}). Do not invent video IDs — render the "footage thin" note.`,
+          kind: 'combined',
+        };
+      }
+    }
+
+    const deny = new Set(params.denyChannelIds || []);
+    const publishedAfter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const entityTokens = this.significantTokens(entity || topic);
+    const reqEntityMatches = requiredMatches(entityTokens.size);
+    const locRegex = location ? new RegExp(`\\b${escapeRegex(location)}\\b`, 'i') : null;
+
+    let quotaTripped = false;
+    let searchesRun = 0;
+    const MAX_SEARCHES = 3;
+
+    type RawCandidate = {
+      videoId: string;
+      title: string;
+      channelTitle: string;
+      channelId: string;
+      thumbnailUrl: string;
+    };
+
+    const newsRawCandidates: RawCandidate[] = [];
+    const brollRawCandidates: RawCandidate[] = [];
+
+    // 1. NEWS PIPELINE
+    if (requestTypes.includes('news')) {
+      const defaultNewsQueries: string[] = [];
+      if (location) {
+        defaultNewsQueries.push(`${location} news ${topic}`);
+        defaultNewsQueries.push(`${topic} news`);
+      } else {
+        defaultNewsQueries.push(`${topic} news`);
+        defaultNewsQueries.push(`${topic} court hearing`);
+      }
+      const newsQueries = params.newsQueries?.length
+        ? params.newsQueries.slice(0, 2)
+        : defaultNewsQueries.slice(0, 2);
+
+      for (const query of newsQueries) {
+        if (searchesRun >= MAX_SEARCHES) break;
+        if (this.quotaService) {
+          try {
+            await this.quotaService.checkQuota(params.channelId || 'footage-pack', FOOTAGE_ENDPOINT, FOOTAGE_SEARCH_COST);
+          } catch (err: any) {
+            this.logger.warn(`[AdaptivePack] news checkQuota failed: ${err?.message || err}`);
+            quotaTripped = true;
+            break;
+          }
+        }
+
+        try {
+          const rows = await this.youtubeService.searchVideos({
+            userId: params.userId,
+            query,
+            publishedAfter,
+            regionCode: 'US',
+            maxResults: 25,
+          });
+          searchesRun++;
+          if (this.quotaService) {
+            await this.quotaService.logCall({
+              channelId: 'footage-pack',
+              endpoint: FOOTAGE_ENDPOINT,
+              quotaCost: FOOTAGE_SEARCH_COST,
+              success: true,
+              relatedId: query.slice(0, 80),
+            });
+          }
+
+          for (const r of (rows as RawCandidate[]) || []) {
+            if (!r.videoId || deny.has(r.channelId)) continue;
+            if (newsRawCandidates.some((c) => c.videoId === r.videoId)) continue;
+
+            const isHearing = /\b(court hearing|preliminary hearing|hearing|arraignment|testimony|verdict)\b/i.test(r.title);
+            const isAllowed = isAllowedChannel(r.channelId);
+            const isLocal = isLikelyBroadcastStation(r.channelTitle);
+
+            // Skip unverified non-stations
+            if (!isAllowed && !isLocal) continue;
+
+            // Anti-commentary filter applies only to unverified channels (hearings protected)
+            if (!isAllowed && COMMENTARY_TITLE_SKIP.test(r.title) && !isHearing) continue;
+
+            // Entity token matching check
+            const normTitle = normalizeText(r.title);
+            let matchCount = 0;
+            for (const tok of entityTokens) {
+              if (normTitle.includes(tok)) matchCount++;
+            }
+            if (entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
+
+            // Location gating for local_crime / breaking_crime
+            if (storyType === 'local_crime' || storyType === 'breaking_crime') {
+              const matchesLoc = locRegex ? (locRegex.test(r.title) || locRegex.test(r.channelTitle)) : false;
+              if (!matchesLoc && !isLocal) continue;
+            }
+
+            newsRawCandidates.push(r);
+          }
+        } catch (err: any) {
+          this.logger.warn(`[AdaptivePack] news search error: ${err?.message || err}`);
+          if (/quotaExceeded|rateLimitExceeded/i.test(err?.message || '')) {
+            quotaTripped = true;
+          }
+          break;
+        }
+      }
+    }
+
+    // 2. B-ROLL PIPELINE
+    if (requestTypes.includes('broll') && !quotaTripped && searchesRun < MAX_SEARCHES) {
+      const defaultBrollQueries: string[] = [];
+      if (storyType === 'celebrity_hiphop') {
+        defaultBrollQueries.push(`${entity || topic} lifestyle clips`);
+        defaultBrollQueries.push(`${entity || topic} moments shorts`);
+      } else {
+        defaultBrollQueries.push(`${location || topic} courthouse b-roll`);
+        defaultBrollQueries.push(`${topic} b-roll exterior`);
+      }
+      const brollQueries = params.brollQueries?.length
+        ? params.brollQueries.slice(0, MAX_SEARCHES - searchesRun)
+        : defaultBrollQueries.slice(0, MAX_SEARCHES - searchesRun);
+
+      for (const query of brollQueries) {
+        if (searchesRun >= MAX_SEARCHES) break;
+        if (this.quotaService) {
+          try {
+            await this.quotaService.checkQuota(params.channelId || 'footage-pack', FOOTAGE_ENDPOINT, FOOTAGE_SEARCH_COST);
+          } catch (err: any) {
+            this.logger.warn(`[AdaptivePack] broll checkQuota failed: ${err?.message || err}`);
+            quotaTripped = true;
+            break;
+          }
+        }
+
+        try {
+          const rows = await this.youtubeService.searchVideos({
+            userId: params.userId,
+            query,
+            publishedAfter: new Date(Date.now() - 730 * 24 * 60 * 60 * 1000), // 2-year lookback for B-roll
+            maxResults: 25,
+          });
+          searchesRun++;
+          if (this.quotaService) {
+            await this.quotaService.logCall({
+              channelId: 'footage-pack',
+              endpoint: FOOTAGE_ENDPOINT,
+              quotaCost: FOOTAGE_SEARCH_COST,
+              success: true,
+              relatedId: query.slice(0, 80),
+            });
+          }
+
+          for (const r of (rows as RawCandidate[]) || []) {
+            if (!r.videoId || deny.has(r.channelId)) continue;
+            if (brollRawCandidates.some((c) => c.videoId === r.videoId)) continue;
+
+            const isHearing = /\b(court hearing|preliminary hearing|hearing|arraignment|testimony|verdict)\b/i.test(r.title);
+            const isAllowed = isAllowedChannel(r.channelId);
+
+            // Anti-reaction & commentary filter applies to unverified channels (hearings protected)
+            if (!isAllowed && BROLL_REACTION_TITLE_SKIP.test(r.title) && !isHearing) continue;
+
+            brollRawCandidates.push(r);
+          }
+        } catch (err: any) {
+          this.logger.warn(`[AdaptivePack] broll search error: ${err?.message || err}`);
+          if (/quotaExceeded|rateLimitExceeded/i.test(err?.message || '')) {
+            quotaTripped = true;
+          }
+          break;
+        }
+      }
+    }
+
+    // 3. VERIFICATION & DETAIL RETRIEVAL VIA videos.list
+    const allCandidateIds = [
+      ...newsRawCandidates.slice(0, 15).map((c) => c.videoId),
+      ...brollRawCandidates.slice(0, 15).map((c) => c.videoId),
+    ];
+
+    let detailsMap = new Map<string, any>();
+    if (allCandidateIds.length > 0) {
+      try {
+        const details = await this.youtubeService.getVideoDetails(accessToken, allCandidateIds);
+        detailsMap = new Map(details.map((d: any) => [d.videoId, d]));
+      } catch (err: any) {
+        this.logger.warn(`[AdaptivePack] getVideoDetails error: ${err?.message || err}`);
+      }
+    }
+
+    // Filter and build validated News Clips
+    const validatedNewsClips: LocalClip[] = [];
+    for (const r of newsRawCandidates) {
+      const d = detailsMap.get(r.videoId);
+      if (!d || d.embeddable === false) continue;
+      if (!d.durationSeconds || d.durationSeconds <= 0 || d.durationSeconds > 900) continue;
+
+      let tierLabel: string | undefined = undefined;
+      if (isTier2AllowedChannel(r.channelId)) {
+        tierLabel = TIER2_LABEL;
+      } else if (isLikelyBroadcastStation(r.channelTitle) && !isTier1AllowedChannel(r.channelId)) {
+        tierLabel = LIKELY_LOCAL_LABEL;
+      }
+
+      validatedNewsClips.push({
+        videoId: r.videoId,
+        title: d.title || r.title,
+        channelTitle: d.channelTitle || r.channelTitle,
+        videoUrl: d.videoUrl || `https://www.youtube.com/watch?v=${r.videoId}`,
+        durationSeconds: d.durationSeconds,
+        viewCount: d.viewCount || 0,
+        thumbnailUrl: d.thumbnailUrl || r.thumbnailUrl,
+        publishedAt: d.publishedAt,
+        tierLabel,
+        clipType: 'news',
+      });
+    }
+
+    // Filter and build validated B-Roll Clips
+    const validatedBrollClips: LocalClip[] = [];
+    for (const r of brollRawCandidates) {
+      const d = detailsMap.get(r.videoId);
+      if (!d || d.embeddable === false) continue;
+      if (!d.durationSeconds || d.durationSeconds <= 0) continue;
+
+      const isAllowed = isAllowedChannel(r.channelId);
+
+      // Duration limits: verified channels up to 2,400s (40 min pressers/hearings); unverified strictly <= 240s
+      const maxBrollSeconds = isAllowed ? 2400 : 240;
+      if (d.durationSeconds > maxBrollSeconds) continue;
+
+      // Category 10 exclusion for celebrity B-roll
+      if (storyType === 'celebrity_hiphop' && d.categoryId === '10') continue;
+
+      // Visual terms & entity gating for B-roll
+      const normTitle = normalizeText(d.title || r.title);
+      let matchCount = 0;
+      for (const tok of entityTokens) {
+        if (normTitle.includes(tok)) matchCount++;
+      }
+
+      if (storyType === 'celebrity_hiphop') {
+        const visualMatch = /\b(walking|eating|arriving|exterior|appearance|crowd|interview|lifestyle|moments|b-roll|clips|shorts|court)\b/i.test(normTitle);
+        if (!visualMatch) continue;
+        if (entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
+      } else {
+        const visualInstMatch = /\b(courthouse|courtroom|exterior|b-roll|skyline|aerial|police|station|scene|footage|raw|bodycam|dashcam|surveillance|traffic\s*cam|presser|conference|briefing)\b/i.test(normTitle);
+        if (!visualInstMatch) continue;
+        // Pressers/hearings longer than 240s must match entity
+        if (d.durationSeconds > 240 && entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
+      }
+
+      validatedBrollClips.push({
+        videoId: r.videoId,
+        title: d.title || r.title,
+        channelTitle: d.channelTitle || r.channelTitle,
+        videoUrl: d.videoUrl || `https://www.youtube.com/watch?v=${r.videoId}`,
+        durationSeconds: d.durationSeconds,
+        viewCount: d.viewCount || 0,
+        thumbnailUrl: d.thumbnailUrl || r.thumbnailUrl,
+        publishedAt: d.publishedAt,
+        tierLabel: BROLL_LABEL,
+        clipType: 'broll',
+      });
+    }
+
+    // Rank & Cap (Max 3 News, Max 2 B-Roll)
+    const finalNewsClips = rankAndCapNews(validatedNewsClips);
+    const finalBrollClips = rankAndCapBroll(validatedBrollClips, entityTokens);
+
+    const isCombined = requestTypes.includes('news') && requestTypes.includes('broll');
+    const kind: 'combined' | 'topic' | 'broll' = isCombined
+      ? 'combined'
+      : requestTypes.includes('broll')
+        ? 'broll'
+        : 'topic';
+
+    const stations = [
+      ...new Set([
+        ...finalNewsClips.map((c) => c.channelTitle),
+        ...finalBrollClips.map((c) => c.channelTitle),
+      ]),
+    ];
+
+    let note = '';
+    if (quotaTripped) {
+      note = finalNewsClips.length > 0 || finalBrollClips.length > 0
+        ? 'Search results incomplete due to rate limits. Use as B-roll only; verify rights/editorial before monetized use.'
+        : 'Footage search is temporarily unavailable.';
+    } else if (finalNewsClips.length === 0 && finalBrollClips.length === 0) {
+      note = 'No verified clips found. Use courthouse/agency B-roll or licensed pool feed, or ask me: "news clips for [topic]".';
+    } else {
+      note = 'Use as B-roll only; verify rights/editorial before monetized use.';
+    }
+
+    const pack: LocalScenePack = {
+      market: location || (storyType === 'celebrity_hiphop' ? 'Celebrity Footage' : 'National / Local'),
+      locationLabel: location || 'Verified Footage',
+      topic,
+      stations,
+      clips: kind === 'broll' ? finalBrollClips : finalNewsClips,
+      brollClips: kind === 'combined' ? finalBrollClips : undefined,
+      note,
+      kind,
+    };
+
+    // Cache with zero-TTL on quota trip
+    if (!quotaTripped) {
+      this.cacheTopicPack(cacheKey, pack, pack.clips.length === 0 && (!pack.brollClips || pack.brollClips.length === 0));
+    }
+
+    return pack;
+  }
+
   /** Render pack for model dynamic context. */
   formatPack(pack: LocalScenePack): string {
     const lines: string[] = [];
@@ -1075,7 +1552,7 @@ export class LocalNewsService {
           `${i + 1}. [${c.channelTitle}: ${c.title}](${c.videoUrl}) — ${mins}:${String(secs).padStart(2, '0')} | ${c.viewCount.toLocaleString()} views${label}`,
         );
       });
-      lines.push(`\n### 🎥 Raw Celebrity B-Roll Clips:`);
+      lines.push(`\n### 🎥 Raw B-Roll & Visual Cutaways:`);
       pack.brollClips.forEach((c, i) => {
         const mins = Math.floor(c.durationSeconds / 60);
         const secs = c.durationSeconds % 60;

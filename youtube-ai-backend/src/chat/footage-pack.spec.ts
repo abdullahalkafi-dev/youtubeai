@@ -37,7 +37,7 @@ const host = Object.create(ChatService.prototype) as unknown as PackHost;
 
 const makePack = (
   clips: LocalScenePack['clips'],
-  kind: 'local' | 'topic' = 'topic',
+  kind: LocalScenePack['kind'] = 'topic',
 ): LocalScenePack => ({
   market: 'Topic (no local market)',
   locationLabel: 'Topic footage pack',
@@ -666,4 +666,141 @@ describe('FootageIntentService — natural language & speech quirks parsing', ()
     expect(res.requestTypes).toContain('news');
   });
 });
+
+describe('Phase 4 — Adaptive Footage Pack Rendering & Intent Gating', () => {
+  it('renders B-roll tierLabel ("contextual B-roll") on both combined and standalone blocks', () => {
+    const combinedPack: LocalScenePack = {
+      market: 'News & B-Roll',
+      locationLabel: 'Verified Footage',
+      topic: 'Lil Durk',
+      stations: ['NBCLA', 'RapMoments'],
+      clips: [clip('news01', { tierLabel: 'likely local station' })],
+      brollClips: [clip('broll01', { tierLabel: 'contextual B-roll' })],
+      note: 'Use as B-roll only; verify rights/editorial before monetized use.',
+      kind: 'combined',
+    };
+    const combinedBlock = host.buildFootagePackBlock(combinedPack);
+    expect(combinedBlock).toContain('likely local station');
+    expect(combinedBlock).toContain('contextual B-roll');
+    expect(combinedBlock).toContain('Use as B-roll only; verify rights/editorial before monetized use.');
+
+    const standaloneBroll: LocalScenePack = {
+      market: 'Celebrity B-Roll',
+      locationLabel: 'Raw Celebrity Footage',
+      topic: 'Lil Durk',
+      stations: ['RapMoments'],
+      clips: [clip('broll02', { tierLabel: 'contextual B-roll' })],
+      note: 'Use as B-roll only; verify rights/editorial before monetized use.',
+      kind: 'broll',
+    };
+    const standaloneBlock = host.buildFootagePackBlock(standaloneBroll);
+    expect(standaloneBlock).toContain('contextual B-roll');
+    expect(standaloneBlock).toContain('Use as B-roll only; verify rights/editorial before monetized use.');
+  });
+
+  it('renders rate-limit notice in plain text when quota is tripped', () => {
+    const rateLimitPack: LocalScenePack = {
+      market: 'News & B-Roll',
+      locationLabel: 'Verified Footage',
+      topic: 'Lil Durk',
+      stations: ['NBCLA'],
+      clips: [clip('news01')],
+      note: 'Search results incomplete due to rate limits. Use as B-roll only; verify rights/editorial before monetized use.',
+      kind: 'topic',
+    };
+    const block = host.buildFootagePackBlock(rateLimitPack);
+    expect(block).toContain('Search results incomplete due to rate limits');
+  });
+
+  it('routes to findAdaptiveFootagePack and isolates news-only vs broll-only requests', async () => {
+    const adaptiveSpy = jest
+      .spyOn(LocalNewsService.prototype, 'findAdaptiveFootagePack')
+      .mockResolvedValue(makePack([clip('news1')], 'topic'));
+
+    const pack = await host.loadFootagePack(
+      { userId: { toString: () => 'u1' } },
+      'give me news clips for Lil Durk in Chicago',
+      'general',
+      '',
+      true,
+    );
+
+    expect(pack).not.toBeNull();
+    expect(adaptiveSpy).toHaveBeenCalled();
+    const callArgs = adaptiveSpy.mock.calls[0][0];
+    expect(callArgs.userId).toBe('u1');
+    expect(callArgs.primaryEntity?.toLowerCase()).toContain('lil durk');
+    adaptiveSpy.mockRestore();
+  });
+});
+
+describe('Real Production VPS Client Queries (In-The-Wild Prompts)', () => {
+  const svc = new FootageIntentService(null as any);
+
+  it('handles client query from Thread 6ac92fd1d96b08964efa9b8f with context anaphora', () => {
+    // Exact user prompt from production VPS:
+    const message = 'Can you give me some local news for this video Topic and plus some brolls  clip so I can use';
+    const conversationText = [
+      '## Make This Today: **Tren de Aragua — 20 Years for the "Loyalty" That Destroyed Them**',
+      'Three defendants were sentenced on October 5, 2026, to 240 months each after guilty pleas in a Denver kidnapping case.',
+    ].join('\n');
+
+    const res = svc.fallbackRegexExtraction(message, conversationText);
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('news');
+    expect(res.requestTypes).toContain('broll');
+  });
+
+  it('handles client query from Thread 6ac8fc05a3b681862dfb62ac for Bronx local news', () => {
+    // Exact user prompt from production VPS:
+    const message = 'give me the links to the local news dealing with this Bronx man push baby over balcony on YouTube';
+    const res = svc.fallbackRegexExtraction(message);
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('news');
+  });
+
+  it('handles client query from Thread 6ac1fde3d06b46ee20c2825d for Rick Ross local news', () => {
+    // Exact user prompt from production VPS:
+    const message = 'give me a couple of videos on the Rick Ross story from local news on YouTube';
+    const res = svc.fallbackRegexExtraction(message);
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('news');
+    expect(res.primaryEntity.toLowerCase()).toContain('rick ross');
+  });
+
+  it('detects footage intent in client speech variants ("best local news videos that I could use")', () => {
+    // Exact user prompt from production VPS:
+    const message = 'give me the best local news videos that I could use to show this story to my viewers';
+    const res = svc.fallbackRegexExtraction(message);
+    expect(res.hasFootageIntent).toBe(true);
+    expect(res.requestTypes).toContain('news');
+  });
+
+  it('end-to-end integration: loadFootagePack resolves client prompt with context and calls findAdaptiveFootagePack', async () => {
+    const adaptiveSpy = jest
+      .spyOn(LocalNewsService.prototype, 'findAdaptiveFootagePack')
+      .mockResolvedValue(makePack([clip('news1')], 'combined'));
+
+    const hostWithSvc = Object.create(ChatService.prototype) as unknown as PackHost;
+    hostWithSvc.localNewsService = new LocalNewsService({} as any, {} as any);
+    hostWithSvc.footageIntentService = svc;
+    hostWithSvc.logger = { warn: jest.fn(), log: jest.fn() } as any;
+
+    const pack = await hostWithSvc.loadFootagePack(
+      { userId: { toString: () => 'client-user-1' } },
+      'Can you give me some local news for this video Topic and plus some brolls  clip so I can use',
+      'general',
+      '## Tren de Aragua — 20 Years\nThree defendants sentenced in a Denver kidnapping case.',
+      true,
+    );
+
+    expect(pack).not.toBeNull();
+    expect(adaptiveSpy).toHaveBeenCalled();
+    const callArgs = adaptiveSpy.mock.calls[0][0];
+    expect(callArgs.userId).toBe('client-user-1');
+    adaptiveSpy.mockRestore();
+  });
+});
+
+
 

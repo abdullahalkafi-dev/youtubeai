@@ -83,7 +83,10 @@ export class QuotaService {
     return /search\.list|\(search\)/i.test(String(endpoint || ''));
   }
 
-  private readonly SEARCH_DAILY_CALL_LIMIT = 100;
+  private readonly SEARCH_DAILY_CALL_LIMIT = parseInt(
+    process.env.SEARCH_DAILY_CALL_LIMIT || '80',
+    10,
+  );
 
   /**
    * Pre-check: verify quota is available before making a YouTube API call.
@@ -98,8 +101,8 @@ export class QuotaService {
       return;
     }
     if (this.isSearchEndpoint(endpoint)) {
-      // Separate Google bucket: 100 search.list CALLS/day (not units of the 10k)
-      const search = await this.getSearchDailyUsage(channelId);
+      // Separate Google bucket: project-wide 80 search.list CALLS/day
+      const search = await this.getSearchDailyUsage();
       const calls = Math.max(1, Math.ceil(cost / 100));
       if (search.used + calls > search.limit) {
         this.logger.warn(
@@ -153,7 +156,7 @@ export class QuotaService {
     errorMessage?: string;
     apiType?: 'youtube_data' | 'youtube_analytics';
   }): Promise<void> {
-    if (params.errorMessage && /quota/i.test(params.errorMessage)) {
+    if (params.errorMessage && /quotaExceeded|rateLimitExceeded/i.test(params.errorMessage)) {
       // Google's wall is global. Comments-only budget messages also say "quota" —
       // only trip the full Data API pause for non-comment endpoints or real Google errors.
       if (this.isCommentEndpoint(params.endpoint) && /comments daily budget/i.test(params.errorMessage)) {
@@ -261,19 +264,13 @@ export class QuotaService {
 
   /**
    * search.list CALLS made today (PT day window — matches Google's midnight-PT reset).
-   * One logCall row = one search query. Google's own bucket: 100 calls/day.
+   * Project-wide count: all search queries across all channels since PT midnight.
    */
-  async getSearchDailyUsage(channelId: string) {
+  async getSearchDailyUsage(channelId?: string) {
     const ptMidnight = this.getPTMidnight();
     const model = this.channelModel.db.model('ApiQuotaLog') as any;
-    const isObjId = Types.ObjectId.isValid(channelId);
-    const cId = isObjId ? new Types.ObjectId(channelId) : null;
-    const channelMatch = cId
-      ? { $or: [{ channelId: cId }, { channelId }] }
-      : { $or: [{ youtubeChannelId: channelId }, { channelId }] };
 
     const used = await model.countDocuments({
-      ...channelMatch,
       calledAt: { $gte: ptMidnight },
       endpoint: /search\.list|\(search\)/,
     });
