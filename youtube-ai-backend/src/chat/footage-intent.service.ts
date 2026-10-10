@@ -194,7 +194,7 @@ ${params.trendTitles?.length ? `Trending Topics:\n${params.trendTitles.slice(0, 
    */
   fallbackRegexExtraction(message: string, context?: string): FootageIntentResult {
     const lower = message.toLowerCase();
-    const hasFootage = /\b(local news|footage|b-?roll|scene pack|news clips?|video clips?|collect (clips|footage)|clips? for (the )?script|local (tv|affiliates?|stations?)|video (for|about|of)|clips? (for|about|of)|shorts? (for|about|of)|reels? (for|about|of))\b/i.test(
+    const hasFootage = /\b(local news|footage|b-?roll|scene pack|news clips?|video clips?|collect (clips|footage)|clips? for (the )?script|local (tv|affiliates?|stations?)|video (for|about|of|on)|clips? (for|about|of|on)|shorts? (for|about|of|on)|reels? (for|about|of|on))\b/i.test(
       lower,
     );
 
@@ -215,13 +215,13 @@ ${params.trendTitles?.length ? `Trending Topics:\n${params.trendTitles.slice(0, 
       // 1. Strip trailing noise / platform / fillers
       .replace(/\s+(?:on|from)\s+youtube\b/gi, '')
       .replace(/\s+(?:so\s+i\s+can\s+use|for\s+the\s+script|for\s+this\s+video|to\s+show\s+(?:this\s+story\s+to\s+)?my\s+viewers)\b/gi, '')
-      .replace(/\s+(?:and\s+)?(?:plus\s+)?(?:some\s+)?(?:b-?rolls?(?:\s*clips?)?|clips?|footage|videos?)+\s*$/gi, '')
+      .replace(/\s+(?:and\s+)?(?:plus\s+)?(?:some\s+)?(?:b-?rolls?(?:\s*clips?)?|clips?|reels?|shorts?|footage|videos?)+\s*$/gi, '')
       // 2. Strip leading conversational openings
       .replace(/^(?:please\s+)?(?:can|could|would)\s+you\s+(?:please\s+)?(?:give|find|get|show|send)?\s*(?:me\s+)?/i, '')
       .replace(/^(?:i\s+)?(?:need|want|would like)\s+(?:to\s+)?(?:get|find|see)?\s*/i, '')
       .replace(/^give\s+me\s+/i, '')
       .replace(/^(?:a\s+couple\s+of|a\s+few|some|the\s+best|the\s+links?\s+to\s+(?:the)?)\s+/i, '')
-      .replace(/^(?:local\s+news\s+|news\s+)?(?:videos?|clips?|footage|b-?roll)\s*(?:on|about|for|dealing\s+with|of)?\s*/i, '')
+      .replace(/^(?:local\s+news\s+|news\s+)?(?:videos?|clips?|footage|b-?roll|reels?|shorts?)\s*(?:on|about|for|dealing\s+with|of)?\s*/i, '')
       .replace(/^(?:local\s+news\s+|news\s+)\s*(?:on|about|for|dealing\s+with|of)?\s*/i, '')
       .replace(/^(?:this|that|these|those)\s+/i, '')
       // 3. Strip trailing topic qualifiers

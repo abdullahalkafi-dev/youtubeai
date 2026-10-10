@@ -23,10 +23,19 @@ function isWeakTitle(title: string | undefined): boolean {
   return false
 }
 
-function scoreOccurrence(kind: 'image-link' | 'md-link' | 'bare', title?: string): number {
+function scoreOccurrence(
+  kind: 'image-link' | 'md-link' | 'bare',
+  title?: string,
+  afterText?: string,
+): number {
   if (kind === 'bare') return 1
   if (isWeakTitle(title)) return 2
-  return 10 + Math.min(title!.trim().length, 80)
+  let score = 10 + Math.min(title!.trim().length, 80)
+  // Give high priority to rich verified clips (containing duration & view count)
+  if (afterText && /\s*[—–-]\s*[\d:]+\s*\|\s*[\d,]+\s*views/i.test(afterText.slice(0, 80))) {
+    score += 100
+  }
+  return score
 }
 
 /** True if index sits inside a markdown link href `]( ... )` — do not bare-dedupe those. */
@@ -87,7 +96,8 @@ export function collapseDuplicateYouTubeCards(markdown: string): string {
     const title = m[1]
     // Image-in-link matches as a giant "title" — score like a weak label
     const kind = title.startsWith('![') || title.includes('](') ? 'image-link' : 'md-link'
-    add(id, scoreOccurrence(kind, title), m.index, m.index + m[0].length)
+    const afterText = markdown.slice(m.index + m[0].length)
+    add(id, scoreOccurrence(kind, title, afterText), m.index, m.index + m[0].length)
   }
 
   // 3) Bare / www / m URLs not already inside a markdown href
@@ -120,7 +130,35 @@ export function collapseDuplicateYouTubeCards(markdown: string): string {
     // never cut a span that overlaps a kept winner
     .filter((o) => !keep.some((k) => !(o.wrapEnd <= k.wrapStart || o.wrapStart >= k.wrapEnd)))
 
-  const cuts = mergeRanges(drop.map((o) => [o.wrapStart, o.wrapEnd] as [number, number]))
+  const cuts = mergeRanges(
+    drop.map((o) => {
+      let start = o.wrapStart
+      let end = o.wrapEnd
+
+      // Expand to clean whole line if this link sits inside a list item with metadata
+      const lineStart = markdown.lastIndexOf('\n', start - 1) + 1
+      let lineEnd = markdown.indexOf('\n', end)
+      if (lineEnd === -1) lineEnd = markdown.length
+
+      const before = markdown.slice(lineStart, start)
+      const after = markdown.slice(end, lineEnd)
+
+      const isListPrefix = /^\s*(?:\d+[\.\)]|\*|-)?\s*$/.test(before)
+      const isMetaOrEmpty = /^\s*(?:[—–-]\s*[\d:]+\s*\|\s*[\d,]+\s*views.*)?\s*$/i.test(after)
+
+      if (isListPrefix && isMetaOrEmpty) {
+        const expandedStart = lineStart
+        const expandedEnd = lineEnd + (markdown[lineEnd] === '\n' ? 1 : 0)
+        // Ensure expanded range never touches a kept winner
+        if (!keep.some((k) => !(expandedEnd <= k.wrapStart || expandedStart >= k.wrapEnd))) {
+          start = expandedStart
+          end = expandedEnd
+        }
+      }
+
+      return [start, end] as [number, number]
+    }),
+  )
   let out = ''
   let cursor = 0
   for (const [start, end] of cuts) {

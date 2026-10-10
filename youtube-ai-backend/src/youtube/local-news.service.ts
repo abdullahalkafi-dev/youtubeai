@@ -1300,6 +1300,11 @@ export class LocalNewsService {
 
             newsRawCandidates.push(r);
           }
+
+          // If news already found sufficient candidates and b-roll is requested, break to reserve search quota for b-roll
+          if (requestTypes.includes('broll') && newsRawCandidates.length >= 3) {
+            break;
+          }
         } catch (err: any) {
           this.logger.warn(`[AdaptivePack] news search error: ${err?.message || err}`);
           if (/quotaExceeded|rateLimitExceeded/i.test(err?.message || '')) {
@@ -1319,6 +1324,8 @@ export class LocalNewsService {
       } else {
         defaultBrollQueries.push(`${location || topic} courthouse b-roll`);
         defaultBrollQueries.push(`${topic} b-roll exterior`);
+        defaultBrollQueries.push(`${topic} shorts`);
+        defaultBrollQueries.push(`${topic} reels`);
       }
       const brollQueries = params.brollQueries?.length
         ? params.brollQueries.slice(0, MAX_SEARCHES - searchesRun)
@@ -1448,7 +1455,7 @@ export class LocalNewsService {
         if (!visualMatch) continue;
         if (entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
       } else {
-        const visualInstMatch = /\b(courthouse|courtroom|exterior|b-roll|skyline|aerial|police|station|scene|footage|raw|bodycam|dashcam|surveillance|traffic\s*cam|presser|conference|briefing)\b/i.test(normTitle);
+        const visualInstMatch = /\b(courthouse|courtroom|exterior|b-roll|skyline|aerial|police|station|scene|footage|raw|bodycam|dashcam|surveillance|traffic\s*cam|presser|conference|briefing|shorts|reels?|clips?)\b/i.test(normTitle);
         if (!visualInstMatch) continue;
         // Pressers/hearings longer than 240s must match entity
         if (d.durationSeconds > 240 && entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
