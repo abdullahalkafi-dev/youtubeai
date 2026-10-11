@@ -7,6 +7,7 @@ interface ChatState {
   activeThreadId: string | null
   activeThread: Thread | null
   loading: boolean
+  threadsLoading: boolean
   sending: boolean
   streamingContent: string
   error: string | null
@@ -19,6 +20,7 @@ const initialState: ChatState = {
   activeThreadId: null,
   activeThread: null,
   loading: false,
+  threadsLoading: false,
   sending: false,
   streamingContent: '',
   error: null,
@@ -188,13 +190,18 @@ const chatSlice = createSlice({
   },
   extraReducers: (builder) => {
     builder
-      .addCase(fetchThreads.pending, (state) => { state.loading = true })
+      .addCase(fetchThreads.pending, (state) => {
+        state.loading = true
+        state.threadsLoading = true
+      })
       .addCase(fetchThreads.fulfilled, (state, action) => {
         state.loading = false
+        state.threadsLoading = false
         state.threads = action.payload
       })
       .addCase(fetchThreads.rejected, (state) => {
         state.loading = false
+        state.threadsLoading = false
       })
       .addCase(createThread.fulfilled, (state, action) => {
         const thread = action.payload

@@ -132,9 +132,14 @@ export class ChatService {
     if (!includeArchived) filter.status = 'active';
     const threads = await this.threadModel
       .find(filter)
+      .select('-messages.embedding -messages.content -messages.metadata -messages.attachments')
       .sort({ updatedAt: -1 })
       .lean();
-    return leanDocs(threads);
+    return leanDocs(threads).map((t: any) => ({
+      ...t,
+      messageCount: Array.isArray(t.messages) ? t.messages.length : (t.messageCount || 0),
+      messages: undefined,
+    }));
   }
 
   async findByVideoId(channelId: string, videoId: string) {

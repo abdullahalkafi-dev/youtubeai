@@ -15,7 +15,7 @@ import { useSpeechRecognition } from '@/lib/hooks/use-speech-recognition'
 import { useAudioVisualizer } from '@/lib/hooks/use-audio-visualizer'
 import { useTheme } from '@/lib/hooks/use-theme'
 import { getCategoryColor } from '@/lib/category-colors'
-import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone, User, UserX, MessageSquare } from 'lucide-react'
+import { Plus, Video, Lightbulb, Send, Image, Download, Menu, X, Grid3X3, Star, Mic, MicOff, Paperclip, Pencil, Check, Square, Sparkles, Loader2, Trash2, ChevronLeft, ChevronRight, Wand2, Maximize2, Minimize2, Sun, Moon, Monitor, Smartphone, User, UserX, MessageSquare, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
@@ -94,9 +94,133 @@ function PreStreamLoader({ category, initialElapsed = 0 }: { category?: ThreadCa
   )
 }
 
+function GalleryImageCard({
+  img,
+  activeThread,
+  onEdit,
+  onSetThumbnail,
+  onDownload,
+}: {
+  img: ChatImage
+  activeThread: any
+  onEdit: (img: ChatImage) => void
+  onSetThumbnail: (img: ChatImage) => void
+  onDownload: (img: ChatImage) => void
+}) {
+  const [isLoaded, setIsLoaded] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const [retryCount, setRetryCount] = useState(0)
+
+  const rawUrl = formatAssetUrl(img.url)
+  const srcUrl = useMemo(() => {
+    if (!rawUrl) return ''
+    if (retryCount === 0) return rawUrl
+    const sep = rawUrl.includes('?') ? '&' : '?'
+    return `${rawUrl}${sep}retry=${retryCount}`
+  }, [rawUrl, retryCount])
+
+  const isVertical = (img as any).aspectRatio === '9:16'
+
+  return (
+    <div className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm transition hover:shadow-md">
+      <div
+        className={`relative bg-gray-100 dark:bg-gray-800/80 overflow-hidden ${
+          isVertical ? 'aspect-[9/16] max-w-[200px] mx-auto' : 'aspect-video'
+        }`}
+      >
+        {/* Shimmer skeleton & spinner while downloading over cellular 4G */}
+        {!isLoaded && !hasError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-r from-gray-100 via-gray-200/80 to-gray-100 dark:from-gray-800 dark:via-gray-700/60 dark:to-gray-800 animate-pulse z-10 p-2 text-center select-none">
+            <Loader2 className="w-5 h-5 text-violet-500 animate-spin mb-1.5" />
+            <span className="text-[10px] font-medium text-gray-500 dark:text-gray-400">Loading image...</span>
+          </div>
+        )}
+
+        {/* Error / Network Timeout Retry Fallback */}
+        {hasError && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gray-100/95 dark:bg-gray-800/95 z-10 p-3 text-center">
+            <p className="text-[10px] font-medium text-gray-500 dark:text-gray-400 mb-2">Image slow to load</p>
+            <button
+              onClick={() => {
+                setHasError(false)
+                setIsLoaded(false)
+                setRetryCount((c) => c + 1)
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 transition shadow-sm active:scale-95"
+            >
+              <RefreshCw className="w-3 h-3" /> Retry
+            </button>
+          </div>
+        )}
+
+        <img
+          key={srcUrl}
+          src={srcUrl}
+          alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'}
+          className={`w-full h-full object-cover transition-opacity duration-300 ${
+            isLoaded ? 'opacity-100' : 'opacity-0'
+          }`}
+          loading="lazy"
+          onLoad={() => {
+            setIsLoaded(true)
+            setHasError(false)
+          }}
+          onError={() => {
+            setHasError(true)
+            setIsLoaded(false)
+          }}
+        />
+
+        {/* Badges on top of image */}
+        <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap z-20 pointer-events-none">
+          {img.conceptTitle && (
+            <span className="px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
+              {img.conceptTitle}
+            </span>
+          )}
+          <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-gray-200 font-semibold text-[8px] backdrop-blur-sm">
+            {isVertical ? '9:16 Reel' : '16:9'}
+          </span>
+        </div>
+      </div>
+
+      <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
+        {img.textOverlay && (
+          <div className="bg-gray-900 text-white text-[10px] font-black tracking-wide uppercase px-2 py-1 rounded text-center leading-tight">
+            {img.textOverlay}
+          </div>
+        )}
+        <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
+        <div className="flex gap-1.5 pt-0.5">
+          <button
+            onClick={() => onEdit(img)}
+            className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
+          >
+            <Wand2 className="w-3 h-3" /> Edit
+          </button>
+          {activeThread?.videoId && (
+            <button
+              onClick={() => onSetThumbnail(img)}
+              className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1"
+            >
+              <Star className="w-3 h-3" /> Set
+            </button>
+          )}
+          <button
+            onClick={() => onDownload(img)}
+            className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold px-2 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1"
+          >
+            <Download className="w-3 h-3" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function ChatPage() {
   const dispatch = useAppDispatch()
-  const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, isDraftThread, loading: threadsLoading } = useAppSelector(s => s.chat)
+  const { threads, activeThreadId, activeThread, sending, streamingContent, selectedSkill, isDraftThread, loading: generalLoading, threadsLoading } = useAppSelector(s => s.chat)
   const channelId = useAppSelector(s => s.auth.activeChannelId)
   const isMobile = useIsMobile()
   const { theme, setTheme, resolvedTheme } = useTheme()
@@ -759,7 +883,7 @@ export default function ChatPage() {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto overflow-x-hidden w-full max-w-full min-w-0 py-2 px-2 space-y-0.5">
-        {threadsLoading && threads.length === 0 ? (
+        {(threadsLoading || !channelId) && threads.length === 0 ? (
           <div className="space-y-2 p-1">
             {[1, 2, 3, 4, 5].map((i) => (
               <div key={i} className="h-10 bg-gray-100 dark:bg-gray-800/80 rounded-lg animate-pulse p-2 space-y-1.5 border border-transparent">
@@ -767,6 +891,13 @@ export default function ChatPage() {
                 <div className="h-2 w-1/3 bg-gray-200 dark:bg-gray-700 rounded" />
               </div>
             ))}
+          </div>
+        ) : threads.length === 0 ? (
+          <div className="py-8 px-3 text-center space-y-2">
+            <p className="text-xs text-gray-400">No conversations yet</p>
+            <Button onClick={handleCreateThread} variant="outline" size="sm" className="text-xs gap-1 h-7">
+              <Plus className="w-3 h-3" /> Start First Chat
+            </Button>
           </div>
         ) : (
           threads.map((thread) => {
@@ -795,7 +926,7 @@ export default function ChatPage() {
                         </p>
                       </div>
                       <div className="flex items-center gap-1.5 mt-0.5 ml-4.5 min-w-0">
-                        <span className="text-xs text-gray-400">{thread.messageCount} msgs</span>
+                        <span className="text-xs text-gray-400">{thread.messageCount ?? 0} msgs</span>
                       </div>
                     </>
                   )}
@@ -853,56 +984,23 @@ export default function ChatPage() {
           </div>
         ) : (
           allImages.map((img) => (
-            <div key={img.id} className="rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
-              <div className={`relative bg-gray-100 dark:bg-gray-800 ${
-                (img as any).aspectRatio === '9:16'
-                  ? 'aspect-[9/16] max-w-[200px] mx-auto'
-                  : 'aspect-video'
-              }`}>
-                <img src={formatAssetUrl(img.url)} alt={img.conceptTitle || img.textOverlay || 'Generated Thumbnail'} className="w-full h-full object-cover" loading="lazy" />
-                <div className="absolute top-2 left-2 flex items-center gap-1.5 flex-wrap">
-                  {img.conceptTitle && (
-                    <span className="px-2 py-0.5 rounded-full bg-violet-600/90 text-white font-bold text-[9px] shadow-sm backdrop-blur-sm">
-                      {img.conceptTitle}
-                    </span>
-                  )}
-                  <span className="px-1.5 py-0.5 rounded-md bg-black/70 text-gray-200 font-semibold text-[8px] backdrop-blur-sm">
-                    {(img as any).aspectRatio === '9:16' ? '9:16 Reel' : '16:9'}
-                  </span>
-                </div>
-              </div>
-              <div className="p-2.5 bg-gray-50 dark:bg-gray-800/50 space-y-2">
-                {img.textOverlay && (
-                  <div className="bg-gray-900 text-white text-[10px] font-black tracking-wide uppercase px-2 py-1 rounded text-center leading-tight">
-                    {img.textOverlay}
-                  </div>
-                )}
-                <p className="text-[10px] text-gray-500 line-clamp-2 leading-snug">{img.prompt}</p>
-                <div className="flex gap-1.5 pt-0.5">
-                  <button
-                    onClick={() => setIteratingImage({
-                      url: img.url,
-                      mode: img.isSceneImage || (img as any).mode === 'scene' ? 'scene' : 'thumbnail',
-                      cleanUrl: (img as any).cleanBackgroundUrl || img.url,
-                      selectedHostImage: (img as any).selectedHostImage,
-                      logoPosition: (img as any).logoPosition || 'top-right',
-                      aspectRatio: (img as any).aspectRatio || '16:9',
-                    })}
-                    className="flex-1 bg-violet-600/10 dark:bg-violet-500/20 text-violet-700 dark:text-violet-300 hover:bg-violet-600/20 border border-violet-300 dark:border-violet-500/30 text-[10px] font-semibold py-1.5 rounded-md transition flex items-center justify-center gap-1"
-                  >
-                    <Wand2 className="w-3 h-3" /> Edit
-                  </button>
-                  {activeThread?.videoId && (
-                    <button onClick={() => handleSetThumbnail(img)} className="flex-1 bg-indigo-500 text-white text-[10px] font-semibold py-1.5 rounded-md hover:bg-indigo-600 transition flex items-center justify-center gap-1">
-                      <Star className="w-3 h-3" /> Set
-                    </button>
-                  )}
-                  <button onClick={() => handleDownload(img)} className="bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 text-[10px] font-semibold px-2 py-1.5 rounded-md hover:bg-gray-300 dark:hover:bg-gray-600 transition flex items-center justify-center gap-1">
-                    <Download className="w-3 h-3" />
-                  </button>
-                </div>
-              </div>
-            </div>
+            <GalleryImageCard
+              key={img.id}
+              img={img}
+              activeThread={activeThread}
+              onEdit={(targetImg) =>
+                setIteratingImage({
+                  url: targetImg.url,
+                  mode: targetImg.isSceneImage || (targetImg as any).mode === 'scene' ? 'scene' : 'thumbnail',
+                  cleanUrl: (targetImg as any).cleanBackgroundUrl || targetImg.url,
+                  selectedHostImage: (targetImg as any).selectedHostImage,
+                  logoPosition: (targetImg as any).logoPosition || 'top-right',
+                  aspectRatio: (targetImg as any).aspectRatio || '16:9',
+                })
+              }
+              onSetThumbnail={(targetImg) => handleSetThumbnail(targetImg)}
+              onDownload={(targetImg) => handleDownload(targetImg)}
+            />
           ))
         )}
       </div>
@@ -914,8 +1012,8 @@ export default function ChatPage() {
     <div className={cn(
       "flex overflow-hidden transition-all duration-150 min-w-0 max-w-full",
       isFocusMode
-        ? "fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 h-screen w-screen"
-        : "h-full min-h-0 w-full max-w-[1600px] mx-auto"
+        ? "fixed inset-0 z-50 bg-gray-50 dark:bg-gray-950 h-[100dvh] h-screen w-screen"
+        : "flex-1 h-full min-h-0 w-full max-w-[1600px] mx-auto"
     )}>
       {/* Desktop Thread List Sidebar */}
       <div className={cn(
@@ -953,7 +1051,7 @@ export default function ChatPage() {
 
       <div className="flex-1 flex flex-col min-w-0 max-w-full bg-gray-50 dark:bg-gray-950 overflow-hidden">
         {/* Unified Streamlined Header */}
-        <div className="px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px] min-w-0 max-w-full">
+        <div className="sticky top-0 z-30 px-3.5 py-1.5 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 shrink-0 flex items-center justify-between min-h-[44px] min-w-0 max-w-full">
           <div className="flex items-center gap-2 min-w-0 flex-1">
             <button onClick={() => dispatch(toggleMobileSidebar())} className="lg:hidden text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 p-1 shrink-0" title="Main Navigation">
               <Menu className="w-4 h-4" />
