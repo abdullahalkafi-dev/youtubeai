@@ -20,7 +20,13 @@ import { leanDoc, leanDocs } from '../common/utils/lean';
 
 function calculateStats(content: string): { wordCount: number; estimatedDurationMinutes: number } {
   if (!content) return { wordCount: 0, estimatedDurationMinutes: 0 };
-  const words = content.trim().split(/\s+/).filter(Boolean).length;
+  const clean = content
+    .replace(/^#+\s+.*/gm, '')
+    .replace(/\\?\[(?:BEAT|PAUSE)\]/gi, '')
+    .replace(/💎\s*JEWEL/gi, '')
+    .replace(/^>\s*/gm, '')
+    .trim();
+  const words = clean.split(/\s+/).filter(Boolean).length;
   const minutes = Math.max(1, Math.round(words / 140));
   return { wordCount: words, estimatedDurationMinutes: minutes };
 }

@@ -87,7 +87,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 6-part script structure targeting 10 to 12 minutes (approx. 1,400 to 1,600 spoken words, hard ceiling 1,650 words). Voice: OG on the couch — scene/image hooks, punch lines, NO documentary openers or empty "> " after every sentence. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. ${SPOKEN_LINE_CONTRACT} Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after punch lines/questions/jewels — 2-4 cues per major section (between breath blocks, not after every sentence). CTAs never inside jewel. Always wrap the spoken script portion between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Follow the 7-part script structure targeting 10 to 12 minutes strictly (approx. 1,350 to 1,480 spoken words across all 7 sections, hard ceiling 1,500 words). Voice: OG on the couch — scene/image hooks, punch lines, NO documentary openers or empty "> " after every sentence. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. ${SPOKEN_LINE_CONTRACT} Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after punch lines/questions/jewels — 2-4 cues per major section (between breath blocks, not after every sentence). CTAs never inside jewel. Always wrap the spoken script portion (from Section 1 through Section 7 Final Jewel) between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Do NOT include 10 spoken community questions inside "<!-- SCRIPT_START -->" ... "<!-- SCRIPT_END -->" (provide them in the video metadata/engagement section outside the teleprompter). Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
 
 ### If SEO intent:
 ## Title
@@ -340,19 +340,19 @@ C. [2-4 words]
 ### 8. FULL TELEPROMPTER SCRIPT
 CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
 
-DURATION & WORD BUDGET CONTRACT (STRICT — TARGET 10 TO 12 MINUTES):
-- Script pacing MUST strictly target 10 to 12 minutes (approx. 1,400 to 1,600 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,650 words.
-- To prevent bloating into 15–17 minutes without losing ANY component or section, budget words strictly across all sections:
+DURATION & WORD BUDGET CONTRACT (STRICT — TARGET 10 TO 12 MINUTES, HARD CEILING 1,500 WORDS TOTAL):
+- Script pacing MUST strictly target 10 to 12 minutes (approx. 1,350 to 1,480 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,500 words total across all 7 sections. Never exceed 1,500 words.
+- To guarantee the script never bloats past 12 minutes while keeping all 7 sections complete and high-impact, budget words strictly across the 7 sections:
   * ON-SCREEN LEGAL STATUS: ~20 words (quick 2–3 defendant statuses)
-  * Section 1 (COLD OPEN): 150–175 words (~1:15 min) — Hook, stakes, unanswered question, CTA, Jewel
-  * Section 2 (THE IMMEDIATE STAKES): 160–185 words (~1:20 min) — Facts vs rumors, lived analysis, CTA, Jewel
-  * Section 3 (TURNING POINT / SMALL DOOR): 170–195 words (~1:25 min) — Small door, federal pressure, Curiosity Reset 1 (~1:30), CTA, Jewel
-  * Section 4 (THE PSYCHOLOGICAL CELL): 180–210 words (~1:35 min) — Mental prison, smart man trap, Curiosity Reset 2 (~4:00), CTA, Jewel
-  * Section 5 (THE SENTENCE STARTS BEFORE THE JUDGE): 170–195 words (~1:25 min) — Legal vs psychological sentence, lawyer shift, CTA, Jewel
-  * Section 6 (MOTHERS GOT SENTENCED TOO): 160–185 words (~1:20 min) — Victim/defendant families, Curiosity Reset 3 (~7:00), CTA, Jewel
-  * Section 7 (FINAL WORD & LESSON): 150–175 words (~1:10 min) — Big lesson, subscribe/share, Final Jewel
-  * 10 VIRAL COMMUNITY QUESTIONS: 260–320 words total (~2:00 mins) — RAPID-FIRE LIGHTNING ROUND: deliver each question with 2 crisp spoken rails + 2-line punch Jewel ending in '?' + [PAUSE] (~25–30 words per question). Keep all 10 questions fast and punchy!
-  * Total words across all 7 sections + 10 questions: 1,420 to 1,620 words. NEVER exceed 1,650 words.
+  * Section 1 (COLD OPEN): 180–200 words (~1:20 min) — Hook, stakes, unanswered question, CTA, Jewel
+  * Section 2 (THE IMMEDIATE STAKES): 190–210 words (~1:30 min) — Facts vs rumors, lived analysis, CTA, Jewel
+  * Section 3 (TURNING POINT / SMALL DOOR): 190–210 words (~1:30 min) — Small door, federal pressure, Curiosity Reset 1 (~1:30), CTA, Jewel
+  * Section 4 (THE PSYCHOLOGICAL CELL): 200–220 words (~1:35 min) — Mental prison, smart man trap, Curiosity Reset 2 (~4:00), CTA, Jewel
+  * Section 5 (THE SENTENCE STARTS BEFORE THE JUDGE): 190–210 words (~1:30 min) — Legal vs psychological sentence, lawyer shift, CTA, Jewel
+  * Section 6 (MOTHERS GOT SENTENCED TOO): 190–210 words (~1:30 min) — Victim/defendant families, Curiosity Reset 3 (~7:00), CTA, Jewel
+  * Section 7 (FINAL WORD & LESSON): 180–200 words (~1:20 min) — Big lesson, subscribe/share, Final Jewel
+  * Total words across all 7 sections: 1,350 to 1,480 words. STRICT HARD CEILING: 1,500 words.
+  * NOTE: Close "<!-- SCRIPT_END -->" immediately after Section 7 Final Jewel and [PAUSE]. The 10 Viral Community Questions belong in Section 14 (Metadata / Description package) OUTSIDE the teleprompter delimiters so they do not add 4 minutes of spoken time to the host's teleprompter recording.
 
 SPOKEN CADENCE (CRITICAL — UNIQUE'S VOICE, NOT A DOCUMENTARY):
 - Write like an OG sitting on the couch talking to the class — NOT a news recap, Wikipedia summary, or true-crime narrator.
@@ -636,64 +636,6 @@ Format Section 8 strictly as follows:
 
 [PAUSE]
 
----
-
-## 10 VIRAL COMMUNITY QUESTIONS (RAPID-FIRE LIGHTNING ROUND — ~25-30 words each)
-
-## **1. CAN A MAN TELL HIS STORY WITHOUT HURTING HIMSELF?**
-
-**A. MY ANSWER**
-
-> He can speak on his life.
-> But public words are never as private as people think.
-
-[BEAT]
-
-### **JEWEL**
-
-> A microphone is not a private conversation.
-> Do people underestimate who is listening?
-
-[PAUSE]
-
----
-
-## **2. SHOULD OLD INTERVIEWS BE USED IN COURT?**
-
-**A. MY ANSWER**
-
-> Courts decide what comes in.
-> But public statements can have real consequences.
-
-[BEAT]
-
-### **JEWEL**
-
-> The camera records more than a moment.
-> Should people treat interviews like permanent records?
-
-[PAUSE]
-
----
-
-## **3. DOES BETRAYAL GIVE SOMEBODY AN EXCUSE TO COOPERATE?**
-
-**A. MY ANSWER**
-
-> Betrayal may explain how somebody feels.
-> It does not erase the contradiction.
-
-[BEAT]
-
-### **JEWEL**
-
-> When somebody betrays you, does that release you from every promise you made?
-
-[PAUSE]
-
----
-
-[Continue same RAPID-FIRE pattern for questions 4-10 — exactly 2 crisp spoken lines, [BEAT], 2-line jewel question, [PAUSE] (~25–30 words per question, total 10 questions)...]
 <!-- SCRIPT_END -->
 
 Key format elements:
@@ -758,7 +700,7 @@ If a FOOTAGE PACK is in context (LOCAL NEWS FOOTAGE PACK or VERIFIED TOPIC FOOTA
         `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
 
 IMPORTANT RULES:
-- TIMING & DURATION: Script pacing MUST strictly target 10 to 12 minutes (approx. 1,400 to 1,600 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,650 words. Never exceed 1,650 words. Budget ~160–200 words per narrative section and ~25–30 words per viral question so the video remains tight, punchy, and captivating from start to finish without bloating into 15–17 minutes.
+- TIMING & DURATION: Script pacing MUST strictly target 10 to 12 minutes (approx. 1,350 to 1,480 words across all 7 sections, spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,500 words. Never exceed 1,500 words. Budget ~180–210 words per narrative section so the video remains tight, punchy, and captivating from start to finish without bloating past 12 minutes.
 - REVISIONS: If the user asks to rewrite, edit, or adjust a specific section or the script (e.g. "make it more breathable"), output ONLY the revised spoken script beats. DO NOT regenerate Sections 1–7 or metadata unless requested. Apply the spoken line contract: keep gray rails and breath blocks; split long essay rails into short speakable lines inside the same block; do not isolate every sentence; keep facts/legal points; style stays dynamic.
 - PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link. NEVER list this channel's own videos as sources. No competitor explainer padding. Real timestamps or "full clip" only — never "Review manually".
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
@@ -796,7 +738,7 @@ ${scriptFormat}`,
         return base;
       },
       getFormatInstructions: () => scriptFormat,
-      getTemperature: () => 0.85,
+      getTemperature: () => 0.7,
     });
 
     // SEO skill
