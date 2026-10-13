@@ -84,7 +84,7 @@ export class ChatService {
   ) {
     this.modelName = this.configService.get<string>(
       'OPENAI_MODEL',
-      'gpt-5.6-terra',
+      'gpt-6.1-sol',
     );
   }
 

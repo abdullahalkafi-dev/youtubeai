@@ -75,14 +75,14 @@ export class OpenAIService {
         'https://api.openai.com/v1',
       ),
     });
-    this.model = configService.get<string>('OPENAI_MODEL', 'gpt-5.6-terra');
+    this.model = configService.get<string>('OPENAI_MODEL', 'gpt-6.1-sol');
     this.fastModel = configService.get<string>(
       'OPENAI_FAST_MODEL',
-      'gpt-5.6-luna',
+      'gpt-6-luna',
     );
     this.trendsModel = configService.get<string>(
       'OPENAI_TRENDS_MODEL',
-      'gpt-5.6-terra',
+      'gpt-6.1-sol',
     );
     this.seoManualModel = configService.get<string>(
       'OPENAI_SEO_MANUAL_MODEL',
@@ -108,7 +108,9 @@ export class OpenAIService {
       m.startsWith('o1') ||
       m.startsWith('o3') ||
       m.startsWith('gpt-5') ||
+      m.startsWith('gpt-6') ||
       m.includes('terra') ||
+      m.includes('sol') ||
       m.includes('reasoning')
     );
   }
@@ -1671,7 +1673,7 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
         )
         .join('\n');
 
-      const model = this.fastModel || 'gpt-5.6-luna';
+      const model = this.fastModel || 'gpt-6-luna';
 
       const requestPayload = this.buildCompletionParams({
         model,
@@ -1752,7 +1754,7 @@ User Request: ${params.userPrompt || ''}`,
         )
         .join('\n');
 
-      const model = this.fastModel || 'gpt-5.6-luna';
+      const model = this.fastModel || 'gpt-6-luna';
 
       const systemPrompt = `You are an expert AI Image Edit Intent & Prompt Compiler for a YouTube true crime and high-profile courtroom trials channel ("Unique Mecca Audio").
 The client is giving feedback or requesting an edit on a generated thumbnail image.

@@ -49,7 +49,7 @@ export class SubjectReferenceService {
   ): Promise<StorySubject[]> {
     try {
       const fastModel =
-        this.configService.get<string>('OPENAI_FAST_MODEL') || 'gpt-5.6-luna';
+        this.configService.get<string>('OPENAI_FAST_MODEL') || 'gpt-6-luna';
 
       const systemPrompt = `You are an expert entity detection system for YouTube true crime, courtroom trials, and documentary channels.
 Identify between 1 and 3 real, specific individuals (defendants, attorneys, judges, victims, celebrities, witnesses) central to the video topic.

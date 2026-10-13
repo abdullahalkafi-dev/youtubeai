@@ -22,12 +22,12 @@ export default () => ({
   openai: {
     apiKey: process.env.OPENAI_API_KEY,
     baseUrl: process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1',
-    model: process.env.OPENAI_MODEL || 'gpt-5.6-terra',
-    fastModel: process.env.OPENAI_FAST_MODEL || 'gpt-5.6-luna',
+    model: process.env.OPENAI_MODEL || 'gpt-6.1-sol',
+    fastModel: process.env.OPENAI_FAST_MODEL || 'gpt-6-luna',
     trendsModel:
       process.env.OPENAI_TRENDS_MODEL ||
       process.env.OPENAI_MODEL ||
-      'gpt-5.6-terra',
+      'gpt-6.1-sol',
   },
   minio: {
     endpoint: process.env.MINIO_ENDPOINT || 'localhost',
