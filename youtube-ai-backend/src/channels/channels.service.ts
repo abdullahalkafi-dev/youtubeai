@@ -33,6 +33,12 @@ interface SyncChange {
   action: 'created' | 'updated' | 'drifted' | 'deleted';
 }
 
+export interface SyncChannelOptions {
+  mode?: 'quick' | 'full';
+  maxVideos?: number;
+  syncPerformance?: boolean;
+}
+
 @Injectable()
 export class ChannelsService {
   private readonly logger = new Logger(ChannelsService.name);
@@ -114,11 +120,17 @@ export class ChannelsService {
     return this.channelModel.findByIdAndDelete(id).lean();
   }
 
-  async syncChannel(id: string, userId: string) {
+  async syncChannel(id: string, userId?: string, options?: SyncChannelOptions) {
     const channel = await this.findById(id);
-    await this.ensureOwnership(channel.userId.toString(), userId);
+    const resolvedUserId = userId || channel.userId?.toString();
+    if (!resolvedUserId) {
+      throw new NotFoundException('Channel has no associated user');
+    }
+    if (userId) {
+      await this.ensureOwnership(channel.userId.toString(), userId);
+    }
 
-    const accessToken = await this.youtubeService.getValidAccessToken(channel.userId.toString());
+    const accessToken = await this.youtubeService.getValidAccessToken(resolvedUserId);
 
     const errors: string[] = [];
     const changes: SyncChange[] = [];
@@ -151,6 +163,7 @@ export class ChannelsService {
     await this.quotaService.logCall({ channelId: id, endpoint: 'channels.list', quotaCost: 1 });
 
     // Step 4: Paginate playlist items
+    const maxVideos = options?.maxVideos ?? (options?.mode === 'quick' ? 150 : 3000);
     const allVideoIds: string[] = [];
     let pageToken: string | undefined;
     let hasMore = true;
@@ -163,10 +176,10 @@ export class ChannelsService {
         pageToken = result.nextPageToken;
         hasMore = !!pageToken;
         await this.quotaService.logCall({ channelId: id, endpoint: 'playlistItems.list', quotaCost: 1 });
-        if (allVideoIds.length >= 3000) {
+        if (allVideoIds.length >= maxVideos) {
           hasMore = false;
           hitCap = true;
-          this.logger.warn(`Channel sync capped at 3000 videos`);
+          this.logger.log(`Channel sync capped at ${allVideoIds.length} videos (maxVideos: ${maxVideos})`);
         }
       } catch (error) {
         errors.push(`Playlist fetch failed: ${error.message}`);
@@ -184,8 +197,9 @@ export class ChannelsService {
     // Check if this is the first sync (no videos have lastSyncedAt)
     const isFirstSync = existingVideos.every(v => !v.lastSyncedAt);
 
-    // Step 6: Mark videos NOT in YouTube playlist as deleted (skip on first sync or if cap hit)
-    if (!isFirstSync && !hitCap) {
+    // Step 6: Mark videos NOT in YouTube playlist as deleted (skip on first sync, if cap hit, or during quick sync)
+    const isQuickSync = options?.mode === 'quick';
+    if (!isFirstSync && !hitCap && !isQuickSync) {
       for (const dbVideo of existingVideos) {
         if (!youtubeVideoIds.has(dbVideo.youtubeId) && !dbVideo.deletedFromYoutube) {
           await this.videoModel.findByIdAndUpdate(dbVideo._id, {
@@ -482,7 +496,7 @@ export class ChannelsService {
     try {
       const ch = await this.channelModel.findById(id);
       if (ch?.youtubeChannelId) {
-        const analyticsMap = await this.youtubeAnalyticsService.getChannelVideoAnalytics(userId, ch.youtubeChannelId);
+        const analyticsMap = await this.youtubeAnalyticsService.getChannelVideoAnalytics(resolvedUserId, ch.youtubeChannelId);
         if (analyticsMap.size > 0) {
           const bulkOps = Array.from(analyticsMap.entries()).map(([youtubeId, analytics]) => ({
             updateMany: {
@@ -503,6 +517,22 @@ export class ChannelsService {
       }
     } catch (error) {
       errors.push(`Analytics sync failed: ${error.message}`);
+    }
+
+    // Step 8b: Refresh CTR & performance reach metrics (Reporting API)
+    if (options?.syncPerformance !== false) {
+      try {
+        const perfReport = await this.performanceSyncService.syncChannel(
+          id,
+          options?.mode === 'quick' ? 'hourly_quick_sync' : 'daily_full_sync',
+          resolvedUserId,
+        );
+        this.logger.log(
+          `Step 8b: CTR & Performance sync completed for ${id}: ${perfReport.videosUpdated} videos updated with CTR/reach (${perfReport.durationMs}ms)`,
+        );
+      } catch (perfErr: any) {
+        this.logger.warn(`Step 8b: Performance sync skipped/failed during video sync: ${perfErr?.message || perfErr}`);
+      }
     }
 
     // Step 9: Save sync log
@@ -528,6 +558,7 @@ export class ChannelsService {
       updated: updatedCount,
       deleted: deletedCount,
       drifted: driftedCount,
+      mode: options?.mode || 'full',
       errors,
       channelStats: {
         subscriberCount: channelInfo.subscriberCount,

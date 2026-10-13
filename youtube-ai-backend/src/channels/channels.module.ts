@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChannelsService } from './channels.service';
+import { ChannelsScheduler } from './channels.scheduler';
 import { ChannelsController } from './channels.controller';
 import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
 import { User, UserSchema } from '../mongo/schemas/user.schema';
@@ -31,7 +32,7 @@ import { VideosModule } from '../videos/videos.module';
     VideosModule,
   ],
   controllers: [ChannelsController],
-  providers: [ChannelsService],
+  providers: [ChannelsService, ChannelsScheduler],
   exports: [ChannelsService],
 })
 export class ChannelsModule {}

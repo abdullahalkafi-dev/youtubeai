@@ -6,6 +6,7 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import { ChannelsService } from './channels.service';
@@ -77,8 +78,12 @@ export class ChannelsController {
 
   @UseGuards(ChannelOwnershipGuard)
   @Post(':id/sync')
-  syncChannel(@Param('id') id: string, @CurrentUser('id') userId: string) {
-    return this.channelsService.syncChannel(id, userId);
+  syncChannel(
+    @Param('id') id: string,
+    @CurrentUser('id') userId: string,
+    @Query('mode') mode?: 'quick' | 'full',
+  ) {
+    return this.channelsService.syncChannel(id, userId, { mode });
   }
 
   /** Manual daily-performance sync (CTR/impressions/traffic/audience refresh). */
