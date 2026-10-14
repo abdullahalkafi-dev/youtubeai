@@ -933,10 +933,23 @@ ${thumbnailFormat}`,
 [ONE primary title — under 70 characters. This title completes the thumbnail's curiosity loop (thumbnail decides 75% of the click). If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
 
 ## Description
-[10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags. Ground paragraphs in the supplied script or the user's topic — never invent quotes, reactions, or case facts.]
+[Write the FULL 10-part blueprint — every element below, in order, nothing skipped:
+1. Search-preview hook — 1-2 strong opening lines that name the subject and the stakes.
+2-5. Paragraphs (3-5 of them, each 3-5 sentences — substantial, story-driven, grounded in the supplied script/topic; separate REPORTED FACTS from analysis; never invent quotes, reactions, private thoughts, or case facts).
+6. Bullet takeaways — 4 bullets with emoji labels matching the channel voice: 🔥 Street Reality & Survival Lessons · 🎙️ Prison & Legal Strategy Insights · 🧭 Street Code vs. Legal Reality · 🌟 Youth Warning & Redemption (adapt text to THIS topic, keep the emoji format).
+7. Host bio paragraph — "Hosted by Unique — former federal inmate of 26 years (1993–2020) on a life-plus-20-year sentence, author of A Roaring Harlem..." — prevention, accountability, growth through lived experience.
+8. Engagement block — a thought-provoking comment question, then "👍 Like this video, leave a comment, and subscribe..."
+9. Social links block — copy EVERY link exactly as it appears in the channel context (Facebook, Instagram, Main Channel, Second Channel). Never drop any.
+10. Legal disclaimer (educational/analytical purposes, presumed innocent, not confirmation of private thoughts or procedural developments) followed by trailing #hashtags (3-5).
+Also include, between the takeaways and the host bio when a series exists: "⏱️ CHAPTERS:" with 0:00 Introduction & Cold Open as the first entry (timestamps can be refined after upload), and "📺 PREVIOUS EPISODES IN THIS SERIES:" when the context references a prior part. If the user pasted an existing description to improve, preserve its chapters, series links, and hashtags — improve structure and wording, never discard working metadata.]
 
 ## Tags
-[10-15 tags separated by commas, under 30 chars each]
+[15-20 tags, comma-separated, each under 30 chars. Mix these categories:
+- Subject name + common misspellings/aliases (e.g. "Christa Pike", "Krista Pike")
+- Case-specific long-tail (e.g. "Colleen Slemmer murder case", "Christa Pike lethal injection")
+- Topic/genre tags (e.g. "death row family trauma", "victim impact in capital cases", "criminal psychology", "courtroom psychology")
+- Channel brand (e.g. "unique mecca audio")
+Match the search phrases people actually type; prefer the longer descriptive tags from the winners' pattern in context over generic single words.]
 
 ## Hashtags
 [3-5 hashtags with # prefix]

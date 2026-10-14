@@ -1,9 +1,8 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronDown, Package, Sparkles, Copy, Check } from 'lucide-react'
+import { ChevronDown, Package, Sparkles } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { toast } from 'sonner'
 import type { PackageContent, ThumbnailConcept } from '@/lib/content-detector'
 import { SeoCard } from './seo-card'
 import { ThumbnailCard } from './thumbnail-card'
@@ -57,19 +56,6 @@ export function PackageCard({
   threadTitle,
 }: PackageCardProps) {
   const [researchOpen, setResearchOpen] = useState(false)
-  const [copied, setCopied] = useState(false)
-
-  const handleCopyTitle = async () => {
-    if (!pkg.seo?.title) return
-    try {
-      await navigator.clipboard.writeText(pkg.seo.title)
-      setCopied(true)
-      toast.success('Title copied!')
-      setTimeout(() => setCopied(false), 2000)
-    } catch {
-      toast.error('Failed to copy')
-    }
-  }
 
   return (
     <div className="space-y-4 min-w-0 max-w-full overflow-hidden rounded-2xl border border-fuchsia-200 dark:border-fuchsia-500/25 bg-gradient-to-b from-fuchsia-50/60 to-white dark:from-fuchsia-500/5 dark:to-gray-900 p-4 sm:p-5">
@@ -120,33 +106,8 @@ export function PackageCard({
         </div>
       )}
 
-      {/* Title — biggest element, one-click copy */}
-      {pkg.seo?.title && (
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-              Title
-            </label>
-            <button
-              onClick={handleCopyTitle}
-              className="text-[10px] text-fuchsia-600 dark:text-fuchsia-400 hover:text-fuchsia-700 dark:hover:text-fuchsia-300 font-medium flex items-center gap-1 transition"
-            >
-              {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
-              Copy
-            </button>
-          </div>
-          <div className="bg-white dark:bg-gray-900 border border-fuchsia-200 dark:border-fuchsia-500/25 rounded-xl p-3.5 shadow-sm">
-            <p className="text-sm font-bold text-gray-900 dark:text-white leading-snug">
-              {pkg.seo.title}
-            </p>
-            <p className="text-[10px] text-gray-400 mt-1">
-              {pkg.seo.title.length} characters
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Description / Tags / Hashtags */}
+      {/* Description / Tags / Hashtags — SeoCard owns the Title block too
+          (single title, single copy button — no duplicate Title section) */}
       {pkg.seo && <SeoCard content={pkg.seo} />}
 
       {/* Thumbnails — auto-fire when the router was confident */}
