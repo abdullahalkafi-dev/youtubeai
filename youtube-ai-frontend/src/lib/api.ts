@@ -365,6 +365,8 @@ class ApiClient {
       referenceImageUrls?: string[]
       customHostImage?: string
       customHostUrl?: string
+      /** Auto-fire path — backend dedupes against existing images on the message. */
+      auto?: boolean
     },
   ) {
     return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
@@ -503,7 +505,13 @@ class ApiClient {
     content: string,
     skill: string | undefined,
     onChunk: (chunk: string) => void,
-    onDone: (messageId: string, usage?: any, title?: string, category?: string) => void,
+    onDone: (
+      messageId: string,
+      usage?: any,
+      title?: string,
+      category?: string,
+      autoImages?: boolean,
+    ) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
   ): Promise<void> {
@@ -552,7 +560,7 @@ class ApiClient {
               if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {
-                onDone(data.messageId, data.usage, data.title, data.category)
+                onDone(data.messageId, data.usage, data.title, data.category, data.autoImages)
                 streamDone = true
                 break
               } else if (data.type === 'error') {

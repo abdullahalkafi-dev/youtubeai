@@ -1,8 +1,9 @@
 'use client'
 
-import { detectAndParse } from '@/lib/content-detector'
+import { detectAndParse, parsePackageContent } from '@/lib/content-detector'
 import { SeoCard } from './seo-card'
 import { ThumbnailCard } from './thumbnail-card'
+import { PackageCard } from './package-card'
 import { SceneCard } from './scene-card'
 import { ScoreCard } from './score-card'
 import { ScriptRenderer } from './script-renderer'
@@ -22,7 +23,9 @@ interface MessageRendererProps {
   threadId?: string
   initialScriptId?: string
   messageImages?: any[]
-  onStartGenerate?: (conceptTitle: string) => void
+  /** From message metadata — fires parallel auto-generation of 2 thumbnails. */
+  autoImages?: boolean
+  onStartGenerate?: (conceptTitle: string, count?: number) => void
   onFinishGenerate?: () => void
   onEditImage?: (
     url: string,
@@ -70,6 +73,7 @@ export function MessageRenderer({
   threadId,
   initialScriptId,
   messageImages,
+  autoImages,
   onStartGenerate,
   onFinishGenerate,
   onEditImage,
@@ -97,6 +101,33 @@ export function MessageRenderer({
   const effectiveTopic = resolveTopicHeadline(safeContent, videoTitle, threadTitle);
   const parsed = detectAndParse(safeContent, category)
 
+  // Unified Package — ONE card (research + title + SEO + thumbnails) when the
+  // reply carries the full package shape. Falls back to composite rendering
+  // below if the model omitted a section (fail-open, never a blank message).
+  if (category === 'package') {
+    const pkg = parsePackageContent(safeContent)
+    if (pkg) {
+      return (
+        <div>
+          <PackageCard
+            pkg={pkg}
+            messageId={messageId}
+            messageImages={messageImages}
+            autoImages={autoImages}
+            onStartGenerate={onStartGenerate}
+            onFinishGenerate={onFinishGenerate}
+            onEditImage={onEditImage}
+            videoTitle={effectiveTopic}
+            threadTitle={threadTitle}
+          />
+          {parsed.sources && parsed.sources.length > 0 && !isStreaming && (
+            <SourcesSection sources={parsed.sources} />
+          )}
+        </div>
+      )
+    }
+  }
+
   return (
     <div>
       {parsed.blocks && parsed.blocks.length > 1 ? (
@@ -112,6 +143,7 @@ export function MessageRenderer({
                     thumbnails={block.thumbnails}
                     messageId={messageId}
                     messageImages={messageImages}
+                    autoGenerate={autoImages}
                     onStartGenerate={onStartGenerate}
                     onFinishGenerate={onFinishGenerate}
                     onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription) =>
@@ -205,6 +237,7 @@ export function MessageRenderer({
           thumbnails={parsed.thumbnails}
           messageId={messageId}
           messageImages={messageImages}
+          autoGenerate={autoImages}
           onStartGenerate={onStartGenerate}
           onFinishGenerate={onFinishGenerate}
           onEditImage={(url, cleanUrl, hostImg, aspectRatio, textOverlay, visualDescription, logoPosition) =>

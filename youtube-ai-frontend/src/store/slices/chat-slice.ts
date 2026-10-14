@@ -147,7 +147,7 @@ const chatSlice = createSlice({
         }
       }
     },
-    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string; title?: string }>) {
+    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string; title?: string; autoImages?: boolean }>) {
       if (state.activeThread) {
         state.activeThread.messages.push({
           id: action.payload.messageId || `streamed_${Date.now()}`,
@@ -155,7 +155,10 @@ const chatSlice = createSlice({
           role: 'assistant' as const,
           content: action.payload.content,
           createdAt: new Date().toISOString(),
-          metadata: action.payload.category ? { category: action.payload.category } : undefined,
+          metadata: {
+            ...(action.payload.category ? { category: action.payload.category } : {}),
+            ...(action.payload.autoImages ? { autoImages: true } : {}),
+          },
         })
         if (action.payload.title && action.payload.title !== 'New Thread') {
           state.activeThread.title = action.payload.title

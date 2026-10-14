@@ -55,6 +55,8 @@ function PreStreamLoader({ category, initialElapsed = 0 }: { category?: ThreadCa
         return 'Structuring video outline…'
       case 'seo':
         return 'Optimizing metadata and tags…'
+      case 'package':
+        return 'Building your complete package…'
       default:
         return 'Generating response…'
     }
@@ -710,9 +712,9 @@ export default function ChatPage() {
         streamPrompt,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
-        (messageId, usage, updatedTitle, streamCategory) => {
+        (messageId, usage, updatedTitle, streamCategory, autoImages) => {
           streamCompleted = true
-          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle }))
+          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle, autoImages }))
           if (channelId) {
             dispatch(fetchThreads(channelId))
           }
@@ -1200,10 +1202,11 @@ export default function ChatPage() {
                             threadId={activeThread?.id}
                             initialScriptId={msg.metadata?.scriptId}
                             messageImages={msg.metadata?.images}
-                            onStartGenerate={(title) => {
+                            autoImages={msg.metadata?.autoImages}
+                            onStartGenerate={(title, count = 1) => {
                               setGalleryOpen(true)
                               setGeneratingConceptText(title)
-                              setExpectedImageCount(allImages.length + 1)
+                              setExpectedImageCount(allImages.length + count)
                             }}
                             onFinishGenerate={() => {
                               setGeneratingConceptText(null)

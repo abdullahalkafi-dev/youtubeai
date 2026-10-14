@@ -22,6 +22,7 @@ const CONTEXT_DATA: Record<ThreadCategory, string[]> = {
   trends: ['15 latest trending topics loaded', 'Opportunity scores calculated'],
   ideas: ['Scoring criteria loaded', 'Channel context available'],
   outline: ['Trending topics loaded', 'Channel voice & style ready', 'Research mode enabled'],
+  package: ['Market CTR winners/misses loaded', 'Competitor demand brief ready', 'Auto-thumbnail pipeline armed'],
 }
 
 export function ContextIndicator({ category, videoTitle, channelName }: ContextIndicatorProps) {

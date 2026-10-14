@@ -658,6 +658,33 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
   return blocks
 }
 
+export interface PackageContent {
+  /** Collapsed "why this works" research markdown (everything before ## Title). */
+  research: string
+  seo: SeoContent | null
+  thumbnails: ThumbnailConcept[] | null
+}
+
+/**
+ * Unified Package parse — splits a `package` skill reply into
+ * research (markdown) + SEO fields + thumbnail concepts.
+ * Returns null when the reply is missing the SEO title/description or the
+ * THUMBNAILS block (caller falls back to normal composite rendering).
+ */
+export function parsePackageContent(content: string): PackageContent | null {
+  if (!content) return null
+  const blocks = parseCompositeBlocks(content, 'package')
+  const seoBlock = blocks.find((b): b is Extract<ContentBlock, { type: 'seo' }> => b.type === 'seo')
+  const thumbBlock = blocks.find((b): b is Extract<ContentBlock, { type: 'thumbnail' }> => b.type === 'thumbnail')
+  if (!seoBlock || !thumbBlock) return null
+  const research = blocks
+    .filter((b): b is Extract<ContentBlock, { type: 'markdown' }> => b.type === 'markdown')
+    .map((b) => b.content)
+    .join('\n\n')
+    .trim()
+  return { research, seo: seoBlock.seo, thumbnails: thumbBlock.thumbnails }
+}
+
 export function detectAndParse(content: any, category: string): ParsedContent {
   const textContent = typeof content === 'string' ? content : (content ? String(content) : '')
   const sources = extractSources(textContent)

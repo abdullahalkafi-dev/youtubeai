@@ -17,6 +17,9 @@ export class Message {
   @Prop({ type: Object })
   metadata?: {
     category?: string;
+    /** Set when the package skill emitted a THUMBNAILS block at high routing
+     *  confidence — the frontend auto-generates both images in parallel. */
+    autoImages?: boolean;
     generatedSeo?: {
       title: string;
       description: string;

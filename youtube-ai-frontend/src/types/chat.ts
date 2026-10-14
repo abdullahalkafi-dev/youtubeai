@@ -1,5 +1,5 @@
 export type ThreadType = 'video' | 'standalone'
-export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline'
+export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline' | 'package'
 export type ThreadStatus = 'active' | 'archived'
 
 export interface ChatImage {
@@ -40,6 +40,8 @@ export interface Message {
   createdAt: string
   metadata?: {
     category?: string
+    /** Package skill at high confidence — auto-generates 2 thumbnails in parallel. */
+    autoImages?: boolean
     generatedSeo?: {
       title: string
       description: string

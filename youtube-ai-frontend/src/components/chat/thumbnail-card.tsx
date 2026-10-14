@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Image, Palette, Sparkles, Loader2, ExternalLink, Wand2, Monitor, Smartphone } from 'lucide-react'
 import type { ThumbnailConcept } from '@/lib/content-detector'
 import api, { formatAssetUrl } from '@/lib/api'
@@ -22,7 +22,10 @@ interface ThumbnailCardProps {
     logoPosition?: 'top-left' | 'top-right' | 'none'
     aspectRatio?: '16:9' | '9:16'
   }>
-  onStartGenerate?: (conceptTitle: string) => void
+  /** Auto-fire the first 2 concept generations in parallel on mount
+   *  (set by the package skill at high routing confidence). */
+  autoGenerate?: boolean
+  onStartGenerate?: (conceptTitle: string, count?: number) => void
   onFinishGenerate?: () => void
   onEditImage?: (
     url: string,
@@ -59,6 +62,7 @@ export function ThumbnailCard({
   thumbnails,
   messageId,
   messageImages,
+  autoGenerate,
   onStartGenerate,
   onFinishGenerate,
   onEditImage,
@@ -68,7 +72,9 @@ export function ThumbnailCard({
   const dispatch = useAppDispatch()
   const activeThreadId = useAppSelector((s) => s.chat.activeThreadId)
   const activeThread = useAppSelector((s) => s.chat.activeThread)
-  const [generatingIdx, setGeneratingIdx] = useState<number | null>(null)
+  // Set of concept indexes currently generating — a SET (not a single index)
+  // so parallel auto-generation can render both skeletons at once.
+  const [generatingIdxs, setGeneratingIdxs] = useState<Set<number>>(new Set())
   const [selectedAspectRatio, setSelectedAspectRatio] = useState<'16:9' | '9:16'>('16:9')
   const [generatedImages, setGeneratedImages] = useState<
     Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }>
@@ -103,8 +109,6 @@ export function ThumbnailCard({
     }
   }, [messageImages, thumbnails])
 
-  if (!thumbnails || thumbnails.length === 0) return null
-
   const handleGenerateImage = async (
     concept: ThumbnailConcept,
     idx: number,
@@ -115,10 +119,12 @@ export function ThumbnailCard({
       customText?: string
       aspectRatio?: '16:9' | '9:16'
       referenceImageUrls?: string[]
+      /** Silent mode for auto-generation: no per-image toasts/gallery hook. */
+      silent?: boolean
     },
   ) => {
     if (!activeThreadId) {
-      toast.error('No active chat thread found')
+      if (!options?.silent) toast.error('No active chat thread found')
       return
     }
 
@@ -127,10 +133,15 @@ export function ThumbnailCard({
     const hostImg = options?.selectedHostImage === 'none' ? 'none' : (options?.selectedHostImage || 'default')
     const excludeHost = hostImg === 'none'
 
+    // Already hydrated with an image (e.g. refetch mid-flight) — never double-burn.
+    if (options?.silent && generatedImages[idx]) return
+
     try {
-      setGeneratingIdx(idx)
-      onStartGenerate?.(conceptTitle)
-      toast.info(`Generating ${targetAspectRatio} thumbnail for ${conceptTitle}...`)
+      setGeneratingIdxs((prev) => new Set(prev).add(idx))
+      if (!options?.silent) {
+        onStartGenerate?.(conceptTitle)
+        toast.info(`Generating ${targetAspectRatio} thumbnail for ${conceptTitle}...`)
+      }
 
       const result = await api.generateThumbnailImage(activeThreadId, {
         text: options?.customText || concept.text,
@@ -145,6 +156,7 @@ export function ThumbnailCard({
         excludeHost,
         referenceImageUrls: options?.referenceImageUrls,
         messageId,
+        ...(options?.silent ? { auto: true } : {}),
       })
 
       if (result.imageUrl) {
@@ -159,17 +171,77 @@ export function ThumbnailCard({
           },
         }))
         await dispatch(selectThread(activeThreadId)).unwrap()
-        toast.success(`Pristine Thumbnail ${conceptTitle} generated!`)
-      } else {
+        if (!options?.silent) toast.success(`Pristine Thumbnail ${conceptTitle} generated!`)
+      } else if (!options?.silent) {
         toast.error('Failed to retrieve generated image URL')
       }
     } catch (error: any) {
-      toast.error(error.message || 'Failed to generate thumbnail image')
+      // Silent (auto) failures surface one consolidated toast from the caller.
+      if (!options?.silent) toast.error(error.message || 'Failed to generate thumbnail image')
+      else console.warn(`Auto thumbnail ${conceptTitle} failed:`, error?.message || error)
     } finally {
-      setGeneratingIdx(null)
-      onFinishGenerate?.()
+      setGeneratingIdxs((prev) => {
+        const next = new Set(prev)
+        next.delete(idx)
+        return next
+      })
+      if (!options?.silent) onFinishGenerate?.()
     }
   }
+
+  // AUTO-FIRE: on first mount with autoGenerate, generate the first 2
+  // concepts in PARALLEL. Idempotent per messageId: a ref guard stops
+  // double-fire across re-renders, and concepts already present in
+  // messageImages (page reload after success) are skipped server-side too.
+  const autoFiredRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!autoGenerate || !messageId) return
+    if (!thumbnails || thumbnails.length === 0) return
+    if (autoFiredRef.current === messageId) return
+    autoFiredRef.current = messageId
+
+    // Filter against the messageImages PROP (not generatedImages state): on a
+    // page reload the hydrate setState hasn't applied yet when this runs —
+    // prop check prevents re-burning images that already exist in metadata.
+    const hasPersisted = (idx: number) => {
+      const conceptTitle = `Concept ${idx + 1}`
+      const text = thumbnails[idx]?.text?.toLowerCase()
+      return (messageImages || []).some(
+        (img) =>
+          img.conceptTitle === conceptTitle ||
+          (text && img.textOverlay && img.textOverlay.toLowerCase() === text),
+      )
+    }
+    const targets = thumbnails
+      .slice(0, 2)
+      .map((concept, idx) => ({ concept, idx }))
+      .filter(({ idx }) => !hasPersisted(idx))
+    if (targets.length === 0) return
+
+    onStartGenerate?.(targets.map(({ idx }) => `Concept ${idx + 1}`).join(' & '), targets.length)
+    let failures = 0
+    Promise.allSettled(
+      targets.map(({ concept, idx }) =>
+        handleGenerateImage(concept, idx, { silent: true }),
+      ),
+    ).then((results) => {
+      failures = results.filter((r) => r.status === 'rejected').length
+      // Persisted results resolve (errors are swallowed in silent mode),
+      // so refresh once here — hydration picks both images up.
+      if (activeThreadId) dispatch(selectThread(activeThreadId))
+      if (failures > 0) {
+        toast.error(`${failures} thumbnail${failures > 1 ? 's' : ''} failed — use 1-Click Generate to retry`)
+      } else {
+        toast.success('2 thumbnails generated — pick your winner!')
+      }
+      onFinishGenerate?.()
+    })
+    // Intentionally mount-only: the ref guard handles re-renders; adding
+    // generatedImages/handleGenerateImage to deps would re-fire mid-generation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoGenerate, messageId])
+
+  if (!thumbnails || thumbnails.length === 0) return null
 
   return (
     <div className="space-y-3 min-w-0 max-w-full overflow-hidden">
@@ -234,7 +306,7 @@ export function ThumbnailCard({
           const hostImg = typeof imgData === 'object' ? imgData?.selectedHostImage : undefined
           const logoPos = typeof imgData === 'object' ? imgData?.logoPosition : undefined
           const currentRatio = (imgData as any)?.aspectRatio || selectedAspectRatio
-          const isGenerating = generatingIdx === idx
+          const isGenerating = generatingIdxs.has(idx)
 
           return (
             <div
@@ -292,6 +364,19 @@ export function ThumbnailCard({
                   &ldquo;{concept.text}&rdquo;
                 </div>
               </div>
+
+              {/* Generating skeleton — shows immediately during parallel auto-gen */}
+              {isGenerating && !generatedUrl && (
+                <div className="mt-3 space-y-2">
+                  <label className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase tracking-wider flex items-center gap-1">
+                    <Loader2 className="w-3 h-3 animate-spin text-violet-500" />
+                    Generating {currentRatio} thumbnail…
+                  </label>
+                  <div className={`relative rounded-lg overflow-hidden border border-violet-300 dark:border-violet-600/40 bg-gray-100 dark:bg-gray-800 animate-pulse ${
+                    currentRatio === '9:16' ? 'aspect-[9/16] max-w-[280px] mx-auto' : 'aspect-video'
+                  }`} />
+                </div>
+              )}
 
               {/* Generated Image Preview if Available */}
               {generatedUrl && (

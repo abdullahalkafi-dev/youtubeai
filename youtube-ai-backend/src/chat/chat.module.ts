@@ -20,6 +20,7 @@ import { SkillRegistry } from './skills/skill-registry';
 import { TrendsModule } from '../trends/trends.module';
 
 import { FootageIntentService } from './footage-intent.service';
+import { IntentClassifierService } from './intent-classifier.service';
 
 @Module({
   imports: [
@@ -42,7 +43,12 @@ import { FootageIntentService } from './footage-intent.service';
     forwardRef(() => TrendsModule),
   ],
   controllers: [ChatController],
-  providers: [ChatService, SkillRegistry, FootageIntentService],
-  exports: [ChatService, FootageIntentService],
+  providers: [
+    ChatService,
+    SkillRegistry,
+    FootageIntentService,
+    IntentClassifierService,
+  ],
+  exports: [ChatService, FootageIntentService, IntentClassifierService],
 })
 export class ChatModule {}

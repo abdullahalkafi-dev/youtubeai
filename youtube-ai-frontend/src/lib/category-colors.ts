@@ -1,4 +1,4 @@
-export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline'
+export type ThreadCategory = 'general' | 'script' | 'seo' | 'thumbnail' | 'image' | 'competitor' | 'trends' | 'ideas' | 'outline' | 'package'
 
 export interface CategoryColor {
   name: string
@@ -131,6 +131,19 @@ export const CATEGORY_COLORS: Record<ThreadCategory, CategoryColor> = {
     borderDark: 'dark:border-blue-500/20',
     text: 'text-blue-600',
     textDark: 'dark:text-blue-400',
+  },
+  package: {
+    name: 'Package',
+    icon: 'Package',
+    primary: '#d946ef',
+    light: '#fae8ff',
+    dark: '#e879f9',
+    bg: 'bg-fuchsia-50',
+    bgDark: 'dark:bg-fuchsia-500/10',
+    border: 'border-fuchsia-200',
+    borderDark: 'dark:border-fuchsia-500/20',
+    text: 'text-fuchsia-600',
+    textDark: 'dark:text-fuchsia-400',
   },
 }
 

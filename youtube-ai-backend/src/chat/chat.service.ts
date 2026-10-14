@@ -44,6 +44,11 @@ import {
   PUBLIC_VIDEO_SYSTEM_PROMPT,
 } from '../openai/prompts/video-autopsy';
 import { SkillRegistry } from './skills/skill-registry';
+import { SkillContext } from './skills/skill.interface';
+import {
+  IntentClassifierService,
+  AUTO_IMAGE_MIN_CONFIDENCE,
+} from './intent-classifier.service';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { TrendsService } from '../trends/trends.service';
@@ -74,6 +79,7 @@ export class ChatService {
     private readonly minioService: MinioService,
     private readonly chromaService: ChromaService,
     private readonly skillRegistry: SkillRegistry,
+    private readonly intentClassifier: IntentClassifierService,
     private readonly performanceContext: PerformanceContextService,
     private readonly localNewsService: LocalNewsService,
     @Optional()
@@ -300,11 +306,18 @@ export class ChatService {
       .reverse()
       .find((m) => m.role === 'assistant')?.content;
 
-    // Resolve skill: auto-classify intent on clean prompt
-    const detectedIntent = this.skillRegistry.classifyIntent(
-      cleanUserPrompt || dto.content,
-      prevAssistantMsg,
-    );
+    // Resolve skill: always-LLM intent routing (fast-paths + regex fallback inside)
+    const intentResult = await this.intentClassifier.classify({
+      message: cleanUserPrompt || dto.content,
+      previousAssistantMessage: prevAssistantMsg,
+    });
+    const detectedIntent = intentResult.intent;
+    const packageMode = intentResult.mode;
+    // Auto-fire images for confident package/thumbnail asks (0.6 fast-path
+    // replies stay below the 0.8 gate so follow-ups never burn credits).
+    const autoImages =
+      (detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
+      intentResult.confidence >= AUTO_IMAGE_MIN_CONFIDENCE;
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
     const resolvedSkill =
@@ -364,11 +377,33 @@ export class ChatService {
         if (lookup?.mode === 'public') analysisMode = 'public';
         else if (PerformanceContextService.isVideoAutopsyQuery(q))
           analysisMode = 'autopsy';
+      } else if (uid && resolvedSkill === 'package' && packageMode === 'audit') {
+        // Package AUDIT mode: always load the referenced video's performance +
+        // current thumbnail (metrics for the diagnosis, no prompt swap).
+        try {
+          const lookup =
+            await this.performanceContext.buildVideoPerformanceLookup(
+              uid,
+              cid,
+              q,
+              updatedThread.videoId || undefined,
+            );
+          if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+          if (lookup?.thumbnailUrl) lookupThumbnailUrl = lookup.thumbnailUrl;
+        } catch {
+          /* optional */
+        }
       }
     } catch (perfErr: any) {
       this.logger.warn(
         `Performance lookup skipped: ${perfErr?.message || perfErr}`,
       );
+    }
+
+    // The package skill owns its system prompt — autopsy/diagnosis prompt
+    // swaps must never hijack a packaging ask (metrics stay via performanceLookup).
+    if (resolvedSkill === 'package') {
+      analysisMode = undefined;
     }
 
     // Build conversation history (last N messages)
@@ -441,6 +476,18 @@ export class ChatService {
       }
     }
 
+    // Unified Package mode — audit vs new-concept instructions for the package skill.
+    if (resolvedSkill === 'package') {
+      dynamicContext += this.buildPackageModeContext({
+        packageMode,
+        autoImages,
+        skillContext,
+        performanceLookup,
+        lookupThumbnailUrl,
+        messages: updatedThread.messages,
+      });
+    }
+
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
     let needsResearch = this.detectNeedsResearch(
@@ -450,6 +497,10 @@ export class ChatService {
     );
     // Autopsy/diagnosis are metrics-first — skip web search noise
     if (analysisMode || resolvedSkill === 'analysis') {
+      needsResearch = false;
+    }
+    // Package AUDIT = metrics-first (like analysis); package NEW = research-backed.
+    if (resolvedSkill === 'package' && packageMode === 'audit') {
       needsResearch = false;
     }
 
@@ -518,7 +569,9 @@ export class ChatService {
             ) as string[])
           : resolvedSkill === 'seo' && seoThumbnailUrl
             ? [seoThumbnailUrl]
-            : [];
+            : resolvedSkill === 'package' && lookupThumbnailUrl
+              ? [lookupThumbnailUrl]
+              : [];
       const chatParams = {
         messages: [{ role: 'user' as const, content: dto.content }],
         channel: (channel || undefined) as any,
@@ -559,6 +612,9 @@ export class ChatService {
       content: finalContent,
       metadata: {
         category: resolvedSkill,
+        ...(autoImages && finalContent.includes('THUMBNAILS_START')
+          ? { autoImages: true }
+          : {}),
         ...(sources.length > 0 ? { sources } : {}),
       },
       createdAt: new Date(),
@@ -616,6 +672,7 @@ export class ChatService {
     usage?: TokenUsage;
     title?: string;
     category?: string;
+    autoImages?: boolean;
   }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
@@ -660,11 +717,27 @@ export class ChatService {
       ?.reverse()
       ?.find((m) => m.role === 'assistant')?.content;
 
-    // Resolve skill: auto-classify intent on clean prompt
-    const detectedIntent = this.skillRegistry.classifyIntent(
-      cleanUserPrompt || dto.content,
-      prevAssistantMsg,
-    );
+    // Resolve skill: always-LLM intent routing (deterministic fast-paths +
+    // regex fallback inside), runs concurrently with the channel fetch below.
+    const intentPromise = this.intentClassifier.classify({
+      message: cleanUserPrompt || dto.content,
+      previousAssistantMessage: prevAssistantMsg,
+    });
+    const channelPromise = this.channelModel
+      .findById(updatedThread.channelId)
+      .lean();
+    const intentResult = await intentPromise;
+    const detectedIntent = intentResult.intent;
+    const packageMode = intentResult.mode;
+    const intentConfidence = intentResult.confidence;
+    // Auto image generation: only when the router is confident AND the ask is
+    // a package or a thumbnail (per client spec: "when client asks for package
+    // or thumbnail, generate the images auto in parallel"). Fast-path/menu/
+    // iteration replies carry confidence 0.6 → below the 0.8 gate, so follow-ups
+    // never silently burn image credits.
+    const autoImages =
+      (detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
+      intentConfidence >= AUTO_IMAGE_MIN_CONFIDENCE;
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
     const resolvedSkill =
@@ -683,9 +756,7 @@ export class ChatService {
       },
     });
 
-    const channel = await this.channelModel
-      .findById(updatedThread.channelId)
-      .lean();
+    const channel = await channelPromise;
     const skill = this.skillRegistry.get(resolvedSkill);
     const skillContext = await skill.loadContext(
       updatedThread.channelId.toString(),
@@ -732,9 +803,33 @@ export class ChatService {
         if (lookup?.mode === 'public') analysisMode = 'public';
         else if (PerformanceContextService.isVideoAutopsyQuery(q))
           analysisMode = 'autopsy';
+      } else if (uid && resolvedSkill === 'package' && packageMode === 'audit') {
+        // Package AUDIT mode: always load the referenced video's performance +
+        // current thumbnail so the diagnosis has metrics and the existing
+        // packaging to critique. Never flips analysisMode — the package skill's
+        // system prompt must stay in charge (no autopsy prompt swap).
+        try {
+          const lookup =
+            await this.performanceContext.buildVideoPerformanceLookup(
+              uid,
+              cid,
+              q,
+              updatedThread.videoId || undefined,
+            );
+          if (lookup?.text) performanceLookup = '\n\n' + lookup.text;
+          if (lookup?.thumbnailUrl) lookupThumbnailUrl = lookup.thumbnailUrl;
+        } catch {
+          /* optional */
+        }
       }
     } catch {
       /* optional */
+    }
+
+    // The package skill owns its system prompt — autopsy/diagnosis prompt
+    // swaps must never hijack a packaging ask (metrics stay via performanceLookup).
+    if (resolvedSkill === 'package') {
+      analysisMode = undefined;
     }
 
     // Build STATIC system prompt (byte-identical across requests for caching)
@@ -778,6 +873,18 @@ export class ChatService {
       }
     }
 
+    // Unified Package mode — audit vs new-concept instructions for the package skill.
+    if (resolvedSkill === 'package') {
+      dynamicContext += this.buildPackageModeContext({
+        packageMode,
+        autoImages,
+        skillContext,
+        performanceLookup,
+        lookupThumbnailUrl,
+        messages: updatedThread.messages,
+      });
+    }
+
     // Detect if research is needed — BEFORE pack loading (topic packs auto-load
     // only for research-backed content requests).
     let needsResearch = this.detectNeedsResearch(
@@ -786,6 +893,10 @@ export class ChatService {
       updatedThread.messages,
     );
     if (analysisMode || resolvedSkill === 'analysis') {
+      needsResearch = false;
+    }
+    // Package AUDIT = metrics-first (like analysis); package NEW = research-backed.
+    if (resolvedSkill === 'package' && packageMode === 'audit') {
       needsResearch = false;
     }
 
@@ -905,7 +1016,9 @@ export class ChatService {
               ) as string[])
             : resolvedSkill === 'seo' && seoThumbnailUrl
               ? [seoThumbnailUrl]
-              : [];
+              : resolvedSkill === 'package' && lookupThumbnailUrl
+                ? [lookupThumbnailUrl]
+                : [];
         const streamParams = {
           messages: [{ role: 'user' as const, content: dto.content }],
           channel: (channel || undefined) as any,
@@ -976,6 +1089,12 @@ export class ChatService {
             content: fullContent,
             metadata: {
               category: resolvedSkill,
+              // Auto-fire signal: the frontend generates both package
+              // thumbnails in parallel when this is set AND the message
+              // actually contains a THUMBNAILS block (guard below).
+              ...(autoImages && fullContent.includes('THUMBNAILS_START')
+                ? { autoImages: true }
+                : {}),
               ...(sources.length > 0 ? { sources } : {}),
             },
             createdAt: new Date(),
@@ -1061,12 +1180,17 @@ export class ChatService {
         savedThread?.messages?.[
           savedThread.messages.length - 1
         ]?._id?.toString();
+      // autoImages only when the final content actually carried a THUMBNAILS
+      // block — mirrors the persisted metadata guard (stream retries safe).
+      const emitAutoImages =
+        autoImages && (fullContent?.includes('THUMBNAILS_START') ?? false);
       yield {
         type: 'done',
         messageId: lastMsgId,
         usage: finalUsage,
         title: savedThread.title,
         category: resolvedSkill,
+        ...(emitAutoImages ? { autoImages: true } : {}),
       };
     }
   }
@@ -1326,7 +1450,16 @@ export class ChatService {
     // Resolve skill from user-provided content only (not PDF extracted text)
     // If no user text provided (pure file upload), default to 'general' skill
     const resolvedSkill = content?.trim()
-      ? this.skillRegistry.classifyIntent(content)
+      ? (
+          await this.intentClassifier.classify({
+            message: content,
+            previousAssistantMessage:
+              updatedThread.messages
+                .slice(0, -1)
+                .reverse()
+                .find((m) => m.role === 'assistant')?.content,
+          })
+        ).intent
       : 'general';
 
     // Get AI response with RAG context
@@ -2133,6 +2266,57 @@ Hard rules:
    * reference photos or scene images. Newest-first scan = always fresh, so a
    * regenerated thumbnail is picked up on the very next request (no staleness).
    */
+  /**
+   * Unified Package mode context — tells the package skill which of its two
+   * modes the router detected (audit = re-package an existing video,
+   * new = fresh concept) and what each mode must deliver first.
+   * Shared by the stream and non-stream paths to prevent prompt drift.
+   */
+  private buildPackageModeContext(params: {
+    packageMode?: 'audit' | 'new';
+    autoImages: boolean;
+    skillContext: SkillContext;
+    performanceLookup: string;
+    lookupThumbnailUrl?: string;
+    messages: Array<{ metadata?: any; content?: string }>;
+  }): string {
+    const {
+      packageMode,
+      autoImages,
+      skillContext,
+      performanceLookup,
+      lookupThumbnailUrl,
+      messages,
+    } = params;
+
+    let ctx = '';
+    if (packageMode === 'audit') {
+      const currentTitle =
+        skillContext.videoMetadata?.youtubeTitle ||
+        skillContext.videoMetadata?.title;
+      const latestThumb = this.extractLatestThumbnail(messages);
+      ctx +=
+        '\n\nPACKAGE MODE: AUDIT (existing video)' +
+        (currentTitle ? `\nCURRENT TITLE: "${currentTitle}"` : '') +
+        (lookupThumbnailUrl || latestThumb
+          ? '\nCURRENT THUMBNAIL: attached / latest in thread — critique its existing overlay text and composition in RESEARCH.'
+          : '\nNo current thumbnail found — diagnose the title alone and say a thumbnail critique needs the image.') +
+        (performanceLookup
+          ? '\nMetrics loaded above — cite the real numbers in RESEARCH.'
+          : '\nNo metrics available for this video — say what data you would need instead of inventing CTR/views.') +
+        '\nFirst 2-4 lines of ## RESEARCH must diagnose WHY the current packaging underperforms (promise mismatch, vague title, crowded thumbnail). Then deliver the replacement package that fixes exactly that.';
+    } else {
+      ctx +=
+        "\n\nPACKAGE MODE: NEW CONCEPT (video does not exist yet)" +
+        "\nLead ## RESEARCH with the market analytics in context: which of the channel's high-CTR winners this title style should mirror, which low-CTR misses to avoid, and what competitor demand supports the topic. The user already knows what video they want — never propose a different topic, never offer alternative packages, never ask questions before delivering the complete package.";
+    }
+    if (autoImages) {
+      ctx +=
+        '\nBoth thumbnail concepts WILL be auto-generated as images immediately after your reply — output exactly 2 well-formed concepts in the THUMBNAILS block, never 1, never 3.';
+    }
+    return ctx;
+  }
+
   private extractLatestThumbnail(
     messages: Array<{ metadata?: any }>,
   ): { url: string; textOverlay: string } | null {
@@ -2197,14 +2381,17 @@ Hard rules:
     // the story's city/county/market and real local affiliates instead of asking the user.
     if (this.localNewsService.isFootageRequest(message)) return true;
 
-    // Trends, outline, script, thumbnail, ideas, and competitor skills always benefit from current web research
+    // Trends, outline, script, thumbnail, ideas, competitor, and package
+    // (new-concept mode — audit overrides to false at the call site) always
+    // benefit from current web research.
     if (
       category === 'outline' ||
       category === 'script' ||
       category === 'trends' ||
       category === 'thumbnail' ||
       category === 'ideas' ||
-      category === 'competitor'
+      category === 'competitor' ||
+      category === 'package'
     ) {
       return true;
     }
@@ -2508,10 +2695,38 @@ Hard rules:
       customHostUrl?: string;
       customHostImage?: string;
       referenceImageUrls?: string[];
+      /** Auto-fire path: dedupe against existing images on the message so a
+       *  reload/retry never burns a second generation for the same concept. */
+      auto?: boolean;
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    // Auto-gen idempotency: concept already has an image on this message →
+    // return it instead of regenerating (reload, stream retry, double-mount).
+    if (dto.auto && dto.messageId && Types.ObjectId.isValid(dto.messageId)) {
+      const targetMsg = thread.messages.find(
+        (m) => m._id?.toString() === dto.messageId,
+      );
+      const existing = (targetMsg?.metadata?.images || []).find((img: any) => {
+        const sameConcept =
+          dto.conceptTitle && img?.conceptTitle === dto.conceptTitle;
+        const sameText =
+          dto.text &&
+          typeof img?.textOverlay === 'string' &&
+          img.textOverlay.toLowerCase() === dto.text.toLowerCase();
+        return Boolean(img?.url) && (sameConcept || sameText);
+      });
+      if (existing) {
+        return {
+          imageUrl: existing.url,
+          revisedPrompt: existing.prompt || '',
+          image: existing,
+          deduped: true,
+        };
+      }
+    }
 
     // 0. Resolve Video Document for deep Video Context (showType, full video title)
     let videoContextTitle = dto.videoTitle || thread.videoTitle;

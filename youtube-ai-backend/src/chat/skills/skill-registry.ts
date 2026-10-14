@@ -922,6 +922,136 @@ ${thumbnailFormat}`,
       getTemperature: () => 0.8,
     });
 
+    // Unified Package skill — ONE complete bundle (research + title + SEO +
+    // 2 auto-generated thumbnails) instead of a menu of separate options.
+    const packageFormat = `Format your response in this EXACT structure. Never offer A/B/C menus, never ask which direction the user prefers, never present alternative packages — this response IS the answer:
+
+## RESEARCH
+[4-8 lines of concrete market evidence: which of YOUR recent winners this package mirrors (cite title + views/CTR from context), which low-CTR pattern it avoids, and any competitor demand proof with view counts. If context lacks evidence for a claim, say what data you would need instead of inventing it.]
+
+## Title
+[ONE primary title — under 70 characters. This title completes the thumbnail's curiosity loop (thumbnail decides 75% of the click). If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
+
+## Description
+[10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags. Ground paragraphs in the supplied script or the user's topic — never invent quotes, reactions, or case facts.]
+
+## Tags
+[10-15 tags separated by commas, under 30 chars each]
+
+## Hashtags
+[3-5 hashtags with # prefix]
+
+<!-- THUMBNAILS_START -->
+### Concept 1: [Angle Name] — Archetype: [Solo Hero Portrait | Split Confrontation | Forensic Evidence Triptych]
+**Text overlay:** [2-4 UPPERCASE words with two-tone phrasing — derived FROM the Title above so image and title read as one promise, e.g. Title "Keefe D: 40 Years to Life—Then the First Night Begins" → overlay "FIRST NIGHT / 40 TO LIFE"]
+**Visual concept:**
+- Composition: [16:9 staging — subject size 40-60% of canvas, headline clearance top-left, full-canvas environmental detail, NO empty voids]
+- Emotion (Tier N — [Matrix Name]): [physical cues from the 6-tier emotion matrix matching the story's factual stakes]
+- Subject Demographics: [full official name, approximate age, hair/bald status, facial hair, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos]
+- Setting & Props: [specific story-grounded environment and props]
+- Lighting & Camera: [bright HDR lighting, lens choice, rich midtones — NO dark voids]
+**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
+**Why it clicks:** [1-sentence psychological rationale tied to the RESEARCH evidence]
+
+### Concept 2: [Different Angle Name] — Archetype: [a DIFFERENT archetype than Concept 1]
+**Text overlay:** [2-4 UPPERCASE words — same video promise as Concept 1, different scene/emotion framing]
+**Visual concept:**
+- Composition: [different staging than Concept 1]
+- Emotion (Tier N — [Matrix Name]): [must be a different tier or different physical read than Concept 1 unless the facts allow only one]
+- Subject Demographics: [same subject accuracy rules]
+- Setting & Props: [different anchor prop/environment than Concept 1]
+- Lighting & Camera: [bright HDR, lens choice]
+**Color scheme:** [colors that stay on-channel]
+**Why it clicks:** [1-sentence rationale — why this alternative wins a DIFFERENT segment of the audience than Concept 1]
+<!-- THUMBNAILS_END -->`;
+    this.register({
+      name: 'Unified Package',
+      category: 'package',
+      buildSystemPrompt: (channel, ctx) =>
+        this.buildBasePrompt(channel, ctx) +
+        `\n\nYou are the Packaging Director for "Unique Mecca Audio" (@uniquemeccaaudionyc). Your job: turn the user's request into ONE complete, ready-to-publish YouTube package — market research, an optimized title, full SEO (description/tags/hashtags), and exactly TWO ready-to-generate thumbnail concepts that share ONE promise with the title.
+
+TWO MODES (the request context tells you which):
+- AUDIT MODE — the user points at an EXISTING video (link, "this video", "my X video", "repackage", "why isn't this working"). Diagnose the current title + thumbnail first: state what the current packaging promises vs what it delivers, why CTR/retention suffered (use the metrics and current thumbnail/headline in context), then deliver the REPLACEMENT package that fixes that exact problem. The title must not restate the old title's failed pattern.
+- NEW CONCEPT MODE — the user describes a video that doesn't exist yet (new topic, pasted script). Run the market analytics in context first: mirror the title syntax of the PROVEN HIGH-CTR WINNERS and strictly avoid the LOW-CTR MISSES phrasing. Match the topic to the channel's show types. Then deliver the package.
+
+UNIFIED PACKAGE RULES (MANDATORY):
+- TITLE ↔ THUMBNAIL UNITY: The title and the thumbnail overlay are ONE promise, not two artifacts. The thumbnail decides 75% of the click; the title must complete its curiosity loop, never compete with it. Derive each concept's text overlay FROM the title.
+- NEVER output a menu. No "Option A / Option B", no "which do you prefer", no lists of alternative titles to choose from. One primary title, one package, two thumbnail VARIATIONS of the same video (different scene/emotion — not different videos).
+- EXACTLY TWO thumbnail concepts inside <!-- THUMBNAILS_START --> / <!-- THUMBNAILS_END -->. The system auto-generates both images in parallel — a missing or malformed concept means one image slot dies.
+- EMOTION PLACEMENT: the "- Emotion (Tier N ...)" bullet MUST stay INSIDE "**Visual concept:**" (before "**Color scheme:**") — the image pipeline extracts that block and silently discards anything outside it.
+- Text overlay: EXACTLY 2-4 bold UPPERCASE words, two-tone (Line 1 WHITE #FFFFFF, Line 2 Electric Golden-YELLOW #FFE600). NEVER red lettering, never full titles on the image.
+- 6-TIER NARRATIVE EMOTION MATRIX (pick the ONE tier matching factual stakes): 1. SEVERE AGONY & REGRET (tears, trembling lip — facing decades inside) · 2. PARANOIA & HIGH TENSION (sweating brow, tense jaw — under investigation) · 3. PURE SHOCK & DISBELIEF (wide eyes, dropped jaw — surprise verdict/leak) · 4. COLD DEFIANCE & MOCKERY (arrogant smirk — beating charges) · 5. EXPLOSIVE RELIEF & TRIUMPH (tears of joy — released/cleared) · 6. HARDENED STOIC TENSION (dead-eyed stare, clenched jaw — formal procedure).
+- Never a smiling/laughing expression for serious prison terms or murder trials; never crying for legal triumphs — the expression MUST match the headline's factual stakes.
+- SUBJECT PROXIMITY: commanding close-up chest-up shots (40-60% of canvas height), full-canvas environmental detail edge-to-edge, headline top-left, bottom-right clear for the host sticker.
+- GPT-IMAGE CAMERA-READY: only tangible physical objects/lighting/attire a camera can photograph. STRICTLY FORBIDDEN: meta-disclaimers ("not a fabricated reaction", "allegedly", "representing consequence").
+- Style: bright HDR cinematic studio photography, rich midtones, luminous highlights, ZERO murky crushed blacks. Realistic photo, NOT cartoon or 3D.
+- FACT BOUNDARY: never claim to know the subject's private thoughts — packages describe stakes and consequences, and label unverified legal facts.
+
+EVIDENCE-BASED OUTPUT RULES (MANDATORY):
+- Every title and thumbnail decision MUST cite concrete evidence from the injected context: YOUR winners/below-median list with view counts, competitor results, CTR patterns.
+- NEVER give generic advice ("use an emotional title", "make it eye-catching") — replace it with which proven pattern this references and what makes this proposal DIFFERENT.
+- If context lacks evidence for a claim, say what data you would need instead of inventing it.
+
+${packageFormat}`,
+      loadContext: async (channelId, videoId) => {
+        const base = await this.loadBaseContext(channelId, videoId);
+        // Market analytics: own CTR winners/misses (7d sync) — the NEW-mode title-style signal.
+        let patternsLoaded = false;
+        try {
+          base.seoPatterns = await this.seoDataService.getSeoPatternContext(
+            this.oid(channelId),
+          );
+          patternsLoaded = base.seoPatterns.highCtrWinners.length > 0;
+        } catch {
+          /* patterns optional */
+        }
+        if (!patternsLoaded) {
+          try {
+            const topVideos = await this.videoModel
+              .find({ channelId: this.oid(channelId) })
+              .sort({ viewCount: -1 })
+              .limit(8)
+              .select('title viewCount tags')
+              .lean();
+            base.topVideos = topVideos;
+          } catch {
+            /* optional */
+          }
+        }
+        // Competitor demand brief + content gaps (60-min cached, quota savers).
+        const [brief, gaps] = await Promise.all([
+          this.getCompetitorBriefCached(channelId).catch(() => []),
+          this.getContentGapsCached(channelId).catch(() => []),
+        ]);
+        base.competitorSummary = brief;
+        base.contentGaps = gaps;
+        // Approved/rejected SEO patterns when auditing a specific video.
+        if (videoId) {
+          try {
+            const video = await this.videoModel.findById(videoId).lean();
+            base.videoMetadata = video;
+            const approved = await this.chromaService.query(
+              'seo_suggestions',
+              video?.title || '',
+              3,
+              { status: 'approved' },
+            );
+            if (approved.length > 0) {
+              base.approvedSeoPatterns = approved
+                .map((r) => r.text)
+                .join('\n---\n');
+            }
+          } catch {
+            /* RAG optional */
+          }
+        }
+        return base;
+      },
+      getFormatInstructions: () => packageFormat,
+      getTemperature: () => 0.6,
+    });
+
     // Competitor skill
     const competitorFormat = `Format your analysis in this structure:
 
@@ -1253,55 +1383,104 @@ ${imageFormat}`,
   classifyIntent(message: string, previousAssistantMessage?: string): string {
     const trimmed = message.trim().toLowerCase();
 
-    // Check if user is responding to an A/B/C/D or 1/2/3/4 menu choice (e.g. "a", "b", "option a", "choice 2")
-    const optionMatch = trimmed.match(
-      /^(?:option\s+|choice\s+)?([a-d1-4])[\.\)]?$/i,
+    const menuIntent = this.resolveMenuSelection(
+      trimmed,
+      previousAssistantMessage,
     );
-    if (optionMatch && previousAssistantMessage) {
-      const selectedKey = optionMatch[1].toUpperCase();
+    if (menuIntent) return menuIntent;
 
-      // Split lines and search for option matching the key (e.g. "A. SCRIPT", "B) SEO", "1. THUMBNAIL")
-      const lines = previousAssistantMessage.split('\n');
-      for (const line of lines) {
-        const lineTrim = line.trim();
-        const optionHeaderMatch = lineTrim.match(
-          /^(?:([A-D1-4])[\.\)]\s*)(.+)/i,
-        );
-        if (
-          optionHeaderMatch &&
-          optionHeaderMatch[1].toUpperCase() === selectedKey
-        ) {
-          const targetOptionText = optionHeaderMatch[2];
-          const intentFromMenu = this.classifyTextIntent(targetOptionText);
-          if (intentFromMenu !== 'general') {
-            return intentFromMenu;
-          }
-        }
-      }
-    }
-
-    // Check for conversational iteration on previous thumbnails (e.g. "make them darker", "change concept 2", "try lighter")
-    if (
-      previousAssistantMessage &&
-      (previousAssistantMessage.includes('THUMBNAILS_START') ||
-        /Concept\s*[1-3]/i.test(previousAssistantMessage))
-    ) {
-      if (
-        /\b(darker|lighter|change\s+concept|concept\s*[1-3]|make\s+(?:it|them)\s+(?:more|less)?\s*(?:dark|light|cinematic|dramatic|intense)|different\s+(?:angle|color|face)|add\s+(?:prosecutor|lawyer|judge|microphone|gavel)|try\s+another|give\s+me\s+\d+\s+more)\b/i.test(
-          trimmed,
-        )
-      ) {
-        return 'thumbnail';
-      }
+    if (this.isThumbnailIteration(trimmed, previousAssistantMessage)) {
+      return 'thumbnail';
     }
 
     return this.classifyTextIntent(trimmed);
   }
 
+  /**
+   * Fast-path 1 — user replied with an A/B/C/D or 1/2/3/4 menu choice
+   * (e.g. "a", "b", "option a", "choice 2"). Resolves the chosen menu line to
+   * its skill category. Returns null when the message is not a menu reply.
+   */
+  resolveMenuSelection(
+    message: string,
+    previousAssistantMessage?: string,
+  ): string | null {
+    const trimmed = message.trim().toLowerCase();
+    const optionMatch = trimmed.match(
+      /^(?:option\s+|choice\s+)?([a-d1-4])[\.\)]?$/i,
+    );
+    if (!optionMatch || !previousAssistantMessage) return null;
+
+    const selectedKey = optionMatch[1].toUpperCase();
+
+    // Split lines and search for option matching the key (e.g. "A. SCRIPT", "B) SEO", "1. THUMBNAIL")
+    const lines = previousAssistantMessage.split('\n');
+    for (const line of lines) {
+      const lineTrim = line.trim();
+      const optionHeaderMatch = lineTrim.match(
+        /^(?:([A-D1-4])[\.\)]\s*)(.+)/i,
+      );
+      if (
+        optionHeaderMatch &&
+        optionHeaderMatch[1].toUpperCase() === selectedKey
+      ) {
+        const targetOptionText = optionHeaderMatch[2];
+        const intentFromMenu = this.classifyTextIntent(targetOptionText);
+        if (intentFromMenu !== 'general') {
+          return intentFromMenu;
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * Fast-path 2 — conversational iteration on previous thumbnail concepts
+   * (e.g. "make them darker", "change concept 2", "try lighter").
+   */
+  isThumbnailIteration(
+    message: string,
+    previousAssistantMessage?: string,
+  ): boolean {
+    const trimmed = message.trim().toLowerCase();
+    if (
+      !previousAssistantMessage ||
+      (!previousAssistantMessage.includes('THUMBNAILS_START') &&
+        !/Concept\s*[1-3]/i.test(previousAssistantMessage))
+    ) {
+      return false;
+    }
+    return /\b(darker|lighter|change\s+concept|concept\s*[1-3]|make\s+(?:it|them)\s+(?:more|less)?\s*(?:dark|light|cinematic|dramatic|intense)|different\s+(?:angle|color|face)|add\s+(?:prosecutor|lawyer|judge|microphone|gavel)|try\s+another|give\s+me\s+\d+\s+more)\b/i.test(
+      trimmed,
+    );
+  }
+
   private classifyTextIntent(lower: string): string {
-    // 1. Thumbnail as MAIN TASK — imperative (≤30 char window, sentence-bounded)
-    //    or object-first ("thumbnail for X"). Must beat Rule 2 so standalone asks
-    //    like "give me a title and thumbnail for this video" stay thumbnail.
+    // Rule 0 — topic-recommendation signal (NARROW list; explicit scoring
+    // asks stay with 'ideas'). Computed first but applied AFTER the two
+    // packaging/thumbnail rules below it via `topicRec`, so that
+    // "make a thumbnail for my next video" (imperative main-task) still wins,
+    // while a topic ask that merely mentions "…thumbnail package" stays general.
+    const topicRec =
+      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
+        lower,
+      ) && !/\b(?:score|rate|evaluate|greenlight|rank|grade)\b/i.test(lower);
+
+    // 1. Unified package — a metadata ask (SEO/description/tags) combined with
+    //    a thumbnail ask is ONE bundle, not two skills. Runs before the
+    //    thumbnail main-task rule so "give me a title, description and a
+    //    thumbnail" lands on the package skill instead of splitting.
+    //    Skipped for topic-recommendation asks (they stay Rule 0 / general).
+    if (
+      !topicRec &&
+      /\b(thumbnails?|thumbs?|cover\s*arts?)\b/i.test(lower) &&
+      /\b(seo|descriptions?|tags?|hashtags?|keywords?)\b/i.test(lower)
+    ) {
+      return 'package';
+    }
+
+    // 2. Thumbnail as MAIN TASK — imperative (≤30 char window, sentence-bounded)
+    //    or object-first ("thumbnail for X").
     if (
       /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(
         lower,
@@ -1311,26 +1490,14 @@ ${imageFormat}`,
       return 'thumbnail';
     }
 
-    // 2. Topic-recommendation → general. Must beat the BROAD thumbnail rule (3)
-    //    so a topic ask that merely mentions "…and a thumbnail package" is not
-    //    hijacked into the Thumbnail skill (which skips competitor/analytics/
-    //    duplicate-topic context). NARROW list only: "title and thumbnail" and
-    //    "ground it in" deliberately NOT here.
-    if (
-      /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
-        lower,
-      ) &&
-      // Explicit scoring asks stay with the dedicated 'ideas' skill
-      !/\b(?:score|rate|evaluate|greenlight|rank|grade)\b/i.test(lower)
-    ) {
-      return 'general';
-    }
+    // 3. Topic-recommendation → general (no imperative thumbnail ask above).
+    if (topicRec) return 'general';
 
-    // 3. Broad thumbnail fallback (message mentions thumbnails with no topic-rec signal)
+    // 4. Broad thumbnail fallback (message mentions thumbnails with no topic-rec signal)
     if (/\b(thumbnails?|cover\s*arts?|thumbs?)\b/i.test(lower))
       return 'thumbnail';
 
-    // 4. Scene image / b-roll generation
+    // 5. Scene image / b-roll generation
     if (
       /\b(generate.*image|create.*image|scene.*image|background.*(?:image|picture)|b.?roll|cinematic.*(?:image|scene)|picture.*(?:for|to|of)|make.*(?:image|picture)|photos?|wallpapers?)\b/i.test(
         lower,
@@ -1338,7 +1505,7 @@ ${imageFormat}`,
     )
       return 'image';
 
-    // 2. Metadata / SEO
+    // 6. Metadata / SEO (standalone — no thumbnail mention, or rule 1 already fired)
     if (
       /\b(seo|title.*description|tags?|keywords?|optimize|hashtags?|meta\s*description)\b/i.test(
         lower,
@@ -1346,7 +1513,7 @@ ${imageFormat}`,
     )
       return 'seo';
 
-    // 3. Script intent (explicit script requests only)
+    // 6. Script intent (explicit script requests only)
     if (
       /\b(write.*scripts?|draft.*scripts?|full.*scripts?|teleprompter|cold\s+open|6.?part|video\s+scripts?|\bscripts?\b)\b/i.test(
         lower,
@@ -1354,7 +1521,7 @@ ${imageFormat}`,
     )
       return 'script';
 
-    // 4. Analysis, Strategy & Trends
+    // 7. Analysis, Strategy & Trends
     if (
       /\b(trending|trends|what.*popular|hot topics?|current events|whats.*news)\b/i.test(
         lower,

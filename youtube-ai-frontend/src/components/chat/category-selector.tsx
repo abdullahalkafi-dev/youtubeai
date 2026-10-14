@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
-import { ChevronDown, MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film } from 'lucide-react'
+import { ChevronDown, MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film, Package } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { getCategoryColor, CATEGORY_COLORS } from '@/lib/category-colors'
 import type { ThreadCategory } from '@/types/chat'
@@ -12,7 +12,7 @@ interface CategorySelectorProps {
 }
 
 const ICON_MAP: Record<string, React.ComponentType<any>> = {
-  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film,
+  MessageSquare, FileText, Sparkles, Image, Target, TrendingUp, Lightbulb, Layers, Film, Package,
 }
 
 const CATEGORY_DESCRIPTIONS: Record<ThreadCategory, string> = {
@@ -25,6 +25,7 @@ const CATEGORY_DESCRIPTIONS: Record<ThreadCategory, string> = {
   trends: 'Find trending topics',
   ideas: 'Score content ideas',
   outline: 'Research topic, get hooks, build outline',
+  package: 'Complete package: research, title, SEO + 2 thumbnails',
 }
 
 // Visible selectable tabs in UI

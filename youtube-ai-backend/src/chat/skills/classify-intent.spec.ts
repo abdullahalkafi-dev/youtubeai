@@ -68,3 +68,43 @@ describe('classifyIntent — topic-recommendation vs thumbnail (Claude Rule 0)',
     expect(classify('what is trending right now')).toBe('trends');
   });
 });
+
+describe('classifyIntent — unified package rule (thumbnail + metadata = one bundle)', () => {
+  it('routes combined title/description + thumbnail asks to package', () => {
+    expect(
+      classify('give me a title, description and a thumbnail for this video'),
+    ).toBe('package');
+    expect(
+      classify(
+        'make me a thumbnail for this video and give me a title and a description and a whole SEO package with it',
+      ),
+    ).toBe('package');
+    expect(classify('full SEO package with thumbnails for the Keefe D video')).toBe(
+      'package',
+    );
+    expect(classify('thumbnail and tags for the Durk upload')).toBe('package');
+  });
+
+  it('keeps standalone thumbnail asks as thumbnail (no metadata words)', () => {
+    expect(classify('give me a title and thumbnail for this video')).toBe(
+      'thumbnail',
+    );
+    expect(classify('make a thumbnail for my next video')).toBe('thumbnail');
+    expect(classify('3 thumbnail concepts for this case')).toBe('thumbnail');
+  });
+
+  it('keeps standalone SEO asks as seo (no thumbnail mention)', () => {
+    expect(classify('seo for this video')).toBe('seo');
+    expect(classify('write me a title and description for the new video')).toBe(
+      'seo',
+    );
+  });
+
+  it('topic-recommendation mentioning thumbnails + description stays general (Rule 0)', () => {
+    expect(
+      classify(
+        'What should I post next? Give me 1 strong topic suggestion with a title, description and a thumbnail package.',
+      ),
+    ).toBe('general');
+  });
+});
