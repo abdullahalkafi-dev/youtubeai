@@ -1,0 +1,396 @@
+import {
+  BadRequestException,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model, Types } from 'mongoose';
+import { AppConfig, CONFIG } from '../config/config';
+import { truncate } from '../common/text';
+import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
+import { Reel, ReelDocument } from '../db/schemas/reel.schema';
+import { ReelMoment, ReelMomentDocument } from '../db/schemas/reel-moment.schema';
+import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
+import { ReelEntity, ReelEntityDocument } from '../db/schemas/reel-misc.schema';
+import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
+import { QueueService } from '../queue/queue.service';
+import { OrchestratorService } from '../queue/orchestrator.service';
+import { CreateCampaignInput, PatchReelInput } from './dto';
+
+const MAX_ACTIVE_CAMPAIGNS = 2;
+const MEDIA_TOKEN_TTL = '12h';
+
+@Injectable()
+export class ReelsApiService {
+  constructor(
+    @Inject(CONFIG) private readonly cfg: AppConfig,
+    @InjectModel(ReelCampaign.name) private readonly campaigns: Model<ReelCampaignDocument>,
+    @InjectModel(Reel.name) private readonly reels: Model<ReelDocument>,
+    @InjectModel(ReelMoment.name) private readonly moments: Model<ReelMomentDocument>,
+    @InjectModel(ReelSource.name) private readonly sources: Model<ReelSourceDocument>,
+    @InjectModel(ReelEntity.name) private readonly entities: Model<ReelEntityDocument>,
+    @InjectModel(SourceVideo.name) private readonly videos: Model<SourceVideoDocument>,
+    private readonly queues: QueueService,
+    private readonly orchestrator: OrchestratorService,
+    private readonly jwt: JwtService,
+  ) {}
+
+  // ------------------------------------------------------------------ media tokens
+
+  private mediaSecret() {
+    return `${this.cfg.JWT_SECRET}::reel-media`;
+  }
+
+  mediaToken(reelId: string, userId: string) {
+    return this.jwt.sign({ rid: reelId, uid: userId }, { secret: this.mediaSecret(), expiresIn: MEDIA_TOKEN_TTL });
+  }
+
+  async verifyMediaToken(token: string, reelId: string) {
+    try {
+      const p = await this.jwt.verifyAsync<{ rid: string }>(token, { secret: this.mediaSecret() });
+      return p.rid === reelId;
+    } catch {
+      return false;
+    }
+  }
+
+  private media(reelId: string, userId: string, ready: boolean) {
+    if (!ready) return null;
+    const t = encodeURIComponent(this.mediaToken(reelId, userId));
+    const base = `/api/reels/media/${reelId}`;
+    return { video: `${base}/video?t=${t}`, cover: `${base}/cover?t=${t}`, download: `${base}/download?t=${t}`, srt: `${base}/srt?t=${t}` };
+  }
+
+  // ------------------------------------------------------------------ campaigns
+
+  async createCampaign(channelId: string, userId: string, dto: CreateCampaignInput) {
+    if (!this.cfg.REELS_ENABLED) throw new ServiceUnavailableException('Reel generation is turned off');
+    if (dto.targetReels > this.cfg.REEL_MAX_REELS_PER_CAMPAIGN) {
+      throw new BadRequestException(`Max ${this.cfg.REEL_MAX_REELS_PER_CAMPAIGN} reels per campaign`);
+    }
+    const active = await this.campaigns.countDocuments({ channelId, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
+    if (active >= MAX_ACTIVE_CAMPAIGNS) {
+      throw new HttpException(`${active} campaigns are already running. Wait for one to finish.`, HttpStatus.TOO_MANY_REQUESTS);
+    }
+    if (dto.seedVideoIds.length) {
+      const found = await this.videos.countDocuments({ channelId: new Types.ObjectId(channelId), youtubeId: { $in: dto.seedVideoIds } });
+      if (found !== dto.seedVideoIds.length) throw new BadRequestException('Some seed videos are not from this channel');
+    }
+    const campaign = await this.campaigns.create({
+      channelId: new Types.ObjectId(channelId),
+      userId: new Types.ObjectId(userId),
+      name: dto.name || truncate(dto.brief, 80),
+      brief: dto.brief,
+      status: 'queued',
+      settings: {
+        targetReels: dto.targetReels,
+        minSec: dto.minSec,
+        maxSec: dto.maxSec,
+        allowCrossVideo: dto.allowCrossVideo,
+        templateName: 'default',
+        seedVideoIds: dto.seedVideoIds,
+      },
+      progress: { stage: 'queued', message: 'Queued — starting research' },
+      log: [{ at: new Date(), level: 'info', msg: 'Campaign created' }],
+    });
+    await this.queues.campaign('research', String(campaign._id));
+    return this.campaignSummary(campaign.toObject(), {});
+  }
+
+  async listCampaigns(channelId: string, limit = 30) {
+    const docs = await this.campaigns
+      .find({ channelId })
+      .sort({ createdAt: -1 })
+      .limit(Math.min(100, limit))
+      .select('-log -research.memo')
+      .lean();
+    const counts = await this.reels.aggregate<{ _id: { c: Types.ObjectId; s: string }; n: number }>([
+      { $match: { campaignId: { $in: docs.map((d) => d._id) } } },
+      { $group: { _id: { c: '$campaignId', s: '$status' }, n: { $sum: 1 } } },
+    ]);
+    return docs.map((d) => {
+      const byStatus: Record<string, number> = {};
+      for (const c of counts) if (String(c._id.c) === String(d._id)) byStatus[c._id.s] = c.n;
+      return this.campaignSummary(d, byStatus);
+    });
+  }
+
+  private campaignSummary(d: any, reelCounts: Record<string, number>) {
+    return {
+      id: String(d._id),
+      name: d.name,
+      brief: d.brief,
+      status: d.status,
+      progress: d.progress,
+      blockedReason: d.blockedReason ?? null,
+      settings: d.settings,
+      stats: d.stats,
+      usage: d.usage,
+      sourceCount: d.sources?.length ?? 0,
+      reelCounts,
+      error: d.error ?? null,
+      createdAt: d.createdAt,
+      finishedAt: d.finishedAt ?? null,
+    };
+  }
+
+  async getCampaign(channelId: string, campaignId: string, userId: string) {
+    const d = await this.campaigns.findOne({ _id: campaignId, channelId }).select('-research.memo').lean();
+    if (!d) throw new NotFoundException('Campaign not found');
+    const reels = await this.reels.find({ campaignId: d._id }).sort({ index: 1 }).lean();
+    const srcStages = await this.sources
+      .find({ youtubeId: { $in: d.sources.map((s) => s.youtubeId) } })
+      .select('youtubeId stage error height momentCount')
+      .lean();
+    const stageById = new Map(srcStages.map((s) => [s.youtubeId, s]));
+    const counts: Record<string, number> = {};
+    for (const r of reels) counts[r.status] = (counts[r.status] ?? 0) + 1;
+    return {
+      ...this.campaignSummary(d, counts),
+      research: d.research
+        ? {
+            topicSummary: d.research.topicSummary,
+            angles: d.research.angles,
+            hookPatterns: d.research.hookPatterns,
+            externalExamples: d.research.externalExamples,
+            audienceQuestions: d.research.audienceQuestions,
+            webSources: d.research.webSources,
+          }
+        : null,
+      sources: d.sources.map((s) => {
+        const st = stageById.get(s.youtubeId);
+        return { ...s, stage: st?.stage ?? 'queued', stageError: st?.error ?? null, height: st?.height ?? null, momentCount: st?.momentCount ?? 0 };
+      }),
+      log: (d.log ?? []).slice(-80),
+      reels: reels.map((r) => this.reelSummary(r, userId)),
+    };
+  }
+
+  async cancelCampaign(channelId: string, campaignId: string) {
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
+    if (!c) throw new NotFoundException('Campaign not found');
+    if (TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) return { ok: true, status: c.status };
+    await this.campaigns.updateOne(
+      { _id: c._id },
+      {
+        $set: { cancelRequested: true, status: 'cancelled', finishedAt: new Date(), 'progress.stage': 'cancelled', 'progress.message': 'Cancelled by user' },
+        $push: { log: { $each: [{ at: new Date(), level: 'warn', msg: 'Cancelled by user' }], $slice: -300 } },
+      },
+    );
+    const reelIds = new Set((await this.reels.find({ campaignId: c._id, status: 'queued' }).select('_id').lean()).map((r) => String(r._id)));
+    const jobs = await this.queues.q.render.getJobs(['waiting', 'delayed', 'paused']);
+    for (const j of jobs) if (j && reelIds.has(String(j.data?.reelId))) await j.remove().catch(() => undefined);
+    await this.reels.updateMany({ campaignId: c._id, status: 'queued' }, { $set: { status: 'failed', error: 'Campaign cancelled' } });
+    return { ok: true, status: 'cancelled' };
+  }
+
+  async retryFailedRenders(channelId: string, campaignId: string) {
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
+    if (!c) throw new NotFoundException('Campaign not found');
+    const failed = await this.reels.find({ campaignId: c._id, status: 'failed', error: { $ne: 'Campaign cancelled' } }).select('_id').lean();
+    if (!failed.length) return { retried: 0 };
+    await this.campaigns.updateOne(
+      { _id: c._id },
+      { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Retrying ${failed.length} renders` } },
+    );
+    for (const r of failed) {
+      await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+      await this.queues.render(String(r._id));
+    }
+    return { retried: failed.length };
+  }
+
+  // ------------------------------------------------------------------ reels
+
+  reelSummary(r: any, userId: string) {
+    const ready = !!r.assets?.videoKey && ['todo', 'posted', 'rejected'].includes(r.status);
+    return {
+      id: String(r._id),
+      campaignId: String(r.campaignId),
+      index: r.index,
+      status: r.status,
+      shape: r.shape,
+      concept: r.concept,
+      angle: r.angle,
+      hookText: r.hookText,
+      payoffText: r.payoffText,
+      whyItWorks: r.whyItWorks,
+      durationSec: r.durationSec,
+      clips: (r.clips ?? []).map((c: any) => ({
+        youtubeId: c.youtubeId,
+        sourceTitle: c.sourceTitle,
+        role: c.role,
+        start: c.start,
+        end: c.end,
+        text: c.text,
+        sourceUrl: `https://youtu.be/${c.youtubeId}?t=${Math.floor(c.start)}`,
+      })),
+      scores: r.scores,
+      critique: r.critique,
+      packaging: r.packaging,
+      entityNames: r.entityNames,
+      themes: r.themes,
+      qa: r.qa,
+      error: r.error ?? null,
+      postedAt: r.postedAt ?? null,
+      postedUrl: r.postedUrl ?? null,
+      rejectReason: r.rejectReason ?? null,
+      createdAt: r.createdAt,
+      media: this.media(String(r._id), userId, ready),
+    };
+  }
+
+  async listReels(channelId: string, userId: string, q: { status?: string; campaignId?: string; entity?: string; period: string; limit: number; skip: number }) {
+    const filter: Record<string, unknown> = { channelId: new Types.ObjectId(channelId) };
+    if (q.status) filter.status = q.status;
+    else filter.status = { $in: ['todo', 'posted', 'rejected', 'queued', 'rendering', 'failed'] };
+    if (q.campaignId) filter.campaignId = new Types.ObjectId(q.campaignId);
+    if (q.entity) filter.entitySlugs = q.entity;
+    if (q.period !== 'all') filter.createdAt = { $gte: new Date(Date.now() - (q.period === '7d' ? 7 : 30) * 86_400_000) };
+    const [items, total] = await Promise.all([
+      this.reels.find(filter).sort({ createdAt: -1 }).skip(q.skip).limit(q.limit).lean(),
+      this.reels.countDocuments(filter),
+    ]);
+    return { total, items: items.map((r) => this.reelSummary(r, userId)) };
+  }
+
+  async getReel(channelId: string, reelId: string, userId: string) {
+    const r = await this.reels.findOne({ _id: reelId, channelId }).lean();
+    if (!r) throw new NotFoundException('Reel not found');
+    return this.reelSummary(r, userId);
+  }
+
+  async patchReel(channelId: string, reelId: string, userId: string, dto: PatchReelInput) {
+    const r = await this.reels.findOne({ _id: reelId, channelId });
+    if (!r) throw new NotFoundException('Reel not found');
+    const set: Record<string, unknown> = {};
+    const unset: Record<string, ''> = {};
+    let needsRerender = false;
+
+    if (dto.status && dto.status !== r.status) {
+      const allowed: Record<string, string[]> = { todo: ['posted', 'rejected'], posted: ['todo', 'rejected'], rejected: ['todo'] };
+      if (!allowed[r.status]?.includes(dto.status)) throw new BadRequestException(`Cannot change a ${r.status} reel to ${dto.status}`);
+      set.status = dto.status;
+      if (dto.status === 'posted') {
+        set.postedAt = new Date();
+        if (dto.postedUrl) set.postedUrl = dto.postedUrl;
+      }
+      if (dto.status === 'rejected') {
+        set.rejectedAt = new Date();
+        set.rejectReason = dto.rejectReason ?? '';
+        // Give the material back to the bank unless the moment itself was the problem.
+        await this.moments.updateMany(
+          { _id: { $in: r.momentIds } },
+          dto.rejectKind === 'bad_moment' ? { $set: { status: 'retired' } } : { $set: { status: 'unused' }, $inc: { rejectedCount: 1 } },
+        );
+      }
+      if (dto.status === 'todo') {
+        unset.postedAt = '';
+        unset.rejectedAt = '';
+        unset.rejectReason = '';
+        await this.moments.updateMany({ _id: { $in: r.momentIds } }, { $set: { status: 'used', lastUsedAt: new Date() } });
+      }
+    } else if (dto.status === 'posted' && dto.postedUrl !== undefined) {
+      set.postedUrl = dto.postedUrl;
+    }
+
+    if (dto.packaging) {
+      for (const [k, v] of Object.entries(dto.packaging)) if (v !== undefined) set[`packaging.${k}`] = v;
+      if (dto.packaging.headline && dto.packaging.headline !== r.packaging?.headline) needsRerender = true;
+    }
+    if (Object.keys(set).length || Object.keys(unset).length) {
+      await this.reels.updateOne({ _id: r._id }, { ...(Object.keys(set).length ? { $set: set } : {}), ...(Object.keys(unset).length ? { $unset: unset } : {}) });
+    }
+    return { ...(await this.getReel(channelId, reelId, userId)), needsRerender };
+  }
+
+  async rerender(channelId: string, reelId: string) {
+    const r = await this.reels.findOne({ _id: reelId, channelId }).select('status').lean();
+    if (!r) throw new NotFoundException('Reel not found');
+    if (['queued', 'rendering'].includes(r.status)) return { ok: true, status: r.status };
+    await this.reels.updateOne({ _id: reelId }, { $set: { status: 'queued', error: null } });
+    await this.queues.render(reelId);
+    return { ok: true, status: 'queued' };
+  }
+
+  // ------------------------------------------------------------------ memory: coverage + insights
+
+  async coverage(channelId: string) {
+    const cid = new Types.ObjectId(channelId);
+    const [byEntity, untapped, ents, totals] = await Promise.all([
+      this.reels.aggregate<{ _id: string; total: number; todo: number; posted: number; rejected: number; last: Date }>([
+        { $match: { channelId: cid, status: { $in: ['todo', 'posted', 'rejected', 'queued', 'rendering'] } } },
+        { $unwind: '$entitySlugs' },
+        {
+          $group: {
+            _id: '$entitySlugs',
+            total: { $sum: 1 },
+            todo: { $sum: { $cond: [{ $eq: ['$status', 'todo'] }, 1, 0] } },
+            posted: { $sum: { $cond: [{ $eq: ['$status', 'posted'] }, 1, 0] } },
+            rejected: { $sum: { $cond: [{ $eq: ['$status', 'rejected'] }, 1, 0] } },
+            last: { $max: '$createdAt' },
+          },
+        },
+      ]),
+      this.moments.aggregate<{ _id: string; n: number }>([
+        { $match: { channelId: cid, status: 'unused', standalone: { $gte: 7 } } },
+        { $unwind: '$entitySlugs' },
+        { $group: { _id: '$entitySlugs', n: { $sum: 1 } } },
+      ]),
+      this.entities.find({ channelId: cid }).select('slug name').lean(),
+      this.moments.aggregate<{ _id: string; n: number }>([{ $match: { channelId: cid } }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+    ]);
+    const names = new Map(ents.map((e) => [e.slug, e.name]));
+    const untappedMap = new Map(untapped.map((u) => [u._id, u.n]));
+    const rows = new Map<string, any>();
+    for (const e of byEntity) rows.set(e._id, { slug: e._id, name: names.get(e._id) ?? e._id, ...e, untappedStrongMoments: untappedMap.get(e._id) ?? 0 });
+    for (const [slug, n] of untappedMap) if (!rows.has(slug)) rows.set(slug, { slug, name: names.get(slug) ?? slug, total: 0, todo: 0, posted: 0, rejected: 0, last: null, untappedStrongMoments: n });
+    const momentTotals = Object.fromEntries(totals.map((t) => [t._id, t.n]));
+    return {
+      momentBank: { unused: momentTotals.unused ?? 0, used: momentTotals.used ?? 0, retired: momentTotals.retired ?? 0 },
+      entities: [...rows.values()]
+        .map(({ _id, ...rest }) => rest)
+        .sort((a, b) => b.total - a.total || b.untappedStrongMoments - a.untappedStrongMoments)
+        .slice(0, 60),
+    };
+  }
+
+  async insights(channelId: string, period: 'week' | 'month') {
+    const cid = new Types.ObjectId(channelId);
+    const since = new Date(Date.now() - (period === 'week' ? 7 : 30) * 86_400_000);
+    const [statusAgg, perDay, campaignAgg, usageAgg] = await Promise.all([
+      this.reels.aggregate<{ _id: string; n: number }>([{ $match: { channelId: cid, createdAt: { $gte: since } } }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+      this.reels.aggregate<{ _id: string; n: number }>([
+        { $match: { channelId: cid, createdAt: { $gte: since } } },
+        { $group: { _id: { $dateToString: { format: '%Y-%m-%d', date: '$createdAt' } }, n: { $sum: 1 } } },
+        { $sort: { _id: 1 } },
+      ]),
+      this.campaigns.aggregate<{ _id: string; n: number }>([{ $match: { channelId: cid, createdAt: { $gte: since } } }, { $group: { _id: '$status', n: { $sum: 1 } } }]),
+      this.campaigns.aggregate<{ prompt: number; completion: number; stt: number }>([
+        { $match: { channelId: cid, createdAt: { $gte: since } } },
+        { $group: { _id: null, prompt: { $sum: '$usage.promptTokens' }, completion: { $sum: '$usage.completionTokens' }, stt: { $sum: '$usage.sttSeconds' } } },
+      ]),
+    ]);
+    const reelsByStatus = Object.fromEntries(statusAgg.map((s) => [s._id, s.n]));
+    const posted = await this.reels.countDocuments({ channelId: cid, postedAt: { $gte: since } });
+    return {
+      period,
+      since,
+      reelsByStatus,
+      reelsCreated: statusAgg.reduce((n, s) => n + s.n, 0),
+      reelsPosted: posted,
+      perDay: perDay.map((d) => ({ date: d._id, reels: d.n })),
+      campaignsByStatus: Object.fromEntries(campaignAgg.map((s) => [s._id, s.n])),
+      usage: {
+        promptTokens: usageAgg[0]?.prompt ?? 0,
+        completionTokens: usageAgg[0]?.completion ?? 0,
+        transcribedMinutes: Math.round((usageAgg[0]?.stt ?? 0) / 60),
+      },
+    };
+  }
+}

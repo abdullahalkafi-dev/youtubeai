@@ -1,0 +1,45 @@
+{
+  "name": "default",
+  "width": 1080,
+  "height": 1920,
+  "canvas": "canvas.png",
+  "window": {
+    "x": 0,
+    "y": 560,
+    "w": 1080,
+    "h": 760
+  },
+  "focusX": 0.5,
+  "focusY": 0.4,
+  "headline": {
+    "enabled": true,
+    "font": "Anton",
+    "size": 124,
+    "minSize": 84,
+    "color": "#FFFFFF",
+    "accentColor": "#FFD400",
+    "outlineColor": "#000000",
+    "outline": 4,
+    "centerX": 540,
+    "top": 250,
+    "maxWidth": 960,
+    "maxLines": 2,
+    "uppercase": true,
+    "charWidth": 0.27
+  },
+  "captions": {
+    "enabled": true,
+    "font": "Montserrat ExtraBold",
+    "size": 92,
+    "color": "#FFFFFF",
+    "highlightColor": "#FFD400",
+    "outlineColor": "#000000",
+    "outline": 6,
+    "shadow": 2,
+    "centerX": 540,
+    "centerY": 1235,
+    "maxWordsPerChunk": 3,
+    "maxCharsPerChunk": 18,
+    "uppercase": true
+  }
+}

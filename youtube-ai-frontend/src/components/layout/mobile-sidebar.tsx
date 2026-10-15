@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, X, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText } from 'lucide-react'
+import { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, LogOut, X, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText, Clapperboard } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { NAV_ITEMS, NAV_ITEMS_BOTTOM } from '@/lib/constants'
 import { useAppDispatch, useAppSelector } from '@/store/hooks'
@@ -10,7 +10,7 @@ import { closeMobileSidebar } from '@/store/slices/ui-slice'
 import { logout } from '@/store/slices/auth-slice'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 
-const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText }
+const iconMap = { LayoutDashboard, Video, Sparkles, MessageSquare, List, Settings, TrendingUp, BarChart3, Search, Target, RefreshCw, ScrollText, Clapperboard }
 
 export function MobileSidebar() {
   const pathname = usePathname()

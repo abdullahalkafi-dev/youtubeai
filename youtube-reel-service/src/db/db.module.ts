@@ -1,0 +1,48 @@
+import { Global, Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { AppConfig, CONFIG } from '../config/config';
+import { ReelCampaign, ReelCampaignSchema } from './schemas/reel-campaign.schema';
+import { Reel, ReelSchema } from './schemas/reel.schema';
+import { ReelSource, ReelSourceSchema } from './schemas/reel-source.schema';
+import { ReelTranscript, ReelTranscriptSchema } from './schemas/reel-transcript.schema';
+import { ReelMoment, ReelMomentSchema } from './schemas/reel-moment.schema';
+import { ReelEntity, ReelEntitySchema, ReelSetting, ReelSettingSchema } from './schemas/reel-misc.schema';
+import {
+  SharedChannel,
+  SharedChannelSchema,
+  SharedUser,
+  SharedUserSchema,
+  SourceVideo,
+  SourceVideoSchema,
+} from './schemas/shared.readonly';
+
+const models = MongooseModule.forFeature([
+  { name: ReelCampaign.name, schema: ReelCampaignSchema },
+  { name: Reel.name, schema: ReelSchema },
+  { name: ReelSource.name, schema: ReelSourceSchema },
+  { name: ReelTranscript.name, schema: ReelTranscriptSchema },
+  { name: ReelMoment.name, schema: ReelMomentSchema },
+  { name: ReelEntity.name, schema: ReelEntitySchema },
+  { name: ReelSetting.name, schema: ReelSettingSchema },
+  { name: SourceVideo.name, schema: SourceVideoSchema },
+  { name: SharedChannel.name, schema: SharedChannelSchema },
+  { name: SharedUser.name, schema: SharedUserSchema },
+]);
+
+@Global()
+@Module({
+  imports: [
+    MongooseModule.forRootAsync({
+      inject: [CONFIG],
+      useFactory: (cfg: AppConfig) => ({
+        uri: cfg.MONGODB_URI,
+        maxPoolSize: 10,
+        serverSelectionTimeoutMS: 15_000,
+        appName: 'reel-service',
+      }),
+    }),
+    models,
+  ],
+  exports: [models],
+})
+export class DbModule {}

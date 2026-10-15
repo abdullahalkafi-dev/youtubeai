@@ -1,0 +1,58 @@
+# Isolated reel-generation stack.
+#
+# Separate compose PROJECT ("youtubeai-reels"): the main deploy (deploy.sh / docker-compose.prod.yml)
+# never rebuilds, restarts or removes these containers, and these never touch the main app's containers.
+# It only joins the existing network to reach mongodb / redis / minio.
+#
+#   Deploy / update:  docker compose -f docker-compose.reels.yml up -d --build
+#   Logs:             docker compose -f docker-compose.reels.yml logs -f --tail=200 reel-worker
+#   Kill switch:      set REELS_ENABLED=false in youtube-reel-service/.env.prod, then `up -d` again
+#   Stop entirely:    docker compose -f docker-compose.reels.yml down        (keeps all data)
+name: youtubeai-reels
+
+services:
+  reel-api:
+    build: ./youtube-reel-service
+    image: youtubeai-reels:latest
+    command: ['node', 'dist/main.api.js']
+    env_file:
+      - ./youtube-reel-service/.env.prod
+    ports:
+      - '127.0.0.1:5002:5002'
+    mem_limit: 768m
+    cpus: 0.75
+    pids_limit: 256
+    restart: always
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5002/api/reels/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - youtubeai
+
+  reel-worker:
+    build: ./youtube-reel-service
+    image: youtubeai-reels:latest
+    command: ['node', 'dist/main.worker.js']
+    env_file:
+      - ./youtube-reel-service/.env.prod
+    volumes:
+      - reel_work:/work
+    # Hard budget so rendering can never starve the main app (box: 4 vCPU / 16 GB).
+    mem_limit: 3g
+    memswap_limit: 3g
+    cpus: 2.5
+    pids_limit: 512
+    stop_grace_period: 30s
+    restart: always
+    networks:
+      - youtubeai
+
+networks:
+  youtubeai:
+    external: true
+    name: youtubeai_default
+
+volumes:
+  reel_work:
