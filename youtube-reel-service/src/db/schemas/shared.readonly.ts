@@ -27,7 +27,7 @@ function lockWrites(schema: MongooseSchema, name: string) {
 
 @Schema({ collection: 'videos', strict: false, versionKey: false, autoIndex: false, autoCreate: false })
 export class SourceVideo {
-  @Prop({ type: Types.ObjectId }) channelId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) channelId: Types.ObjectId;
   @Prop() youtubeId: string;
   @Prop() title: string;
   @Prop() description?: string;
@@ -49,7 +49,7 @@ lockWrites(SourceVideoSchema, 'videos');
 
 @Schema({ collection: 'channels', strict: false, versionKey: false, autoIndex: false, autoCreate: false })
 export class SharedChannel {
-  @Prop({ type: Types.ObjectId }) userId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) userId: Types.ObjectId;
   @Prop() name: string;
   @Prop() handle?: string;
   @Prop() youtubeChannelId?: string;

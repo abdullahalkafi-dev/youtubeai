@@ -40,8 +40,8 @@ export interface CampaignSourceRef {
 
 @Schema({ timestamps: true, collection: 'reel_campaigns' })
 export class ReelCampaign {
-  @Prop({ type: Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, required: true }) userId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) userId: Types.ObjectId;
   @Prop({ required: true }) name: string;
   @Prop({ required: true }) brief: string;
   @Prop({ type: String, enum: CAMPAIGN_STATUSES, default: 'queued', index: true }) status: CampaignStatus;

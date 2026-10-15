@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export const REEL_STATUSES = ['queued', 'rendering', 'todo', 'posted', 'rejected', 'failed'] as const;
 export type ReelStatus = (typeof REEL_STATUSES)[number];
@@ -53,8 +53,8 @@ export interface ReelPackaging {
 
 @Schema({ timestamps: true, collection: 'reels' })
 export class Reel {
-  @Prop({ type: Types.ObjectId, required: true, index: true }) campaignId: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true, index: true }) campaignId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
   @Prop({ required: true }) index: number;
   @Prop({ type: String, enum: REEL_STATUSES, default: 'queued', index: true }) status: ReelStatus;
 
@@ -76,7 +76,7 @@ export class Reel {
   @Prop({ type: [String], default: [], index: true }) entitySlugs: string[];
   @Prop({ type: [String], default: [] }) entityNames: string[];
   @Prop({ type: [String], default: [] }) themes: string[];
-  @Prop({ type: [Types.ObjectId], default: [] }) momentIds: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) momentIds: Types.ObjectId[];
   @Prop({ type: [Number], select: false }) embedding?: number[];
 
   @Prop({ type: Object, default: {} })

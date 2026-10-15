@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export const SOURCE_STAGES = [
   'queued',
@@ -17,8 +17,8 @@ export type SourceStage = (typeof SOURCE_STAGES)[number];
 @Schema({ timestamps: true, collection: 'reel_sources' })
 export class ReelSource {
   @Prop({ required: true, unique: true }) youtubeId: string;
-  @Prop({ type: Types.ObjectId }) videoId?: Types.ObjectId;
-  @Prop({ type: Types.ObjectId, index: true }) channelId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) videoId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, index: true }) channelId?: Types.ObjectId;
   @Prop() title?: string;
   @Prop({ type: String, enum: SOURCE_STAGES, default: 'queued', index: true }) stage: SourceStage;
 

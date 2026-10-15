@@ -4,7 +4,7 @@ import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 /** Canonical people / cases / topics with aliases, so coverage counts "Diddy" == "Sean Combs". */
 @Schema({ timestamps: true, collection: 'reel_entities' })
 export class ReelEntity {
-  @Prop({ type: Types.ObjectId, required: true }) channelId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) channelId: Types.ObjectId;
   @Prop({ required: true }) slug: string;
   @Prop({ required: true }) name: string;
   @Prop({ type: [String], default: [] }) aliases: string[];

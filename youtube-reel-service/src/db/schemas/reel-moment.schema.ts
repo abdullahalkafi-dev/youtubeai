@@ -1,5 +1,5 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument, Types } from 'mongoose';
+import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 
 export const MOMENT_TYPES = [
   'story',
@@ -19,9 +19,9 @@ export type MomentType = (typeof MOMENT_TYPES)[number];
  */
 @Schema({ timestamps: true, collection: 'reel_moments' })
 export class ReelMoment {
-  @Prop({ type: Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId, required: true, index: true }) channelId: Types.ObjectId;
   @Prop({ required: true, index: true }) youtubeId: string;
-  @Prop({ type: Types.ObjectId }) videoId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) videoId?: Types.ObjectId;
   @Prop({ required: true }) promptVersion: string;
 
   @Prop({ required: true }) startLine: number;
@@ -44,7 +44,7 @@ export class ReelMoment {
 
   @Prop({ type: String, enum: ['unused', 'used', 'retired'], default: 'unused', index: true })
   status: 'unused' | 'used' | 'retired';
-  @Prop({ type: [Types.ObjectId], default: [] }) usedByReelIds: Types.ObjectId[];
+  @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) usedByReelIds: Types.ObjectId[];
   @Prop() lastUsedAt?: Date;
   @Prop({ default: 0 }) rejectedCount: number;
   @Prop({ type: [Number], select: false }) embedding?: number[];
