@@ -32,8 +32,11 @@ services:
       - youtubeai
 
   reel-worker:
-    build: ./youtube-reel-service
+    # Same image as reel-api (built once by reel-api; never pulled from a registry).
     image: youtubeai-reels:latest
+    pull_policy: never
+    depends_on:
+      - reel-api
     command: ['node', 'dist/main.worker.js']
     env_file:
       - ./youtube-reel-service/.env.prod
