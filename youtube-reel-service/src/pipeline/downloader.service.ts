@@ -8,6 +8,7 @@ import { ExecError, run } from '../common/exec';
 import { errMsg, VideoUnavailableError, YouTubeAuthError } from '../common/errors';
 import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
+import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { BUCKETS, StorageService } from '../storage/storage.service';
 import { QueueService } from '../queue/queue.service';
@@ -28,6 +29,7 @@ export class DownloaderService {
     @Inject(CONFIG) private readonly cfg: AppConfig,
     @InjectModel(ReelSource.name) private readonly sources: Model<ReelSourceDocument>,
     @InjectModel(ReelSetting.name) private readonly settings: Model<ReelSettingDocument>,
+    @InjectModel(SourceVideo.name) private readonly videos: Model<SourceVideoDocument>,
     private readonly storage: StorageService,
     private readonly session: YouTubeSessionService,
     private readonly queues: QueueService,
@@ -77,44 +79,7 @@ export class DownloaderService {
       const dir = jobDir(this.cfg.REEL_WORK_DIR, 'dl', youtubeId);
       try {
         const videoFile = await this.fetch(youtubeId, dir);
-        const meta = await probeMedia(this.cfg.FFPROBE_BIN, videoFile);
-        if (!meta.hasVideo || !meta.hasAudio) throw new VideoUnavailableError('Downloaded file has no video or no audio track');
-
-        const audioFile = path.join(dir, 'audio.ogg');
-        await run(
-          this.cfg.FFMPEG_BIN,
-          ['-hide_banner', '-y', '-i', videoFile, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libopus', '-b:a', '32k', audioFile],
-          { timeoutMs: 20 * 60_000, lowPriority: true },
-        );
-
-        const videoKey = `${youtubeId}/source.mp4`;
-        const audioKey = `${youtubeId}/audio.ogg`;
-        await this.storage.putFile(BUCKETS.sources, videoKey, videoFile, 'video/mp4');
-        await this.storage.putFile(BUCKETS.sources, audioKey, audioFile, 'audio/ogg');
-
-        const updated = await this.sources.findOneAndUpdate(
-          { youtubeId },
-          {
-            $set: {
-              videoKey,
-              audioKey,
-              videoPresent: true,
-              durationSec: meta.duration,
-              width: meta.width,
-              height: meta.height,
-              fps: meta.fps,
-              sizeBytes: meta.size,
-              hasAudio: meta.hasAudio,
-              downloadedAt: new Date(),
-              lastUsedAt: new Date(),
-              error: meta.height && meta.height < 720 ? `low resolution source (${meta.height}p)` : null,
-              ...(analysisDone ? {} : { stage: 'downloaded' }),
-            },
-          },
-          { new: true },
-        );
-        this.logger.log(`Downloaded ${youtubeId}: ${meta.width}x${meta.height}, ${Math.round(meta.duration)}s, ${(meta.size / 1e6).toFixed(0)}MB`);
-        if (updated) await this.afterVideoPresent(updated);
+        await this.ingest(youtubeId, videoFile, dir, analysisDone);
         return 'done';
       } finally {
         removeDir(dir);
@@ -135,6 +100,71 @@ export class DownloaderService {
     } finally {
       await this.sources.updateOne({ youtubeId }, { $set: { downloadLockAt: null } });
     }
+  }
+
+  /**
+   * Manual fallback: ingest an original file (uploaded by the operator/client, or fetched elsewhere)
+   * exactly as if it had been downloaded — same probe, audio extraction, storage and analysis.
+   */
+  async importFile(youtubeId: string, filePath: string): Promise<void> {
+    const video = await this.videos.findOne({ youtubeId }).select('_id channelId title').lean();
+    if (!video) throw new Error(`Video ${youtubeId} is not in this channel's catalog`);
+    await this.sources.updateOne(
+      { youtubeId },
+      { $setOnInsert: { youtubeId, videoId: video._id, channelId: video.channelId, title: video.title, stage: 'queued' } },
+      { upsert: true },
+    );
+    const src = await this.sources.findOneAndUpdate({ youtubeId }, { $set: { downloadLockAt: new Date() } }, { new: true });
+    const analysisDone = !!src?.transcriptReady && src.minedVersion === MINING_VERSION;
+    const dir = jobDir(this.cfg.REEL_WORK_DIR, 'import', youtubeId);
+    try {
+      await this.ingest(youtubeId, filePath, dir, analysisDone);
+    } finally {
+      removeDir(dir);
+      await this.sources.updateOne({ youtubeId }, { $set: { downloadLockAt: null } });
+    }
+  }
+
+  /** Probe → 16 kHz mono speech track → MinIO → mark present → continue to analysis. */
+  private async ingest(youtubeId: string, videoFile: string, dir: string, analysisDone: boolean) {
+    const meta = await probeMedia(this.cfg.FFPROBE_BIN, videoFile);
+    if (!meta.hasVideo || !meta.hasAudio) throw new VideoUnavailableError('File has no video or no audio track');
+
+    const audioFile = path.join(dir, 'audio.ogg');
+    await run(
+      this.cfg.FFMPEG_BIN,
+      ['-hide_banner', '-y', '-i', videoFile, '-vn', '-ac', '1', '-ar', '16000', '-c:a', 'libopus', '-b:a', '32k', audioFile],
+      { timeoutMs: 20 * 60_000, lowPriority: true },
+    );
+
+    const videoKey = `${youtubeId}/source.mp4`;
+    const audioKey = `${youtubeId}/audio.ogg`;
+    await this.storage.putFile(BUCKETS.sources, videoKey, videoFile, 'video/mp4');
+    await this.storage.putFile(BUCKETS.sources, audioKey, audioFile, 'audio/ogg');
+
+    const updated = await this.sources.findOneAndUpdate(
+      { youtubeId },
+      {
+        $set: {
+          videoKey,
+          audioKey,
+          videoPresent: true,
+          durationSec: meta.duration,
+          width: meta.width,
+          height: meta.height,
+          fps: meta.fps,
+          sizeBytes: meta.size,
+          hasAudio: meta.hasAudio,
+          downloadedAt: new Date(),
+          lastUsedAt: new Date(),
+          error: meta.height && meta.height < 720 ? `low resolution source (${meta.height}p)` : null,
+          ...(analysisDone ? {} : { stage: 'downloaded' }),
+        },
+      },
+      { new: true },
+    );
+    this.logger.log(`Ingested ${youtubeId}: ${meta.width}x${meta.height}, ${Math.round(meta.duration)}s, ${(meta.size / 1e6).toFixed(0)}MB`);
+    if (updated) await this.afterVideoPresent(updated);
   }
 
   async markFailed(youtubeId: string, error: string) {

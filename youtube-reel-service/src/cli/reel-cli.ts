@@ -12,6 +12,7 @@ import { parseTemplate } from '../pipeline/template';
 import { TemplateStoreService } from '../pipeline/template-store.service';
 import { YouTubeSessionService } from '../pipeline/youtube-session.service';
 import { QueueService } from '../queue/queue.service';
+import { DownloaderService } from '../pipeline/downloader.service';
 import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
 import { ensureDir } from '../pipeline/media';
 
@@ -20,6 +21,7 @@ import { ensureDir } from '../pipeline/media';
  *   node dist/cli/reel-cli.js template:upload <dir> [name]
  *   node dist/cli/reel-cli.js cookies:import <cookies.txt>
  *   node dist/cli/reel-cli.js session:check
+ *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
  *   node dist/cli/reel-cli.js render:local <video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
@@ -45,6 +47,12 @@ async function main() {
       case 'session:check': {
         const s = await app.get(YouTubeSessionService).check();
         console.log(JSON.stringify({ status: s.status, lastError: s.lastError ?? null }));
+        break;
+      }
+      case 'source:import': {
+        const [youtubeId, file] = args;
+        await app.get(DownloaderService).importFile(youtubeId, path.resolve(file));
+        console.log(`Imported ${youtubeId}; analysis queued`);
         break;
       }
       case 'campaign:create': {
