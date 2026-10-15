@@ -40,7 +40,20 @@ export const YTDLP_FORMAT =
 
 /** Validate a Netscape cookies.txt for YouTube and normalise line endings. */
 export function normaliseCookies(raw: string): { ok: true; text: string } | { ok: false; reason: string } {
-  const text = raw.replace(/^﻿/, '').replace(/\r\n?/g, '\n').trim() + '\n';
+  // Pasted text often has tabs turned into spaces: rebuild the 7 tab-separated fields.
+  const text =
+    raw
+      .replace(/^﻿/, '')
+      .replace(/\r\n?/g, '\n')
+      .trim()
+      .split('\n')
+      .map((l) => {
+        const line = l.trim();
+        if (!line || (line.startsWith('#') && !line.startsWith('#HttpOnly_')) || line.split('\t').length >= 7) return line;
+        const parts = line.split(/\s+/);
+        return parts.length >= 7 ? [...parts.slice(0, 6), parts.slice(6).join(' ')].join('\t') : line;
+      })
+      .join('\n') + '\n';
   const rows = text.split('\n').filter((l) => l && (!l.startsWith('#') || l.startsWith('#HttpOnly_')));
   const fields = rows.map((l) => l.replace(/^#HttpOnly_/, '').split('\t'));
   if (!fields.length || fields.some((f) => f.length < 7)) {

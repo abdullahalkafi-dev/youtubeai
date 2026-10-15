@@ -167,3 +167,16 @@ describe('critic scoring', () => {
     expect(overallScore({ ...perfect, safety: 4 })).toBe(76);
   });
 });
+
+describe('cookie normalisation', () => {
+  const { normaliseCookies } = require('./ytdlp');
+  it('repairs pasted cookies whose tabs became spaces', () => {
+    const pasted = '# Netscape HTTP Cookie File\r\n.youtube.com  TRUE  /  TRUE  1807619497  SID  abc123\r\n.youtube.com TRUE / TRUE 0 PREF tz=x';
+    const r = normaliseCookies(pasted);
+    expect(r.ok).toBe(true);
+    expect(r.text).toContain('.youtube.com\tTRUE\t/\tTRUE\t1807619497\tSID\tabc123');
+  });
+  it('rejects text without a logged-in session', () => {
+    expect(normaliseCookies('.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tx').ok).toBe(false);
+  });
+});
