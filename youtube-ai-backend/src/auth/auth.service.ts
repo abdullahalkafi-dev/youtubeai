@@ -177,8 +177,9 @@ export class AuthService {
     this.logger.log('='.repeat(50));
     this.logger.log(`GOOGLE OAUTH LOGIN SUCCESSFUL`);
     this.logger.log(`Email: ${email}`);
-    this.logger.log(`Access Token: ${accessToken || 'MISSING'}`);
-    this.logger.log(`Refresh Token: ${refreshToken || 'MISSING'}`);
+    // Never log the tokens themselves: anyone with log access could use them to act as this Google account.
+    this.logger.log(`Access Token: ${accessToken ? 'received' : 'MISSING'}`);
+    this.logger.log(`Refresh Token: ${refreshToken ? 'received' : 'MISSING'}`);
     this.logger.log(`User ID: ${dbUser._id}`);
     this.logger.log('='.repeat(50));
 

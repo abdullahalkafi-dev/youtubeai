@@ -213,17 +213,40 @@ export class AutomationService implements OnApplicationBootstrap {
   }
 
   /**
+   * YouTube ids of reels published by the reel service (collection `reel_posts`, owned by that service).
+   * Their title/description/tags are deliberately packaged per reel, so SEO automation must not rewrite them.
+   * Never throws: if the collection is missing or unreachable, nothing is excluded.
+   */
+  private async reelYoutubeIds(): Promise<string[]> {
+    try {
+      const rows = await this.videoModel.db.db
+        ?.collection('reel_posts')
+        .find({ platform: 'youtube', externalId: { $type: 'string' }, status: { $in: ['processing', 'scheduled', 'published'] } }, { projection: { externalId: 1 } })
+        .toArray();
+      return (rows ?? []).map((r) => String(r.externalId));
+    } catch {
+      return [];
+    }
+  }
+
+  /**
    * Get KPI statistics, quota meter, and next run calculation
    */
   async getStats(channelId: string) {
     const cId = new Types.ObjectId(channelId);
+    const reelIds = await this.reelYoutubeIds();
 
     const [totalVideos, optimizedVideos, pendingVideos, notStartedVideos, channel, quotaInfo, activeBatch] =
       await Promise.all([
         this.videoModel.countDocuments({ channelId: cId, deletedFromYoutube: { $ne: true } }),
         this.videoModel.countDocuments({ channelId: cId, seoStatus: { $in: ['approved', 'optimized'] }, deletedFromYoutube: { $ne: true } }),
         this.videoModel.countDocuments({ channelId: cId, seoStatus: 'pending', deletedFromYoutube: { $ne: true } }),
-        this.videoModel.countDocuments({ channelId: cId, seoStatus: { $in: ['not_started', null] }, deletedFromYoutube: { $ne: true } }),
+        this.videoModel.countDocuments({
+          channelId: cId,
+          seoStatus: { $in: ['not_started', null] },
+          deletedFromYoutube: { $ne: true },
+          ...(reelIds.length ? { youtubeId: { $nin: reelIds } } : {}),
+        }),
         this.channelModel.findById(cId).lean(),
         this.quotaService.getDailyUsage(channelId).catch(() => ({ used: 0, limit: 10000 })),
         this.getActiveBatch(channelId),
@@ -463,6 +486,10 @@ export class AutomationService implements OnApplicationBootstrap {
       seoStatus: { $in: ['not_started', null] },
       deletedFromYoutube: { $ne: true },
     };
+
+    // Reels published by the reel service keep their own packaged title/description/tags: never batch-optimize them.
+    const reelIds = await this.reelYoutubeIds();
+    if (reelIds.length) targetFilter.youtubeId = { $nin: reelIds };
 
     // For automated daily cron runs: protect quota by skipping ghost drafts and 0-view private streams.
     // Manual batches and manual single-video optimization remain unrestricted so creators can optimize private uploads before going public.
