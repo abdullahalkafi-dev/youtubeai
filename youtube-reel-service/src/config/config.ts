@@ -64,6 +64,15 @@ const EnvSchema = z.object({
   REEL_MIN_FREE_DISK_GB: int(10),
   REEL_DOWNLOAD_DAILY_CAP: int(40),
   REEL_SOURCE_CACHE_GB: int(40),
+
+  // Publishing (manual, YouTube first). Google client = the same OAuth client the main app uses.
+  GOOGLE_CLIENT_ID: str(''),
+  GOOGLE_CLIENT_SECRET: str(''),
+  PUBLISH_CONCURRENCY: int(1),
+  PUBLISH_YT_DAILY_CAP: int(10),
+  PUBLISH_CHUNK_MB: int(8),
+  PUBLISH_DEFAULT_PRIVACY: z.enum(['private', 'unlisted', 'public']).default('unlisted'),
+  METRICS_MAX_AGE_DAYS: int(90),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & {

@@ -20,6 +20,7 @@ import { ReelEntity, ReelEntityDocument } from '../db/schemas/reel-misc.schema';
 import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { QueueService } from '../queue/queue.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
+import { PublishService } from '../publishing/publish.service';
 import { CreateCampaignInput, PatchReelInput } from './dto';
 
 const MAX_ACTIVE_CAMPAIGNS = 2;
@@ -38,6 +39,7 @@ export class ReelsApiService {
     private readonly queues: QueueService,
     private readonly orchestrator: OrchestratorService,
     private readonly jwt: JwtService,
+    private readonly publish: PublishService,
   ) {}
 
   // ------------------------------------------------------------------ media tokens
@@ -148,6 +150,7 @@ export class ReelsApiService {
       .select('youtubeId stage error height momentCount')
       .lean();
     const stageById = new Map(srcStages.map((s) => [s.youtubeId, s]));
+    const postMap = await this.publish.summariesForReels(reels.map((r) => r._id));
     const counts: Record<string, number> = {};
     for (const r of reels) counts[r.status] = (counts[r.status] ?? 0) + 1;
     return {
@@ -168,7 +171,7 @@ export class ReelsApiService {
       }),
       log: (d.log ?? []).slice(-80),
       candidates: d.candidates ?? [],
-      reels: reels.map((r) => this.reelSummary(r, userId)),
+      reels: reels.map((r) => this.reelSummary(r, userId, postMap.get(String(r._id)))),
     };
   }
 
@@ -241,7 +244,7 @@ export class ReelsApiService {
 
   // ------------------------------------------------------------------ reels
 
-  reelSummary(r: any, userId: string) {
+  reelSummary(r: any, userId: string, posts: Array<{ platform: string; status: string; url: string | null; views: number | null }> = []) {
     const ready = !!r.assets?.videoKey && ['todo', 'posted', 'rejected'].includes(r.status);
     return {
       id: String(r._id),
@@ -276,6 +279,7 @@ export class ReelsApiService {
       rejectReason: r.rejectReason ?? null,
       createdAt: r.createdAt,
       media: this.media(String(r._id), userId, ready),
+      posts,
     };
   }
 
@@ -290,13 +294,15 @@ export class ReelsApiService {
       this.reels.find(filter).sort({ createdAt: -1 }).skip(q.skip).limit(q.limit).lean(),
       this.reels.countDocuments(filter),
     ]);
-    return { total, items: items.map((r) => this.reelSummary(r, userId)) };
+    const postMap = await this.publish.summariesForReels(items.map((r) => r._id));
+    return { total, items: items.map((r) => this.reelSummary(r, userId, postMap.get(String(r._id)))) };
   }
 
   async getReel(channelId: string, reelId: string, userId: string) {
     const r = await this.reels.findOne({ _id: reelId, channelId }).lean();
     if (!r) throw new NotFoundException('Reel not found');
-    return this.reelSummary(r, userId);
+    const postMap = await this.publish.summariesForReels([r._id]);
+    return this.reelSummary(r, userId, postMap.get(String(r._id)));
   }
 
   async patchReel(channelId: string, reelId: string, userId: string, dto: PatchReelInput) {

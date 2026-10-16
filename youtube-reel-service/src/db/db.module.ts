@@ -7,11 +7,15 @@ import { ReelSource, ReelSourceSchema } from './schemas/reel-source.schema';
 import { ReelTranscript, ReelTranscriptSchema } from './schemas/reel-transcript.schema';
 import { ReelMoment, ReelMomentSchema } from './schemas/reel-moment.schema';
 import { ReelEntity, ReelEntitySchema, ReelSetting, ReelSettingSchema } from './schemas/reel-misc.schema';
+import { ReelPost, ReelPostSchema } from './schemas/reel-post.schema';
+import { ReelPostMetric, ReelPostMetricSchema } from './schemas/reel-post-metric.schema';
 import {
   SharedChannel,
   SharedChannelSchema,
   SharedUser,
   SharedUserSchema,
+  SharedVideoDailyStat,
+  SharedVideoDailyStatSchema,
   SourceVideo,
   SourceVideoSchema,
 } from './schemas/shared.readonly';
@@ -24,7 +28,10 @@ const models = MongooseModule.forFeature([
   { name: ReelMoment.name, schema: ReelMomentSchema },
   { name: ReelEntity.name, schema: ReelEntitySchema },
   { name: ReelSetting.name, schema: ReelSettingSchema },
+  { name: ReelPost.name, schema: ReelPostSchema },
+  { name: ReelPostMetric.name, schema: ReelPostMetricSchema },
   { name: SourceVideo.name, schema: SourceVideoSchema },
+  { name: SharedVideoDailyStat.name, schema: SharedVideoDailyStatSchema },
   { name: SharedChannel.name, schema: SharedChannelSchema },
   { name: SharedUser.name, schema: SharedUserSchema },
 ]);

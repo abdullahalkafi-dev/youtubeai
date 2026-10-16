@@ -40,6 +40,10 @@ export class SourceVideo {
   @Prop() viewCount?: number;
   @Prop() likeCount?: number;
   @Prop() deletedAt?: Date;
+  @Prop() deletedFromYoutube?: boolean;
+  @Prop() categoryId?: string;
+  @Prop() commentCount?: number;
+  @Prop() lastSyncedAt?: Date;
   @Prop() transcriptText?: string;
   @Prop({ type: [Object] }) transcriptSegments?: Array<{ text: string; startSeconds: number; timestamp: string }>;
 }
@@ -63,7 +67,32 @@ export class SharedUser {
   @Prop() email: string;
   @Prop() name?: string;
   @Prop() role?: string;
+  /**
+   * Google tokens belong to the main app. They are mapped READ-ONLY and `select: false`, so they are never
+   * loaded unless `GoogleTokenProvider` explicitly asks for them, and no response ever includes them.
+   */
+  @Prop({ select: false }) accessToken?: string;
+  @Prop({ select: false }) refreshToken?: string;
+  @Prop({ select: false }) tokenExpiresAt?: Date;
 }
 export type SharedUserDocument = HydratedDocument<SharedUser>;
 export const SharedUserSchema = SchemaFactory.createForClass(SharedUser);
 lockWrites(SharedUserSchema, 'users');
+
+/** Daily per-video performance rows written by the main app's Reporting API sync (read-only here). */
+@Schema({ collection: 'video_daily_stats', strict: false, versionKey: false, autoIndex: false, autoCreate: false })
+export class SharedVideoDailyStat {
+  @Prop({ type: MongooseSchema.Types.ObjectId }) videoId: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) channelId: Types.ObjectId;
+  @Prop() date: string;
+  @Prop() views: number;
+  @Prop() impressions: number;
+  @Prop() ctr?: number;
+  @Prop() watchMinutes: number;
+  @Prop() retentionPct?: number;
+  @Prop() likes: number;
+  @Prop() subsGained: number;
+}
+export type SharedVideoDailyStatDocument = HydratedDocument<SharedVideoDailyStat>;
+export const SharedVideoDailyStatSchema = SchemaFactory.createForClass(SharedVideoDailyStat);
+lockWrites(SharedVideoDailyStatSchema, 'video_daily_stats');

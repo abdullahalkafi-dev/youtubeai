@@ -52,3 +52,54 @@ export function parse<T extends z.ZodType>(schema: T, data: unknown): z.infer<T>
   }
   return r.data;
 }
+
+/* ------------------------------------------------------------------ publishing */
+
+const platform = z.enum(['youtube', 'x', 'linkedin', 'instagram', 'facebook']);
+
+const metadataOverrides = z
+  .object({
+    title: z.string().trim().max(200),
+    description: z.string().max(6000),
+    tags: z.array(z.string().trim().max(80)).max(60),
+    hashtags: z.array(z.string().trim().max(60)).max(15),
+    categoryId: z.string().regex(/^\d{1,3}$/),
+    privacy: z.enum(['private', 'unlisted', 'public']),
+    scheduleAt: z.string().datetime({ offset: true }).nullable(),
+    madeForKids: z.boolean(),
+    containsSyntheticMedia: z.boolean(),
+    notifySubscribers: z.boolean(),
+  })
+  .partial();
+
+export const PreflightDto = z.object({
+  platform: platform.default('youtube'),
+  metadata: metadataOverrides.optional(),
+  allowDuplicate: z.boolean().optional(),
+});
+
+export const PublishDto = z.object({
+  platform: platform.default('youtube'),
+  metadata: metadataOverrides.optional(),
+  confirm: z.literal(true, { message: 'Publishing needs an explicit confirmation' }),
+  allowDuplicate: z.boolean().optional(),
+});
+
+export const ManualPostDto = z.object({
+  platform,
+  url: z.string().trim().url().max(500),
+  postedAt: z.string().datetime({ offset: true }).optional(),
+});
+
+export const PostsQuery = z.object({
+  platform: platform.optional(),
+  status: z.enum(['queued', 'uploading', 'processing', 'scheduled', 'published', 'failed', 'cancelled', 'blocked', 'removed']).optional(),
+  period: z.string().regex(/^(\d{1,3}d|all)$/).default('all'),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+  skip: z.coerce.number().int().min(0).default(0),
+});
+
+export const AnalyticsQuery = z.object({
+  period: z.string().regex(/^(\d{1,3}d|all)$/).default('30d'),
+  by: z.enum(['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign']).default('platform'),
+});

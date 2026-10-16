@@ -6,7 +6,7 @@ import { AppConfig, CONFIG } from '../config/config';
 import { CancelledError, errMsg, FatalJobError } from '../common/errors';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
-import { AnalyzeJob, CampaignJob, DownloadJob, MaintenanceJob, QueueService, RenderJob } from '../queue/queue.service';
+import { AnalyzeJob, CampaignJob, DownloadJob, MaintenanceJob, PublishJob, QueueService, RenderJob } from '../queue/queue.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { CampaignRunnerService } from '../pipeline/campaign-runner.service';
 import { DownloaderService } from '../pipeline/downloader.service';
@@ -14,6 +14,8 @@ import { AnalyzerService } from '../pipeline/analyzer.service';
 import { RendererService } from '../pipeline/renderer.service';
 import { MaintenanceService } from '../pipeline/maintenance.service';
 import { TemplateStoreService } from '../pipeline/template-store.service';
+import { PublishService } from '../publishing/publish.service';
+import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 
 /** During processing, attemptsMade counts previous failures: this run is the last one when +1 reaches the limit. */
 const isLastAttempt = (job: Bull.Job) => job.attemptsMade + 1 >= (job.opts.attempts ?? 1);
@@ -27,6 +29,7 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     @Inject(CONFIG) private readonly cfg: AppConfig,
     @InjectModel(Reel.name) private readonly reels: Model<ReelDocument>,
     @InjectModel(ReelSource.name) private readonly sources: Model<ReelSourceDocument>,
+    @InjectModel(ReelPost.name) private readonly postModel: Model<ReelPostDocument>,
     private readonly queues: QueueService,
     private readonly orchestrator: OrchestratorService,
     private readonly runner: CampaignRunnerService,
@@ -35,6 +38,7 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     private readonly renderer: RendererService,
     private readonly maintenance: MaintenanceService,
     private readonly templates: TemplateStoreService,
+    private readonly publishing: PublishService,
   ) {}
 
   async onApplicationBootstrap() {
@@ -71,12 +75,21 @@ export class WorkerProcessors implements OnApplicationBootstrap {
         if (reel) await this.orchestrator.onReelSettled(String(reel.campaignId));
       }),
     );
+    q.publish.process(c.PUBLISH_CONCURRENCY, (job: Bull.Job<PublishJob>) =>
+      this.guard(job, async () => this.publishing.handle(job.data), async (err) => {
+        await this.postModel.updateOne(
+          { _id: job.data.postId, status: { $in: ['queued', 'uploading', 'processing'] } },
+          { $set: { status: 'failed', error: errMsg(err).slice(0, 500), errorCode: 'worker_error' } },
+        );
+      }),
+    );
     q.maintenance.process(1, (job: Bull.Job<MaintenanceJob>) => this.maintenance.run(job.data.task));
 
     // Repeatable housekeeping (deduplicated by Bull's repeat key).
     await q.maintenance.add({ task: 'recover' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'recover', attempts: 1 });
     await q.maintenance.add({ task: 'cookie-health' } satisfies MaintenanceJob, { repeat: { every: 6 * 3600_000 }, jobId: 'cookie-health', attempts: 1 });
     await q.maintenance.add({ task: 'cleanup' } satisfies MaintenanceJob, { repeat: { every: 3600_000 }, jobId: 'cleanup', attempts: 1 });
+    await q.maintenance.add({ task: 'metrics' } satisfies MaintenanceJob, { repeat: { every: 30 * 60_000 }, jobId: 'metrics', attempts: 1 });
 
     for (const name of Object.keys(q) as Array<keyof typeof q>) {
       q[name].on('error', (err) => this.logger.error(`[queue ${name}] ${err.message}`));

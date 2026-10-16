@@ -13,6 +13,8 @@ import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
 import { removeDir } from './media';
+import { MetricsService } from '../publishing/metrics.service';
+import { PublishService } from '../publishing/publish.service';
 import { YouTubeSessionService } from './youtube-session.service';
 
 const STALE_CAMPAIGN_MS = 20 * 60_000;
@@ -33,10 +35,13 @@ export class MaintenanceService {
     private readonly orchestrator: OrchestratorService,
     private readonly runner: CampaignRunnerService,
     private readonly session: YouTubeSessionService,
+    private readonly publishing: PublishService,
+    private readonly metrics: MetricsService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics') {
     if (task === 'recover') return this.recover();
+    if (task === 'metrics') return this.metrics.collectDue();
     if (task === 'cookie-health') return this.cookieHealth();
     if (task === 'cleanup') return this.cleanup();
   }
@@ -47,6 +52,13 @@ export class MaintenanceService {
   }
 
   async recover() {
+    // Publishing housekeeping first; it must never stop campaign recovery below.
+    try {
+      await this.publishing.resumeReconnectBlocked();
+      await this.publishing.requeueStuck();
+    } catch (err) {
+      this.logger.warn(`Publish recovery failed: ${errMsg(err)}`);
+    }
     const session = await this.session.state();
     // Re-login happened → release blocked sources.
     if (session.status === 'ok') {

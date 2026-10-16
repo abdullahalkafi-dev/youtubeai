@@ -16,6 +16,13 @@ import { TemplateStoreService } from './pipeline/template-store.service';
 import { RendererService } from './pipeline/renderer.service';
 import { CampaignRunnerService } from './pipeline/campaign-runner.service';
 import { MaintenanceService } from './pipeline/maintenance.service';
+import { AnalyticsService } from './publishing/analytics.service';
+import { GoogleTokenProvider } from './publishing/google-token.provider';
+import { MetricsService } from './publishing/metrics.service';
+import { PublishQuotaService } from './publishing/publish-quota.service';
+import { PublishService } from './publishing/publish.service';
+import { PublisherRegistry } from './publishing/registry';
+import { YouTubePublisher } from './publishing/youtube.publisher';
 
 const providers = [
   StorageService,
@@ -33,6 +40,14 @@ const providers = [
   RendererService,
   CampaignRunnerService,
   MaintenanceService,
+  // publishing (manual, YouTube first)
+  PublisherRegistry,
+  GoogleTokenProvider,
+  PublishQuotaService,
+  YouTubePublisher,
+  PublishService,
+  MetricsService,
+  AnalyticsService,
 ];
 
 /** Everything shared by the API process, the worker process and the CLI. Nothing here starts work by itself. */

@@ -3,7 +3,7 @@ import Bull from 'bull';
 import { AppConfig, CONFIG } from '../config/config';
 
 /** All reel queues live under their own Redis prefix ("reels") so they never touch the main app's queues. */
-export const QUEUES = ['campaign', 'download', 'analyze', 'render', 'maintenance'] as const;
+export const QUEUES = ['campaign', 'download', 'analyze', 'render', 'publish', 'maintenance'] as const;
 export type QueueName = (typeof QUEUES)[number];
 
 export type CampaignStep = 'research' | 'source' | 'compose' | 'topup';
@@ -20,8 +20,14 @@ export interface AnalyzeJob {
 export interface RenderJob {
   reelId: string;
 }
+export interface PublishJob {
+  postId: string;
+  step: 'upload' | 'verify';
+  /** Verify attempt number (drives the back-off schedule). */
+  attempt?: number;
+}
 export interface MaintenanceJob {
-  task: 'recover' | 'cookie-health' | 'cleanup';
+  task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics';
 }
 
 function redisOptions(url: string): Bull.QueueOptions['redis'] {
@@ -72,6 +78,14 @@ export class QueueService implements OnModuleDestroy {
 
   render(reelId: string, delayMs = 0) {
     return this.q.render.add({ reelId } satisfies RenderJob, { delay: delayMs, attempts: 2, backoff: { type: 'fixed', delay: 30_000 } });
+  }
+
+  /**
+   * `upload` runs once per attempt (our own retry logic re-queues it; Bull's attempts stay at 1 so a failed upload
+   * is never replayed blindly — the post's saved session decides whether to resume). `verify` re-checks processing.
+   */
+  publish(postId: string, step: PublishJob['step'], delayMs = 0, attempt = 0) {
+    return this.q.publish.add({ postId, step, attempt } satisfies PublishJob, { delay: delayMs, attempts: 1 });
   }
 
   async pauseDownloads() {
