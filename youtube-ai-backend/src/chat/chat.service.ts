@@ -320,8 +320,11 @@ export class ChatService {
     // Auto-fire images for confident package/thumbnail asks (0.6 fast-path
     // replies stay below the 0.8 gate so follow-ups never burn credits).
     const autoImages =
-      (detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
-      intentResult.confidence >= AUTO_IMAGE_MIN_CONFIDENCE;
+      ((detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
+        intentResult.confidence >= AUTO_IMAGE_MIN_CONFIDENCE) ||
+      // "script and thumbnails" routes to the script skill, but the client still
+      // asked for thumbnails: whenever the reply offers the pair, generate both.
+      explicitlyAsksForThumbnails(dto.content);
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
     const resolvedSkill =
@@ -746,8 +749,11 @@ export class ChatService {
     // iteration replies carry confidence 0.6 → below the 0.8 gate, so follow-ups
     // never silently burn image credits.
     const autoImages =
-      (detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
-      intentConfidence >= AUTO_IMAGE_MIN_CONFIDENCE;
+      ((detectedIntent === 'package' || detectedIntent === 'thumbnail') &&
+        intentConfidence >= AUTO_IMAGE_MIN_CONFIDENCE) ||
+      // "script and thumbnails" routes to the script skill, but the client still
+      // asked for thumbnails: whenever the reply offers the pair, generate both.
+      explicitlyAsksForThumbnails(dto.content);
 
     // Bidirectional override: if user clearly asks for a specific skill (non-general), override sticky tab
     const resolvedSkill =
@@ -3912,4 +3918,9 @@ Hard rules:
     }
     return { success: true };
   }
+}
+
+/** True when the client's own words ask for thumbnails or a full package. */
+export function explicitlyAsksForThumbnails(content: string): boolean {
+  return /\bthumb\w*|\bpackage\b/i.test(String(content || ''));
 }

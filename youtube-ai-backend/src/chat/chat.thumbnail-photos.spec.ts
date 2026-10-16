@@ -112,3 +112,12 @@ describe('legacy thumbnails never invent real people', () => {
     expect(generate).not.toHaveBeenCalled();
   });
 });
+
+describe('auto-generation follows the client asking for thumbnails', () => {
+  const { explicitlyAsksForThumbnails } = require('./chat.service');
+  it('generates when thumbnails are asked for alongside a script', () => {
+    expect(explicitlyAsksForThumbnails('nice now give me thumbnail anf the script')).toBe(true);
+    expect(explicitlyAsksForThumbnails('give me a package for this with high ctr')).toBe(true);
+    expect(explicitlyAsksForThumbnails('write the script only')).toBe(false);
+  });
+});
