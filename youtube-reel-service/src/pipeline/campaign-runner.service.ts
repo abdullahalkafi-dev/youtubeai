@@ -32,6 +32,7 @@ export class CampaignRunnerService {
     if (step === 'research') return this.stepResearch(campaignId);
     if (step === 'source') return this.stepSource(campaignId);
     if (step === 'compose') return this.stepCompose(campaignId);
+    if (step === 'topup') return this.stepCompose(campaignId, true);
   }
 
   private async stepResearch(campaignId: string) {
@@ -60,10 +61,10 @@ export class CampaignRunnerService {
     await this.orchestrator.refreshPreparing(campaignId);
   }
 
-  private async stepCompose(campaignId: string) {
+  private async stepCompose(campaignId: string, topUp = false) {
     const c = await this.campaigns.findOne({ _id: campaignId, status: 'composing' }).select('_id').lean();
     if (!c) return;
-    const n = await this.composer.compose(campaignId);
+    const n = await this.composer.compose(campaignId, { topUp });
     this.logger.log(`Campaign ${campaignId}: ${n} reels queued for render`);
   }
 

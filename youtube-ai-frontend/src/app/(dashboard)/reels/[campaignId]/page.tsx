@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
-import { ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, Loader2, RotateCcw, Square, XCircle } from 'lucide-react'
+import { ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, Loader2, Plus, RotateCcw, Square, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppSelector } from '@/store/hooks'
 import { ACTIVE_CAMPAIGN_STATUSES, reelsApi, errorMessage } from '@/lib/reels-api'
@@ -87,6 +87,20 @@ export default function CampaignPage() {
     }
   }
 
+  const topUp = async () => {
+    if (!c) return
+    setBusy(true)
+    try {
+      const r = await reelsApi.topUp(channelId, c.id)
+      toast.success(`Looking for ${r.adding} more reel${r.adding === 1 ? '' : 's'} in the unreviewed moments`)
+      load()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const retry = async () => {
     if (!c) return
     setBusy(true)
@@ -128,6 +142,12 @@ export default function CampaignPage() {
           <p className="text-xs text-zinc-500 mt-1">{c.brief}</p>
         </div>
         <div className="flex gap-2 shrink-0">
+          {(c.status === 'partial' || c.status === 'completed') && !active && (
+            <button onClick={topUp} disabled={busy} className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold flex items-center gap-1.5">
+              <Plus className="w-3.5 h-3.5" />
+              {c.reels.filter((r) => ['todo', 'posted', 'queued', 'rendering'].includes(r.status)).length < c.settings.targetReels ? 'Find more reels' : 'Make 3 more'}
+            </button>
+          )}
           {failedReels > 0 && !active && (
             <button onClick={retry} disabled={busy} className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
               <RotateCcw className="w-3.5 h-3.5" /> Retry {failedReels} failed
@@ -262,6 +282,39 @@ export default function CampaignPage() {
           )}
         </section>
       </div>
+
+      {/* Why these reels — every idea and what happened to it */}
+      {c.candidates?.length > 0 && (
+        <section className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Reel ideas reviewed ({c.candidates.length})</h2>
+            <p className="text-[11px] text-zinc-400">
+              {c.stats.momentsShown ? `${c.stats.momentsShown} of ${c.stats.momentsAvailable} mined moments seen · ${c.stats.rounds} round(s) · ` : ''}
+              {c.candidates.filter((x) => x.outcome === 'kept').length} kept
+            </p>
+          </div>
+          <ul className="divide-y divide-zinc-100 dark:divide-zinc-800 max-h-96 overflow-y-auto">
+            {c.candidates.map((x) => (
+              <li key={`${x.round}-${x.ref}`} className="py-2 flex gap-3">
+                <span
+                  className={cn(
+                    'mt-0.5 h-fit px-1.5 py-0.5 rounded text-[10px] font-semibold whitespace-nowrap',
+                    x.outcome === 'kept' ? 'bg-emerald-500/10 text-emerald-500' : x.outcome === 'spare' ? 'bg-sky-500/10 text-sky-500' : 'bg-zinc-500/10 text-zinc-400',
+                  )}
+                >
+                  {x.outcome === 'kept' ? 'Kept' : x.outcome === 'spare' ? 'Spare' : 'Dropped'}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-zinc-800 dark:text-zinc-200">
+                    {x.concept} <span className="font-normal text-zinc-400">· round {x.round} · {fmtSec(x.durationSec)}{x.overall !== null ? ` · score ${x.overall}` : ''}{x.revised ? ' · revised' : ''}</span>
+                  </p>
+                  <p className="text-[11px] text-zinc-500">{x.reason}</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {/* Log */}
       <section className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">

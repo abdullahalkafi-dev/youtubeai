@@ -3,9 +3,9 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppConfig, CONFIG } from '../config/config';
 import { AiService, UsageSink } from '../ai/ai.service';
-import { errMsg, FatalJobError } from '../common/errors';
+import { CancelledError, errMsg, FatalJobError } from '../common/errors';
 import { compactNumber, cosine, overlapSec, truncate } from '../common/text';
-import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
+import { CandidateLedgerEntry, ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
 import { Reel, ReelDocument, ReelScores } from '../db/schemas/reel.schema';
 import { ReelMoment, ReelMomentDocument } from '../db/schemas/reel-moment.schema';
 import { ReelTranscript, ReelTranscriptDocument } from '../db/schemas/reel-transcript.schema';
@@ -30,7 +30,10 @@ import { formatLine } from './transcript';
 
 interface Candidate {
   ref: string;
+  round: number;
   plan: ReelPlan;
+  momentIds: Types.ObjectId[];
+  outcome?: { status: 'kept' | 'spare' | 'dropped'; reason: string };
   asm: Assembled;
   review?: CriticReview;
   overall?: number;
@@ -42,6 +45,7 @@ interface Candidate {
 type UsedRanges = Map<string, Array<[number, number]>>;
 
 const MIN_KEEP = 70;
+const MAX_ROUNDS = 3;
 
 @Injectable()
 export class ComposerService {
@@ -59,16 +63,24 @@ export class ComposerService {
     private readonly queues: QueueService,
   ) {}
 
-  /** Returns the number of reels queued for rendering. Idempotent: re-running after a crash only re-queues renders. */
-  async compose(campaignId: string): Promise<number> {
+  /**
+   * Builds the reels for a campaign, in ROUNDS. Each round shows the director a fresh batch of moments it has not
+   * seen yet, has the critic review them (with one revision pass), and keeps what clears the quality bar. It keeps
+   * going until the requested number is reached or the material is exhausted — never padding with weak reels.
+   * Idempotent: after a crash, existing reels are just re-queued for rendering.
+   */
+  async compose(campaignId: string, opts: { topUp?: boolean } = {}): Promise<number> {
+    const topUp = !!opts.topUp;
     const campaign = await this.campaigns.findById(campaignId);
     if (!campaign) throw new Error('Campaign not found');
 
-    const existing = await this.reels.find({ campaignId: campaign._id }).select('_id status').lean();
-    if (existing.length) {
-      await this.orchestrator.transition(campaignId, ['composing'], 'rendering', `Rendering ${existing.length} reels`);
-      for (const r of existing) if (r.status === 'queued' || r.status === 'rendering') await this.queues.render(String(r._id));
-      return existing.length;
+    if (!topUp) {
+      const existing = await this.reels.find({ campaignId: campaign._id }).select('_id status').lean();
+      if (existing.length) {
+        await this.orchestrator.transition(campaignId, ['composing'], 'rendering', `Rendering ${existing.length} reels`);
+        for (const r of existing) if (r.status === 'queued' || r.status === 'rendering') await this.queues.render(String(r._id));
+        return existing.length;
+      }
     }
 
     const usage = this.orchestrator.usageSink(campaignId);
@@ -76,6 +88,11 @@ export class ComposerService {
     const rules: AssembleRules = { minSec: s.minSec, maxSec: s.maxSec, allowCrossVideo: s.allowCrossVideo };
     const research = (campaign.research ?? {}) as ResearchResult;
     this.assertBudget(campaign);
+
+    const existingCount = topUp ? await this.reels.countDocuments({ campaignId: campaign._id, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } }) : 0;
+    const need = s.targetReels - existingCount;
+    if (need <= 0) throw new FatalJobError('This campaign already has the requested number of reels.');
+    const baseIndex = topUp ? ((await this.reels.find({ campaignId: campaign._id }).sort({ index: -1 }).limit(1).select('index').lean())[0]?.index ?? 0) : 0;
 
     // ---------- 1. Material: transcripts of the ready source videos ----------
     const readyRefs = campaign.sources.filter((x) => x.status === 'ready');
@@ -100,20 +117,15 @@ export class ComposerService {
     }
     if (!materials.size) throw new FatalJobError('No analyzed source material available');
 
-    // ---------- 2. Moments: relevant, unused, not overlapping earlier reels ----------
+    // ---------- 2. Every usable moment, ranked by relevance to the brief ----------
     const used = await this.usedRanges(campaign.channelId);
     const cooldownMs = this.cfg.REEL_RANGE_COOLDOWN_DAYS * 86_400_000;
     const all = await this.moments
       .find({ youtubeId: { $in: [...keyByYt.keys()] }, promptVersion: MINING_VERSION, status: { $ne: 'retired' } })
       .select('+embedding')
       .lean();
-    const fresh = all.filter((m) => {
-      if (m.status === 'used' && m.lastUsedAt && Date.now() - new Date(m.lastUsedAt).getTime() < cooldownMs) return false;
-      const ranges = used.get(m.youtubeId) ?? [];
-      const ov = ranges.reduce((n, [a, b]) => n + overlapSec(m.start, m.end, a, b), 0);
-      return ov / Math.max(1, m.end - m.start) <= 0.5;
-    });
-    if (!fresh.length) throw new FatalJobError('Every strong moment in these videos was already used in earlier reels.');
+    const usable = all.filter((m) => !(m.status === 'used' && m.lastUsedAt && Date.now() - new Date(m.lastUsedAt).getTime() < cooldownMs));
+    if (!usable.length) throw new FatalJobError('Every strong moment in these videos was already used in earlier reels.');
 
     let qv: number[] = [];
     try {
@@ -121,120 +133,161 @@ export class ComposerService {
     } catch (err) {
       this.logger.warn(`Campaign embedding failed: ${errMsg(err)}`);
     }
-    const scored = fresh
+    const scored = usable
       .map((m) => ({ m, score: (qv.length && m.embedding?.length ? cosine(qv, m.embedding) * 10 : 3) * 0.55 + m.standalone * 0.3 + m.intensity * 0.15 }))
       .sort((a, b) => b.score - a.score);
-    const k = Math.min(40, Math.max(18, s.targetReels * 5));
-    const picked: typeof scored = [];
-    const perVideo = new Map<string, number>();
-    for (const x of scored) if ((perVideo.get(x.m.youtubeId) ?? 0) < 2) (picked.push(x), perVideo.set(x.m.youtubeId, (perVideo.get(x.m.youtubeId) ?? 0) + 1));
-    for (const x of scored) if (picked.length < k && !picked.includes(x)) picked.push(x);
-    const momentRefs = new Map<string, (typeof fresh)[number]>();
-    picked.forEach((x, i) => momentRefs.set(`M${i + 1}`, x.m));
-    await this.orchestrator.log(campaignId, 'info', `Director is reviewing ${momentRefs.size} moments from ${materials.size} videos`);
 
-    const material = this.materialText(materials, momentRefs, keyByYt, used);
-    const doNotRepeat = await this.doNotRepeat(campaign.channelId);
+    const doNotRepeatBase = await this.doNotRepeat(campaign.channelId);
     const researchText = this.researchText(research);
+    const finals: Candidate[] = [];
+    const allCands: Candidate[] = [];
+    const shown = new Set<string>();
+    let refCounter = 0;
+    let rounds = 0;
 
-    // ---------- 3. Director ----------
-    const requestCount = Math.min(s.targetReels + 4, Math.ceil(s.targetReels * 1.6));
-    const directed = await this.ai.generateJson({
-      task: `director:${campaignId}`,
-      system: DIRECTOR_SYSTEM,
-      user: buildDirectorUser({
-        brief: campaign.brief,
-        targetReels: s.targetReels,
-        minSec: s.minSec,
-        maxSec: s.maxSec,
-        allowCrossVideo: s.allowCrossVideo,
-        research: researchText,
-        doNotRepeat,
-        material,
-        requestCount,
-      }),
-      schema: DirectorSchema,
-      schemaName: 'reel_plans',
-      usage,
-    });
-    if (directed.materialNotes) await this.orchestrator.log(campaignId, 'info', `Director: ${directed.materialNotes}`, false);
+    // ---------- 3. Rounds ----------
+    while (rounds < MAX_ROUNDS && finals.length < need) {
+      rounds++;
+      const live = await this.campaigns.findById(campaignId).select('usage cancelRequested status').lean();
+      if (!live || live.cancelRequested || live.status === 'cancelled') throw new CancelledError();
+      this.assertBudget(live);
 
-    const cands: Candidate[] = directed.reels.map((plan, i) => {
-      const asm = assemble(plan.clips, materials, rules);
-      return { ref: `R${i + 1}`, plan, asm, revised: false, lastErrors: asm.errors };
-    });
-    await this.orchestrator.log(
-      campaignId,
-      'info',
-      `Director proposed ${cands.length} reels (${cands.filter((c) => c.asm.ok).length} passed structural checks); critic reviewing`,
-    );
-
-    // ---------- 4. Critic ----------
-    await this.critique(campaign, cands.filter((c) => c.asm.ok), usage);
-
-    // ---------- 5. One revision round for fixable reels ----------
-    const toRevise = cands.filter((c) => !c.asm.ok || c.review?.verdict === 'revise' || (c.review && c.review.verdict === 'keep' && !passesBar(c.review, MIN_KEEP)));
-    if (toRevise.length) {
-      await this.orchestrator.log(campaignId, 'info', `Revising ${toRevise.length} reels`);
-      try {
-        const revised = await this.ai.generateJson({
-          task: `revise:${campaignId}`,
-          system: REVISION_SYSTEM,
-          user: buildRevisionUser({
-            header: [
-              `Campaign brief: "${campaign.brief}"`,
-              `Duration per reel: ${s.minSec}-${s.maxSec} s. Cross-video allowed: ${s.allowCrossVideo ? 'yes' : 'no'}.`,
-            ].join('\n'),
-            items: toRevise.map((c) => this.revisionItem(c)),
-            material,
-          }),
-          schema: RevisionSchema,
-          schemaName: 'reel_revisions',
-          usage,
-        });
-        const changed: Candidate[] = [];
-        for (const r of revised.reels) {
-          const c = toRevise.find((x) => x.ref === r.ref);
-          if (!c) continue;
-          const { ref: _ref, ...plan } = r;
-          c.plan = plan;
-          c.asm = assemble(plan.clips, materials, rules);
-          c.review = undefined;
-          c.overall = undefined;
-          c.revised = true;
-          c.lastErrors = c.asm.errors;
-          if (c.asm.ok) changed.push(c);
-        }
-        await this.critique(campaign, changed, usage);
-      } catch (err) {
-        await this.orchestrator.log(campaignId, 'warn', `Revision round failed, keeping first-pass results: ${errMsg(err)}`);
+      const remaining = need - finals.length;
+      const pool = scored.filter((x) => !shown.has(String(x.m._id)) && this.freeOfUsed(x.m, used));
+      if (pool.length < 3) {
+        await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: no unseen moments left to review`, false);
+        break;
       }
+      const k = Math.min(rounds === 1 ? 60 : 45, Math.max(20, remaining * 6));
+      const picked = this.pickDiverse(pool, k, rounds === 1 ? 2 : 4);
+      picked.forEach((x) => shown.add(String(x.m._id)));
+      const momentRefs = new Map<string, (typeof usable)[number]>();
+      picked.forEach((x, i) => momentRefs.set(`M${i + 1}`, x.m));
+      await this.orchestrator.log(
+        campaignId,
+        'info',
+        `Round ${rounds}: director is reviewing ${picked.length} moments (${shown.size} of ${scored.length} seen so far) — need ${remaining} more reel${remaining === 1 ? '' : 's'}`,
+      );
+
+      // ---- director (two parallel batches when there is a lot to choose from) ----
+      const requestCount = Math.min(remaining + 4, Math.ceil(remaining * 1.6));
+      const groups = this.splitGroups(picked, requestCount);
+      const doNotRepeat = [...doNotRepeatBase, ...finals.map((f) => `"${f.plan.concept}" — hook: "${truncate(f.plan.hookText, 120)}"`)];
+      const directed = await Promise.all(
+        groups.map((g, gi) => {
+          const groupRefs = new Map([...momentRefs].filter(([, m]) => g.some((x) => x.m === m)));
+          return this.ai.generateJson({
+            task: `director:${campaignId}:r${rounds}g${gi + 1}`,
+            system: DIRECTOR_SYSTEM,
+            user: buildDirectorUser({
+              brief: campaign.brief,
+              targetReels: remaining,
+              minSec: s.minSec,
+              maxSec: s.maxSec,
+              allowCrossVideo: s.allowCrossVideo,
+              research: researchText,
+              doNotRepeat,
+              material: this.materialText(materials, groupRefs, keyByYt, used),
+              requestCount: Math.max(2, Math.round((requestCount * g.length) / picked.length)),
+            }),
+            schema: DirectorSchema,
+            schemaName: 'reel_plans',
+            usage,
+          });
+        }),
+      );
+
+      const cands: Candidate[] = [];
+      for (const d of directed) {
+        if (d.materialNotes) await this.orchestrator.log(campaignId, 'info', `Director: ${d.materialNotes}`, false);
+        for (const plan of d.reels) {
+          const asm = assemble(plan.clips, materials, rules);
+          const momentIds = plan.momentIds.map((id) => momentRefs.get(id)?._id).filter(Boolean) as Types.ObjectId[];
+          cands.push({ ref: `R${++refCounter}`, round: rounds, plan, asm, momentIds, revised: false, lastErrors: asm.errors });
+        }
+      }
+      await this.orchestrator.log(
+        campaignId,
+        'info',
+        `Round ${rounds}: director proposed ${cands.length} reels (${cands.filter((c) => c.asm.ok).length} passed structural checks); critic reviewing`,
+      );
+
+      // ---- critic, then one revision pass for fixable ideas ----
+      await this.critique(campaign, cands.filter((c) => c.asm.ok), usage);
+      const material = this.materialText(materials, momentRefs, keyByYt, used);
+      const toRevise = cands.filter((c) => !c.asm.ok || c.review?.verdict === 'revise' || (c.review && c.review.verdict === 'keep' && !passesBar(c.review, MIN_KEEP)));
+      if (toRevise.length) {
+        await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: revising ${toRevise.length} reels`);
+        try {
+          const revised = await this.ai.generateJson({
+            task: `revise:${campaignId}:r${rounds}`,
+            system: REVISION_SYSTEM,
+            user: buildRevisionUser({
+              header: [
+                `Campaign brief: "${campaign.brief}"`,
+                `Duration per reel: ${s.minSec}-${s.maxSec} s. Cross-video allowed: ${s.allowCrossVideo ? 'yes' : 'no'}.`,
+              ].join('\n'),
+              items: toRevise.map((c) => this.revisionItem(c)),
+              material,
+            }),
+            schema: RevisionSchema,
+            schemaName: 'reel_revisions',
+            usage,
+          });
+          const changed: Candidate[] = [];
+          for (const r of revised.reels) {
+            const c = toRevise.find((x) => x.ref === r.ref);
+            if (!c) continue;
+            const { ref: _ref, ...plan } = r;
+            c.plan = plan;
+            c.asm = assemble(plan.clips, materials, rules);
+            c.momentIds = plan.momentIds.map((id) => momentRefs.get(id)?._id).filter(Boolean) as Types.ObjectId[];
+            c.review = undefined;
+            c.overall = undefined;
+            c.revised = true;
+            c.lastErrors = c.asm.errors;
+            if (c.asm.ok) changed.push(c);
+          }
+          await this.critique(campaign, changed, usage);
+        } catch (err) {
+          await this.orchestrator.log(campaignId, 'warn', `Revision failed, keeping first-pass results: ${errMsg(err)}`);
+        }
+      }
+
+      // ---- quality bar, diversity, footage ledger, semantic dedupe ----
+      const roundFinals = await this.selectFinals(campaign, cands, used, finals, need, rounds, keyByYt, usage);
+      finals.push(...roundFinals);
+      for (const f of roundFinals) for (const c of f.asm.clips) used.set(c.material.youtubeId, [...(used.get(c.material.youtubeId) ?? []), [c.start, c.end]]);
+      allCands.push(...cands);
+      await this.orchestrator.log(
+        campaignId,
+        'info',
+        `Round ${rounds}: kept ${roundFinals.length} of ${cands.length} ideas — ${finals.length}/${need} reels so far`,
+      );
+      await this.campaigns.updateOne({ _id: campaign._id }, { $push: { candidates: { $each: cands.map((c) => this.ledgerEntry(c)) } } });
     }
 
-    // ---------- 6. Quality bar, diversity, ledger, semantic dedupe ----------
-    const finals = await this.selectFinals(campaign, cands, used, keyByYt, usage);
     await this.campaigns.updateOne(
       { _id: campaign._id },
-      { $set: { 'stats.candidates': cands.length, 'stats.kept': finals.length, 'stats.dropped': cands.length - finals.length } },
+      {
+        $inc: { 'stats.candidates': allCands.length, 'stats.kept': finals.length, 'stats.dropped': allCands.length - finals.length, 'stats.rounds': rounds, 'stats.momentsShown': shown.size },
+        $set: { 'stats.momentsAvailable': scored.length },
+      },
     );
     if (!finals.length) {
-      const issues = cands
-        .flatMap((c) => c.review?.issues ?? c.lastErrors)
-        .slice(0, 6)
-        .join(' | ');
-      throw new FatalJobError(`No reel cleared the quality bar. Main issues: ${issues || 'weak material for this brief'}`);
+      const issues = allCands.flatMap((c) => c.review?.issues ?? c.lastErrors).slice(0, 5).join(' | ');
+      throw new FatalJobError(`No reel cleared the quality bar after ${rounds} round(s) over ${shown.size} moments. Main issues: ${issues || 'weak material for this brief'}`);
     }
 
-    // ---------- 7. Packaging ----------
+    // ---------- 4. Packaging ----------
     const packs = await this.package(campaign, research, finals, usage);
 
-    // ---------- 8. Persist + queue renders ----------
-    let index = 0;
+    // ---------- 5. Persist + queue renders ----------
+    let index = baseIndex;
     for (const c of finals) {
       index++;
       const pack = packs.get(c.ref);
       const ents = await this.entities.resolve(campaign.channelId, pack?.entities ?? []);
-      const momentIds = c.plan.momentIds.map((id) => momentRefs.get(id)?._id).filter(Boolean) as Types.ObjectId[];
       const main = [...c.asm.clips].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
       const link = `https://youtu.be/${main.material.youtubeId}?t=${Math.floor(main.start)}`;
       const scores: ReelScores = {
@@ -286,13 +339,13 @@ export class ComposerService {
         entitySlugs: ents.map((e) => e.slug),
         entityNames: ents.map((e) => e.name),
         themes: (pack?.themes ?? []).map((t) => t.toLowerCase().trim()).filter(Boolean).slice(0, 3),
-        momentIds,
+        momentIds: c.momentIds,
         embedding: c.embedding,
         templateName: s.templateName,
       });
-      if (momentIds.length) {
+      if (c.momentIds.length) {
         await this.moments.updateMany(
-          { _id: { $in: momentIds } },
+          { _id: { $in: c.momentIds } },
           { $set: { status: 'used', lastUsedAt: new Date() }, $addToSet: { usedByReelIds: reel._id } },
         );
       }
@@ -308,7 +361,63 @@ export class ComposerService {
 
   // ------------------------------------------------------------------ helpers
 
-  private assertBudget(c: ReelCampaignDocument) {
+  private freeOfUsed(m: { youtubeId: string; start: number; end: number }, used: UsedRanges): boolean {
+    const ov = (used.get(m.youtubeId) ?? []).reduce((n, [a, b]) => n + overlapSec(m.start, m.end, a, b), 0);
+    return ov / Math.max(1, m.end - m.start) <= 0.5;
+  }
+
+  /** Best-first, but limit how many come from any one video so the director sees variety. */
+  private pickDiverse<T extends { m: { youtubeId: string } }>(pool: T[], k: number, perVideoCap: number): T[] {
+    const out: T[] = [];
+    const per = new Map<string, number>();
+    for (const x of pool) {
+      if (out.length >= k) break;
+      if ((per.get(x.m.youtubeId) ?? 0) < perVideoCap) {
+        out.push(x);
+        per.set(x.m.youtubeId, (per.get(x.m.youtubeId) ?? 0) + 1);
+      }
+    }
+    for (const x of pool) if (out.length < k && !out.includes(x)) out.push(x);
+    return out;
+  }
+
+  /** Two director calls in parallel (split by video) when there is a lot to choose from; otherwise one. */
+  private splitGroups<T extends { m: { youtubeId: string } }>(picked: T[], requestCount: number): T[][] {
+    const byVideo = new Map<string, T[]>();
+    for (const x of picked) byVideo.set(x.m.youtubeId, [...(byVideo.get(x.m.youtubeId) ?? []), x]);
+    if (requestCount < 6 || byVideo.size < 4) return [picked];
+    const groups: T[][] = [[], []];
+    for (const items of [...byVideo.values()].sort((a, b) => b.length - a.length)) {
+      (groups[0].length <= groups[1].length ? groups[0] : groups[1]).push(...items);
+    }
+    return groups.filter((g) => g.length);
+  }
+
+  private ledgerEntry(c: Candidate): CandidateLedgerEntry {
+    return {
+      round: c.round,
+      ref: c.ref,
+      concept: truncate(c.plan.concept, 140),
+      shape: c.plan.shape,
+      videos: [...new Set(c.asm.clips.map((x) => x.material.youtubeId))],
+      durationSec: Math.round(c.asm.duration * 10) / 10,
+      overall: c.overall ?? null,
+      verdict: c.review?.verdict ?? null,
+      issues: (c.review?.issues ?? c.lastErrors).slice(0, 4).map((i) => truncate(i, 200)),
+      revised: c.revised,
+      outcome: c.outcome?.status ?? 'dropped',
+      reason: truncate(c.outcome?.reason ?? 'unknown', 240),
+    };
+  }
+
+  private weakness(c: Candidate): string {
+    const r = c.review!;
+    const parts: Array<[string, number]> = [['hook', r.hook], ['clarity', r.clarity], ['flow', r.flow], ['payoff', r.payoff], ['ending', r.ending], ['retention', r.retention]];
+    parts.sort((a, b) => a[1] - b[1]);
+    return `overall ${c.overall ?? overallScore(r)}, weakest ${parts[0][0]} ${parts[0][1]}${r.safety < 7 ? `, safety ${r.safety}` : ''}`;
+  }
+
+  private assertBudget(c: { usage?: { promptTokens?: number; completionTokens?: number } }) {
     const spent = (c.usage?.promptTokens ?? 0) + (c.usage?.completionTokens ?? 0);
     if (spent > this.cfg.REEL_TOKEN_BUDGET) throw new FatalJobError(`Token budget exceeded (${spent.toLocaleString()} tokens)`);
   }
@@ -363,19 +472,32 @@ export class ComposerService {
     campaign: ReelCampaignDocument,
     cands: Candidate[],
     used: UsedRanges,
+    chosen: Candidate[],
+    need: number,
+    round: number,
     keyByYt: Map<string, string>,
     usage: UsageSink,
   ): Promise<Candidate[]> {
-    const id = String(campaign._id);
     const target = campaign.settings.targetReels;
+    const drop = (c: Candidate, reason: string) => {
+      c.outcome = { status: 'dropped', reason };
+    };
+
     const reviewed = cands.filter((c) => c.asm.ok && c.review && c.review.verdict !== 'drop');
     let pool = reviewed.filter((c) => passesBar(c.review!, MIN_KEEP));
-    if (pool.length < Math.min(2, target)) {
+    if (!chosen.length && pool.length < Math.min(2, need)) {
       // Borderline tier — only to avoid an empty campaign, never below a solid floor.
       const borderline = reviewed.filter(
         (c) => !pool.includes(c) && (c.overall ?? 0) >= 64 && c.review!.safety >= 7 && Math.min(c.review!.hook, c.review!.clarity, c.review!.flow, c.review!.payoff, c.review!.ending) >= 5,
       );
-      pool = [...pool, ...borderline.sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0)).slice(0, Math.min(2, target) - pool.length)];
+      pool = [...pool, ...borderline.sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0)).slice(0, Math.min(2, need) - pool.length)];
+    }
+    for (const c of cands) {
+      if (pool.includes(c)) continue;
+      if (!c.asm.ok) drop(c, `Invalid cut: ${c.asm.errors[0] ?? 'structural check failed'}`);
+      else if (!c.review) drop(c, 'Not reviewed by the critic');
+      else if (c.review.verdict === 'drop') drop(c, `Critic dropped it: ${c.review.issues[0] ?? 'weak material'}`);
+      else drop(c, `Below the quality bar (${this.weakness(c)})`);
     }
     pool.sort((a, b) => (b.overall ?? 0) - (a.overall ?? 0));
 
@@ -394,23 +516,32 @@ export class ComposerService {
       this.logger.warn(`Semantic dedupe skipped: ${errMsg(err)}`);
     }
 
-    const maxPerVideo = Math.max(2, Math.ceil(target / Math.max(1, keyByYt.size)) + 1);
-    const finals: Candidate[] = [];
+    // The per-video cap loosens each round so a few rich videos can still fill the quota.
+    const maxPerVideo = Math.max(2, Math.ceil(target / Math.max(1, keyByYt.size)) + 1) + (round - 1) * 2;
+    const picked: Candidate[] = [];
     const perVideo = new Map<string, number>();
-    for (const c of pool) {
-      if (finals.length >= target) break;
-      const mainYt = c.asm.clips[0].material.youtubeId;
-      if ((perVideo.get(mainYt) ?? 0) >= maxPerVideo) continue;
+    for (const f of chosen) perVideo.set(f.asm.clips[0].material.youtubeId, (perVideo.get(f.asm.clips[0].material.youtubeId) ?? 0) + 1);
 
+    for (const c of pool) {
+      if (picked.length >= need) {
+        c.outcome = { status: 'spare', reason: 'Passed review, but the requested number was already reached' };
+        continue;
+      }
+      const mainYt = c.asm.clips[0].material.youtubeId;
+      if ((perVideo.get(mainYt) ?? 0) >= maxPerVideo) {
+        drop(c, `Too many reels from the same video already (limit ${maxPerVideo})`);
+        continue;
+      }
       const ledgerOverlap = c.asm.clips.reduce(
         (n, x) => n + (used.get(x.material.youtubeId) ?? []).reduce((m, [a, b]) => m + overlapSec(x.start, x.end, a, b), 0),
         0,
       );
       if (ledgerOverlap / c.asm.duration > 0.4) {
-        await this.orchestrator.log(id, 'info', `Skipped ${c.ref}: reuses footage from an earlier reel`, false);
+        drop(c, 'Reuses footage from an earlier reel');
         continue;
       }
-      const clash = finals.find((f) =>
+      const others = [...chosen, ...picked];
+      const clash = others.find((f) =>
         f.asm.clips.some((fc) =>
           c.asm.clips.some(
             (cc) =>
@@ -419,19 +550,27 @@ export class ComposerService {
           ),
         ),
       );
-      if (clash) continue;
+      if (clash) {
+        drop(c, `Overlaps the footage of "${truncate(clash.plan.concept, 60)}"`);
+        continue;
+      }
       if (c.embedding?.length) {
         const dupe = library.find((l) => cosine(l.embedding, c.embedding!) >= 0.9);
         if (dupe) {
-          await this.orchestrator.log(id, 'info', `Skipped ${c.ref}: too similar to existing reel "${dupe.headline}"`, false);
+          drop(c, `Too similar to an existing reel: "${truncate(dupe.headline, 60)}"`);
           continue;
         }
-        if (finals.some((f) => f.embedding && cosine(f.embedding, c.embedding!) >= 0.92)) continue;
+        const twin = others.find((f) => f.embedding && cosine(f.embedding, c.embedding!) >= 0.92);
+        if (twin) {
+          drop(c, `Too similar to another new reel: "${truncate(twin.plan.concept, 60)}"`);
+          continue;
+        }
       }
-      finals.push(c);
+      c.outcome = { status: 'kept', reason: `Cleared the bar (score ${c.overall})` };
+      picked.push(c);
       perVideo.set(mainYt, (perVideo.get(mainYt) ?? 0) + 1);
     }
-    return finals;
+    return picked;
   }
 
   private async package(campaign: ReelCampaignDocument, research: ResearchResult, finals: Candidate[], usage: UsageSink) {

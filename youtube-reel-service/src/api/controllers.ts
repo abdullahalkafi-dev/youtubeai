@@ -83,6 +83,12 @@ export class CampaignsController {
     return this.api.cancelCampaign(channelId, id);
   }
 
+  @Post('campaigns/:campaignId/top-up')
+  topUp(@Param('channelId') channelId: string, @Param('campaignId') id: string, @Body() body: { count?: number } | undefined) {
+    const count = Number(body?.count);
+    return this.api.topUp(channelId, id, Number.isFinite(count) && count > 0 ? count : undefined);
+  }
+
   @Post('campaigns/:campaignId/retry-failed')
   retry(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
     return this.api.retryFailedRenders(channelId, id);

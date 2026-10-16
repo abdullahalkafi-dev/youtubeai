@@ -40,7 +40,16 @@ export interface CampaignSummary {
   progress: { stage: string; message: string }
   blockedReason: string | null
   settings: CampaignSettings
-  stats: { candidates: number; kept: number; dropped: number; rendered: number; failed: number }
+  stats: {
+    candidates: number
+    kept: number
+    dropped: number
+    rendered: number
+    failed: number
+    rounds?: number
+    momentsShown?: number
+    momentsAvailable?: number
+  }
   usage: CampaignUsage
   sourceCount: number
   reelCounts: Partial<Record<ReelStatus, number>>
@@ -66,6 +75,21 @@ export interface CampaignSource {
   momentCount: number
 }
 
+export interface CandidateLedgerEntry {
+  round: number
+  ref: string
+  concept: string
+  shape: ReelShape
+  videos: string[]
+  durationSec: number
+  overall: number | null
+  verdict: string | null
+  issues: string[]
+  revised: boolean
+  outcome: 'kept' | 'spare' | 'dropped'
+  reason: string
+}
+
 export interface CampaignDetail extends CampaignSummary {
   research: {
     topicSummary: string
@@ -77,6 +101,7 @@ export interface CampaignDetail extends CampaignSummary {
   } | null
   sources: CampaignSource[]
   log: Array<{ at: string; level: 'info' | 'warn' | 'error'; msg: string }>
+  candidates: CandidateLedgerEntry[]
   reels: Reel[]
 }
 

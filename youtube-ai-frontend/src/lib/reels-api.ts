@@ -49,6 +49,8 @@ export const reelsApi = {
   listCampaigns: (channelId: string) => request<CampaignSummary[]>(`/channels/${channelId}/campaigns`),
   getCampaign: (channelId: string, id: string) => request<CampaignDetail>(`/channels/${channelId}/campaigns/${id}`),
   cancelCampaign: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/campaigns/${id}/cancel`, { method: 'POST' }),
+  topUp: (channelId: string, id: string, count?: number) =>
+    request<{ ok: boolean; adding: number }>(`/channels/${channelId}/campaigns/${id}/top-up`, { method: 'POST', body: JSON.stringify({ count }) }),
   retryFailed: (channelId: string, id: string) =>
     request<{ retried: number }>(`/channels/${channelId}/campaigns/${id}/retry-failed`, { method: 'POST' }),
 

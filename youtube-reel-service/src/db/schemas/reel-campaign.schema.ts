@@ -25,6 +25,21 @@ export interface CampaignSettings {
   seedVideoIds: string[]; // youtube ids the user explicitly wants used
 }
 
+export interface CandidateLedgerEntry {
+  round: number;
+  ref: string;
+  concept: string;
+  shape: string;
+  videos: string[];
+  durationSec: number;
+  overall: number | null;
+  verdict: string | null;
+  issues: string[];
+  revised: boolean;
+  outcome: 'kept' | 'spare' | 'dropped';
+  reason: string;
+}
+
 export interface CampaignSourceRef {
   youtubeId: string;
   videoId: string;
@@ -61,8 +76,23 @@ export class ReelCampaign {
   })
   usage: { promptTokens: number; completionTokens: number; reasoningTokens: number; sttSeconds: number; embedTokens: number; calls: number };
 
-  @Prop({ type: Object, default: () => ({ candidates: 0, kept: 0, dropped: 0, rendered: 0, failed: 0 }) })
-  stats: { candidates: number; kept: number; dropped: number; rendered: number; failed: number };
+  @Prop({
+    type: Object,
+    default: () => ({ candidates: 0, kept: 0, dropped: 0, rendered: 0, failed: 0, rounds: 0, momentsShown: 0, momentsAvailable: 0 }),
+  })
+  stats: {
+    candidates: number;
+    kept: number;
+    dropped: number;
+    rendered: number;
+    failed: number;
+    rounds: number;
+    momentsShown: number;
+    momentsAvailable: number;
+  };
+
+  /** Every reel idea the AI proposed, with what happened to it — answers "why only N reels?". */
+  @Prop({ type: [Object], default: [] }) candidates: CandidateLedgerEntry[];
 
   @Prop({ type: [Object], default: [] }) log: Array<{ at: Date; level: 'info' | 'warn' | 'error'; msg: string }>;
 

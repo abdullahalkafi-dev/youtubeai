@@ -136,7 +136,7 @@ export class OrchestratorService {
 
   /** Called after each render attempt settles. Finishes the campaign once no reel is still in flight. */
   async onReelSettled(campaignId: string) {
-    const campaign = await this.campaigns.findById(campaignId).select('status settings').lean();
+    const campaign = await this.campaigns.findById(campaignId).select('status settings stats').lean();
     if (!campaign || campaign.status !== 'rendering') return;
     const inFlight = await this.reels.countDocuments({ campaignId, status: { $in: ['queued', 'rendering'] } });
     if (inFlight > 0) return;
@@ -147,10 +147,12 @@ export class OrchestratorService {
     if (done >= campaign.settings.targetReels && failed === 0) {
       return this.finish(campaignId, 'completed', `${done} reels ready in To-do.`);
     }
+    const st = campaign.stats;
+    const reviewed = st?.momentsShown ? ` Reviewed ${st.momentsShown} of ${st.momentsAvailable} mined moments over ${st.rounds} round(s); ${st.dropped} reel ideas did not clear the quality bar.` : '';
     return this.finish(
       campaignId,
       'partial',
-      `${done} of ${campaign.settings.targetReels} requested reels ready${failed ? ` (${failed} failed to render)` : ' — material only supported this many strong reels'}.`,
+      `${done} of ${campaign.settings.targetReels} requested reels ready${failed ? ` (${failed} failed to render)` : ''}.${reviewed} Use “Find more reels” to try again.`,
     );
   }
 }

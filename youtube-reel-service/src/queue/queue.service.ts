@@ -6,7 +6,7 @@ import { AppConfig, CONFIG } from '../config/config';
 export const QUEUES = ['campaign', 'download', 'analyze', 'render', 'maintenance'] as const;
 export type QueueName = (typeof QUEUES)[number];
 
-export type CampaignStep = 'research' | 'source' | 'compose';
+export type CampaignStep = 'research' | 'source' | 'compose' | 'topup';
 export interface CampaignJob {
   step: CampaignStep;
   campaignId: string;
@@ -59,7 +59,7 @@ export class QueueService implements OnModuleDestroy {
   }
 
   campaign(step: CampaignStep, campaignId: string, delayMs = 0) {
-    return this.q.campaign.add({ step, campaignId } satisfies CampaignJob, { delay: delayMs, attempts: step === 'compose' ? 2 : 3 });
+    return this.q.campaign.add({ step, campaignId } satisfies CampaignJob, { delay: delayMs, attempts: step === 'compose' || step === 'topup' ? 2 : 3 });
   }
 
   download(youtubeId: string, delayMs = 0) {

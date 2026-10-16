@@ -167,6 +167,7 @@ export class ReelsApiService {
         return { ...s, stage: st?.stage ?? 'queued', stageError: st?.error ?? null, height: st?.height ?? null, momentCount: st?.momentCount ?? 0 };
       }),
       log: (d.log ?? []).slice(-80),
+      candidates: d.candidates ?? [],
       reels: reels.map((r) => this.reelSummary(r, userId)),
     };
   }
@@ -187,6 +188,39 @@ export class ReelsApiService {
     for (const j of jobs) if (j && reelIds.has(String(j.data?.reelId))) await j.remove().catch(() => undefined);
     await this.reels.updateMany({ campaignId: c._id, status: 'queued' }, { $set: { status: 'failed', error: 'Campaign cancelled' } });
     return { ok: true, status: 'cancelled' };
+  }
+
+  /** "Find more reels": runs more composing rounds over the moments this campaign has not reviewed yet. No new downloads, speech-to-text or mining. */
+  async topUp(channelId: string, campaignId: string, count?: number) {
+    if (!this.cfg.REELS_ENABLED) throw new ServiceUnavailableException('Reel generation is turned off');
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
+    if (!c) throw new NotFoundException('Campaign not found');
+    if (!['partial', 'completed'].includes(c.status)) throw new BadRequestException('Only finished campaigns can be topped up');
+    if (!c.sources.some((s) => s.status === 'ready')) throw new BadRequestException('This campaign has no analyzed source videos');
+    const active = await this.campaigns.countDocuments({ channelId, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
+    if (active >= MAX_ACTIVE_CAMPAIGNS) throw new HttpException(`${active} campaigns are already running. Wait for one to finish.`, HttpStatus.TOO_MANY_REQUESTS);
+
+    const existing = await this.reels.countDocuments({ campaignId: c._id, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
+    const add = Math.max(1, Math.min(10, Math.floor(count ?? (existing < c.settings.targetReels ? c.settings.targetReels - existing : 3))));
+    if (existing + add > 25) throw new BadRequestException('A campaign can hold at most 25 reels');
+    await this.campaigns.updateOne(
+      { _id: c._id },
+      {
+        $set: {
+          status: 'composing',
+          'settings.targetReels': existing + add,
+          cancelRequested: false,
+          finishedAt: null,
+          error: null,
+          blockedReason: null,
+          'progress.stage': 'composing',
+          'progress.message': `Looking for ${add} more reel${add === 1 ? '' : 's'} in the unreviewed moments`,
+        },
+        $push: { log: { $each: [{ at: new Date(), level: 'info', msg: `Top-up requested: ${add} more reel${add === 1 ? '' : 's'}` }], $slice: -300 } },
+      },
+    );
+    await this.queues.campaign('topup', String(c._id));
+    return { ok: true, adding: add };
   }
 
   async retryFailedRenders(channelId: string, campaignId: string) {

@@ -47,7 +47,11 @@ export class WorkerProcessors implements OnApplicationBootstrap {
 
     q.campaign.process(c.REEL_CAMPAIGN_CONCURRENCY, (job: Bull.Job<CampaignJob>) =>
       this.guard(job, async () => this.runner.run(job.data), async (err) => {
-        await this.orchestrator.finish(job.data.campaignId, 'failed', `${job.data.step} failed: ${errMsg(err)}`);
+        if (job.data.step === 'topup') {
+          await this.orchestrator.finish(job.data.campaignId, 'partial', `No additional reels added: ${errMsg(err)}`);
+        } else {
+          await this.orchestrator.finish(job.data.campaignId, 'failed', `${job.data.step} failed: ${errMsg(err)}`);
+        }
       }),
     );
     q.download.process(c.REEL_DOWNLOAD_CONCURRENCY, (job: Bull.Job<DownloadJob>) =>
