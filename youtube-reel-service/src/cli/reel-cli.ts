@@ -13,6 +13,8 @@ import { TemplateStoreService } from '../pipeline/template-store.service';
 import { YouTubeSessionService } from '../pipeline/youtube-session.service';
 import { QueueService } from '../queue/queue.service';
 import { DownloaderService } from '../pipeline/downloader.service';
+import { AnalyzerService } from '../pipeline/analyzer.service';
+import { ReelSource } from '../db/schemas/reel-source.schema';
 import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
 import { ensureDir } from '../pipeline/media';
 
@@ -21,6 +23,7 @@ import { ensureDir } from '../pipeline/media';
  *   node dist/cli/reel-cli.js template:upload <dir> [name]
  *   node dist/cli/reel-cli.js cookies:import <cookies.txt>
  *   node dist/cli/reel-cli.js session:check
+ *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
@@ -47,6 +50,14 @@ async function main() {
       case 'session:check': {
         const s = await app.get(YouTubeSessionService).check();
         console.log(JSON.stringify({ status: s.status, lastError: s.lastError ?? null }));
+        break;
+      }
+      case 'transcript:repair': {
+        const apply = args.includes('--apply');
+        const analyzer = app.get(AnalyzerService);
+        const model = app.get<Model<any>>(getModelToken(ReelSource.name));
+        const ids = args[0] === 'all' ? (await model.find({ transcriptReady: true }).select('youtubeId').lean()).map((s: any) => s.youtubeId) : [args[0]];
+        for (const id of ids) console.log(JSON.stringify(await analyzer.repairTranscript(id, apply)));
         break;
       }
       case 'source:import': {

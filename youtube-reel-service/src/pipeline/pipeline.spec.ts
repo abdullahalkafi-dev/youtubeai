@@ -180,3 +180,19 @@ describe('cookie normalisation', () => {
     expect(normaliseCookies('.youtube.com\tTRUE\t/\tTRUE\t0\tPREF\tx').ok).toBe(false);
   });
 });
+
+describe('chunk timing guards', () => {
+  const { chunkOffsets, assertChunkDurations, assertTranscriptExtent } = require('./transcript');
+  it('offsets come from true chunk lengths', () => {
+    expect(chunkOffsets([1200, 1200, 1200, 600])).toEqual([0, 1200, 2400, 3600]);
+  });
+  it('rejects the cumulative-timestamp bug (1200, 2400, 3000)', () => {
+    expect(() => assertChunkDurations([1200, 2400, 3000], 1200)).toThrow(/not zero-based/);
+    expect(() => assertChunkDurations([1200.0065, 1200.0065, 600.01], 1200)).not.toThrow();
+  });
+  it('rejects transcripts that run past the audio', () => {
+    const lines = [{ s: 0, e: 5, t: 'a', w0: 0, w1: 0 }, { s: 5000, e: 5010, t: 'b', w0: 1, w1: 1 }];
+    expect(() => assertTranscriptExtent(lines, 3000)).toThrow(/corrupt/);
+    expect(() => assertTranscriptExtent(lines, 5012)).not.toThrow();
+  });
+});

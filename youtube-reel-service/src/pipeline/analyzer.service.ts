@@ -19,7 +19,7 @@ import { QueueService } from '../queue/queue.service';
 import { overlapSec, parseIsoDuration } from '../common/text';
 import { EntityService } from './entity.service';
 import { jobDir, probeMedia, removeDir } from './media';
-import { buildTranscript, formatLines } from './transcript';
+import { assertChunkDurations, assertTranscriptExtent, buildTranscript, chunkOffsets, formatLines } from './transcript';
 
 const LOCK_STALE_MS = 3 * 60 * 60_000;
 const CHUNK_SEC = 1200; // 20 min per speech-to-text request (well under the 25 MB API limit at 32 kbps)
@@ -88,6 +88,109 @@ export class AnalyzerService {
     return c ? this.orchestrator.usageSink(c._id) : undefined;
   }
 
+  /**
+   * One-off repair for transcripts stored with the old (buggy) chunk offsets.
+   * Re-derives the wrong offsets that were applied and the true ones from the stored audio, shifts every word
+   * accordingly (line/word indices — and therefore all mined moments — stay valid), then proves the result
+   * against YouTube's own transcript. No speech-to-text or AI calls, no cost.
+   */
+  async repairTranscript(youtubeId: string, apply: boolean): Promise<Record<string, unknown>> {
+    const t = await this.transcripts.findOne({ youtubeId });
+    const src = await this.sources.findOne({ youtubeId }).lean();
+    if (!t || !src?.audioKey) return { youtubeId, status: 'skipped', reason: 'no transcript or stored audio' };
+    const audioDur = src.durationSec ?? 0;
+    const lastEnd = t.lines[t.lines.length - 1]?.e ?? 0;
+    if (lastEnd <= audioDur + 8) return { youtubeId, status: 'ok-already', lastEnd: Math.round(lastEnd), audioDur: Math.round(audioDur) };
+
+    const dir = jobDir(this.cfg.REEL_WORK_DIR, 'repair', youtubeId);
+    try {
+      const audio = path.join(dir, 'audio.ogg');
+      await this.storage.getFile(BUCKETS.sources, src.audioKey, audio);
+      const probeAll = async (sub: string, reset: boolean) => {
+        const d = path.join(dir, sub);
+        fs.mkdirSync(d, { recursive: true });
+        await run(
+          this.cfg.FFMPEG_BIN,
+          ['-hide_banner', '-y', '-i', audio, '-f', 'segment', '-segment_time', String(CHUNK_SEC), ...(reset ? ['-reset_timestamps', '1'] : []), '-c', 'copy', path.join(d, 'c_%03d.ogg')],
+          { timeoutMs: 10 * 60_000 },
+        );
+        const files = fs.readdirSync(d).sort();
+        const out: number[] = [];
+        for (const f of files) out.push((await probeMedia(this.cfg.FFPROBE_BIN, path.join(d, f))).duration);
+        return out;
+      };
+      const oldDur = await probeAll('old', false); // what the buggy code measured
+      const trueDur = await probeAll('new', true); // real chunk lengths
+      assertChunkDurations(trueDur, CHUNK_SEC);
+      const wrongOffsets = chunkOffsets(oldDur);
+      const trueOffsets = chunkOffsets(trueDur);
+
+      const shiftFor = (time: number) => {
+        let k = 0;
+        for (let i = 0; i < wrongOffsets.length; i++) if (wrongOffsets[i] <= time + 0.001) k = i;
+        return trueOffsets[k] - wrongOffsets[k];
+      };
+      const words = t.words.map((w) => {
+        const d = shiftFor(w.s);
+        return { w: w.w, s: Math.round((w.s + d) * 1000) / 1000, e: Math.round((w.e + d) * 1000) / 1000 };
+      });
+      const lines = t.lines.map((l) => ({ ...l, s: words[l.w0].s, e: words[l.w1].e }));
+      assertTranscriptExtent(lines, audioDur);
+
+      // Independent proof: do the repaired lines match what YouTube's captions say at those times?
+      const yt = await this.videos.findOne({ youtubeId }).select('transcriptSegments').lean();
+      const before = this.captionAgreement(t.lines, yt?.transcriptSegments ?? []);
+      const after = this.captionAgreement(lines, yt?.transcriptSegments ?? []);
+      const report = {
+        youtubeId,
+        chunks: oldDur.length,
+        wrongOffsets: wrongOffsets.map(Math.round),
+        trueOffsets: trueOffsets.map(Math.round),
+        lastEndBefore: Math.round(lastEnd),
+        lastEndAfter: Math.round(lines[lines.length - 1].e),
+        audioDur: Math.round(audioDur),
+        captionAgreementBefore: before,
+        captionAgreementAfter: after,
+      };
+      if (after !== null && after < 0.45) return { ...report, status: 'rejected', reason: 'repaired times do not match YouTube captions well enough' };
+      if (!apply) return { ...report, status: 'dry-run-ok' };
+
+      await this.transcripts.updateOne({ youtubeId }, { $set: { lines, words, durationSec: audioDur } });
+      const moments = await this.moments.find({ youtubeId }).select('startLine endLine').lean();
+      let fixed = 0;
+      for (const m of moments) {
+        if (!lines[m.startLine] || !lines[m.endLine]) continue;
+        await this.moments.updateOne({ _id: m._id }, { $set: { start: lines[m.startLine].s, end: lines[m.endLine].e } });
+        fixed++;
+      }
+      return { ...report, status: 'repaired', momentsUpdated: fixed };
+    } finally {
+      removeDir(dir);
+    }
+  }
+
+  /** Fraction of sampled lines whose words also appear in YouTube's captions around the same time (0–1), or null if no captions. */
+  private captionAgreement(lines: TLine[], yt: Array<{ text: string; startSeconds: number }>): number | null {
+    if (!yt.length || !lines.length) return null;
+    const norm = (x: string) => x.toLowerCase().replace(/[^a-z0-9' ]+/g, ' ').split(/\s+/).filter((w) => w.length >= 4);
+    const samples = 24;
+    let total = 0;
+    let n = 0;
+    for (let i = 0; i < samples; i++) {
+      const line = lines[Math.floor(((i + 0.5) / samples) * lines.length)];
+      const words = norm(line.t);
+      if (words.length < 4) continue;
+      const windowText = new Set(norm(yt.filter((s) => Math.abs(s.startSeconds - line.s) <= 25).map((s) => s.text).join(' ')));
+      if (!windowText.size) {
+        n++;
+        continue;
+      }
+      total += words.filter((w) => windowText.has(w)).length / words.length;
+      n++;
+    }
+    return n ? Math.round((total / n) * 100) / 100 : null;
+  }
+
   private async transcribe(youtubeId: string, title: string, usage?: ReturnType<OrchestratorService['usageSink']>) {
     const dir = jobDir(this.cfg.REEL_WORK_DIR, 'stt', youtubeId);
     try {
@@ -96,27 +199,37 @@ export class AnalyzerService {
       const meta = await probeMedia(this.cfg.FFPROBE_BIN, audio);
 
       let parts: string[] = [audio];
+      let durations: number[] = [meta.duration];
       if (meta.duration > CHUNK_SEC + 60 || meta.size > 24 * 1024 * 1024) {
+        // -reset_timestamps makes every chunk start at 0, so its measured length is its real length.
         await run(
           this.cfg.FFMPEG_BIN,
-          ['-hide_banner', '-y', '-i', audio, '-f', 'segment', '-segment_time', String(CHUNK_SEC), '-c', 'copy', path.join(dir, 'chunk_%03d.ogg')],
+          ['-hide_banner', '-y', '-i', audio, '-f', 'segment', '-segment_time', String(CHUNK_SEC), '-reset_timestamps', '1', '-c', 'copy', path.join(dir, 'chunk_%03d.ogg')],
           { timeoutMs: 10 * 60_000 },
         );
         parts = fs.readdirSync(dir).filter((f) => f.startsWith('chunk_')).sort().map((f) => path.join(dir, f));
+        durations = [];
+        for (const part of parts) durations.push((await probeMedia(this.cfg.FFPROBE_BIN, part)).duration);
+        assertChunkDurations(durations, CHUNK_SEC);
+        const total = durations.reduce((a, b) => a + b, 0);
+        if (Math.abs(total - meta.duration) > 15) throw new Error(`chunks add up to ${total.toFixed(0)}s but the audio is ${meta.duration.toFixed(0)}s`);
       }
+      const offsets = chunkOffsets(durations);
 
       const prompt = `Unique Mecca Audio. ${title}.`;
       const chunks: Array<{ offset: number; result: WhisperResult }> = [];
-      let offset = 0;
-      for (const part of parts) {
-        const partMeta = parts.length > 1 ? await probeMedia(this.cfg.FFPROBE_BIN, part) : meta;
-        const result = await this.ai.transcribe(part, prompt, usage);
-        chunks.push({ offset, result });
-        offset += partMeta.duration;
+      for (let i = 0; i < parts.length; i++) {
+        const result = await this.ai.transcribe(parts[i], prompt, usage);
+        chunks.push({ offset: offsets[i], result });
       }
 
       const { lines, words } = buildTranscript(chunks);
       if (lines.length < 10) throw new FatalJobError(`Speech-to-text returned too little speech (${lines.length} lines)`);
+      try {
+        assertTranscriptExtent(lines, meta.duration);
+      } catch (err) {
+        throw new FatalJobError(`Refusing to store transcript: ${(err as Error).message}`);
+      }
       await this.transcripts.updateOne(
         { youtubeId },
         { $set: { model: this.cfg.OPENAI_STT_MODEL, language: chunks[0]?.result.language, durationSec: meta.duration, lines, words } },

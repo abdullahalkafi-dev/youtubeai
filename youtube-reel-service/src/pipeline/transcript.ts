@@ -115,3 +115,43 @@ export function formatLines(lines: TLine[], from = 0, to = lines.length - 1): st
   for (let i = Math.max(0, from); i <= Math.min(to, lines.length - 1); i++) out.push(formatLine(i, lines[i]));
   return out.join('\n');
 }
+
+/**
+ * Start offset of every chunk, built from the TRUE length of the chunks before it.
+ * (A previous version summed container durations that already included each chunk's own start time,
+ * so offsets grew 1200, 3600, 7200, … and every video over ~40 min got corrupt timestamps.)
+ */
+export function chunkOffsets(durations: number[]): number[] {
+  const offsets: number[] = [];
+  let acc = 0;
+  for (const d of durations) {
+    offsets.push(acc);
+    acc += d;
+  }
+  return offsets;
+}
+
+/** Every chunk except the last must be ≈ the requested length; anything else means timestamps are not zero-based. */
+export function assertChunkDurations(durations: number[], chunkSec: number, slackSec = 10): void {
+  durations.forEach((d, i) => {
+    if (!(d > 0)) throw new Error(`chunk ${i + 1} has no duration`);
+    if (i < durations.length - 1 && Math.abs(d - chunkSec) > slackSec) {
+      throw new Error(`chunk ${i + 1} is ${d.toFixed(1)}s long, expected ≈${chunkSec}s — chunk timestamps are not zero-based`);
+    }
+    if (i === durations.length - 1 && d > chunkSec + slackSec) {
+      throw new Error(`last chunk is ${d.toFixed(1)}s long, longer than the ${chunkSec}s chunk size`);
+    }
+  });
+}
+
+/** A transcript can never run past the end of the audio it came from. */
+export function assertTranscriptExtent(lines: TLine[], audioDurationSec: number, slackSec = 8): void {
+  if (!lines.length) throw new Error('transcript has no lines');
+  const lastEnd = lines[lines.length - 1].e;
+  if (lastEnd > audioDurationSec + slackSec) {
+    throw new Error(`transcript ends at ${lastEnd.toFixed(0)}s but the audio is only ${audioDurationSec.toFixed(0)}s long — timing is corrupt`);
+  }
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].s + 0.5 < lines[i - 1].s) throw new Error(`transcript lines are out of order at line ${i}`);
+  }
+}
