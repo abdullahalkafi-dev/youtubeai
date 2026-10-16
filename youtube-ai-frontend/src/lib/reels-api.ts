@@ -1,5 +1,17 @@
 import { ApiError, getApiBaseUrl } from '@/lib/api'
 import type {
+  AccountsResponse,
+  AnalyticsOverview,
+  BreakdownBy,
+  BreakdownRow,
+  PlatformId,
+  PostMetadata,
+  PostStatus,
+  PreflightResponse,
+  ReelPost,
+  SeriesPoint,
+} from '@/types/publishing'
+import type {
   CampaignDetail,
   CampaignSummary,
   Coverage,
@@ -72,6 +84,29 @@ export const reelsApi = {
     },
   ) => request<Reel>(`/channels/${channelId}/reels/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   rerender: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/reels/${id}/rerender`, { method: 'POST' }),
+
+  // ---- publishing (manual) ----
+  accounts: (channelId: string) => request<AccountsResponse>(`/channels/${channelId}/accounts`),
+  preflight: (channelId: string, reelId: string, body: { platform?: PlatformId; metadata?: Partial<PostMetadata> }) =>
+    request<PreflightResponse>(`/channels/${channelId}/reels/${reelId}/preflight`, { method: 'POST', body: JSON.stringify(body) }),
+  publish: (channelId: string, reelId: string, body: { platform?: PlatformId; metadata?: Partial<PostMetadata>; confirm: true }) =>
+    request<ReelPost>(`/channels/${channelId}/reels/${reelId}/posts`, { method: 'POST', body: JSON.stringify(body) }),
+  addManualPost: (channelId: string, reelId: string, body: { platform: PlatformId; url: string; postedAt?: string }) =>
+    request<ReelPost>(`/channels/${channelId}/reels/${reelId}/posts/manual`, { method: 'POST', body: JSON.stringify(body) }),
+  reelPosts: (channelId: string, reelId: string) => request<ReelPost[]>(`/channels/${channelId}/reels/${reelId}/posts`),
+  cancelPost: (channelId: string, postId: string) => request<{ ok: boolean }>(`/channels/${channelId}/posts/${postId}/cancel`, { method: 'POST' }),
+  retryPost: (channelId: string, postId: string) => request<{ ok: boolean }>(`/channels/${channelId}/posts/${postId}/retry`, { method: 'POST' }),
+  refreshPostMetrics: (channelId: string, postId: string) =>
+    request<{ ok: boolean; message: string }>(`/channels/${channelId}/posts/${postId}/refresh-metrics`, { method: 'POST' }),
+  analyticsOverview: (channelId: string, period: string) => request<AnalyticsOverview>(`/channels/${channelId}/analytics/overview?period=${period}`),
+  analyticsBreakdown: (channelId: string, by: BreakdownBy, period: string) =>
+    request<{ by: BreakdownBy; period: string; rows: BreakdownRow[] }>(`/channels/${channelId}/analytics/breakdown?by=${by}&period=${period}`),
+  postSeries: (channelId: string, postId: string) => request<SeriesPoint[]>(`/channels/${channelId}/analytics/posts/${postId}/series`),
+  listPosts: (channelId: string, params: { platform?: PlatformId; status?: PostStatus; period?: string; limit?: number } = {}) => {
+    const q = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') q.set(k, String(v))
+    return request<{ total: number; items: ReelPost[] }>(`/channels/${channelId}/posts?${q.toString()}`)
+  },
 
   coverage: (channelId: string) => request<Coverage>(`/channels/${channelId}/coverage`),
   insights: (channelId: string, period: 'week' | 'month') => request<Insights>(`/channels/${channelId}/insights?period=${period}`),

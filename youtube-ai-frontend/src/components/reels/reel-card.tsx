@@ -3,7 +3,7 @@
 import { AlertTriangle, Clock, Film, Loader2 } from 'lucide-react'
 import { reelMediaUrl } from '@/lib/reels-api'
 import type { Reel } from '@/types/reel'
-import { fmtSec, ReelStatusBadge, ScorePill, SHAPE_LABEL } from './reel-ui'
+import { compact, fmtSec, PLATFORM_SHORT, ReelStatusBadge, ScorePill, SHAPE_LABEL } from './reel-ui'
 
 export function ReelCard({ reel, onOpen }: { reel: Reel; onOpen: (r: Reel) => void }) {
   const busy = reel.status === 'queued' || reel.status === 'rendering'
@@ -38,6 +38,20 @@ export function ReelCard({ reel, onOpen }: { reel: Reel; onOpen: (r: Reel) => vo
       <div className="p-3 space-y-1">
         <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 line-clamp-2">{reel.packaging?.title || reel.concept}</p>
         <p className="text-[11px] text-zinc-500 line-clamp-2">&ldquo;{reel.hookText}&rdquo;</p>
+        {reel.posts && reel.posts.length > 0 && (
+          <div className="flex flex-wrap gap-1 pt-1">
+            {reel.posts.map((p, i) => (
+              <span
+                key={i}
+                title={`${p.platform}: ${p.status}`}
+                className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${p.status === 'published' || p.status === 'scheduled' ? 'bg-emerald-500/10 text-emerald-500' : p.status === 'failed' ? 'bg-red-500/10 text-red-500' : 'bg-zinc-500/10 text-zinc-500'}`}
+              >
+                {PLATFORM_SHORT[p.platform]}
+                {p.views !== null ? ` · ${compact(p.views)}` : p.status === 'published' ? '' : ` · ${p.status}`}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </button>
   )

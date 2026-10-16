@@ -2,6 +2,34 @@
 
 import { cn } from '@/lib/utils'
 import type { CampaignStatus, ClipRole, ReelShape, ReelStatus } from '@/types/reel'
+import type { PlatformId, PostStatus } from '@/types/publishing'
+
+export const PLATFORM_LABEL: Record<PlatformId, string> = {
+  youtube: 'YouTube',
+  x: 'X',
+  linkedin: 'LinkedIn',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+}
+
+export const PLATFORM_SHORT: Record<PlatformId, string> = { youtube: 'YT', x: 'X', linkedin: 'IN', instagram: 'IG', facebook: 'FB' }
+
+const POST_STATUS: Record<PostStatus, { label: string; cls: string }> = {
+  queued: { label: 'Queued', cls: 'bg-zinc-500/10 text-zinc-500' },
+  uploading: { label: 'Uploading', cls: 'bg-amber-500/10 text-amber-500' },
+  processing: { label: 'Processing', cls: 'bg-sky-500/10 text-sky-500' },
+  scheduled: { label: 'Scheduled', cls: 'bg-violet-500/10 text-violet-500' },
+  published: { label: 'Published', cls: 'bg-emerald-500/10 text-emerald-500' },
+  failed: { label: 'Failed', cls: 'bg-red-500/10 text-red-500' },
+  cancelled: { label: 'Cancelled', cls: 'bg-zinc-500/10 text-zinc-400' },
+  blocked: { label: 'Waiting', cls: 'bg-amber-500/10 text-amber-500' },
+  removed: { label: 'Removed', cls: 'bg-zinc-500/10 text-zinc-400' },
+}
+
+export function PostStatusBadge({ status }: { status: PostStatus }) {
+  const s = POST_STATUS[status] ?? POST_STATUS.queued
+  return <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap', s.cls)}>{s.label}</span>
+}
 
 const CAMPAIGN_STATUS: Record<CampaignStatus, { label: string; cls: string }> = {
   queued: { label: 'Queued', cls: 'bg-zinc-500/10 text-zinc-500' },

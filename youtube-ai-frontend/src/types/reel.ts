@@ -1,3 +1,5 @@
+import type { PostSummary } from './publishing'
+
 export type CampaignStatus =
   | 'queued'
   | 'researching'
@@ -163,6 +165,7 @@ export interface Reel {
   createdAt: string
   media: { video: string; cover: string; download: string; srt: string } | null
   needsRerender?: boolean
+  posts?: PostSummary[]
 }
 
 export interface ReelServiceStatus {

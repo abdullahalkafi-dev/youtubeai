@@ -11,9 +11,11 @@ import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
 import { ReelCard } from '@/components/reels/reel-card'
 import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { CoveragePanel } from '@/components/reels/coverage-panel'
+import { AccountsBar } from '@/components/reels/accounts-bar'
+import { PerformancePanel } from '@/components/reels/performance-panel'
 import { CampaignStatusBadge, timeAgo } from '@/components/reels/reel-ui'
 
-type Tab = 'campaigns' | 'library' | 'coverage'
+type Tab = 'campaigns' | 'library' | 'performance' | 'coverage'
 const LIBRARY_FILTERS: Array<{ id: ReelStatus | 'all'; label: string }> = [
   { id: 'todo', label: 'To-do' },
   { id: 'posted', label: 'Posted' },
@@ -109,6 +111,7 @@ export default function ReelsPage() {
       </div>
 
       <YouTubeConnectBanner status={status} onFixed={refresh} />
+      {channelId && <AccountsBar channelId={channelId} />}
       {status?.enabled === false && (
         <div className="p-3 rounded-xl bg-zinc-500/10 text-xs text-zinc-500">Reel generation is currently turned off by the administrator.</div>
       )}
@@ -119,6 +122,7 @@ export default function ReelsPage() {
           [
             ['campaigns', 'Campaigns'],
             ['library', 'Reel library'],
+            ['performance', 'Performance'],
             ['coverage', 'Coverage & insights'],
           ] as Array<[Tab, string]>
         ).map(([id, label]) => (
@@ -214,6 +218,8 @@ export default function ReelsPage() {
           )}
         </div>
       )}
+
+      {tab === 'performance' && channelId && <PerformancePanel channelId={channelId} />}
 
       {tab === 'coverage' && channelId && (
         <CoveragePanel

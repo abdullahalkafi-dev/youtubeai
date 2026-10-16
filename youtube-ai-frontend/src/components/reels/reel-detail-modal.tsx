@@ -1,11 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, Copy, Download, ExternalLink, Loader2, RefreshCw, ThumbsDown, Undo2, Upload, X } from 'lucide-react'
+import { Check, Copy, Download, ExternalLink, Loader2, RefreshCw, Send, ThumbsDown, Undo2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { reelMediaUrl, reelsApi, errorMessage } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
 import type { Reel } from '@/types/reel'
+import { PostsPanel } from './posts-panel'
+import { PublishModal } from './publish-modal'
 import { fmtSec, ReelStatusBadge, ROLE_COLOR, ScorePill, SHAPE_LABEL } from './reel-ui'
 
 function CopyButton({ text, label }: { text: string; label: string }) {
@@ -37,8 +39,8 @@ export function ReelDetailModal({
   onChanged: (r: Reel) => void
 }) {
   const [busy, setBusy] = useState<string | null>(null)
-  const [postedUrl, setPostedUrl] = useState(reel.postedUrl ?? '')
-  const [showPost, setShowPost] = useState(false)
+  const [showPublish, setShowPublish] = useState(false)
+  const [postsReload, setPostsReload] = useState(0)
   const [showReject, setShowReject] = useState(false)
   const [rejectReason, setRejectReason] = useState('')
   const [badMoment, setBadMoment] = useState(false)
@@ -52,7 +54,6 @@ export function ReelDetailModal({
       const r = await reelsApi.updateReel(channelId, reel.id, body)
       onChanged(r)
       toast.success(msg)
-      setShowPost(false)
       setShowReject(false)
     } catch (err) {
       toast.error(errorMessage(err))
@@ -111,15 +112,18 @@ export function ReelDetailModal({
                     <Download className="w-4 h-4" /> Download MP4
                   </a>
                 )}
+                {(reel.status === 'todo' || reel.status === 'posted') && reel.media && (
+                  <button
+                    onClick={() => setShowPublish(true)}
+                    className="col-span-2 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-bold text-xs flex items-center justify-center gap-1.5"
+                  >
+                    <Send className="w-4 h-4" /> Publish…
+                  </button>
+                )}
                 {reel.status === 'todo' && (
-                  <>
-                    <button onClick={() => setShowPost((v) => !v)} className="px-3 py-2 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 font-semibold text-xs flex items-center justify-center gap-1.5">
-                      <Upload className="w-3.5 h-3.5" /> Mark posted
-                    </button>
-                    <button onClick={() => setShowReject((v) => !v)} className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-semibold text-xs flex items-center justify-center gap-1.5">
-                      <ThumbsDown className="w-3.5 h-3.5" /> Reject
-                    </button>
-                  </>
+                  <button onClick={() => setShowReject((v) => !v)} className="col-span-2 px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300 font-semibold text-xs flex items-center justify-center gap-1.5">
+                    <ThumbsDown className="w-3.5 h-3.5" /> Reject
+                  </button>
                 )}
                 {(reel.status === 'posted' || reel.status === 'rejected') && (
                   <button
@@ -141,23 +145,6 @@ export function ReelDetailModal({
                 )}
               </div>
 
-              {showPost && (
-                <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2">
-                  <input
-                    value={postedUrl}
-                    onChange={(e) => setPostedUrl(e.target.value)}
-                    placeholder="Shorts URL (optional)"
-                    className="w-full px-3 py-2 rounded-lg bg-zinc-50 dark:bg-zinc-800/60 border border-zinc-200 dark:border-zinc-700 text-xs dark:text-zinc-100"
-                  />
-                  <button
-                    onClick={() => update('post', { status: 'posted', postedUrl: postedUrl.trim() || null }, 'Marked as posted')}
-                    disabled={!!busy}
-                    className="w-full px-3 py-2 rounded-lg bg-emerald-500 text-white font-bold text-xs"
-                  >
-                    {busy === 'post' ? 'Saving…' : 'Confirm posted'}
-                  </button>
-                </div>
-              )}
               {showReject && (
                 <div className="p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 space-y-2">
                   <textarea
@@ -189,6 +176,8 @@ export function ReelDetailModal({
 
             {/* Story + packaging */}
             <div className="space-y-5 min-w-0">
+              <PostsPanel channelId={channelId} reel={reel} reloadKey={postsReload} onReelChanged={onChanged} />
+
               <section>
                 <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-500 mb-2">Structure</h3>
                 <div className="flex h-2.5 rounded-full overflow-hidden">
@@ -250,6 +239,17 @@ export function ReelDetailModal({
           </div>
         </div>
       </div>
+      {showPublish && (
+        <PublishModal
+          channelId={channelId}
+          reel={reel}
+          onClose={() => setShowPublish(false)}
+          onPublished={() => {
+            setShowPublish(false)
+            setPostsReload((n) => n + 1)
+          }}
+        />
+      )}
     </div>
   )
 }
