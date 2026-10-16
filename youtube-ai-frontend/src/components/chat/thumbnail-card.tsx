@@ -21,6 +21,7 @@ interface ThumbnailCardProps {
     selectedHostImage?: string
     logoPosition?: 'top-left' | 'top-right' | 'none'
     aspectRatio?: '16:9' | '9:16'
+    createdAt?: string
   }>
   /** Auto-fire the first 2 concept generations in parallel on mount
    *  (set by the package skill at high routing confidence). */
@@ -79,6 +80,9 @@ export function ThumbnailCard({
   const [generatedImages, setGeneratedImages] = useState<
     Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }>
   >({})
+  // Real people without a verified photo: the slot asks the client to upload one.
+  const [needsPhoto, setNeedsPhoto] = useState<Record<number, { name: string; role: string }[]>>({})
+  const [uploadingFor, setUploadingFor] = useState<string | null>(null)
   const [modalState, setModalState] = useState<{ isOpen: boolean; concept: ThumbnailConcept | null; idx: number }>({
     isOpen: false,
     concept: null,
@@ -89,12 +93,18 @@ export function ThumbnailCard({
   useEffect(() => {
     if (messageImages && thumbnails) {
       const restored: Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }> = {}
-      for (const img of messageImages) {
-        const idx = thumbnails.findIndex(
-          (c, i) =>
-            (img.textOverlay && img.textOverlay.toLowerCase() === c.text.toLowerCase()) ||
-            img.conceptTitle === `Concept ${i + 1}`,
-        )
+      // Oldest first so the newest image for a concept wins; match the concept slot
+      // before falling back to headline text, so an older image with the same headline
+      // never replaces a newer one.
+      const ordered = [...messageImages].sort(
+        (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime(),
+      )
+      for (const img of ordered) {
+        let idx = thumbnails.findIndex((_c, i) => img.conceptTitle === `Concept ${i + 1}`)
+        if (idx === -1)
+          idx = thumbnails.findIndex(
+            (c) => !!img.textOverlay && img.textOverlay.toLowerCase() === c.text.toLowerCase(),
+          )
         if (idx !== -1 && img.url) {
           restored[idx] = {
             url: img.url,
@@ -159,7 +169,17 @@ export function ThumbnailCard({
         ...(options?.silent ? { auto: true } : {}),
       })
 
+      if (result.needsPhoto?.length) {
+        setNeedsPhoto((prev) => ({ ...prev, [idx]: result.needsPhoto! }))
+        if (!options?.silent) toast.info(result.message || 'A real photo is needed for this thumbnail')
+        return
+      }
       if (result.imageUrl) {
+        setNeedsPhoto((prev) => {
+          const next = { ...prev }
+          delete next[idx]
+          return next
+        })
         setGeneratedImages((prev) => ({
           ...prev,
           [idx]: {
@@ -231,6 +251,23 @@ export function ThumbnailCard({
     // Mount-only by design: the ref guard handles re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerate, messageId])
+
+  const uploadPersonPhoto = async (concept: ThumbnailConcept, idx: number, name: string, file: File) => {
+    const channelId = activeThread?.channelId
+    if (!channelId) return
+    setUploadingFor(name)
+    try {
+      await api.uploadCreativeReference(channelId, file, 'identity', name)
+      toast.success(`Saved the photo of ${name}. It will be used from now on.`)
+      const remaining = (needsPhoto[idx] || []).filter((p) => p.name !== name)
+      setNeedsPhoto((prev) => ({ ...prev, [idx]: remaining }))
+      if (!remaining.length) await handleGenerateImage(concept, idx)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Could not upload the photo')
+    } finally {
+      setUploadingFor(null)
+    }
+  }
 
   if (!thumbnails || thumbnails.length === 0) return null
 
@@ -355,6 +392,31 @@ export function ThumbnailCard({
                   &ldquo;{concept.text}&rdquo;
                 </div>
               </div>
+
+              {!!needsPhoto[idx]?.length && (
+                <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-2">
+                  <p className="text-xs text-amber-800 dark:text-amber-300">
+                    No verified public photo found for {needsPhoto[idx].map((p) => p.name).join(' and ')}. Upload a clear photo so the thumbnail shows the real person.
+                  </p>
+                  {needsPhoto[idx].map((person) => (
+                    <label key={person.name} className="flex items-center gap-2 text-xs font-medium text-amber-900 dark:text-amber-200">
+                      <span>Upload photo of {person.name}</span>
+                      <input
+                        type="file"
+                        accept="image/png,image/jpeg,image/webp"
+                        aria-label={'Upload photo of ' + person.name}
+                        disabled={uploadingFor !== null}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0]
+                          if (file) void uploadPersonPhoto(concept, idx, person.name, file)
+                        }}
+                        className="text-xs"
+                      />
+                      {uploadingFor === person.name && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                    </label>
+                  ))}
+                </div>
+              )}
 
               {/* Generating skeleton — shows immediately during parallel auto-gen */}
               {isGenerating && !generatedUrl && (

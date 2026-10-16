@@ -156,6 +156,8 @@ export class ThumbnailComposerService {
     backgroundInput: string; text: string; textSide: 'left' | 'right'; aspectRatio: '16:9' | '9:16';
     excludeHost?: boolean; excludeLogo?: boolean; compact?: boolean; colors?: string;
     tag?: string; label?: string;
+    /** False when the image model already drew the headline: only overlays are added. */
+    renderHeadline?: boolean;
   }): Promise<{ buffer: Buffer; issues: string[] }> {
     const vertical = options.aspectRatio === '9:16';
     const width = vertical ? 864 : 1536, height = vertical ? 1536 : 864;
@@ -178,6 +180,15 @@ export class ThumbnailComposerService {
       const plate = await sharp({ create: { width: w, height: h, channels: 4, background } }).png().toBuffer();
       return { input: await sharp(plate).composite([{ input: glyphs, left: padX, top: padY }]).png().toBuffer(), width: w, height: h };
     };
+    if (options.renderHeadline === false) {
+      // The AI drew the headline (and any tag); add logo, host and the disclosure label only.
+      const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : 'top-right' });
+      const label = options.label?.trim() ? await chip(options.label.trim(), 'rgba(0,0,0,0.72)', vertical ? 30 : 24) : null;
+      return {
+        buffer: label ? await sharp(base).composite([{ input: label.input, left: margin, top: height - margin - label.height }]).png().toBuffer() : base,
+        issues: [],
+      };
+    }
     const tagChip = options.tag?.trim() ? await chip(options.tag.trim(), '#D01010', vertical ? 40 : 34) : null;
     const labelChip = options.label?.trim() ? await chip(options.label.trim(), 'rgba(0,0,0,0.72)', vertical ? 30 : 24) : null;
     const tagSpace = tagChip ? tagChip.height + 14 : 0;

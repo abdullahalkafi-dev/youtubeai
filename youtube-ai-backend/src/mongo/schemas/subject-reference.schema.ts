@@ -26,6 +26,17 @@ export class SubjectReference {
   @Prop({ default: 1 })
   searchCount: number;
 
+  /** True only when the photo passed the page-name and face checks (or came from Wikipedia). */
+  @Prop({ default: false })
+  verified?: boolean;
+
+  /** The news/court page the photo was found on. */
+  @Prop()
+  sourcePageUrl?: string;
+
+  @Prop()
+  checkedAt?: Date;
+
   @Prop()
   createdAt?: Date;
 

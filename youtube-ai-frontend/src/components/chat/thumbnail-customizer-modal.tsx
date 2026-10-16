@@ -146,6 +146,14 @@ export function ThumbnailCustomizerModal({
   }
 
   const handleConfirm = async () => {
+    // A ticked real person without a photo would be invented by the image model.
+    const withoutPhoto = subjects.filter((s) => s.selected !== false && !s.imageUrl)
+    if (withoutPhoto.length) {
+      toast.error(
+        `Upload a photo of ${withoutPhoto.map((s) => s.name).join(' and ')}, or untick them, so the thumbnail shows the real person.`,
+      )
+      return
+    }
     try {
       setIsGenerating(true)
       const referenceImageUrls = subjects

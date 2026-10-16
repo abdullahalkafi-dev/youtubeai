@@ -5,7 +5,7 @@ const image = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www
 const now = '2026-10-16T00:00:00Z'
 async function setup(page: Page, legacy = false) {
   const state = {
-    status: 'awaiting_images', updatedAt: now, paidRequests: 0, imageRequests: [] as Record<string, unknown>[], assetUploads: 0, chatUploads: 0, referenceUploads: 0, notes: [] as string[], revisions: [] as { path: string; body: Record<string, unknown> }[], preferenceWrites: [] as Record<string, unknown>[],
+    status: 'awaiting_images', updatedAt: now, paidRequests: 0, imageRequests: [] as Record<string, unknown>[], assetUploads: 0, chatUploads: 0, referenceUploads: 0, notes: [] as string[], photoNeeded: false, revisions: [] as { path: string; body: Record<string, unknown> }[], preferenceWrites: [] as Record<string, unknown>[],
     preferences: { revision: 1, enabled: true, duration: { min: 8,max: 10 }, wordsPerMinute: 130, instructions: ['Use recognizable faces'], approvedExamples: [], visualReferences: [], visualReferenceAssets: [] as { url: string; role: string; note?: string }[], identityReferences: [] as { name: string; url: string }[], excludeHost: false, excludeLogo: false },
     artifacts: [
       { _id: 'package-1', kind: 'packaging', key: 'packaging', version: 1, status: 'ready', data: { title: 'Life in Prison: The Hardest Conversation With Your Family', rationale: 'A family-centered prison episode', description: 'An episode about family separation.', thumbnails: [concept,concept] } },
@@ -39,7 +39,11 @@ async function setup(page: Page, legacy = false) {
     if (path.endsWith('/upload-asset')) { state.assetUploads++; return json({ url: 'https://assets.test/reference.png', filename: 'reference.png' }) }
     if (path.endsWith('/messages/upload')) { state.chatUploads++; return json({ runId, messageId: 'message-1' }) }
     if (path.endsWith('/cancel')) { state.status = 'cancelled'; return json({}) }
-    if (path.includes('/generate-thumbnail-image')) { state.paidRequests++; return json({}) }
+    if (path.includes('/generate-thumbnail-image')) {
+      state.paidRequests++
+      if (state.photoNeeded) { state.photoNeeded = false; return json({ imageUrl: '', needsPhoto: [{ name: 'Matthew Hightower', role: 'Defendant' }], message: 'No verified public photo found for Matthew Hightower.' }) }
+      return json({})
+    }
     if (path.endsWith('/runs/' + runId)) return json({ id: runId,status: state.status,stage: 'writing',artifacts: state.artifacts,notes: state.notes })
     if (path.endsWith('/runs')) return json([])
     if (path === '/api/threads/' + threadId) return json({ ...thread, updatedAt: state.updatedAt })
@@ -164,4 +168,24 @@ test('uploads an approved style reference from the preferences dialog', async ({
   await page.getByRole('button', { name: 'Add reference' }).click()
   await expect(page.getByText('strong tears', { exact: true })).toBeVisible()
   expect(state.referenceUploads).toBe(1)
+})
+test('asks for a real photo instead of inventing a face, then retries that slot', async ({ page }) => {
+  const state = await setup(page, true)
+  state.photoNeeded = true
+  await page.getByRole('button', { name: '1-Click Generate' }).first().click()
+  await expect(page.getByRole('alert').filter({ hasText: 'Upload a clear photo so the thumbnail shows the real person' })).toBeVisible()
+  await page.getByLabel('Upload photo of Matthew Hightower').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
+  await expect.poll(() => state.referenceUploads).toBe(1)
+  await expect.poll(() => state.paidRequests).toBe(2)
+})
+test('a studio image waiting for a photo offers an upload and then retries', async ({ page }) => {
+  const state = await setup(page)
+  state.status = 'completed_with_issues'
+  state.artifacts[1].status = 'needs_input'
+  ;(state.artifacts[1].data as Record<string, unknown>).needsPhoto = [{ name: 'Matthew Hightower', role: 'Defendant' }]
+  await page.reload()
+  await page.getByLabel('Upload photo of Matthew Hightower').setInputFiles({ name: 'face.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') })
+  await expect.poll(() => state.referenceUploads).toBe(1)
+  await expect.poll(() => state.revisions.some(r => r.path.includes('image-1/retry'))).toBe(true)
+  expect(state.paidRequests).toBe(0)
 })

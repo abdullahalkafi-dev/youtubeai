@@ -1,3 +1,5 @@
+import { RECOMMENDATION } from './studio/studio-router';
+import { layoutZones, zonePrompt } from '../openai/thumbnail-layout';
 import {
   Injectable,
   NotFoundException,
@@ -87,6 +89,8 @@ export class ChatService {
     @Inject(forwardRef(() => TrendsService))
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
+    @InjectModel('CreatorPreferences')
+    private readonly creatorPreferencesModel: Model<any>,
   ) {
     this.modelName = this.configService.get<string>(
       'OPENAI_MODEL',
@@ -475,6 +479,12 @@ export class ChatService {
           '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
+
+    dynamicContext += await this.photoAvailabilityContext(
+      updatedThread,
+      dto.content,
+      resolvedSkill,
+    );
 
     // Unified Package mode — audit vs new-concept instructions for the package skill.
     if (resolvedSkill === 'package') {
@@ -872,6 +882,12 @@ export class ChatService {
           '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
+
+    dynamicContext += await this.photoAvailabilityContext(
+      updatedThread,
+      dto.content,
+      resolvedSkill,
+    );
 
     // Unified Package mode — audit vs new-concept instructions for the package skill.
     if (resolvedSkill === 'package') {
@@ -2789,6 +2805,38 @@ Hard rules:
       ? undefined
       : dto.selectedHostImage || 'default';
 
+    // Real people in the concept must come from real photos. The auto path sends no
+    // references, so resolve them here; a required person without a usable photo is
+    // asked from the client instead of being invented by the image model.
+    let referenceImageUrls = dto.referenceImageUrls;
+    if (!referenceImageUrls?.length) {
+      const people = await this.subjectReferenceService.resolveSubjects({
+        title: videoContextTitle,
+        concept: `Headline: ${dto.text}. ${dto.visual || ''}`,
+        overrides: await this.photoOverrides(thread.channelId),
+        focus: 'image',
+      });
+      const missing = people.filter((p) => p.photoStatus === 'missing');
+      if (missing.length) {
+        this.logger.log(
+          `[Thumbnail] Waiting for client photo(s): ${missing.map((p) => p.name).join(', ')}`,
+        );
+        return {
+          imageUrl: '',
+          revisedPrompt: '',
+          image: null,
+          needsPhoto: missing.map((p) => ({ name: p.name, role: p.role })),
+          message:
+            'No verified public photo found for ' +
+            missing.map((p) => p.name).join(' and ') +
+            '. Upload a clear photo so the thumbnail shows the real person.',
+        };
+      }
+      referenceImageUrls = people
+        .map((p) => p.imageUrl)
+        .filter((url): url is string => !!url);
+    }
+
     const storyContext = await this.openaiService.extractStoryContextFromThread(
       {
         videoTitle: videoContextTitle,
@@ -2810,8 +2858,59 @@ Hard rules:
       excludeHost: excludeHost === true,
       aspectRatio: resolvedAspectRatio,
       storyContext,
-      referenceImageUrls: dto.referenceImageUrls,
+      referenceImageUrls,
     });
+
+    // The AI renders the headline: check spelling and that it is clear of the logo and
+    // host photo. One automatic fix edits the same image; remaining issues are shown.
+    let reviewIssues: string[] = [];
+    if (dto.text?.trim()) {
+      const check = await this.openaiService.reviewThumbnailText({
+        imageUrl: result.imageUrl,
+        headline: dto.text,
+        excludeLogo,
+        excludeHost: excludeHost === true,
+      });
+      if (!check.ok) {
+        const zones = layoutZones({
+          aspectRatio: resolvedAspectRatio,
+          logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
+          excludeLogo,
+          excludeHost: excludeHost === true,
+        });
+        try {
+          const fixed = await this.openaiService.editImageWithReference(
+            result.cleanBackgroundUrl || result.imageUrl,
+            'Fix ONLY the headline lettering. Problems: ' +
+              check.issues.join('; ') +
+              '. Keep the people, faces, expressions, setting, colors and composition exactly the same.\n' +
+              zonePrompt(zones, dto.text),
+            {
+              referenceImageUrls: referenceImageUrls || [],
+              mode: 'thumbnail',
+              selectedHostImage: selectedHost,
+              customHostUrl: effectiveCustomHostUrl,
+              excludeHost: excludeHost === true,
+              excludeLogo,
+              logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
+              aspectRatio: resolvedAspectRatio,
+              storyContext,
+            },
+          );
+          const recheck = await this.openaiService.reviewThumbnailText({
+            imageUrl: fixed.imageUrl,
+            headline: dto.text,
+            excludeLogo,
+            excludeHost: excludeHost === true,
+          });
+          Object.assign(result, fixed);
+          reviewIssues = recheck.issues;
+        } catch (fixErr: any) {
+          this.logger.warn(`[Thumbnail] Headline fix failed: ${fixErr.message}`);
+          reviewIssues = check.issues;
+        }
+      }
+    }
 
     const imageObj = {
       id: new Types.ObjectId().toString(),
@@ -2827,6 +2926,7 @@ Hard rules:
       logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       aspectRatio: resolvedAspectRatio,
       mode: 'thumbnail',
+      reviewIssues,
       createdAt: new Date(),
     };
 
@@ -3631,13 +3731,93 @@ Hard rules:
       }
     }
 
-    return this.subjectReferenceService.detectAndFetchSubjects(title, concept);
+    return this.subjectReferenceService.detectAndFetchSubjects(
+      title,
+      concept,
+      await this.photoOverrides(thread?.channelId),
+    );
   }
 
   async searchSubjectImage(query: string) {
-    const imageUrl =
+    const found =
       await this.subjectReferenceService.searchSubjectPublicImage(query);
-    return { name: query, imageUrl };
+    return {
+      name: query,
+      imageUrl: found?.imageUrl,
+      source: found?.source,
+      photoStatus: found?.imageUrl ? 'verified' : 'missing',
+    };
+  }
+
+  /**
+   * Before thumbnail concepts are written, tell the model which real people have a
+   * usable photo, so concepts never depend on a face the system would have to invent.
+   * Results are cached, so the later image step reuses the same verified photos.
+   */
+  private async photoAvailabilityContext(
+    thread: any,
+    content: string,
+    skill: string,
+  ): Promise<string> {
+    const recommendation = RECOMMENDATION.test(content);
+    if (!['package', 'thumbnail'].includes(skill) && !recommendation) return '';
+    if (recommendation && skill === 'general')
+      return (
+        '\n\nREAL-PERSON PHOTO RULE: When you recommend a topic, judge thumbnail potential by whether viewers will RECOGNIZE the face. ' +
+        'A well-known person with widely published photos scores high; a little-known defendant or victim scores lower. ' +
+        'If the main person may have no widely published photo, say in one line that the client may need to upload one for the thumbnail.'
+      );
+    try {
+      const recent = (thread.messages || [])
+        .slice(-4)
+        .map((m: any) => String(m.content || '').slice(0, 1500))
+        .join('\n');
+      const people = await this.subjectReferenceService.resolveSubjects({
+        title: thread.title || '',
+        concept: `${content}\n${recent}`,
+        overrides: await this.photoOverrides(thread.channelId),
+        focus: 'story',
+      });
+      if (!people.length) return '';
+      return (
+        '\n\nREAL-PERSON PHOTO AVAILABILITY (checked just now):\n' +
+        people
+          .map(
+            (p) =>
+              `- ${p.name} (${p.role}): ` +
+              (p.photoStatus === 'missing'
+                ? 'NO verified photo'
+                : p.photoStatus === 'client_upload'
+                  ? 'client-supplied photo available'
+                  : 'verified, recognizable public photo available'),
+          )
+          .join('\n') +
+        '\nThumbnail rules: feature only people who have a photo above. Never ask the image to draw the host Unique; his real photo is added automatically. ' +
+        'If a concept needs a person with NO verified photo, say in one line that the client should upload a clear photo of that person before generating. ' +
+        'Otherwise build that concept around a person who has a photo, a strong symbolic scene, or the headline.'
+      );
+    } catch (err: any) {
+      this.logger.warn(`[PhotoCheck] skipped: ${err.message}`);
+      return '';
+    }
+  }
+
+  /** Face photos the client uploaded for named people (channel creative preferences). */
+  private async photoOverrides(channelId: any) {
+    if (!channelId) return [];
+    try {
+      const prefs: any = await this.creatorPreferencesModel
+        .findOne({ channelId })
+        .select('identityReferences')
+        .lean();
+      return Array.isArray(prefs?.identityReferences)
+        ? prefs.identityReferences.filter(
+            (r: any) => typeof r?.name === 'string' && typeof r?.url === 'string',
+          )
+        : [];
+    } catch {
+      return [];
+    }
   }
 
   async previewCutout(

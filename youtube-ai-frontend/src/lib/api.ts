@@ -369,7 +369,7 @@ class ApiClient {
       auto?: boolean
     },
   ) {
-    return this.post<{ imageUrl: string; revisedPrompt: string }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
+    return this.post<{ imageUrl: string; revisedPrompt: string; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[] } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
   }
 
   async recomposeOverlay(

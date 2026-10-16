@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { layoutZones, zonePrompt } from './thumbnail-layout';
 import { ConfigService } from '@nestjs/config';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -1233,14 +1234,74 @@ export class OpenAIService {
   /**
    * Generate a thumbnail image using OpenAI Image Engine with reference images, exact face & logo compositing.
    */
+  /**
+   * Vision check of a finished thumbnail: is the AI-rendered headline spelled exactly,
+   * and is it clear of the logo and host photo? Returns ok=true when the check
+   * itself is unavailable, so a review outage never blocks delivery.
+   */
+  async reviewThumbnailText(params: {
+    imageUrl: string;
+    headline: string;
+    excludeLogo?: boolean;
+    excludeHost?: boolean;
+  }): Promise<{ ok: boolean; issues: string[]; seen?: string }> {
+    try {
+      const raw = await this.composerService.fetchBufferFromUrl(params.imageUrl);
+      const small = await require('sharp')(raw)
+        .resize({ width: 1024, height: 1024, fit: 'inside' })
+        .jpeg()
+        .toBuffer();
+      const result = await this.chat({
+        messages: [
+          {
+            role: 'user',
+            content:
+              'Read the large headline text in this YouTube thumbnail exactly as rendered, letter by letter. ' +
+              (params.excludeLogo ? '' : 'There is a brand emblem in a top corner. ') +
+              (params.excludeHost ? '' : 'There is a cut-out photo of the host in the bottom-right corner. ') +
+              'Say whether any headline letter is covered by, touching or cut off by the emblem or the host photo, or cut off by the image edge.',
+          },
+        ],
+        systemPromptOverride:
+          'Return JSON only: {"headline":string,"overlapsOverlay":boolean,"cutOff":boolean}.',
+        imageUrls: ['data:image/jpeg;base64,' + small.toString('base64')],
+        temperature: 0,
+        maxCompletionTokens: 300,
+      } as any);
+      const text = String(result.content || '');
+      const verdict = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      const issues: string[] = [];
+      if (!sameHeadline(String(verdict.headline || ''), params.headline))
+        issues.push(
+          `Headline reads "${String(verdict.headline || '').slice(0, 120)}" instead of "${params.headline}"`,
+        );
+      if (verdict.overlapsOverlay === true)
+        issues.push('Headline overlaps the logo or host photo');
+      if (verdict.cutOff === true) issues.push('Headline is cut off at the edge');
+      return { ok: issues.length === 0, issues, seen: verdict.headline };
+    } catch (err: any) {
+      this.logger.warn(`[Thumbnail Review] unavailable: ${err.message}`);
+      return { ok: true, issues: [] };
+    }
+  }
+
   /** Studio path: one provider request, no hidden fallback generation or SDK retries. */
-  async generateStudioScene(params: { visual: string; referenceImageUrls: string[]; styleReferenceUrls?: string[]; aspectRatio: '16:9' | '9:16'; textSide: 'left' | 'right'; sceneOnly?: boolean; baseImageUrl?: string; editInstruction?: string; clientRequestedDetails?: string[]; onRequest?: () => Promise<void> }): Promise<{ buffer: Buffer; requestId?: string }> {
+  async generateStudioScene(params: { visual: string; referenceImageUrls: string[]; styleReferenceUrls?: string[]; aspectRatio: '16:9' | '9:16'; textSide: 'left' | 'right'; sceneOnly?: boolean; baseImageUrl?: string; editInstruction?: string; clientRequestedDetails?: string[]; headline?: string; tag?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; excludeLogo?: boolean; excludeHost?: boolean; onRequest?: () => Promise<void> }): Promise<{ buffer: Buffer; requestId?: string }> {
     const details = (params.clientRequestedDetails || []).filter(Boolean);
     // Details the client asked for are intentional; everything else stays within the brief.
     const detailRule = details.length
       ? ' Add nothing beyond the scene brief. These client-requested details are intentional and must be clearly visible: ' + details.join('; ') + '.'
       : ' Add no injuries, props or events beyond the scene brief.';
-    let prompt = 'Create a photographic illustrative YouTube thumbnail scene. Natural recognizable face, clearly visible requested emotion, strong subject/background contrast. No headline, letters, logo, watermark or host sticker. Keep the ' + params.textSide + ' 48 percent low-detail for text.' + detailRule + ' Scene: ' + params.visual;
+    // The image model renders the headline (client choice: livelier type), always inside
+    // the headline zone and never under the logo or host photo the composer adds later.
+    const zones = layoutZones({ aspectRatio: params.aspectRatio, logoPosition: params.logoPosition, excludeLogo: params.excludeLogo, excludeHost: params.excludeHost });
+    const headline = params.sceneOnly ? undefined : params.headline?.trim() || undefined;
+    const layout = '\nLAYOUT (strict):\n' + zonePrompt(zones, headline) +
+      (headline && params.tag ? `\n- Directly above the headline, a small solid red label box with white letters reading exactly "${params.tag.toUpperCase()}".` : '') +
+      (headline
+        ? '\nHEADLINE STYLE: ultra-bold, colorful, high-contrast lettering — crisp white plus a vivid accent color (yellow, or red when the story calls for it) on the key words, thick dark outline and drop shadow. Spell every word exactly; never shorten, paraphrase or add words.'
+        : '\n- No headline, letters or words anywhere in the image.');
+    let prompt = 'Create a photographic illustrative YouTube thumbnail. Natural recognizable faces, clearly visible requested emotion, strong subject/background contrast. No logo, watermark or host cutout; draw only the people the scene names.' + detailRule + '\nScene: ' + params.visual + layout;
     if (params.sceneOnly) prompt = 'Create a cinematic photographic illustrative scene with no headline, logo or watermark. ' + params.visual;
     const model = this.configService.get<string>('OPENAI_IMAGE_MODEL', 'gpt-image-2');
     const size = params.aspectRatio === '9:16' ? '864x1536' : '1536x864';
@@ -1251,7 +1312,7 @@ export class OpenAIService {
     const hasBase = !!params.baseImageUrl;
     if (hasBase) {
       // Edit mode: the first image is the existing scene and must stay the same picture.
-      prompt = 'Edit the FIRST image. Keep its composition, camera angle, subject pose and position, setting, lighting, colors and the low-detail ' + params.textSide + ' text area exactly as they are. Do not add headline text, letters, a logo or a watermark.' + detailRule + ' Change ONLY this: ' + (params.editInstruction || params.visual) + '. Updated scene description for reference: ' + params.visual;
+      prompt = 'Edit the FIRST image. Keep its composition, camera angle, subject pose and position, setting, lighting and colors exactly as they are. Do not add a logo or watermark.' + detailRule + ' Change ONLY this: ' + (params.editInstruction || params.visual) + '. Updated scene description for reference: ' + params.visual + (params.sceneOnly ? '' : layout);
       if (identityUrls.length) prompt += ' The next ' + identityUrls.length + ' images show the same person; keep the face consistent with them.';
     }
     if (styles.length) prompt += ' Reference images: ' + (hasBase ? 'after the first image, ' : 'first ') + identityUrls.length + ' images establish subject identity; the final ' + styles.length + ' images are STYLE ONLY. Borrow contrast, expression intensity and hierarchy, never their people, text, events or injuries.';
@@ -1318,6 +1379,9 @@ export class OpenAIService {
       .replace(/\s+/g, ' ')
       .trim();
 
+    // The host is composited from his real photos; never ask the model to draw him.
+    cleanDescription = stripHostFromScene(cleanDescription);
+
     // Auto-correct common nicknames/typos in the description
     cleanDescription = cleanDescription
       .replace(/\bkeffe\s*d\b/gi, 'Duane "Keefe D" Davis')
@@ -1352,15 +1416,15 @@ export class OpenAIService {
       ? '9:16 vertical YouTube Shorts'
       : '16:9 cinematic YouTube';
 
-    // NOTE: never name the overlay object here ("sticker", "badge", "logo") —
-    // diffusion models paint whatever object is mentioned instead of honoring "reserved for".
-    const hostDirective = params.excludeHost
-      ? '- Do NOT reserve space or include creator host photo (client directive: no host).'
-      : '- Host Anchor Zone (lower corner): Keep clean — low-detail, mid-lit environmental background only. NO faces, NO heads, NO portraits, NO figures, NO text in this corner.';
-
-    const logoDirective = params.excludeLogo
-      ? '- Do NOT include any brand marks, channel emblems, or watermarks.'
-      : '- Logo Anchor Zone (upper corner): Keep clean — low-detail, mid-lit environmental background only. NO emblem, NO graphic, NO symbol, NO text in this corner.';
+    // Reserved logo/host corners match where Sharp pastes them afterwards, so the
+    // AI headline and faces never end up underneath. Never name the overlay objects
+    // ("sticker", "logo") — diffusion models paint whatever object is mentioned.
+    const zones = layoutZones({
+      aspectRatio: params.aspectRatio,
+      logoPosition: params.logoPosition,
+      excludeLogo: params.excludeLogo,
+      excludeHost: params.excludeHost,
+    });
 
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
 
@@ -1368,19 +1432,20 @@ STYLE & LIGHTING:
 High-Dynamic-Range (HDR) cinematic studio photography, 85mm portrait lens, sharp micro-contrast, natural skin pores, bright punchy key lighting, luminous rim highlights, rich midtones. Clear vibrant exposure — ZERO murky crushed blacks, ZERO dark voids, ZERO plastic skin smoothing. Realistic photo style, NOT 3D render, NOT cartoon.
 
 SCENE STAGING & COMPOSITION:
-${cleanDescription || 'Cinematic courtroom drama scene with intense emotional expressions.'}
+${cleanDescription || 'Emotional close-up of the story subject in a setting that fits the story.'}
 ${subjectIdentitySection ? `\n${subjectIdentitySection}\n` : ''}
-FULL-CANVAS COMPOSITION & PLACEMENT:
-- Fill the entire canvas with rich environmental detail edge-to-edge (characters, evidence props, courtroom gallery, spectators, ambient lighting). NEVER leave empty blank voids.
-- Subject Proximity: Main character faces must be commanding close-up/bust shots (occupying 40–60% of canvas height).
-- Headline Clearance: Keep headline text area in the left third or top-left clear of faces.
-${hostDirective}
-${logoDirective}
+BACKGROUND:
+- Use only the setting the scene describes; keep it rich but uncluttered. Do NOT add courtrooms, gavels, scales of justice, sheriffs, evidence props or spectators unless the scene asks for them.
+- Main faces are commanding close-up/bust shots (40–60% of canvas height) with clearly visible emotion.
+- Do not invent extra people. Draw only the people the scene names.
+
+LAYOUT (strict):
+${zonePrompt(zones, params.concept.text)}
 
 HEADLINE TYPOGRAPHY:
-- Render bold 2D headline text reading "${params.concept.text}".
-- Two-tone ultra-bold high-CTR typography: Line 1 in crisp bold WHITE (#FFFFFF), Line 2 in vibrant Electric Golden-YELLOW (#FFE600) with heavy black drop-shadow and thick sharp outline for maximum mobile readability.
-${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` : ''}`;
+- Ultra-bold, colorful, high-contrast lettering: crisp WHITE plus a vivid accent color (yellow, or red when the scene calls for it) on the most important words, with a thick dark outline and drop shadow for mobile readability.
+- Spell every word exactly as given. Never shorten, paraphrase or add words.
+${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors}.` : ''}`;
 
     if (params.showType) {
       prompt += ` Show Type: ${params.showType}.`;
@@ -1394,27 +1459,38 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors} atmosphere.` 
       this.logger.log(
         `[Thumbnail] Generating thumbnail with ${params.referenceImageUrls.length} real subject reference image(s)...`,
       );
-      try {
-        return await this.editImageWithReference(
-          params.referenceImageUrls[0],
-          prompt,
-          {
-            referenceImageUrls: params.referenceImageUrls.slice(1),
-            mode: 'thumbnail',
-            selectedHostImage: params.selectedHostImage,
-            customHostUrl: params.customHostUrl,
-            excludeHost: params.excludeHost,
-            excludeLogo: params.excludeLogo,
-            logoPosition: params.logoPosition,
-            aspectRatio: params.aspectRatio,
-            storyContext: params.storyContext,
-          },
-        );
-      } catch (refErr: any) {
-        this.logger.warn(
-          `Failed to generate thumbnail with subject references (${refErr.message}), falling back to fresh generation`,
-        );
+      // Real people must come from their photos: retry once with the same references,
+      // then report the failure. Never fall back to a generation that invents faces.
+      let refError: any;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        try {
+          return await this.editImageWithReference(
+            params.referenceImageUrls[0],
+            prompt,
+            {
+              referenceImageUrls: params.referenceImageUrls.slice(1),
+              mode: 'thumbnail',
+              selectedHostImage: params.selectedHostImage,
+              customHostUrl: params.customHostUrl,
+              excludeHost: params.excludeHost,
+              excludeLogo: params.excludeLogo,
+              logoPosition: params.logoPosition,
+              aspectRatio: params.aspectRatio,
+              storyContext: params.storyContext,
+            },
+          );
+        } catch (err: any) {
+          refError = err;
+          this.logger.warn(
+            `Thumbnail with subject references failed (attempt ${attempt + 1}): ${err.message}`,
+          );
+        }
       }
+      throw new Error(
+        'Could not generate the thumbnail from the real photos (' +
+          (refError?.message || 'unknown error') +
+          '). Try again or upload a different photo.',
+      );
     }
 
     const primaryModel = this.configService.get<string>(
@@ -2505,4 +2581,31 @@ PRIORITY INSTRUCTIONS:
       this.logger.log(logMessage);
     }
   }
+}
+
+/**
+ * Remove clauses that ask the image model to draw the channel host. The real host
+ * photo is pasted by the composer; a drawn "Unique" is always a stranger.
+ */
+export function stripHostFromScene(text: string): string {
+  return text
+    .replace(/,?\s*(?:paired|alongside|together|along)\s+with\s+Unique\b[^.;,]*/g, '')
+    .replace(
+      /[^.;]*\bUnique(?:\s+Mecca(?:\s+Audio)?)?(?:'s|’s)?\s+(?:on|in|turns|gestures|looks|has|with|smaller|appears|stands|sits|reacts|points|at|is|leans|faces|fills|occupies|using)\b[^.;]*[.;]?/g,
+      ' ',
+    )
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Compare headlines ignoring case, line breaks, quote styles and spacing. */
+export function sameHeadline(seen: string, expected: string): boolean {
+  const norm = (v: string) =>
+    v
+      .toUpperCase()
+      .replace(/[’‘`´]/g, "'")
+      .replace(/[“”]/g, '"')
+      .replace(/[^A-Z0-9'?!]+/g, ' ')
+      .trim();
+  return norm(seen) === norm(expected);
 }

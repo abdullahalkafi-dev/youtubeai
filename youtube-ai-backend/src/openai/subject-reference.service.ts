@@ -8,8 +8,12 @@ import {
   SubjectReference,
   SubjectReferenceDocument,
 } from '../mongo/schemas/subject-reference.schema';
+import { retrieveSource } from '../chat/studio/research';
 import * as fs from 'fs';
 import * as path from 'path';
+const sharp = require('sharp');
+
+export type PhotoStatus = 'verified' | 'client_upload' | 'missing';
 
 export interface StorySubject {
   id: string;
@@ -18,7 +22,37 @@ export interface StorySubject {
   searchQuery: string;
   imageUrl?: string;
   source?: string;
+  /** verified: checked public photo; client_upload: supplied by the client; missing: none usable. */
+  photoStatus?: PhotoStatus;
+  sourcePageUrl?: string;
 }
+
+/** A photo the client uploaded for a named person; always wins over the web. */
+export interface PhotoOverride {
+  name: string;
+  url: string;
+}
+
+interface Candidate {
+  imageUrl: string;
+  pageUrl?: string;
+  source: string;
+}
+
+/**
+ * The channel host is composited from his own photos; he is never a story
+ * subject to search for or to draw.
+ */
+const HOST_NAMES = [
+  'unique',
+  'unique mecca',
+  'unique mecca audio',
+  'uniquemeccaaudio',
+  'uniquemeccaaudionyc',
+  'the host',
+  'host',
+  'commentator',
+];
 
 @Injectable()
 export class SubjectReferenceService {
@@ -40,26 +74,46 @@ export class SubjectReferenceService {
       .trim();
   }
 
+  static isHostName(name: string): boolean {
+    const clean = name
+      .toLowerCase()
+      .replace(/["'“”@()]/g, '')
+      .replace(/\s+/g, ' ')
+      .trim();
+    const extra = (process.env.HOST_NAMES || '')
+      .split(',')
+      .map((n) => n.trim().toLowerCase())
+      .filter(Boolean);
+    return (
+      [...HOST_NAMES, ...extra].includes(clean) ||
+      /\bunique mecca\b/.test(clean)
+    );
+  }
+
   /**
-   * Dynamically detect 1 to 3 real public figures from video title and visual concept.
+   * Detect 1 to 3 real, named people. With `focus: 'image'`, only people who must
+   * visibly appear in this particular thumbnail concept are returned.
    */
   async detectStorySubjects(
     videoTitle: string,
     visualConcept?: string,
+    focus: 'story' | 'image' = 'story',
   ): Promise<StorySubject[]> {
     try {
-      const fastModel =
-        this.configService.get<string>('OPENAI_FAST_MODEL') || 'gpt-6-luna';
-
       const systemPrompt = `You are an expert entity detection system for YouTube true crime, courtroom trials, and documentary channels.
-Identify between 1 and 3 real, specific individuals (defendants, attorneys, judges, victims, celebrities, witnesses) central to the video topic.
+${
+  focus === 'image'
+    ? 'Identify the real, specific, NAMED people who must visibly appear in THIS thumbnail image according to the visual concept (0 to 3 people).'
+    : 'Identify between 1 and 3 real, specific individuals (defendants, attorneys, judges, victims, celebrities, witnesses) central to the video topic.'
+}
 Do NOT identify generic concepts (e.g. "spectators", "jury", "police officer", "prosecutor" without name). ONLY return real, named individuals.
+NEVER include the channel host "Unique" (Unique Mecca Audio, the commentator/host); he is added separately from his own photos.
 If no real individual is named, return an empty array [].
 
 For each person:
 - name: The full canonical name of the real person (e.g. "Duane 'Keefe D' Davis", "Judge Carli Kierny", "Lil Durk", "Sean 'Diddy' Combs").
 - role: Their case/trial role (e.g. "Defendant", "Judge", "Defense Attorney", "Rapper / Victim").
-- searchQuery: An optimal image search phrase (e.g. "Duane Keefe D Davis courtroom trial").
+- searchQuery: An image search phrase for their most widely published, case-related photo (e.g. "Duane Keefe D Davis courtroom").
 
 Return strict JSON:
 {"subjects": [{"name": "...", "role": "...", "searchQuery": "..."}]}`;
@@ -103,12 +157,19 @@ Visual Concept: "${visualConcept || ''}"`;
         ? parsed.subjects.slice(0, 3)
         : [];
 
-      return rawSubjects.map((s: any, idx: number) => ({
-        id: `subj_${Date.now()}_${idx + 1}`,
-        name: String(s.name || '').trim(),
-        role: String(s.role || 'Key Subject').trim(),
-        searchQuery: String(s.searchQuery || s.name || '').trim(),
-      }));
+      return rawSubjects
+        .map((s: any, idx: number) => ({
+          id: `subj_${Date.now()}_${idx + 1}`,
+          name: String(s.name || '').trim(),
+          role: String(s.role || 'Key Subject').trim(),
+          searchQuery: String(s.searchQuery || s.name || '').trim(),
+        }))
+        .filter(
+          (s: StorySubject) =>
+            s.name &&
+            !SubjectReferenceService.isHostName(s.name) &&
+            !/^(host|commentator|narrator)$/i.test(s.role),
+        );
     } catch (err: any) {
       this.logger.warn(`Failed to detect story subjects: ${err.message}`);
       return [];
@@ -116,32 +177,38 @@ Visual Concept: "${visualConcept || ''}"`;
   }
 
   /**
-   * Search for an authentic public portrait/photo URL for a given subject.
-   * Priority 0: Check MongoDB cached subjects (0ms, 0 external API calls).
-   * Priority 1: Official Wikipedia Summary API -> Download & Persist to MinIO.
-   * Priority 2: OpenAI web search fallback -> Download & Persist to MinIO.
+   * Find a recognizable, verified public photo of a named person.
+   * Order: verified cache -> Wikipedia -> web candidates (each verified).
+   * Unverified web results are never used or cached.
    */
   async searchSubjectPublicImage(
     subjectName: string,
     searchQuery?: string,
     role?: string,
-  ): Promise<{ imageUrl: string; source: string } | null> {
+  ): Promise<{ imageUrl: string; source: string; sourcePageUrl?: string } | null> {
     if (!subjectName || !subjectName.trim()) return null;
+    if (SubjectReferenceService.isHostName(subjectName)) return null;
 
     const canonical = this.normalizeName(subjectName);
 
-    // 0. Check MongoDB persistent cache
+    // 0. Verified cache only. Old unverified web entries are searched again.
     try {
-      const cached = await this.subjectRefModel.findOne({
+      const cached: any = await this.subjectRefModel.findOne({
         $or: [
           { canonicalName: canonical },
           { displayName: new RegExp(`^${subjectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
         ],
       });
 
-      if (cached && cached.imageUrl) {
+      if (
+        cached &&
+        cached.imageUrl &&
+        (cached.verified === true ||
+          cached.source === 'wikipedia' ||
+          cached.source === 'manual')
+      ) {
         this.logger.log(
-          `[Subject Cache HIT] Using stored photo for "${subjectName}": ${cached.imageUrl}`,
+          `[Subject Cache HIT] Using verified photo for "${subjectName}": ${cached.imageUrl}`,
         );
         this.subjectRefModel
           .updateOne({ _id: cached._id }, { $inc: { searchCount: 1 } })
@@ -149,40 +216,51 @@ Visual Concept: "${visualConcept || ''}"`;
         return {
           imageUrl: cached.imageUrl,
           source: cached.source || 'Stored Database',
+          sourcePageUrl: cached.sourcePageUrl,
         };
       }
     } catch (e: any) {
       this.logger.warn(`Subject cache lookup failed: ${e.message}`);
     }
 
-    // 1. Wikipedia Summary API
-    let foundResult: { imageUrl: string; source: string; originalUrl?: string } | null =
-      await this.searchWikipediaImage(subjectName);
+    // 1. Wikipedia: a stable, widely recognized portrait.
+    let found: (Candidate & { verifiedBy: string }) | null = null;
+    const wiki = await this.searchWikipediaImage(subjectName);
+    if (wiki) found = { ...wiki, verifiedBy: 'wikipedia' };
 
-    // 2. Fallback to OpenAI responses web_search
-    if (!foundResult) {
-      foundResult = await this.searchWebWithOpenAI(subjectName, searchQuery);
+    // 2. Web candidates: the most widely published, case-related photo, verified.
+    if (!found) {
+      const candidates = await this.searchWebCandidates(
+        subjectName,
+        searchQuery,
+        role,
+      );
+      for (const candidate of candidates) {
+        if (await this.verifyCandidate(subjectName, candidate)) {
+          found = { ...candidate, verifiedBy: 'web' };
+          break;
+        }
+      }
     }
 
-    if (!foundResult || !foundResult.imageUrl) {
+    if (!found) {
+      this.logger.log(`[Subject Search] No verified photo found for "${subjectName}"`);
       return null;
     }
 
-    // 3. Download & Persist to MinIO or local assets
-    let finalImageUrl = foundResult.imageUrl;
+    // 3. Mirror to our storage
+    let finalImageUrl = found.imageUrl;
     try {
       const persistedUrl = await this.downloadAndPersistImage(
         canonical,
-        foundResult.imageUrl,
+        found.imageUrl,
       );
-      if (persistedUrl) {
-        finalImageUrl = persistedUrl;
-      }
+      if (persistedUrl) finalImageUrl = persistedUrl;
     } catch (persistErr: any) {
       this.logger.warn(`Failed to persist remote subject photo: ${persistErr.message}`);
     }
 
-    // 4. Save to MongoDB
+    // 4. Cache as verified
     try {
       await this.subjectRefModel.findOneAndUpdate(
         { canonicalName: canonical },
@@ -191,14 +269,17 @@ Visual Concept: "${visualConcept || ''}"`;
           displayName: subjectName,
           role: role || 'Key Subject',
           imageUrl: finalImageUrl,
-          originalSourceUrl: foundResult.originalUrl || foundResult.imageUrl,
-          source: foundResult.source || 'web',
+          originalSourceUrl: found.imageUrl,
+          sourcePageUrl: found.pageUrl,
+          source: found.verifiedBy === 'wikipedia' ? 'wikipedia' : 'web',
+          verified: true,
+          checkedAt: new Date(),
           $inc: { searchCount: 1 },
         },
         { upsert: true, new: true },
       );
       this.logger.log(
-        `[Subject Stored] Cached and mirrored photo for "${subjectName}" -> ${finalImageUrl}`,
+        `[Subject Stored] Verified photo for "${subjectName}" -> ${finalImageUrl}`,
       );
     } catch (dbErr: any) {
       this.logger.warn(`Failed to save subject reference to MongoDB: ${dbErr.message}`);
@@ -206,48 +287,72 @@ Visual Concept: "${visualConcept || ''}"`;
 
     return {
       imageUrl: finalImageUrl,
-      source: foundResult.source,
+      source: found.source,
+      sourcePageUrl: found.pageUrl,
     };
   }
 
   /**
-   * Detect subjects and simultaneously resolve public photos for all 1-3 detected subjects.
+   * Resolve the people a thumbnail needs, with a photo status for each.
+   * Client uploads (overrides) win; then verified public photos; otherwise "missing".
    */
-  async detectAndFetchSubjects(
-    videoTitle: string,
-    visualConcept?: string,
-  ): Promise<StorySubject[]> {
-    const subjects = await this.detectStorySubjects(videoTitle, visualConcept);
-    if (!subjects || subjects.length === 0) return [];
-
-    const enriched = await Promise.all(
+  async resolveSubjects(params: {
+    title: string;
+    concept?: string;
+    overrides?: PhotoOverride[];
+    focus?: 'story' | 'image';
+  }): Promise<StorySubject[]> {
+    const subjects = await this.detectStorySubjects(
+      params.title,
+      params.concept,
+      params.focus || 'story',
+    );
+    return Promise.all(
       subjects.map(async (subj) => {
+        const override = matchOverride(subj.name, params.overrides || []);
+        if (override)
+          return {
+            ...subj,
+            imageUrl: override.url,
+            source: 'Client upload',
+            photoStatus: 'client_upload' as const,
+          };
         try {
           const photo = await this.searchSubjectPublicImage(
             subj.name,
             subj.searchQuery,
             subj.role,
           );
-          if (photo?.imageUrl) {
+          if (photo?.imageUrl)
             return {
               ...subj,
               imageUrl: photo.imageUrl,
               source: photo.source,
+              sourcePageUrl: photo.sourcePageUrl,
+              photoStatus: 'verified' as const,
             };
-          }
         } catch (e: any) {
           this.logger.warn(`Failed photo search for ${subj.name}: ${e.message}`);
         }
-        return subj;
+        return { ...subj, photoStatus: 'missing' as const };
       }),
     );
-
-    return enriched;
   }
 
-  private async searchWikipediaImage(
-    name: string,
-  ): Promise<{ imageUrl: string; source: string; originalUrl?: string } | null> {
+  /** Back-compatible: detect story subjects and attach verified photos where found. */
+  async detectAndFetchSubjects(
+    videoTitle: string,
+    visualConcept?: string,
+    overrides?: PhotoOverride[],
+  ): Promise<StorySubject[]> {
+    return this.resolveSubjects({
+      title: videoTitle,
+      concept: visualConcept,
+      overrides,
+    });
+  }
+
+  private async searchWikipediaImage(name: string): Promise<Candidate | null> {
     try {
       const cleanName = name
         .replace(/\b(?:duane\s*)?"keefe\s*d"\s*davis\b/gi, 'Keefe D')
@@ -266,13 +371,15 @@ Visual Concept: "${visualConcept || ''}"`;
 
       if (!res.ok) return null;
       const data = await res.json();
+      // Disambiguation pages and non-person pages carry no useful portrait.
+      if (data.type === 'disambiguation') return null;
 
       const imgUrl =
         data.originalimage?.source || data.thumbnail?.source || null;
       if (imgUrl && typeof imgUrl === 'string' && imgUrl.startsWith('http')) {
         return {
           imageUrl: imgUrl,
-          originalUrl: imgUrl,
+          pageUrl: data.content_urls?.desktop?.page,
           source: `Wikipedia (${data.title || cleanName})`,
         };
       }
@@ -282,18 +389,19 @@ Visual Concept: "${visualConcept || ''}"`;
     return null;
   }
 
-  private async searchWebWithOpenAI(
+  /** Ask web search for up to three recognizable, case-related photos with their source pages. */
+  private async searchWebCandidates(
     subjectName: string,
     searchQuery?: string,
-  ): Promise<{ imageUrl: string; source: string; originalUrl?: string } | null> {
+    role?: string,
+  ): Promise<Candidate[]> {
     try {
-      this.logger.log(
-        `[Subject Search] Querying web search for "${subjectName}"...`,
-      );
+      this.logger.log(`[Subject Search] Querying web search for "${subjectName}"...`);
       const query = searchQuery || `${subjectName} photo`;
-      const searchPrompt = `Find a direct, accessible public image URL (JPEG or PNG) for the real person: "${subjectName}". Context: "${query}".
-Search news archives (AP, Reuters, CNN, NBC), official court records, or public profiles.
-Output ONLY valid JSON: {"imageUrl": "https://...", "source": "source name"}. If no direct image URL is found, return {"imageUrl": null}.`;
+      const searchPrompt = `Find up to 3 direct public image URLs (JPEG or PNG) showing the real person "${subjectName}"${role ? ` (${role})` : ''}. Context: "${query}".
+Prefer the photo viewers would RECOGNIZE: the most widely published, case-related photo (booking photo, court appearance, or the main photo used by major news coverage of this case). Each image must show this person clearly, preferably alone.
+For each, give the news/court/official PAGE where it appears; that page must name the person.
+Output ONLY valid JSON: {"candidates":[{"imageUrl":"https://...","pageUrl":"https://...","source":"outlet name"}]}. If none, return {"candidates":[]}.`;
 
       const searchResp = await this.openaiService.chatWithSearch({
         userMessage: searchPrompt,
@@ -301,30 +409,95 @@ Output ONLY valid JSON: {"imageUrl": "https://...", "source": "source name"}. If
           'You are a research bot that locates public, authentic news/courtroom photograph URLs of named individuals. Respond ONLY in strict JSON.',
       });
 
-      const content = searchResp.content || '';
-      const cleanJson = content
+      const content = (searchResp.content || '')
         .replace(/```(?:json)?/gi, '')
         .replace(/```/g, '')
         .trim();
-      const parsed = JSON.parse(cleanJson);
-
-      if (
-        parsed?.imageUrl &&
-        typeof parsed.imageUrl === 'string' &&
-        parsed.imageUrl.startsWith('http')
-      ) {
-        return {
-          imageUrl: parsed.imageUrl,
-          originalUrl: parsed.imageUrl,
-          source: parsed.source || 'Public News Archive',
-        };
-      }
+      const json = content.slice(content.indexOf('{'), content.lastIndexOf('}') + 1);
+      const parsed = JSON.parse(json);
+      const list = Array.isArray(parsed?.candidates)
+        ? parsed.candidates
+        : parsed?.imageUrl
+          ? [parsed]
+          : [];
+      return list
+        .filter(
+          (c: any) =>
+            typeof c?.imageUrl === 'string' && /^https:\/\//.test(c.imageUrl),
+        )
+        .slice(0, 3)
+        .map((c: any) => ({
+          imageUrl: c.imageUrl,
+          pageUrl: typeof c.pageUrl === 'string' ? c.pageUrl : undefined,
+          source: String(c.source || 'Public news'),
+        }));
     } catch (err: any) {
       this.logger.warn(
         `Web search image lookup failed for "${subjectName}": ${err.message}`,
       );
+      return [];
     }
-    return null;
+  }
+
+  /**
+   * A web photo is used only when (1) its source page names the person and
+   * (2) a vision check sees a real photograph with one clear, prominent face.
+   */
+  async verifyCandidate(name: string, candidate: Candidate): Promise<boolean> {
+    if (!candidate.pageUrl) return false;
+    const page = await retrieveSource(candidate.pageUrl);
+    if (!page.text) return false;
+    const pageText = page.text.toLowerCase();
+    const surname = name
+      .replace(/["'“”]/g, ' ')
+      .split(/\s+/)
+      .filter((part) => part.length >= 4)
+      .pop()
+      ?.toLowerCase();
+    if (!surname || !pageText.includes(surname)) return false;
+
+    let buffer: Buffer;
+    try {
+      const res = await fetch(candidate.imageUrl, {
+        headers: { 'User-Agent': 'Mozilla/5.0 ContentStudio/1.0' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return false;
+      buffer = Buffer.from(await res.arrayBuffer());
+      const meta = await sharp(buffer).metadata();
+      if (Math.min(meta.width || 0, meta.height || 0) < 200) return false;
+      buffer = await sharp(buffer)
+        .resize({ width: 768, height: 768, fit: 'inside' })
+        .jpeg()
+        .toBuffer();
+    } catch {
+      return false;
+    }
+    try {
+      const result = await this.openaiService.chat({
+        messages: [
+          {
+            role: 'user',
+            content: `Is this a real photograph (not a drawing, logo, collage, poster or screenshot of text) where ONE person's face is clearly visible and prominent? The page says it shows ${name}.`,
+          },
+        ],
+        systemPromptOverride:
+          'Return JSON only: {"realPhoto":boolean,"prominentFaces":number,"clearFace":boolean}.',
+        imageUrls: ['data:image/jpeg;base64,' + buffer.toString('base64')],
+        temperature: 0,
+        maxCompletionTokens: 200,
+      } as any);
+      const text = String(result.content || '');
+      const verdict = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      return (
+        verdict.realPhoto === true &&
+        verdict.prominentFaces === 1 &&
+        verdict.clearFace === true
+      );
+    } catch (err: any) {
+      this.logger.warn(`Photo check failed for "${name}": ${err.message}`);
+      return false;
+    }
   }
 
   private async downloadAndPersistImage(
@@ -370,4 +543,23 @@ Output ONLY valid JSON: {"imageUrl": "https://...", "source": "source name"}. If
       return null;
     }
   }
+}
+
+/** A client upload matches when its name shares a distinctive word with the subject's name. */
+export function matchOverride(
+  name: string,
+  overrides: PhotoOverride[],
+): PhotoOverride | undefined {
+  const words = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/["'“”]/g, ' ')
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w.length >= 4);
+  const wanted = new Set(words(name));
+  return overrides.find(
+    (o) =>
+      o.name.toLowerCase().trim() === name.toLowerCase().trim() ||
+      words(o.name).some((w) => wanted.has(w)),
+  );
 }

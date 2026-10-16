@@ -17,6 +17,7 @@ import {
 import type { StorySubject } from '@/types/chat'
 import api, { formatAssetUrl } from '@/lib/api'
 import { toast } from 'sonner'
+import { useAppSelector } from '@/store/hooks'
 
 interface SubjectReferenceCardsProps {
   threadId: string
@@ -133,6 +134,7 @@ export function SubjectReferenceCards({
     }
   }
 
+  const channelId = useAppSelector((state) => state.chat.activeThread?.channelId)
   const handleTriggerUpload = (subjectId: string) => {
     activeUploadSubjId.current = subjectId
     fileInputRef.current?.click()
@@ -145,7 +147,19 @@ export function SubjectReferenceCards({
 
     setUploadingSubjectId(subjId)
     try {
-      const res = await api.uploadReferenceAsset(threadId, file)
+      // Save the face to the channel so every later thumbnail of this person uses it.
+      const subjectName = subjects.find((s) => s.id === subjId)?.name?.trim()
+      let url: string | undefined
+      if (channelId && subjectName) {
+        const prefs = (await api.uploadCreativeReference(channelId, file, 'identity', subjectName)) as {
+          identityReferences?: { name: string; url: string }[]
+        }
+        url = prefs?.identityReferences?.find(
+          (r) => r.name.toLowerCase() === subjectName.toLowerCase(),
+        )?.url
+      }
+      if (!url) url = (await api.uploadReferenceAsset(threadId, file))?.url
+      const res = { url }
       if (res?.url) {
         const updated = subjects.map((s) =>
           s.id === subjId

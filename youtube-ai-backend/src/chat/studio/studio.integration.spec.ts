@@ -195,6 +195,7 @@ suite('durable studio execution with isolated MongoDB', () => {
         return { buffer: Buffer.from('scene'), requestId: 'provider-1' };
       }),
       chatWithSearch: jest.fn().mockResolvedValue({ content: '', sources: [] }),
+      reviewThumbnailText: jest.fn().mockResolvedValue({ ok: true, issues: [] }),
     };
     const sharp = require('sharp');
     const validImage = await sharp({
@@ -227,6 +228,21 @@ suite('durable studio execution with isolated MongoDB', () => {
           .mockResolvedValue([
             { name: 'Keefe D', imageUrl: 'https://example.test/reference.png' },
           ]),
+        resolveSubjects: jest.fn(async ({ overrides }: any) => [
+          overrides?.length
+            ? {
+                name: 'Keefe D',
+                role: 'Defendant',
+                imageUrl: overrides[0].url,
+                photoStatus: 'client_upload',
+              }
+            : {
+                name: 'Keefe D',
+                role: 'Defendant',
+                imageUrl: 'https://example.test/reference.png',
+                photoStatus: 'verified',
+              },
+        ]),
       } as any,
       composer,
       {
@@ -531,6 +547,22 @@ suite('durable studio execution with isolated MongoDB', () => {
         identityReferences: [{ name: '', url: '/api/assets/minio/a.png' }],
       }),
     ).rejects.toThrow('Invalid identity reference list');
+  });
+  it('asks for a photo instead of generating when a required real person has none', async () => {
+    const request = await submit();
+    await service.execute(request.runId);
+    (service as any).references.resolveSubjects.mockResolvedValueOnce([
+      { name: 'Matthew Hightower', role: 'Defendant', photoStatus: 'missing' },
+    ]);
+    const artifact: any = (
+      await service.snapshot(threadId, request.runId)
+    ).artifacts.find((a: any) => a.kind === 'thumbnail');
+    await service.executeImage(String(artifact._id));
+    const result = await models.ContentArtifact.findById(artifact._id);
+    expect(result.status).toBe('needs_input');
+    expect(result.data.needsPhoto).toEqual([{ name: 'Matthew Hightower', role: 'Defendant' }]);
+    expect(result.error).toContain('Upload a clear photo');
+    expect(ai.generateStudioScene).not.toHaveBeenCalled();
   });
   it('never turns an unattached model-supplied URL into an identity reference', async () => {
     const request = await submit();
@@ -902,7 +934,12 @@ suite('durable studio execution with isolated MongoDB', () => {
         .map((a: any) => a.kind)
         .sort(),
     ).toEqual(['packaging', 'script', 'thumbnail', 'thumbnail']);
-    expect(ai.generateStudioScene).toHaveBeenCalledTimes(2);
+    // The AI draws the headline, so a headline change is one edit of the same image.
+    expect(ai.generateStudioScene).toHaveBeenCalledTimes(3);
+    const edit = ai.generateStudioScene.mock.calls[2][0];
+    expect(edit.baseImageUrl).toBe(target.data.cleanBackgroundUrl);
+    expect(edit.editInstruction).toContain('MY FAMILY WAITED FOR THIS CALL');
+    expect(edit.headline).toBe('MY FAMILY WAITED FOR THIS CALL');
   });
   it('turns typed feedback into an edit of the existing scene for the right image', async () => {
     const first = await submit();
@@ -958,7 +995,7 @@ suite('durable studio execution with isolated MongoDB', () => {
       await models.ContentRunEvent.countDocuments({ runId: feedback.runId, type: 'ack' }),
     ).toBe(1);
   });
-  it('applies ambiguous feedback to both images without asking and avoids paid scenes for text edits', async () => {
+  it('applies ambiguous feedback to both images without asking, editing each existing image', async () => {
     const first = await submit();
     const original = await complete(first.runId);
     const images: any[] = original.artifacts
@@ -987,7 +1024,10 @@ suite('durable studio execution with isolated MongoDB', () => {
     expect(created).toHaveLength(2);
     expect(created.map((a: any) => a.data.variantIndex).sort()).toEqual([0, 1]);
     expect(next.status).not.toBe('waiting_for_input');
-    expect(ai.generateStudioScene).toHaveBeenCalledTimes(2);
+    // One edit per image, each starting from that image (no brand-new scenes).
+    expect(ai.generateStudioScene).toHaveBeenCalledTimes(4);
+    const edits = ai.generateStudioScene.mock.calls.slice(2).map((c: any) => c[0]);
+    expect(edits.every((e: any) => !!e.baseImageUrl)).toBe(true);
   });
   it('carries dependency links through formatting before a later story revision', async () => {
     const first = await submit();

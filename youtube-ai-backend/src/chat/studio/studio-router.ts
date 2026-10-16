@@ -19,7 +19,7 @@ const STUDIO_INTENTS = new Set([
 const STUDIO_SKILLS = STUDIO_INTENTS;
 const DELIVERABLE_WORDS =
   /\b(script|title|thumbnail|description|tags?|hashtags?|package|outline|write|make|create|generate|rewrite|format|edit|change|add|remove|fix|redo|repackage|draft|design)\b/i;
-const RECOMMENDATION =
+export const RECOMMENDATION =
   /\b(what|which)\b[^.?!]{0,40}\b(should i|do i|to)\b[^.?!]{0,30}\b(post|make|upload|film|record|do)\b|\bnext video\b|\bvideo idea|\btopic (suggestion|idea)/i;
 const QUESTION_START =
   /^\s*(what|why|how|who|when|where|which|explain|define|does|do|is|are|can|could|should|tell me)\b/i;

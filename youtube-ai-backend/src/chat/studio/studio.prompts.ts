@@ -9,7 +9,7 @@ Plan sections for THIS topic. Prison/family episodes focus on lived prison exper
 Spoken delivery: natural clauses, soft preference 3–7 words per line, complete thoughts may span lines; 2–6 related lines per breath block. BEAT and PAUSE between thoughts. Keep citations and production notes outside speech. Formatting-only edits preserve facts, story and wording wherever possible.
 Titles and thumbnails communicate one clear promise. Never truncate wording or impose a four-word limit. Preserve exact requested text. Curiosity is about the explanation, not hiding what happened. AFTER THE SENTENCE is vague; HOW DO I TELL MY FAMILY / I'M NEVER COMING HOME? expresses a complete dilemma.
 If offering thumbnails, exactly TWO distinct variants of the same video. Strong recognizable faces, expressive eyes and mouth, meaningful action, clear contrast, natural skin. No compulsory courtroom props, red-text ban, fixed emotional tier, or busy background. Describe physical emotion and its intensity. Illustrations are not documentary proof. Never add injuries, props or events the brief does not list. Details the client explicitly asked for (clientRequestedDetails) are intentional and authorized: include them, keep them illustrative, never flag them as invented.
-Reference direction: warm expressive faces against contrasting settings; vivid accents when appropriate; large readable typography; phone-in-hand family separation rather than irrelevant paperwork. Preserve subject likeness without copying unrelated people from style references. preferences.visualReferenceAssets: role 'style' entries are approved direction to follow (expression intensity, contrast, text/face hierarchy, complete wording); role 'counterexample' entries describe weak patterns to avoid (vague wording, calm faces), never to copy.
+Reference direction: warm expressive faces against contrasting settings; vivid accents when appropriate; large readable typography; phone-in-hand family separation rather than irrelevant paperwork. Preserve subject likeness without copying unrelated people from style references. Never ask an image to depict the host Unique: his real photo is composited automatically, so a drawn Unique is always a stranger. Feature only real people who have a photo (photoStatus verified or client_upload); if a needed person has none, tell the client to upload one. preferences.visualReferenceAssets: role 'style' entries are approved direction to follow (expression intensity, contrast, text/face hierarchy, complete wording); role 'counterexample' entries describe weak patterns to avoid (vague wording, calm faces), never to copy.
 Research claims require evidence. When a structured research brief is present, only verified facts have retrieved supporting passages; label disputes and unverified claims explicitly. Search summaries and URL-only citations do not establish verification. Views alone cannot establish CTR failure. Distinguish measured CTR from view-only examples. Never guarantee CTR, revenue or algorithm placement. Cite only retrieved sources. Do not call an image 'most viral' without evidence.`;
 
 export const PLAN_PROMPT =
@@ -37,7 +37,7 @@ export const THUMBNAIL_MARKDOWN = `Whenever offering thumbnails for a specific v
 ### Concept 1: [Emotional angle]
 **Text overlay:** [Complete meaningful headline; preserve exact requested wording, no hard word cap]
 **Visual concept:**
-- Subject: [Correct identity and reference likeness]
+- People: [Only named real people who have a photo available; never the host Unique, whose real photo is added automatically]
 - Emotion: [Visible eyes, brows, mouth, posture and intensity]
 - Action & setting: [Topic-specific action; no compulsory courtroom props]
 - Composition: [Subject opposite text; clear hierarchy and contrast]
@@ -46,7 +46,7 @@ export const THUMBNAIL_MARKDOWN = `Whenever offering thumbnails for a specific v
 ### Concept 2: [Different scene or emotional framing of the SAME promise]
 **Text overlay:** [Complete meaningful headline]
 **Visual concept:**
-- Subject: [Same identity accuracy]
+- People: [Same rule: real people with photos only; never draw Unique]
 - Emotion: [Visible physical cues]
 - Action & setting: [Relevant contrasting scene]
 - Composition: [Readable composition]

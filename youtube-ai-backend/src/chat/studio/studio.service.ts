@@ -573,7 +573,11 @@ export class StudioService {
   }
   async retry(threadId: string, artifactId: string, body: any) {
     const artifact = await this.artifact(threadId, artifactId);
-    if (!['failed', 'needs_attention', 'unknown'].includes(artifact.status))
+    if (
+      !['failed', 'needs_attention', 'unknown', 'needs_input'].includes(
+        artifact.status,
+      )
+    )
       throw new BadRequestException(
         'Only failed or attention-required artifacts can be retried',
       );
@@ -1170,7 +1174,9 @@ export class StudioService {
             : 'regenerate';
         // Edits need the stored clean scene; without one, fall back to a new scene.
         const base = imageTarget.data.cleanBackgroundUrl;
-        const effective = mode === 'edit' && !base ? 'regenerate' : mode;
+        // The headline is part of the image now, so a text change is an edit too.
+        const effective =
+          mode !== 'regenerate' && base ? 'edit' : 'regenerate';
         const details = [
           ...new Set([
             ...(imageTarget.data.clientRequestedDetails || []),
@@ -1193,12 +1199,15 @@ export class StudioService {
                     0))
                 : undefined,
             title: imageTarget.data.title,
-            cleanBackgroundUrl: effective === 'text' ? base : undefined,
             baseCleanUrl: effective === 'edit' ? base : undefined,
             editInstruction:
-              effective === 'edit'
-                ? String(revision.sceneChange || change || run.request.content)
-                : undefined,
+              effective !== 'edit'
+                ? undefined
+                : mode === 'text'
+                  ? 'Change ONLY the headline lettering to read exactly "' +
+                    String(revision.concept?.text || '').replace(/\n/g, ' ') +
+                    '". Keep everything else identical.'
+                  : String(revision.sceneChange || change || run.request.content),
             clientRequestedDetails: details,
             references: imageTarget.data.references,
           },
@@ -1870,31 +1879,54 @@ export class StudioService {
             /^(https?:\/\/|\/api\/assets\/)/.test(reference),
         ),
       ].slice(0, 2);
-      // Channel-approved face photos beat a web lookup for the same named subject.
-      const wanted = [run.plan.topic, ...(run.plan.subjects || []), concept.visual]
-        .join(' ')
-        .toLowerCase();
-      const savedIdentities = (run.preferences.identityReferences || [])
-        .filter((saved: any) => wanted.includes(String(saved.name).toLowerCase()))
-        .slice(0, 3)
-        .map((saved: any) => ({
-          name: saved.name,
-          imageUrl: saved.url,
-          source: 'Channel preference',
-        }));
-      const references = uploadedIdentities.length
+      // Real people come from real photos: this request's uploads, then the channel's
+      // saved face photos, then verified public photos. A person who must appear but has
+      // no usable photo is asked from the client; nothing is generated or billed.
+      let references: any[] = uploadedIdentities.length
         ? uploadedIdentities
-        : artifact.data.references ||
-          (savedIdentities.length
-            ? savedIdentities
-            : await this.references.detectAndFetchSubjects(
-                run.plan.topic,
-                concept.visual,
-              ));
+        : artifact.data.references;
+      if (!references) {
+        const people = await this.references.resolveSubjects({
+          title: run.plan.topic,
+          concept: `Headline: ${concept.text || ''}. ${concept.visual}`,
+          overrides: run.preferences.identityReferences || [],
+          focus: 'image',
+        });
+        const missing = people.filter((p: any) => p.photoStatus === 'missing');
+        if (missing.length) {
+          const message =
+            'No verified public photo found for ' +
+            missing.map((p: any) => p.name).join(' and ') +
+            '. Upload a clear photo so the thumbnail shows the real person.';
+          await this.artifacts.updateOne(
+            { _id: artifact._id, owner },
+            {
+              $set: {
+                status: 'needs_input',
+                error: message,
+                'data.needsPhoto': missing.map((p: any) => ({ name: p.name, role: p.role })),
+              },
+              $unset: { owner: 1, leaseUntil: 1 },
+            },
+          );
+          await this.event(run._id, 'artifact', {
+            artifactId,
+            status: 'needs_input',
+          });
+          return;
+        }
+        references = people
+          .filter((p: any) => p.imageUrl)
+          .map((p: any) => ({ name: p.name, imageUrl: p.imageUrl, source: p.source }));
+      }
       const referenceUrls = references
         .filter((r: any) => r.imageUrl)
         .map((r: any) => r.imageUrl);
       let clean = artifact.data.cleanBackgroundUrl;
+      let editBase: string | undefined = artifact.data.baseCleanUrl;
+      let editInstruction: string | undefined = artifact.data.editInstruction;
+      const excludeHost = concept.excludeHost ?? run.preferences.excludeHost;
+      const excludeLogo = concept.excludeLogo ?? run.preferences.excludeLogo;
       let review: Review = { status: 'needs_attention', issues: [] };
       const history: any[] = artifact.history || [];
       for (
@@ -1908,19 +1940,20 @@ export class StudioService {
         if (!clean) {
           const imageStartedAt = Date.now();
           const image = await this.ai.generateStudioScene({
-            visual:
-              concept.visual +
-              '\nExpression: ' +
-              concept.emotion +
-              (correction ? '\nCorrection: ' + review.instruction : ''),
+            visual: concept.visual + '\nExpression: ' + concept.emotion,
             referenceImageUrls: referenceUrls,
             styleReferenceUrls: styleUrls,
             aspectRatio: concept.aspectRatio,
             textSide: concept.textSide,
             sceneOnly: artifact.kind === 'scene',
-            baseImageUrl: artifact.data.baseCleanUrl,
-            editInstruction: artifact.data.editInstruction,
+            baseImageUrl: editBase,
+            editInstruction,
             clientRequestedDetails: artifact.data.clientRequestedDetails,
+            headline: artifact.kind === 'scene' ? undefined : concept.text,
+            tag: concept.tag,
+            excludeHost,
+            excludeLogo,
+            logoPosition: excludeLogo ? 'none' : 'top-right',
             onRequest: async () => {
               await this.active(run._id);
               if (
@@ -1992,12 +2025,13 @@ export class StudioService {
                 text: concept.text,
                 textSide: concept.textSide,
                 aspectRatio: concept.aspectRatio,
-                excludeHost: concept.excludeHost ?? run.preferences.excludeHost,
-                excludeLogo: concept.excludeLogo ?? run.preferences.excludeLogo,
+                excludeHost,
+                excludeLogo,
                 compact: correction > 0,
                 colors: concept.colors,
                 tag: concept.tag,
                 label: concept.label,
+                renderHeadline: false,
               });
         const finalUrl = await this.minio.uploadBuffer(
           'studio/' +
@@ -2065,20 +2099,23 @@ export class StudioService {
             issues: ['Image review unavailable'],
           };
         }
-        if (result.issues.length)
-          review = {
-            status: 'repair',
-            issues: [...review.issues, ...result.issues],
-            instruction: 'Improve text layout while preserving exact wording.',
-          };
-        if (run.plan.subjects.length && !referenceUrls.length)
-          review = {
-            status: 'needs_attention',
-            issues: [
-              ...review.issues,
-              'No usable identity reference found; likeness requires review',
-            ],
-          };
+        if (artifact.kind !== 'scene' && concept.text?.trim()) {
+          const text = await this.ai.reviewThumbnailText({
+            imageUrl: finalUrl,
+            headline: concept.text,
+            excludeLogo,
+            excludeHost,
+          });
+          if (!text.ok)
+            review = {
+              status: 'repair',
+              issues: [...review.issues, ...text.issues],
+              instruction:
+                'Fix only the headline lettering so it reads exactly "' +
+                concept.text.replace(/\n/g, ' ') +
+                '" inside the headline area, clear of the logo and host corners.',
+            };
+        }
         if (photoIssues.length)
           review = {
             status: review.status === 'repair' ? 'repair' : 'needs_attention',
@@ -2114,12 +2151,13 @@ export class StudioService {
           throw new Error(
             'Image correction was already reserved or superseded',
           );
-        if (
-          !/text|layout|headline|word|readab|overlap/i.test(
-            review.issues.join(' '),
-          )
-        )
-          clean = undefined;
+        // The correction edits the image just made, so faces and composition stay.
+        editBase = clean;
+        editInstruction =
+          'Fix these problems: ' +
+          review.issues.join('; ') +
+          (review.instruction ? '. ' + review.instruction : '');
+        clean = undefined;
       }
       await this.active(run._id);
       await this.artifacts.updateOne(
@@ -2589,7 +2627,9 @@ export class StudioService {
       }));
     const notices = artifacts
       .filter((a) =>
-        ['failed', 'unknown', 'needs_attention'].includes(a.status),
+        ['failed', 'unknown', 'needs_attention', 'needs_input'].includes(
+          a.status,
+        ),
       )
       .map(
         (a) =>

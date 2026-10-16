@@ -54,6 +54,7 @@ function ArtifactVersions({ threadId, artifactId }: { threadId: string; artifact
 export function StudioRunCard({ threadId, runId }: { threadId: string; runId: string }) {
   const dispatch = useAppDispatch()
   const threadRevision = useAppSelector(state => state.chat.activeThread?.updatedAt)
+  const channelId = useAppSelector(state => state.chat.activeThread?.channelId)
   const notifiedStatus = useRef('')
   const [run, setRun] = useState<StudioRun | null>(null)
   const [error, setError] = useState('')
@@ -87,6 +88,17 @@ export function StudioRunCard({ threadId, runId }: { threadId: string; runId: st
       await dispatch(selectThread(threadId)).unwrap()
     } catch (e) { toast.error(e instanceof Error ? e.message : 'Revision failed') }
     finally { setBusy(false) }
+  }
+  // Save the client's photo of a real person to the channel, then retry this image.
+  const uploadPhoto = async (artifact: StudioArtifact, name: string, file: File) => {
+    if (!channelId) return
+    setBusy(true)
+    try {
+      await api.uploadCreativeReference(channelId, file, 'identity', name)
+      toast.success('Photo of ' + name + ' saved. Generating the thumbnail now.')
+    } catch (e) { toast.error(e instanceof Error ? e.message : 'Could not upload the photo'); setBusy(false); return }
+    setBusy(false)
+    await revise(artifact, true)
   }
   const cancel = async () => {
     setBusy(true)
@@ -124,6 +136,10 @@ export function StudioRunCard({ threadId, runId }: { threadId: string; runId: st
         </a> : <div className="aspect-video rounded-lg bg-gray-100 dark:bg-gray-800 flex items-center justify-center text-sm text-gray-500">{['pending','running'].includes(artifact.status) ? <><Loader2 className="h-4 w-4 animate-spin mr-2" /> Generating automatically</> : 'Image unavailable'}</div>}
         <p className="text-sm font-bold whitespace-pre-line">{artifact.data.concept?.text}</p>
         {artifact.error && <p className="text-xs text-amber-600">{artifact.error}</p>}
+        {artifact.status === 'needs_input' && artifact.data.needsPhoto?.map(person => <label key={person.name} className="flex items-center gap-2 text-xs font-medium">
+          <span>Upload photo of {person.name}</span>
+          <input type="file" accept="image/png,image/jpeg,image/webp" aria-label={'Upload photo of ' + person.name} disabled={busy} onChange={e => { const file = e.target.files?.[0]; if (file) void uploadPhoto(artifact, person.name, file) }} className="text-xs" />
+        </label>)}
         {artifact.review?.issues.map((issue, n) => <p key={n} className="text-xs text-amber-600">{issue}</p>)}
         <div className="flex gap-3 flex-wrap text-xs">
           {artifact.data.url && <a href={formatAssetUrl(artifact.data.url)} download className="flex items-center gap-1"><Download className="h-3 w-3" /> Download</a>}
