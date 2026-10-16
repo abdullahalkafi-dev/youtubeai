@@ -471,7 +471,7 @@ export class ChatService {
         dynamicContext +=
           '\n\nTHUMBNAIL ALREADY DESIGNED' +
           (headline ? `: "${headline}"` : ' (image attached)') +
-          ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
+          ' — the title must complete this curiosity loop, not compete with it (assess the title and thumbnail together; no fixed click-attribution percentage is established). If the user explicitly asks for a different direction, follow the user.' +
           '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
@@ -868,7 +868,7 @@ export class ChatService {
         dynamicContext +=
           '\n\nTHUMBNAIL ALREADY DESIGNED' +
           (headline ? `: "${headline}"` : ' (image attached)') +
-          ' — the title must complete this curiosity loop, not compete with it (the thumbnail decides 75% of the click). If the user explicitly asks for a different direction, follow the user.' +
+          ' — the title must complete this curiosity loop, not compete with it (assess the title and thumbnail together; no fixed click-attribution percentage is established). If the user explicitly asks for a different direction, follow the user.' +
           '\nAfter the ## Hashtags section, end your response with exactly one more line: **Package check:** [one sentence rating how well the title completes the thumbnail promise + one fix if they do not].';
       }
     }
@@ -2312,7 +2312,7 @@ Hard rules:
     }
     if (autoImages) {
       ctx +=
-        '\nBoth thumbnail concepts WILL be auto-generated as images immediately after your reply — output exactly 2 well-formed concepts in the THUMBNAILS block, never 1, never 3.';
+        '\nOutput exactly two well-formed concepts in the THUMBNAILS block. The application reports image generation progress; never claim images exist before generation completes.';
     }
     return ctx;
   }
@@ -2738,7 +2738,7 @@ Hard rules:
         videoDoc = await this.videoModel.findById(thread.videoId).lean();
         if (videoDoc) {
           videoContextTitle =
-            videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
+            dto.videoTitle || videoDoc.youtubeTitle || videoDoc.title || videoContextTitle;
           resolvedShowType = videoDoc.showType || undefined;
         }
       } catch {

@@ -151,6 +151,57 @@ export class ThumbnailComposerService {
     return canvas.composite(compositeLayers).png().toBuffer();
   }
 
+  /** Render exact text locally; the scene model never owns the headline. */
+  async composeStudioThumbnail(options: {
+    backgroundInput: string; text: string; textSide: 'left' | 'right'; aspectRatio: '16:9' | '9:16';
+    excludeHost?: boolean; excludeLogo?: boolean; compact?: boolean; colors?: string;
+    tag?: string; label?: string;
+  }): Promise<{ buffer: Buffer; issues: string[] }> {
+    const vertical = options.aspectRatio === '9:16';
+    const width = vertical ? 864 : 1536, height = vertical ? 1536 : 864;
+    const margin = Math.round(width * .035);
+    const boxWidth = Math.round(width * (vertical ? .9 : options.compact ? .55 : .48));
+    let boxHeight = Math.round(height * (vertical ? .34 : .62));
+    const fontfile = path.join(__dirname, '..', 'assets', 'fonts', 'Anton-Regular.ttf');
+    const sourceFont = path.join(process.cwd(), 'src', 'assets', 'fonts', 'Anton-Regular.ttf');
+    const font = fs.existsSync(fontfile) ? fontfile : sourceFont;
+    if (!fs.existsSync(font)) throw new Error('Bundled thumbnail font is missing');
+    const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const text = options.text.trim();
+    if (!text) throw new Error('Headline is required');
+    // Small chips: a red tag above the headline and a dark disclosure label in the corner.
+    const chip = async (value: string, background: string, size: number) => {
+      const glyphs = await sharp({ text: { text: '<span foreground="#FFFFFF">' + escape(value.toUpperCase().slice(0, 28)) + '</span>', font: 'Anton ' + size, fontfile: font, rgba: true } }).png().toBuffer();
+      const meta = await sharp(glyphs).metadata();
+      const padX = Math.round(size * .6), padY = Math.round(size * .3);
+      const w = (meta.width || 1) + padX * 2, h = (meta.height || 1) + padY * 2;
+      const plate = await sharp({ create: { width: w, height: h, channels: 4, background } }).png().toBuffer();
+      return { input: await sharp(plate).composite([{ input: glyphs, left: padX, top: padY }]).png().toBuffer(), width: w, height: h };
+    };
+    const tagChip = options.tag?.trim() ? await chip(options.tag.trim(), '#D01010', vertical ? 40 : 34) : null;
+    const labelChip = options.label?.trim() ? await chip(options.label.trim(), 'rgba(0,0,0,0.72)', vertical ? 30 : 24) : null;
+    const tagSpace = tagChip ? tagChip.height + 14 : 0;
+    boxHeight -= tagSpace;
+    const lines = text.split(/\n|\s+\/\s+/);
+    const accent = /\bred\b|#ff0000|#e[0-9a-f]{5}/i.test(options.colors || '') ? '#FF2020' : '#FFE600';
+    const markup = lines.map((line, i) => '<span foreground="' + (i === lines.length - 1 ? accent : '#FFFFFF') + '">' + escape(line) + '</span>').join('\n');
+    const layer = await sharp({ text: { text: markup, font: 'Anton', fontfile: font, width: boxWidth - 24, height: boxHeight - 24, align: 'left', rgba: true, wrap: 'word-char', spacing: 5 } }).png().toBuffer();
+    const metadata = await sharp(layer).metadata();
+    const issues: string[] = [];
+    if ((metadata.height || 0) > boxHeight || text.length / Math.max(1, text.split(/\s+/).length) > 25) issues.push('Headline layout needs attention');
+    const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : 'top-right' });
+    const x = options.textSide === 'right' && !vertical ? width - boxWidth - margin : margin;
+    const y = (vertical ? Math.round(height * .58) : margin) + tagSpace;
+    const layers: any[] = [];
+    // An opaque alpha-derived outline keeps letters readable on a detailed scene.
+    const outline = await sharp(layer).tint('#000000').png().toBuffer();
+    for (const [dx, dy] of [[-4,0],[4,0],[0,-4],[0,4],[-3,-3],[3,3]]) layers.push({ input: outline, left: x + dx, top: y + dy });
+    layers.push({ input: layer, left: x, top: y });
+    if (tagChip) layers.push({ input: tagChip.input, left: x, top: y - tagSpace });
+    if (labelChip) layers.push({ input: labelChip.input, left: margin, top: height - margin - labelChip.height });
+    return { buffer: await sharp(base).composite(layers).png().toBuffer(), issues };
+  }
+
   public async fetchBufferFromUrl(url: string): Promise<Buffer> {
     if (!url || typeof url !== 'string') {
       throw new Error('Invalid URL provided to fetchBufferFromUrl');

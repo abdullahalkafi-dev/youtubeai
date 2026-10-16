@@ -17,6 +17,12 @@ export class AIOutputLog {
   @Prop()
   videoId?: string;
 
+  @Prop({ index: true })
+  runId?: string;
+
+  @Prop()
+  artifactId?: string;
+
   @Prop({ required: true })
   inputSummary: string;
 

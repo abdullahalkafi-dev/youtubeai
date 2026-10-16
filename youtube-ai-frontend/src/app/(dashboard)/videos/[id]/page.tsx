@@ -482,7 +482,7 @@ export default function VideoDetailPage({ params }: { params: Promise<{ id: stri
                   {(video.suggestedSeo.suggestedThumbnails?.length ?? 0) > 0 && (
                     <div>
                       <label className="text-xs text-emerald-600 dark:text-emerald-400 font-medium">
-                        Thumbnail Concepts (matches this title — 75% of the click)
+                        Thumbnail Concepts (matches this title)
                       </label>
                       <div className="space-y-2 mt-1.5">
                         {video.suggestedSeo.suggestedThumbnails!.map((t, i) => (

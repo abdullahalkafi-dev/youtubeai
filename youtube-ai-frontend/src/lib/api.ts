@@ -469,6 +469,7 @@ class ApiClient {
     data: {
       prompt: string
       baseImageUrl: string
+      sourceImageUrl?: string
       referenceImageUrls?: string[]
       mode?: 'thumbnail' | 'scene'
       selectedHostImage?: string
@@ -482,7 +483,7 @@ class ApiClient {
       visualDescription?: string
     },
   ) {
-    return this.post<{ imageUrl: string; image?: any }>(`/api/threads/${threadId}/edit-image`, data)
+    return this.post<{ imageUrl?: string; image?: any; runId?: string }>(`/api/threads/${threadId}/edit-image`, { ...data, clientRequestId: crypto.randomUUID() })
   }
 
   async generateImageDirect(
@@ -493,7 +494,7 @@ class ApiClient {
       logoPosition?: 'top-right' | 'none'
     },
   ) {
-    return this.post<{ imageUrl: string }>(`/api/threads/${threadId}/generate-image-direct`, data)
+    return this.post<{ imageUrl?: string; runId?: string }>(`/api/threads/${threadId}/generate-image-direct`, { ...data, clientRequestId: crypto.randomUUID() })
   }
 
   async sendMessage(threadId: string, content: string, skill?: string) {
@@ -511,6 +512,7 @@ class ApiClient {
       title?: string,
       category?: string,
       autoImages?: boolean,
+      runId?: string,
     ) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
@@ -522,7 +524,7 @@ class ApiClient {
         'Content-Type': 'application/json',
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
-      body: JSON.stringify({ content, skill }),
+      body: JSON.stringify({ content, skill, clientRequestId: crypto.randomUUID() }),
       signal,
     })
 
@@ -557,7 +559,12 @@ class ApiClient {
           if (line.startsWith('data: ')) {
             try {
               const data = JSON.parse(line.slice(6))
-              if (data.type === 'chunk' && data.content) {
+              if (data.type === 'run') {
+                onDone(data.messageId, undefined, undefined, 'general', false, data.runId)
+                streamDone = true
+                await reader.cancel()
+                break
+              } else if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {
                 onDone(data.messageId, data.usage, data.title, data.category, data.autoImages)
@@ -586,6 +593,7 @@ class ApiClient {
     const token = this.getToken()
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('clientRequestId', crypto.randomUUID())
     if (content) formData.append('content', content)
 
     const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/messages/upload`, {
@@ -609,10 +617,37 @@ class ApiClient {
     return data.data ?? data
   }
 
+  /** Upload an approved style/counterexample image or a subject face photo to the channel's creative preferences. */
+  async uploadCreativeReference(
+    channelId: string,
+    file: File,
+    role: 'style' | 'counterexample' | 'identity',
+    labelText: string,
+  ) {
+    const token = this.getToken()
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('role', role)
+    if (role === 'identity') formData.append('name', labelText)
+    else if (labelText) formData.append('note', labelText)
+    const response = await fetch(`${this.baseUrl}/api/channels/${channelId}/creative-preferences/references`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ message: response.statusText }))
+      throw new Error(err.message || `Upload error: ${response.status}`)
+    }
+    const data = await response.json()
+    return data.data ?? data
+  }
+
   async uploadReferenceAsset(threadId: string, file: File): Promise<{ url: string; filename: string }> {
     const token = this.getToken()
     const formData = new FormData()
     formData.append('file', file)
+    formData.append('clientRequestId', crypto.randomUUID())
 
     const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/upload-asset`, {
       method: 'POST',

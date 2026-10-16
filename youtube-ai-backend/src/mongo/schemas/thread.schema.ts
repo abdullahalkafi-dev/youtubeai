@@ -16,6 +16,7 @@ export class Message {
 
   @Prop({ type: Object })
   metadata?: {
+    runId?: string; episodeId?: string; executionVersion?: number; artifactIds?: string[]; runStatus?: string;
     category?: string;
     /** Set when the package skill emitted a THUMBNAILS block at high routing
      *  confidence — the frontend auto-generates both images in parallel. */

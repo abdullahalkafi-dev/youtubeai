@@ -189,10 +189,9 @@ export function ThumbnailCard({
     }
   }
 
-  // AUTO-FIRE: on first mount with autoGenerate, generate the first 2
-  // concepts in PARALLEL. Idempotent per messageId: a ref guard stops
-  // double-fire across re-renders, and concepts already present in
-  // messageImages (page reload after success) are skipped server-side too.
+  // Legacy (non-studio) auto-fire. The page passes autoGenerate ONLY for the message that was
+  // just streamed in this session, so historical cards stay passive and studio runs are
+  // owned by the server. A ref guard stops double-fire across re-renders.
   const autoFiredRef = useRef<string | null>(null)
   useEffect(() => {
     if (!autoGenerate || !messageId) return
@@ -200,9 +199,6 @@ export function ThumbnailCard({
     if (autoFiredRef.current === messageId) return
     autoFiredRef.current = messageId
 
-    // Filter against the messageImages PROP (not generatedImages state): on a
-    // page reload the hydrate setState hasn't applied yet when this runs —
-    // prop check prevents re-burning images that already exist in metadata.
     const hasPersisted = (idx: number) => {
       const conceptTitle = `Concept ${idx + 1}`
       const text = thumbnails[idx]?.text?.toLowerCase()
@@ -212,6 +208,7 @@ export function ThumbnailCard({
           (text && img.textOverlay && img.textOverlay.toLowerCase() === text),
       )
     }
+    // Exactly two concepts are ever offered; generate both in parallel.
     const targets = thumbnails
       .slice(0, 2)
       .map((concept, idx) => ({ concept, idx }))
@@ -219,15 +216,10 @@ export function ThumbnailCard({
     if (targets.length === 0) return
 
     onStartGenerate?.(targets.map(({ idx }) => `Concept ${idx + 1}`).join(' & '), targets.length)
-    let failures = 0
     Promise.allSettled(
-      targets.map(({ concept, idx }) =>
-        handleGenerateImage(concept, idx, { silent: true }),
-      ),
+      targets.map(({ concept, idx }) => handleGenerateImage(concept, idx, { silent: true })),
     ).then((results) => {
-      failures = results.filter((r) => r.status === 'rejected').length
-      // Persisted results resolve (errors are swallowed in silent mode),
-      // so refresh once here — hydration picks both images up.
+      const failures = results.filter((r) => r.status === 'rejected').length
       if (activeThreadId) dispatch(selectThread(activeThreadId))
       if (failures > 0) {
         toast.error(`${failures} thumbnail${failures > 1 ? 's' : ''} failed — use 1-Click Generate to retry`)
@@ -236,8 +228,7 @@ export function ThumbnailCard({
       }
       onFinishGenerate?.()
     })
-    // Intentionally mount-only: the ref guard handles re-renders; adding
-    // generatedImages/handleGenerateImage to deps would re-fire mid-generation.
+    // Mount-only by design: the ref guard handles re-renders.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoGenerate, messageId])
 

@@ -1,3 +1,5 @@
+import { StudioService } from './studio/studio.service';
+import { StudioRouter } from './studio/studio-router';
 import {
   Controller,
   Get,
@@ -37,15 +39,25 @@ const ALLOWED_UPLOAD_MIMES = [
 @Controller()
 @UseGuards(JwtAuthGuard, ChannelOwnershipGuard)
 export class ChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly studio: StudioService,
+    private readonly studioRouter: StudioRouter,
+  ) {}
 
   @Post('channels/:channelId/threads')
-  createThread(@Param('channelId') channelId: string, @Body() dto: CreateThreadDto) {
+  createThread(
+    @Param('channelId') channelId: string,
+    @Body() dto: CreateThreadDto,
+  ) {
     return this.chatService.createThread(channelId, dto);
   }
 
   @Get('channels/:channelId/threads')
-  findAll(@Param('channelId') channelId: string, @Query('includeArchived') includeArchived?: string) {
+  findAll(
+    @Param('channelId') channelId: string,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
     return this.chatService.findAll(channelId, includeArchived === 'true');
   }
 
@@ -63,19 +75,28 @@ export class ChatController {
   }
 
   @Post('threads/:id/messages')
-  sendMessage(@Param('id') id: string, @Body() dto: SendMessageDto) {
+  async sendMessage(@Param('id') id: string, @Body() dto: SendMessageDto) {
+    if (await this.studioRouter.useStudio(id, dto))
+      return this.studio.submit(id, dto);
     return this.chatService.sendMessage(id, dto);
   }
 
   @SkipTransform()
   @Post('threads/:id/messages/stream')
   @Sse('threads/:id/messages/stream')
-  streamMessage(@Param('id') id: string, @Body() dto: SendMessageDto): Observable<any> {
+  streamMessage(
+    @Param('id') id: string,
+    @Body() dto: SendMessageDto,
+  ): Observable<any> {
     return new Observable((subscriber: Subscriber<any>) => {
       let isAborted = false;
       (async () => {
         try {
-          for await (const chunk of this.chatService.streamMessage(id, dto)) {
+          const generator = (await this.studioRouter.useStudio(id, dto))
+            ? this.studio.stream(id, dto)
+            : this.chatService.streamMessage(id, dto);
+          for await (const chunk of generator) {
+            if (isAborted) break;
             if (!isAborted) {
               subscriber.next({ data: chunk });
             }
@@ -93,13 +114,21 @@ export class ChatController {
   }
 
   @Post('threads/:id/upload-asset')
-  @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 15 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-      if (ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) cb(null, true);
-      else cb(new BadRequestException(`File type "${file.mimetype}" not allowed.`), false);
-    },
-  }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 15 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) cb(null, true);
+        else
+          cb(
+            new BadRequestException(
+              `File type "${file.mimetype}" not allowed.`,
+            ),
+            false,
+          );
+      },
+    }),
+  )
   async uploadAssetOnly(
     @Param('id') threadId: string,
     @UploadedFile() file: Express.Multer.File,
@@ -109,19 +138,54 @@ export class ChatController {
   }
 
   @Post('threads/:id/messages/upload')
-  @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 10 * 1024 * 1024 },
-    fileFilter: (req, file, cb) => {
-      if (ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) cb(null, true);
-      else cb(new BadRequestException(`File type "${file.mimetype}" not allowed. Accepted: PDF, JPEG, PNG, WebP`), false);
-    },
-  }))
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (ALLOWED_UPLOAD_MIMES.includes(file.mimetype)) cb(null, true);
+        else
+          cb(
+            new BadRequestException(
+              `File type "${file.mimetype}" not allowed. Accepted: PDF, JPEG, PNG, WebP`,
+            ),
+            false,
+          );
+      },
+    }),
+  )
   async uploadAndChat(
     @Param('id') threadId: string,
     @UploadedFile() file: Express.Multer.File,
     @Body('content') content?: string,
+    @Body('clientRequestId') clientRequestId?: string,
   ) {
     if (!file) throw new BadRequestException('No file uploaded');
+    if (await this.studio.enabled(threadId)) {
+      const asset = await this.chatService.uploadAssetOnly(threadId, file);
+      let extractedText = '';
+      if (file.mimetype === 'application/pdf') {
+        const parser = require('pdf-parse');
+        extractedText = String((await parser(file.buffer)).text || '').slice(
+          0,
+          30000,
+        );
+      } else if (!file.mimetype.startsWith('image/'))
+        extractedText = file.buffer.toString('utf8').slice(0, 30000);
+      return this.studio.submit(threadId, {
+        content:
+          (content || 'Review this attachment') +
+          (extractedText ? '\n\n[ATTACHMENT CONTENT]\n' + extractedText : ''),
+        clientRequestId,
+        attachments: [
+          {
+            type: file.mimetype.startsWith('image/') ? 'image' : 'pdf',
+            url: asset.url,
+            filename: asset.filename,
+            extractedText,
+          },
+        ],
+      });
+    }
     return this.chatService.handleFileUpload(threadId, file, content);
   }
 
@@ -193,12 +257,13 @@ export class ChatController {
   }
 
   @Post('threads/:id/edit-image')
-  editImage(
+  async editImage(
     @Param('id') id: string,
     @Body()
     body: {
       prompt: string;
       baseImageUrl: string;
+      sourceImageUrl?: string;
       referenceImageUrls?: string[];
       mode?: 'thumbnail' | 'scene';
       selectedHostImage?: string;
@@ -212,18 +277,29 @@ export class ChatController {
       visualDescription?: string;
     },
   ) {
+    if (await this.studio.enabled(id)) {
+      const revision = await this.studio.reviseImageByUrl(id, body);
+      if (revision) return revision;
+    }
     return this.chatService.editImage(id, body);
   }
 
   @Post('threads/:id/generate-image-direct')
-  generateImageDirect(
+  async generateImageDirect(
     @Param('id') id: string,
-    @Body() body: {
+    @Body()
+    body: {
       prompt: string;
       videoTitle?: string;
       logoPosition?: 'top-right' | 'none';
     },
   ) {
+    if (await this.studio.enabled(id))
+      return this.studio.submit(id, {
+        content: body.prompt,
+        skill: 'image',
+        clientRequestId: (body as any).clientRequestId,
+      });
     return this.chatService.generateImageDirect(id, body);
   }
 

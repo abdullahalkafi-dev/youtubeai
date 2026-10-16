@@ -8,6 +8,7 @@ const SIXTY_DAYS_MS = 60 * 24 * 60 * 60 * 1000;
 const MIN_IMPRESSIONS = 100;
 
 export interface SeoPatternContext {
+  viewExamples?: Array<{ title: string; description?: string; views: number; tags?: string[] }>;
   highCtrWinners: Array<{
     title: string;
     description?: string;
@@ -159,7 +160,7 @@ export class SeoDataService {
         .limit(8)
         .select('title description viewCount tags')
         .lean();
-      base.highCtrWinners = topViewDocs.map(fmt);
+      base.viewExamples = topViewDocs.map(fmt);
     }
 
     // Traffic mix (7d) — tells SEO whether to win the home feed or search

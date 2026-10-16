@@ -147,7 +147,7 @@ const chatSlice = createSlice({
         }
       }
     },
-    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string; title?: string; autoImages?: boolean }>) {
+    finalizeStreamedMessage(state, action: PayloadAction<{ content: string; messageId?: string; category?: string; title?: string; autoImages?: boolean; runId?: string }>) {
       if (state.activeThread) {
         state.activeThread.messages.push({
           id: action.payload.messageId || `streamed_${Date.now()}`,
@@ -158,6 +158,7 @@ const chatSlice = createSlice({
           metadata: {
             ...(action.payload.category ? { category: action.payload.category } : {}),
             ...(action.payload.autoImages ? { autoImages: true } : {}),
+            ...(action.payload.runId ? { runId: action.payload.runId, executionVersion: 1 } : {}),
           },
         })
         if (action.payload.title && action.payload.title !== 'New Thread') {

@@ -966,7 +966,7 @@ export class OpenAIService {
   }
 
   /**
-   * Generate 3 thumbnail concepts.
+   * Generate exactly two thumbnail concepts.
    */
   async generateThumbnailConcepts(params: {
     videoTitle: string;
@@ -1233,6 +1233,53 @@ export class OpenAIService {
   /**
    * Generate a thumbnail image using OpenAI Image Engine with reference images, exact face & logo compositing.
    */
+  /** Studio path: one provider request, no hidden fallback generation or SDK retries. */
+  async generateStudioScene(params: { visual: string; referenceImageUrls: string[]; styleReferenceUrls?: string[]; aspectRatio: '16:9' | '9:16'; textSide: 'left' | 'right'; sceneOnly?: boolean; baseImageUrl?: string; editInstruction?: string; clientRequestedDetails?: string[]; onRequest?: () => Promise<void> }): Promise<{ buffer: Buffer; requestId?: string }> {
+    const details = (params.clientRequestedDetails || []).filter(Boolean);
+    // Details the client asked for are intentional; everything else stays within the brief.
+    const detailRule = details.length
+      ? ' Add nothing beyond the scene brief. These client-requested details are intentional and must be clearly visible: ' + details.join('; ') + '.'
+      : ' Add no injuries, props or events beyond the scene brief.';
+    let prompt = 'Create a photographic illustrative YouTube thumbnail scene. Natural recognizable face, clearly visible requested emotion, strong subject/background contrast. No headline, letters, logo, watermark or host sticker. Keep the ' + params.textSide + ' 48 percent low-detail for text.' + detailRule + ' Scene: ' + params.visual;
+    if (params.sceneOnly) prompt = 'Create a cinematic photographic illustrative scene with no headline, logo or watermark. ' + params.visual;
+    const model = this.configService.get<string>('OPENAI_IMAGE_MODEL', 'gpt-image-2');
+    const size = params.aspectRatio === '9:16' ? '864x1536' : '1536x864';
+    let response: any;
+    const files: any[] = [];
+    const identityUrls = params.referenceImageUrls.slice(0, 3);
+    const styles = (params.styleReferenceUrls || []).slice(0, 2);
+    const hasBase = !!params.baseImageUrl;
+    if (hasBase) {
+      // Edit mode: the first image is the existing scene and must stay the same picture.
+      prompt = 'Edit the FIRST image. Keep its composition, camera angle, subject pose and position, setting, lighting, colors and the low-detail ' + params.textSide + ' text area exactly as they are. Do not add headline text, letters, a logo or a watermark.' + detailRule + ' Change ONLY this: ' + (params.editInstruction || params.visual) + '. Updated scene description for reference: ' + params.visual;
+      if (identityUrls.length) prompt += ' The next ' + identityUrls.length + ' images show the same person; keep the face consistent with them.';
+    }
+    if (styles.length) prompt += ' Reference images: ' + (hasBase ? 'after the first image, ' : 'first ') + identityUrls.length + ' images establish subject identity; the final ' + styles.length + ' images are STYLE ONLY. Borrow contrast, expression intensity and hierarchy, never their people, text, events or injuries.';
+    const sources = [...(hasBase ? [params.baseImageUrl as string] : []), ...identityUrls, ...styles];
+    for (const url of sources) {
+      const rawBuffer = await this.composerService.fetchBufferFromUrl(url);
+      const buffer = await require('sharp')(rawBuffer).png().toBuffer();
+      files.push(await OpenAI.toFile(buffer, 'reference.png', { type: 'image/png' }));
+    }
+    // maxRetries:0 is deliberate: a timed-out generation may already be billed.
+    for (let attempt = 0; attempt <= 2; attempt++) {
+      try {
+        await params.onRequest?.();
+        if (files.length) response = await this.client.images.edit({ model, image: files, prompt, size: size as any, n: 1 }, { maxRetries: 0, timeout: 600000 });
+        else response = await this.client.images.generate({ model, prompt, size: size as any, n: 1 }, { maxRetries: 0, timeout: 600000 });
+        break;
+      } catch (error: any) {
+        // A rejected rate-limit request is safe to retry. Network/5xx outcomes are uncertain.
+        if (error.status !== 429 || attempt === 2) throw error;
+        await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt));
+      }
+    }
+    const item = response.data?.[0];
+    const buffer = item?.b64_json ? Buffer.from(item.b64_json, 'base64') : item?.url ? await this.composerService.fetchBufferFromUrl(item.url) : null;
+    if (!buffer) throw new Error('Image provider returned no image');
+    return { buffer, requestId: response._request_id };
+  }
+
   async generateThumbnailImage(params: {
     concept: { text: string; description: string; colors: string };
     videoTitle: string;
@@ -1781,12 +1828,12 @@ CRITICAL ENTITY & IMAGE DISAMBIGUATION (NEVER CONFUSE THESE):
 
 COMPILED PROMPT RULES FOR images.edit:
 - LIGHTING (always): The result must be bright HDR studio exposure — rich midtones, luminous highlights, sharp micro-contrast. NEVER emit "dark", "chiaroscuro", "crushed blacks", "deep shadow", or "underexposed" directives. ZERO murky black voids.
-- TYPOGRAPHY (when text changes): Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600), heavy black drop-shadow and thick sharp outline for mobile readability. NEVER crimson/red lettering.
+- TYPOGRAPHY (when text changes): Preserve requested wording and use readable line breaks, strong outlines and story-appropriate emphasis colors. Use story-appropriate accent colors including red.
 - If the main story subject should be kept: You MUST start the compiled prompt with:
   "CRITICAL SUBJECT PRESERVATION: Strictly keep [main story subject name] in the scene completely intact with consistent facial features, build, and attire. Do NOT erase or remove [main story subject name]."
 - If the client wants the host/presenter removed: Include:
   "Remove any corner presenter cutout sticker from the corner. Cleanly inpaint and reconstruct the underlying courtroom desk, case files, or papers naturally under the scene lighting."
-- If the client requests headline text changes: Specify the exact uppercase words (2-4 words) with the WHITE + #FFE600 two-tone styling above.
+- If the client requests headline text changes: Specify the exact uppercase words (complete readable wording) with the WHITE + #FFE600 two-tone styling above.
 - If the client requests scene changes (lighting, background): Explicitly describe the visual alterations.
 - If the host is present or being added: Include:
   "Keep the Host Anchor Zone (lower corner) clean — low-detail, mid-lit environmental background only, NO faces, NO heads, NO text (reserved for creator overlay). Do NOT paint or draw any channel host portrait or corner cutout sticker."
@@ -2069,7 +2116,7 @@ CLIENT EDIT REQUEST:
       editPrompt += `\nSTORY & CHARACTER CONTEXT: ${sanitizedContext}`;
     }
     if (options?.mode !== 'scene') {
-      editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render strictly 2 to 4 words in bold UPPERCASE — Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600) — with heavy black drop-shadow and thick sharp outline.\n4. LIGHTING: Bright HDR studio exposure with rich midtones and luminous highlights. ZERO murky crushed blacks, ZERO dark voids.`;
+      editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render strictly the exact requested wording in bold UPPERCASE — Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600) — with heavy black drop-shadow and thick sharp outline.\n4. LIGHTING: Bright HDR studio exposure with rich midtones and luminous highlights. ZERO murky crushed blacks, ZERO dark voids.`;
       if (options?.excludeHost) {
         editPrompt += `\n5. EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene. Cleanly inpaint underlying scene elements.`;
       } else {

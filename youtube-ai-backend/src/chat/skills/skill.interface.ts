@@ -8,6 +8,7 @@ export interface SkillContext {
    * baseline / traffic mix) — same source the details-page SEO uses.
    */
   seoPatterns?: {
+    viewExamples?: Array<{title: string; description?: string; views: number; tags?: string[]}>;
     highCtrWinners: Array<{
       title: string;
       description?: string;

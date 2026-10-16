@@ -1,3 +1,4 @@
+import { CREATIVE_CONTRACT, THUMBNAIL_MARKDOWN } from '../studio/studio.prompts';
 import { Injectable, Logger } from '@nestjs/common';
 import { ChatSkill, SkillContext } from './skill.interface';
 import { InjectModel } from '@nestjs/mongoose';
@@ -78,20 +79,20 @@ export class SkillRegistry {
 2. If intent is CLEAR → respond using the appropriate format below.
 
 3. If intent is OPEN-ENDED or user uploaded an image/asset:
-   Act as an intuitive creative partner. Acknowledge the user's topic or image specifically, highlight a sharp narrative angle or visual hook immediately, and smoothly invite next steps (e.g., offering to spin up 3 high-CTR thumbnail concepts, draft an outline, or write an SEO package). NEVER present a rigid, robotic questionnaire or ask the user to "just type the letter".
+   Act as an intuitive creative partner. Acknowledge the user's topic or image specifically, highlight a sharp narrative angle or visual hook immediately, and smoothly invite next steps (e.g., offering to spin up two thumbnail concepts, draft an outline, or write an SEO package). NEVER present a rigid, robotic questionnaire or ask the user to "just type the letter".
 
 4. NEVER output a full script unless the user explicitly asked for a script.
 5. Keep responses crisp, punchy, and actionable unless the user asks for deep detail.
-6. MULTI-DELIVERABLE REQUESTS: When the user asks for several deliverables at once (e.g., a topic suggestion + a title + a thumbnail package), deliver ALL of them — combine the IDEA score section with the THUMBNAIL intent block (3 concepts inside <!-- THUMBNAILS_START --> / <!-- THUMBNAILS_END -->). Never silently drop a requested part.
+6. MULTI-DELIVERABLE REQUESTS: When the user asks for several deliverables at once (e.g., a topic suggestion + a title + a thumbnail package), deliver ALL of them — combine the IDEA score section with the THUMBNAIL intent block (exactly two concepts inside <!-- THUMBNAILS_START --> / <!-- THUMBNAILS_END -->). Never silently drop a requested part.
 
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Follow the 7-part script structure targeting 10 to 12 minutes strictly (approx. 1,350 to 1,480 spoken words across all 7 sections, hard ceiling 1,500 words). Voice: OG on the couch — scene/image hooks, punch lines, NO documentary openers or empty "> " after every sentence. Section headers: ## **1. TITLE**. Dividers: **A. SUB-SECTION**. ${SPOKEN_LINE_CONTRACT} Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') then [PAUSE]. Cues: [BEAT] before reveals/pivots, [PAUSE] after punch lines/questions/jewels — 2-4 cues per major section (between breath blocks, not after every sentence). CTAs never inside jewel. Always wrap the spoken script portion (from Section 1 through Section 7 Final Jewel) between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->". Do NOT include 10 spoken community questions inside "<!-- SCRIPT_START -->" ... "<!-- SCRIPT_END -->" (provide them in the video metadata/engagement section outside the teleprompter). Line 1 inside "<!-- SCRIPT_START -->" MUST ALWAYS be: "# SCRIPT TITLE: [Specific Topic / Case Headline]".
+Plan a topic-specific script for 8-10 minutes by default; explicit duration wins. Follow the shared spoken-line contract and wrap only speech in SCRIPT_START/SCRIPT_END delimiters.
 
 ### If SEO intent:
 ## Title
-[title under 70 chars]
+[title concise and complete]
 ## Description
 [10-part blueprint: hook + 3-5 paragraph breakdown + bullet takeaways + host bio + CTAs + social links + disclaimer + trailing #hashtags]
 ## Tags
@@ -100,42 +101,7 @@ Follow the 7-part script structure targeting 10 to 12 minutes strictly (approx. 
 [3-5 hashtags with #]
 
 ### If THUMBNAIL intent:
-Always deliver your strategic explanation first in markdown, then wrap the concrete concepts inside <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END --> across the 3 PROVEN COMPOSITIONAL ARCHETYPES (do NOT force identical 3-zone layouts on every concept):
-
-<!-- THUMBNAILS_START -->
-### Concept 1: [Angle Name] — Archetype 1: Split Confrontation
-**Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
-**Visual concept:**
-- Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Prosecutor confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
-- Emotion (Tier N — [Matrix Name]): [Physical cues from the 6-tier emotion matrix — MUST match the story's factual stakes]
-- Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
-- Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
-- Lighting & Camera: [85mm portrait lens, bright HDR studio lighting, rich midtones, luminous rim highlights — NO dark voids].
-**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
-**Why it clicks:** [1-sentence psychological rationale]
-
-### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
-**Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
-**Visual concept:**
-- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with a clearly readable emotion under a bright directional HDR spotlight.
-- Emotion (Tier N — [Matrix Name]): [Physical cues]
-- Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
-- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; richly lit courtroom backdrop with visible detail].
-- Lighting & Camera: [High-contrast HDR studio photography, 85mm portrait lens, sharp natural skin texture].
-**Color scheme:** [Primary colors to use]
-**Why it clicks:** [Rationale]
-
-### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
-**Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
-**Visual concept:**
-- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject showing a clearly readable emotion and background courtroom spectators.
-- Emotion (Tier N — [Matrix Name]): [Physical cues]
-- Subject Demographics: [Full official name and physical demographics].
-- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject with legible expression; Background: jury box].
-- Lighting & Camera: [Bright HDR documentary studio lighting, 35mm film look].
-**Color scheme:** [Primary colors to use]
-**Why it clicks:** [Rationale]
-<!-- THUMBNAILS_END -->
+${THUMBNAIL_MARKDOWN}
 
 ### If IDEA intent:
 ## Score
@@ -299,408 +265,20 @@ ${generalFormat}`,
     });
 
     // Script skill — complete video package
-    const scriptFormat = `## VIDEO PACKAGE OUTPUT
-
-Unless the user requests only one specific item, provide the COMPLETE video package in this order:
-
-### 1. STORY SCORE
-[X.X/10] — GREENLIGHT / HOLD / PASS
-[Brief justification for the score]
-
-### 2. RECOMMENDED SHOW TYPE
-[Which of the 7 show types] — [why in one sentence]
-
-### 3. UNIQUE MECCA AUDIO TWIST
-What most creators are missing about this story. Pick the hidden angle:
-- The psychological cell (what's happening in the mind that nobody sees)
-- The family sentence (the punishment that extends to mothers, children, siblings)
-- The courtroom translation of street behavior (what the jury sees vs what the street sees)
-- The camera becoming the informant (social media, body cams, texts as evidence)
-- The one weak link destroying the whole crew
-- Freedom outside but fear inside (out on bail but mentally imprisoned)
-- The sentence beginning before the judge speaks
-- The cost of five reckless seconds
-
-### 4. BEST LESSON ANGLE
-The single most powerful teaching point for this video — what does the audience walk away knowing?
-
-### 5. THREE TITLE OPTIONS
-A. [Title under 70 chars]
-B. [Title under 70 chars]
-C. [Title under 70 chars]
-
-### 6. THREE THUMBNAIL TEXT OPTIONS
-A. [2-4 words]
-B. [2-4 words]
-C. [2-4 words]
-
-### 7. THUMBNAIL VISUAL CONCEPT
-[Describe the image, color scheme, layout]
-
-### 8. FULL TELEPROMPTER SCRIPT
-CRITICAL DELIMITER RULE: Wrap Section 8 strictly between "<!-- SCRIPT_START -->" and "<!-- SCRIPT_END -->".
-
-DURATION & WORD BUDGET CONTRACT (STRICT — TARGET 10 TO 12 MINUTES, HARD CEILING 1,500 WORDS TOTAL):
-- Script pacing MUST strictly target 10 to 12 minutes (approx. 1,350 to 1,480 words spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,500 words total across all 7 sections. Never exceed 1,500 words.
-- To guarantee the script never bloats past 12 minutes while keeping all 7 sections complete and high-impact, budget words strictly across the 7 sections:
-  * ON-SCREEN LEGAL STATUS: ~20 words (quick 2–3 defendant statuses)
-  * Section 1 (COLD OPEN): 180–200 words (~1:20 min) — Hook, stakes, unanswered question, CTA, Jewel
-  * Section 2 (THE IMMEDIATE STAKES): 190–210 words (~1:30 min) — Facts vs rumors, lived analysis, CTA, Jewel
-  * Section 3 (TURNING POINT / SMALL DOOR): 190–210 words (~1:30 min) — Small door, federal pressure, Curiosity Reset 1 (~1:30), CTA, Jewel
-  * Section 4 (THE PSYCHOLOGICAL CELL): 200–220 words (~1:35 min) — Mental prison, smart man trap, Curiosity Reset 2 (~4:00), CTA, Jewel
-  * Section 5 (THE SENTENCE STARTS BEFORE THE JUDGE): 190–210 words (~1:30 min) — Legal vs psychological sentence, lawyer shift, CTA, Jewel
-  * Section 6 (MOTHERS GOT SENTENCED TOO): 190–210 words (~1:30 min) — Victim/defendant families, Curiosity Reset 3 (~7:00), CTA, Jewel
-  * Section 7 (FINAL WORD & LESSON): 180–200 words (~1:20 min) — Big lesson, subscribe/share, Final Jewel
-  * Total words across all 7 sections: 1,350 to 1,480 words. STRICT HARD CEILING: 1,500 words.
-  * NOTE: Close "<!-- SCRIPT_END -->" immediately after Section 7 Final Jewel and [PAUSE]. The 10 Viral Community Questions belong in Section 14 (Metadata / Description package) OUTSIDE the teleprompter delimiters so they do not add 4 minutes of spoken time to the host's teleprompter recording.
-
-SPOKEN CADENCE (CRITICAL — UNIQUE'S VOICE, NOT A DOCUMENTARY):
-- Write like an OG sitting on the couch talking to the class — NOT a news recap, Wikipedia summary, or true-crime narrator.
-- HOOKS OPEN ON A SCENE OR IMAGE (holding cell, count, tray, mother's voice, lawyer's folder) — NEVER on a media meta-list ("rumors, documentaries, interviews, street stories").
-- BAN these documentary openers: "Let's separate the facts from the internet circus/rumors", "Thirty years of rumors, documentaries...", "Now sit with that for a minute" (use [BEAT] instead of telling the pause), "This video is not about replaying gossip".
-- Each major section MUST contain at least one PUNCH LINE: a short hard clause (2–8 words preferred) that lands like a lesson. Examples: "Empty." / "It belongs to the record." / "Regret always arrives after the evidence is already in." / "You don't go to prison alone."
-- ${SPOKEN_LINE_CONTRACT}
-- Delivery style is dynamic per section — parallel lists only when ideas are truly parallel.
-
-${GOLD_SPOKEN_EXAMPLES}
-
-BREATH-BLOCK GAP RULE (CRITICAL):
-- NEVER leave a blank line between two spoken "> " groups without a cue.
-- Pattern: breath block → [PAUSE] or [BEAT] → next breath block.
-- Use [PAUSE] after a hard thought, contrast, list of punches, or emotional turn.
-- Use [BEAT] before a reveal or short pivot.
-- Unique's Analysis / long breakdowns need 2+ cues at internal breaks.
-- Hide source lines from the spoken script if present — do not read citations on camera. Prefer putting sources in a separate Sources section after the script, not inside breath blocks.
-
-CUE DISCIPLINE (CRITICAL):
-- [PAUSE] = full stop after a major question, hard fact, contrast, emotional truth, or jewel. Own line, no rail.
-- [BEAT] = shorter hold before a reveal, pivot, hard line, contrast, or emphasis. Own line, no rail.
-- Place a cue BETWEEN breath blocks — not after every single sentence.
-- Target 2 to 4 cues per major section. After every direct jewel question, add [PAUSE].
-- Every section 1 through 8 MUST have 2 to 4 cues.
-- Engagement CTAs (comment prompts) must NEVER sit inside ### **JEWEL**. Put the CTA as short spoken rails BEFORE ### **JEWEL**.
-
-NEVER output backslashes before brackets or periods. Use [BEAT], [PAUSE], and ## **1. TITLE** exactly as shown.
-
-Format Section 8 strictly as follows:
-
-<!-- SCRIPT_START -->
-# SCRIPT TITLE: [Specific Topic / Case Headline]
-
-### ON-SCREEN LEGAL STATUS
-
-> PERSON — STATUS
->
-> PERSON — STATUS
-
----
-
-## **1. COLD OPEN**
-
-**A. THE HOOK**
-
-> Three car seats are still sitting in that house.
-> Empty.
-
-[BEAT]
-
-> A mother admits she killed her kids.
-> Twelve strangers still couldn't agree on what to call it.
-
-[PAUSE]
-
-**B. THE UNANSWERED QUESTION**
-
-> The question isn't whether she did it.
-> She did.
-> The real question is this —
-> when does a mind stop belonging to the person living inside it?
-
-[PAUSE]
-
-> I did twenty-six years finding out what that silence costs.
-> If you understand the lesson already, comment "WORDS MATTER."
-
-### **JEWEL**
-
-> Pain may explain how somebody reached the road.
-> But pain does not erase where that road ended.
-> Can we recognize somebody's pain without erasing their responsibility?
-
-[PAUSE]
-
----
-
-## **2. THE IMMEDIATE STAKES**
-
-**A. SEPARATE THE FACTS FROM THE RUMORS**
-
-> Here's what the record actually says.
-> The feds allege he was involved in a murder-for-hire plot.
-> That's an allegation — not a conviction yet.
-
-[BEAT]
-
-**B. UNIQUE'S ANALYSIS**
-
-> The street hears history one way.
-> The courtroom hears it another way.
-
-[PAUSE]
-
-> The street says, "Who was there?"
-> The courtroom says, "What can be proven?"
-
-[BEAT]
-
-> Fame doesn't walk into court with you.
-> Reputation doesn't sit in the jury box.
-> All that old talk gets stripped down to dates, statements, and receipts.
-
-[PAUSE]
-
-> Put a 💎 in the comments if you know the courtroom don't care how popular your story was outside.
-
-### **JEWEL**
-
-> The streets may celebrate the story.
-> But the courtroom studies the proof.
-> Which one are you preparing your life for?
-
-[PAUSE]
-
----
-
-## **3. THE GUN CASE: WHEN THE DOOR OPENED**
-
-**A. THE SMALL DOOR**
-
-> Now here's where it gets dark.
-> Pressure don't start with a RICO indictment.
-> It starts small.
-
-[BEAT]
-
-**B. HOW FEDERAL PRESSURE STARTS**
-
-> A traffic stop.
-> A gun.
-> A phone.
-> One conversation you thought was nothing.
-
-[PAUSE]
-
-### CURIOSITY RESET
-
-> If somebody is completely comfortable with cooperating…
-> why do they need so many reasons to explain it?
-
-[PAUSE]
-
-> Comment "SILENCE IS POWER" if you know everybody doesn't deserve your whole story.
-
-### **JEWEL**
-
-> The first arrest may be small.
-> But one small door can unlock a lifetime of consequences.
-> What secret are you still carrying that they could use against you?
-
-[PAUSE]
-
----
-
-## **4. THE PSYCHOLOGICAL CELL**
-
-**A. UNIQUE'S ANALYSIS**
-
-> In prison language: the first lie is "I got it under control."
-
-[BEAT]
-
-> The second lie is "Nobody is listening."
-> Somebody is always listening.
-
-[PAUSE]
-
-**B. THE SMART MAN TRAP**
-
-> He thinks he can say just enough.
-> He thinks the years buried it.
-> A courtroom is built to slow that dance down.
-
-[BEAT]
-
-> A jury don't have to respect his reputation.
-> They only have to weigh the evidence.
-
-[PAUSE]
-
-> If you ever watched ego ruin somebody's future, comment "REAL."
-
-### **JEWEL**
-
-> Ego talks loud when it feels safe.
-> Regret talks loudest when safety is gone.
-> Are you speaking from wisdom, or because your ego needs an audience?
-
-[PAUSE]
-
----
-
-## **5. THE SENTENCE STARTS BEFORE THE JUDGE SPEAKS**
-
-**A. LEGAL REALITY**
-
-> Reports say he's looking at life.
-> The judge hasn't banged the gavel yet.
-
-[BEAT]
-
-**B. UNIQUE'S ANALYSIS**
-
-> I'm not talking about the legal sentence.
-> I'm talking about the psychological sentence.
-
-[PAUSE]
-
-> Prison don't begin at the gate.
-> It begins when the lawyer stops saying "We got a chance"
-> and starts saying "We have to prepare."
-
-[BEAT]
-
-> Type "CONSEQUENCES" if you know nothing stays hidden forever.
-
-### **JEWEL**
-
-> The judge gives the official sentence.
-> But consequences start collecting long before court is over.
-> What decision in your life is already charging interest?
-
-[PAUSE]
-
----
-
-## **6. MOTHERS GOT SENTENCED TOO**
-
-**A. THE VICTIM'S FAMILY**
-
-> A victim's family don't get to scroll past the pain.
-> They carry it through birthdays and every headline that reopens the wound.
-
-[PAUSE]
-
-**B. THE DEFENDANT'S FAMILY**
-
-> You don't go to prison alone.
-> Your people do time in pieces.
-
-[BEAT]
-
-> Comment "FAMILY SENTENCE" if people need to stop pretending prison only affects one person.
-
-### **JEWEL**
-
-> One violent decision can punish more than one family.
-> One reckless moment can create decades of empty chairs.
-> Who pays when a man chooses pride over peace?
-
-[PAUSE]
-
----
-
-## **7. FINAL WORD: YOU CAN'T OUTTALK CONSEQUENCES**
-
-**A. THE LEGAL REALITY**
-
-> Let me close it like this.
-> He may have his reasons.
-
-[BEAT]
-
-**B. THE BIGGER LESSON**
-
-> But the lesson is bigger than the verdict.
-> Don't build your identity around stories that could cost you your freedom.
-
-[PAUSE]
-
-> Subscribe to **Unique Mecca Audio.**
-> Share this with somebody who needs clarity before consequences teach them the hard way.
-
-### **JEWEL**
-
-> The loudest man is not always the strongest man.
-> A prison cell don't care how famous the story used to be.
-> Is real strength talking more — or knowing when to stop?
-
-[PAUSE]
-
-<!-- SCRIPT_END -->
-
-Key format elements:
-- Voice: OG on the couch — scene/image hooks, punch lines, no documentary openers
-- Section headers: ## **1. TITLE** (bold)
-- Subsections: **A. TITLE** (bold, no arrows)
-- Spoken lines: > gray rail stays; short speakable lines (target 5–10 words, max ~12) inside breath blocks
-- Breath blocks: 2-6 consecutive "> " lines = ONE gray rail group; between blocks use blank line or cue
-- Do NOT isolate every sentence on its own gray line with a cue after it
-- Punch line: at least one short hard clause per major section
-- Stage cues: [BEAT]/[PAUSE] on own line. 2-4 per major section. Between breath blocks.
-- Jewels: ### **JEWEL** — Principle -> Consequence -> Question?, then [PAUSE]
-- CTAs: short rails BEFORE ### **JEWEL** — never inside jewel body
-- Empty > spacers: NEVER between sentences in general speech
-- Style: dynamic per section; parallel lists only when ideas are truly parallel
-
-### 9. YOUTUBE DESCRIPTION
-Search preview snippet + 3-5 paragraph deep breakdown + bullet takeaways + host bio + CTAs + official social links + legal disclaimer + trailing #hashtags.
-
-### 10. HIGH-VOLUME KEYWORDS
-[List 10-15 high-search-volume keywords]
-
-### 11. HIGH-CPM KEYWORDS
-[List 5-10 keywords that attract high-paying advertisers]
-
-### 12. HASHTAGS
-[3-5 hashtags with # prefix]
-
-### 13. YOUTUBE TAG-BOX KEYWORDS
-[15-20 tags for the YouTube tag field, comma-separated]
-
-### 14. TEN VIRAL AUDIENCE QUESTIONS
-1. [Question] — [Brief answer that sparks debate]
-2. [Question] — [Brief answer]
-... (10 total)
-
-### 15. THREE PINNED-COMMENT OPTIONS
-A. [Engagement question for the pinned comment]
-B. [Different angle engagement question]
-C. [Third option]
-
-### 16. ONE SHORTS CONCEPT
-**Title:** [Short title]
-**Clip:** [Which 45-59 second section of the script to extract]
-**Hook:** [The first 3 seconds]
-**Text overlay:** [What text to put on screen]
-
-## 17. 📺 VERIFIED YOUTUBE VIDEO SOURCES & B-ROLL CLIPS (PRIORITY #1)
-If a FOOTAGE PACK is in context (LOCAL NEWS FOOTAGE PACK or VERIFIED TOPIC FOOTAGE PACK): do NOT re-list clip URLs — the backend appends the verified list automatically right before §17. Write only a one-line "How to use" note per clip, then 2–3 national/court sources if needed. Otherwise provide 3–4 real YouTube links (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV) and expand with local affiliates when the story has a market. Only list clips you can actually find — never invent video IDs. NEVER list this channel's own videos (Unique Mecca Audio uploads) as sources — they are not collectible B-roll. Do NOT pad with competitor commentary/explainer videos. SCENE / TIMESTAMP must be a real range (e.g. "0:45–1:15") or "full clip" — NEVER "Review manually" or other placeholders. If local coverage is thin, write "Local coverage thin — use courthouse/agency B-roll". Each YouTube URL EXACTLY ONCE on the title link line only:
-1. [Channel Name: Video Title](https://www.youtube.com/watch?v=VIDEO_ID)
-   - Scene / Timestamp: [e.g. 0:45–1:15]
-   - How to Use: [e.g. Overlay B-roll at Section 2]
-
-## 18. 📰 OFFICIAL CASE & NEWS SOURCES
-1. [Publication Name](URL)
-2. [Publication Name](URL)`;
+    const scriptFormat = `Deliver the requested script/package. Default duration 8-10 minutes, explicit duration wins. Plan topic-specific sections (usually 5-7); no fixed courtroom or family sections. Use a single emotional center.
+Wrap spoken script in <!-- SCRIPT_START --> / <!-- SCRIPT_END --> with # SCRIPT TITLE: [Topic] then numbered section headings. Follow breathable gray-rail blocks; preserve complete thoughts across short lines. Add relevant jewels and one closing CTA. Keep metadata, sources and community questions outside spoken delimiters.
+For formatting-only edits output only the revised script, preserving facts and story. If a VERIFIED TOPIC FOOTAGE PACK or LOCAL NEWS FOOTAGE PACK is supplied, do NOT re-list clip URLs; the backend appends the verified list automatically. Provide usage notes and cite only real retrieved sources.
+If full packaging is requested include one clear title, description/tags and exactly two thumbnail variants:
+${THUMBNAIL_MARKDOWN}`;
     this.register({
       name: 'Script Writer',
       category: 'script',
       buildSystemPrompt: (channel, ctx) =>
         this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are a script writer for this YouTube channel. Write complete video packages that follow the 6-part structure.
+        `\n\nYou are a script writer for this YouTube channel. Write only requested deliverables, using topic-specific sections.
 
 IMPORTANT RULES:
-- TIMING & DURATION: Script pacing MUST strictly target 10 to 12 minutes (approx. 1,350 to 1,480 words across all 7 sections, spoken at ~130–140 WPM with dramatic pauses). Hard ceiling: 1,500 words. Never exceed 1,500 words. Budget ~180–210 words per narrative section so the video remains tight, punchy, and captivating from start to finish without bloating past 12 minutes.
+- TIMING & DURATION: Default 8-10 minutes; explicit duration/range wins. Adapt section counts and budgets to the topic and speaking pace.
 - REVISIONS: If the user asks to rewrite, edit, or adjust a specific section or the script (e.g. "make it more breathable"), output ONLY the revised spoken script beats. DO NOT regenerate Sections 1–7 or metadata unless requested. Apply the spoken line contract: keep gray rails and breath blocks; split long essay rails into short speakable lines inside the same block; do not isolate every sentence; keep facts/legal points; style stays dynamic.
 - PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link. NEVER list this channel's own videos as sources. No competitor explainer padding. Real timestamps or "full clip" only — never "Review manually".
 - Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
@@ -745,7 +323,7 @@ ${scriptFormat}`,
     const seoFormat = `Format your response in this exact structure:
 
 ## Title
-[Your optimized title here — under 70 characters, curious, emotional]
+[Your optimized title here — concise and complete, curious, emotional]
 
 ## Description
 [10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags]
@@ -760,7 +338,7 @@ ${scriptFormat}`,
       category: 'seo',
       buildSystemPrompt: (channel, ctx) =>
         this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: Under 70 chars, curious, emotional words\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${seoFormat}`,
+        `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: concise and complete (never cut meaning to fit a character count), curious, emotional words\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${seoFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         if (videoId) {
@@ -808,7 +386,7 @@ ${scriptFormat}`,
         () => `Format your response in this exact structure:
 
 ## Title
-[Your optimized title here — under 70 characters, curious, emotional]
+[Your optimized title here — concise and complete, curious, emotional]
 
 ## Description
 [10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags]
@@ -822,80 +400,12 @@ ${scriptFormat}`,
     });
 
     // Thumbnail skill
-    const thumbnailFormat = `Always wrap all 3 thumbnail concepts strictly inside the delimiters <!-- THUMBNAILS_START --> and <!-- THUMBNAILS_END --> across the 3 PROVEN COMPOSITIONAL ARCHETYPES (do NOT force a rigid 3-zone box on every concept):
-
-<!-- THUMBNAILS_START -->
-### Concept 1: [Angle Name] — Archetype 1: Split Confrontation
-**Text overlay:** [2-4 UPPERCASE words with two-tone phrasing, e.g. "HE SAID TOO MUCH"]
-**Visual concept:**
-- Composition: Split confrontation face-off. Left side features primary figure (e.g. Defendant looking down stressed); Right side features opposing figure (e.g. Star Witness or Lawyer confident); separated by a diagonal cracked glass fracture seam or harsh tension split.
-- Emotion (Tier N — [Matrix Name]): [Physical cues from the 6-tier emotion matrix — MUST match the story's factual stakes]
-- Subject Demographics: [Full official name(s), approximate age e.g. elderly 60s, hair/bald status e.g. bald shaved head, facial hair e.g. gray goatee, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos].
-- Setting & Props: [Courtroom gallery with spectators, American flag, defense table].
-- Lighting & Camera: [85mm portrait lens, bright HDR studio lighting, rich midtones, luminous rim highlights — NO dark voids].
-**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
-**Why it clicks:** [1-sentence psychological rationale]
-
-### Concept 2: [Angle Name] — Archetype 2: Solo Hero Portrait
-**Text overlay:** [2-4 UPPERCASE words max, e.g. "UNDER PRESSURE"]
-**Visual concept:**
-- Composition: Solo dramatic focal point. Single commanding close-up/bust shot (50-65% height) dominating center-left with a clearly readable emotion under a bright directional HDR spotlight.
-- Emotion (Tier N — [Matrix Name]): [Physical cues]
-- Subject Demographics: [Full official name, exact age bracket, hair/bald status, facial hair, build, attire. Negatives: e.g. NOT an elderly man, NOT bald].
-- Setting & Props: [Handcuffs on wooden table, visitation glass partition, or holding cell bars; richly lit courtroom backdrop with visible detail].
-- Lighting & Camera: [High-contrast HDR studio photography, 85mm portrait lens, sharp natural skin texture].
-**Color scheme:** [Primary colors to use]
-**Why it clicks:** [Rationale]
-
-### Concept 3: [Angle Name] — Archetype 3: Forensic Evidence Triptych
-**Text overlay:** [2-4 UPPERCASE words max, e.g. "CONFIDENTIAL"]
-**Visual concept:**
-- Composition: Forensic evidence triptych. Foreground physical evidence anchor with midground subject showing a clearly readable emotion and background courtroom spectators.
-- Emotion (Tier N — [Matrix Name]): [Physical cues]
-- Subject Demographics: [Full official name and physical demographics].
-- Setting & Props: [Foreground: Red confidential evidence dossier stamped "CASE FILE" or wiretap reel or judge's gavel; Midground: subject with legible expression; Background: jury box].
-- Lighting & Camera: [Bright HDR documentary studio lighting, 35mm film look].
-**Color scheme:** [Primary colors to use]
-**Why it clicks:** [Rationale]
-<!-- THUMBNAILS_END -->`;
+    const thumbnailFormat = THUMBNAIL_MARKDOWN;
     this.register({
       name: 'Thumbnail Designer',
       category: 'thumbnail',
       buildSystemPrompt: (channel, ctx) =>
-        this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are the lead Thumbnail Director for "Unique Mecca Audio" (@uniquemeccaaudionyc), specializing in high-CTR, cinematic thumbnails for criminal psychology, legal breakdowns, and prison reality.
-
-Generate 3 DISTINCT, story-grounded thumbnail concepts specifically tailored to the user's video topic across 3 diverse narrative angles & visual framings:
-1. Concept 1 (Multi-Character Drama & Emotional Contrast): When multiple figures are involved (e.g. rapper, defense lawyer, co-defendant, witness), give EACH named person a distinct, contrasting facial expression tied to their role (e.g., Lawyer confident smirk on left, Defendant stressed/looking down in center, Witness angry/defensive on right).
-2. Concept 2 (Evidence & Forensic Tension): Focus on high-stakes documentary devices — e.g. a red confidential evidence dossier ("CASE FILE: ..."), bright spotlight on documents, scales of justice, or subject with a legible reaction.
-3. Concept 3 (Psychological Atmosphere / Solitary Tension): Focus on a powerful solitary portrait or scene — e.g. subject in holding cell or courtroom under a directional HDR spotlight with a clearly readable emotion.
-
-6-TIER NARRATIVE EMOTION MATRIX (MANDATORY — pick the ONE tier matching the story's factual stakes, write its physical cues into the "- Emotion (Tier N ...)" bullet inside **Visual concept:**):
-1. SEVERE AGONY & REGRET — tears welling, trembling lip, head bowed (e.g. facing a 50-year sentence).
-2. PARANOIA & HIGH TENSION — sweating brow, tense jaw, anxious downward/sideways gaze (e.g. under investigation, solitary confinement).
-3. PURE SHOCK & DISBELIEF — wide eyes, dropped jaw, stunned horror (e.g. secret wiretap leaked, surprise witness).
-4. COLD DEFIANCE & MOCKERY — arrogant smirk, scoffing grin, unbothered posture (e.g. beating charges, contempt of court).
-5. EXPLOSIVE RELIEF & TRIUMPH — tears of joy, celebratory shout, genuine relief (e.g. charges dismissed, bail granted).
-6. HARDENED STOIC TENSION — dead-eyed stare, clenched jaw, unblinking glare (e.g. omertà, formal courtroom procedure).
-
-RULES:
-- CRITICAL EMOTION RULE: Never a smiling or laughing expression for serious prison terms, tragic events, or murder trials unless the story explicitly documents contempt of court. Never a crying or defeated expression for legal triumphs or bail releases. The facial expression MUST match the factual stakes of the headline.
-- EMOTION PLACEMENT: The "- Emotion (Tier N ...)" bullet MUST stay INSIDE "**Visual concept:**" (before "**Color scheme:**") — the 1-Click Generate pipeline extracts that block and sends it directly to the image model; anything outside it is silently discarded.
-- Text overlay: EXACTLY 2 to 4 bold impact words in UPPERCASE (e.g. "HE SAID TOO MUCH", "UNDER PRESSURE", "TELLING ON THE DEAD?"). Use two-tone phrasing: Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600). NEVER crimson or red lettering. Do NOT output full titles or long sentences.
-- FULL-CANVAS 3-ZONE STAGING: Fill the entire 16:9 canvas with rich environmental detail from left to right. NEVER leave the right side as an empty black void. Background courtroom spectators, jury benches, and architectural details must extend across the full frame.
-- SUBJECT PROXIMITY: Subjects must be commanding close-up chest-up shots (occupying 40–60% of canvas height). Never place subjects far away as tiny distant figures.
-- CONTEXTUAL STORY DEVICES: Use broken glass fracture seam ONLY when the story specifically involves broken trust, confessions, or betrayal. Otherwise use clean directional spotlights, authentic red evidence dossiers, transcripts, scales of justice, or American flags.
-- TYPOGRAPHY & OVERLAY CLEARANCE: Headline text belongs in the left third or top-left. Never place headline text in the bottom-right corner (reserved for Unique Mecca host sticker).
-- GPT-IMAGE CAMERA-READY DIRECTIVE: Describe ONLY tangible physical objects, lighting, and attire that a camera can photograph. STRICTLY FORBIDDEN: Never write meta-disclaimers ("legally sourced image", "no fake courtroom events", "not a fabricated reaction", "representing consequence", "allegedly").
-- Style: Bright HDR cinematic studio photography, high-contrast, rich midtones, luminous highlights. ZERO murky crushed blacks, ZERO dark voids. Realistic photo style, NOT cartoon or 3D animation.
-
-EVIDENCE-BASED OUTPUT RULES (MANDATORY):
-- Every thumbnail concept MUST cite concrete evidence from the injected context: which of YOUR recent winners/below-median videos this resembles or breaks from, and competitor packaging patterns with view counts when present.
-- NEVER give generic advice ("make it eye-catching", "use bright colors") — replace it with: which proven pattern in context this references, and what makes this concept DIFFERENT.
-- Ground every concept in YOUR OWN winners/below-median pattern: winners show what this audience clicks; below-median titles show what they skip.
-- If context lacks evidence for a claim, say what data you would need instead of inventing it.
-
-${thumbnailFormat}`,
+        this.buildBasePrompt(channel, ctx) + '\n' + CREATIVE_CONTRACT + '\n' + thumbnailFormat,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         try {
@@ -930,7 +440,7 @@ ${thumbnailFormat}`,
 [4-8 lines of concrete market evidence: which of YOUR recent winners this package mirrors (cite title + views/CTR from context), which low-CTR pattern it avoids, and any competitor demand proof with view counts. If context lacks evidence for a claim, say what data you would need instead of inventing it.]
 
 ## Title
-[ONE primary title — under 70 characters. This title completes the thumbnail's curiosity loop (thumbnail decides 75% of the click). If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
+[ONE primary title — concise and complete. This title adds specificity to the thumbnail's clear promise. If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
 
 ## Description
 [Write the FULL 10-part blueprint — every element below, in order, nothing skipped:
@@ -954,59 +464,13 @@ Match the search phrases people actually type; prefer the longer descriptive tag
 ## Hashtags
 [3-5 hashtags with # prefix]
 
-<!-- THUMBNAILS_START -->
-### Concept 1: [Angle Name] — Archetype: [Solo Hero Portrait | Split Confrontation | Forensic Evidence Triptych]
-**Text overlay:** [2-4 UPPERCASE words with two-tone phrasing — derived FROM the Title above so image and title read as one promise, e.g. Title "Keefe D: 40 Years to Life—Then the First Night Begins" → overlay "FIRST NIGHT / 40 TO LIFE"]
-**Visual concept:**
-- Composition: [16:9 staging — subject size 40-60% of canvas, headline clearance top-left, full-canvas environmental detail, NO empty voids]
-- Emotion (Tier N — [Matrix Name]): [physical cues from the 6-tier emotion matrix matching the story's factual stakes]
-- Subject Demographics: [full official name, approximate age, hair/bald status, facial hair, build, attire. Negatives: NOT a young man, NO dreadlocks, NO face tattoos]
-- Setting & Props: [specific story-grounded environment and props]
-- Lighting & Camera: [bright HDR lighting, lens choice, rich midtones — NO dark voids]
-**Color scheme:** [2-3 dominant colors, e.g. Electric golden-yellow (#FFE600), stark white, cold slate blue]
-**Why it clicks:** [1-sentence psychological rationale tied to the RESEARCH evidence]
-
-### Concept 2: [Different Angle Name] — Archetype: [a DIFFERENT archetype than Concept 1]
-**Text overlay:** [2-4 UPPERCASE words — same video promise as Concept 1, different scene/emotion framing]
-**Visual concept:**
-- Composition: [different staging than Concept 1]
-- Emotion (Tier N — [Matrix Name]): [must be a different tier or different physical read than Concept 1 unless the facts allow only one]
-- Subject Demographics: [same subject accuracy rules]
-- Setting & Props: [different anchor prop/environment than Concept 1]
-- Lighting & Camera: [bright HDR, lens choice]
-**Color scheme:** [colors that stay on-channel]
-**Why it clicks:** [1-sentence rationale — why this alternative wins a DIFFERENT segment of the audience than Concept 1]
-<!-- THUMBNAILS_END -->`;
+${THUMBNAIL_MARKDOWN}`;
     this.register({
       name: 'Unified Package',
       category: 'package',
       buildSystemPrompt: (channel, ctx) =>
-        this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are the Packaging Director for "Unique Mecca Audio" (@uniquemeccaaudionyc). Your job: turn the user's request into ONE complete, ready-to-publish YouTube package — market research, an optimized title, full SEO (description/tags/hashtags), and exactly TWO ready-to-generate thumbnail concepts that share ONE promise with the title.
-
-TWO MODES (the request context tells you which):
-- AUDIT MODE — the user points at an EXISTING video (link, "this video", "my X video", "repackage", "why isn't this working"). Diagnose the current title + thumbnail first: state what the current packaging promises vs what it delivers, why CTR/retention suffered (use the metrics and current thumbnail/headline in context), then deliver the REPLACEMENT package that fixes that exact problem. The title must not restate the old title's failed pattern.
-- NEW CONCEPT MODE — the user describes a video that doesn't exist yet (new topic, pasted script). Run the market analytics in context first: mirror the title syntax of the PROVEN HIGH-CTR WINNERS and strictly avoid the LOW-CTR MISSES phrasing. Match the topic to the channel's show types. Then deliver the package.
-
-UNIFIED PACKAGE RULES (MANDATORY):
-- TITLE ↔ THUMBNAIL UNITY: The title and the thumbnail overlay are ONE promise, not two artifacts. The thumbnail decides 75% of the click; the title must complete its curiosity loop, never compete with it. Derive each concept's text overlay FROM the title.
-- NEVER output a menu. No "Option A / Option B", no "which do you prefer", no lists of alternative titles to choose from. One primary title, one package, two thumbnail VARIATIONS of the same video (different scene/emotion — not different videos).
-- EXACTLY TWO thumbnail concepts inside <!-- THUMBNAILS_START --> / <!-- THUMBNAILS_END -->. The system auto-generates both images in parallel — a missing or malformed concept means one image slot dies.
-- EMOTION PLACEMENT: the "- Emotion (Tier N ...)" bullet MUST stay INSIDE "**Visual concept:**" (before "**Color scheme:**") — the image pipeline extracts that block and silently discards anything outside it.
-- Text overlay: EXACTLY 2-4 bold UPPERCASE words, two-tone (Line 1 WHITE #FFFFFF, Line 2 Electric Golden-YELLOW #FFE600). NEVER red lettering, never full titles on the image.
-- 6-TIER NARRATIVE EMOTION MATRIX (pick the ONE tier matching factual stakes): 1. SEVERE AGONY & REGRET (tears, trembling lip — facing decades inside) · 2. PARANOIA & HIGH TENSION (sweating brow, tense jaw — under investigation) · 3. PURE SHOCK & DISBELIEF (wide eyes, dropped jaw — surprise verdict/leak) · 4. COLD DEFIANCE & MOCKERY (arrogant smirk — beating charges) · 5. EXPLOSIVE RELIEF & TRIUMPH (tears of joy — released/cleared) · 6. HARDENED STOIC TENSION (dead-eyed stare, clenched jaw — formal procedure).
-- Never a smiling/laughing expression for serious prison terms or murder trials; never crying for legal triumphs — the expression MUST match the headline's factual stakes.
-- SUBJECT PROXIMITY: commanding close-up chest-up shots (40-60% of canvas height), full-canvas environmental detail edge-to-edge, headline top-left, bottom-right clear for the host sticker.
-- GPT-IMAGE CAMERA-READY: only tangible physical objects/lighting/attire a camera can photograph. STRICTLY FORBIDDEN: meta-disclaimers ("not a fabricated reaction", "allegedly", "representing consequence").
-- Style: bright HDR cinematic studio photography, rich midtones, luminous highlights, ZERO murky crushed blacks. Realistic photo, NOT cartoon or 3D.
-- FACT BOUNDARY: never claim to know the subject's private thoughts — packages describe stakes and consequences, and label unverified legal facts.
-
-EVIDENCE-BASED OUTPUT RULES (MANDATORY):
-- Every title and thumbnail decision MUST cite concrete evidence from the injected context: YOUR winners/below-median list with view counts, competitor results, CTR patterns.
-- NEVER give generic advice ("use an emotional title", "make it eye-catching") — replace it with which proven pattern this references and what makes this proposal DIFFERENT.
-- If context lacks evidence for a claim, say what data you would need instead of inventing it.
-
-${packageFormat}`,
+        this.buildBasePrompt(channel, ctx) + '\n' + CREATIVE_CONTRACT +
+        '\nFor existing videos diagnose the actual supplied metrics and packaging before proposing replacements. For new episodes use relevant channel evidence and avoid already-covered angles. Deliver one coherent package, not a menu. The title and thumbnail express the same clear promise.\n' + packageFormat,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         // Market analytics: own CTR winners/misses (7d sync) — the NEW-mode title-style signal.
@@ -1206,60 +670,13 @@ ${packageFormat}`,
     });
 
     // Outline skill
-    const outlineFormat = `Format your response in this exact structure:
-
-## Hook Options
-
-### Hook 1: [The Angle Name]
-[Opening 15-second script — the line that makes them stop scrolling]
-
-### Hook 2: [The Story Name]
-[Opening 15-second script — different approach]
-
-### Hook 3: [The Stakes Name]
-[Opening 15-second script — third approach]
-
-## Recommended Show Type
-[Which of the 7 show types fits best] — [why in one sentence]
-
-## Outline
-
-### COLD OPEN [0:00 - 1:15]
-- [The point to make, said plainly]
-
-### WHAT HAPPENED & IMMEDIATE STAKES [1:15 - 2:45]
-- [Fact 1]
-- [Fact 2]
-
-### UNIQUE MECCA BREAKDOWN & PSYCHOLOGICAL CELL [2:45 - 6:00]
-- [Analysis point 1]
-- [Analysis point 2]
-- [Analysis point 3]
-
-### THE HUMAN COST & FAMILY SENTENCE [6:00 - 7:30]
-- [Human element 1]
-- [Human element 2]
-
-### THE YOUTH WARNING & FINAL LESSON [7:30 - 9:00]
-- [Warning point]
-
-### FINAL JEWEL + 10 VIRAL Q&As [9:00 - 11:30]
-- **JEWEL:** [The moral lesson]
-- [Rapid-fire community questions and jewels]
-
-## Score
-[X.X/10] — [GREENLIGHT / HOLD / PASS]
-
-- Search Demand: [X/10]
-- Emotional Pressure: [X/10]
-- Authority Fit: [X/10]
-- Thumbnail Power: [X/10]`;
+    const outlineFormat = `Research and plan THIS video's promise. Provide a recommended hook and topic-specific sections with purpose and estimated time. Default 8-10 minutes, explicit duration wins. Prison episodes prioritize lived experience and psychology. Courtroom episodes may use deeper legal explanation. Keep community questions outside spoken duration. Do not force a fixed structure.`;
     this.register({
       name: 'Outline Builder',
       category: 'outline',
       buildSystemPrompt: (channel, ctx) =>
         this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are an outline builder for this YouTube channel. Before writing any script, you research the topic, develop the angle, and create a structured outline.\n\nYour job:\n1. Research the topic using web search if needed\n2. Identify the unique angle — what only this creator can say\n3. Generate 3 distinct hook options for the first 15 seconds\n4. Recommend which of the 7 show types fits best\n5. Build a detailed outline following the 6-part structure\n6. Score the outline using the 8-criteria system\n\nEvery outline must pass this test: could any other creator make this same video? If yes, the angle is not unique enough.\n\n${outlineFormat}`,
+        `\n\nYou are an outline builder for this YouTube channel. Before writing any script, you research the topic, develop the angle, and create a structured outline.\n\nYour job:\n1. Research the topic using web search if needed\n2. Identify the unique angle — what only this creator can say\n3. Generate 3 distinct hook options for the first 15 seconds\n4. Recommend which of the 7 show types fits best\n5. Build a topic-specific outline\n6. Score the outline using the 8-criteria system\n\nEvery outline must pass this test: could any other creator make this same video? If yes, the angle is not unique enough.\n\n${outlineFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         const trending = await this.trendingTopicModel
@@ -1339,7 +756,7 @@ Never ask for Studio screenshots. Never invent metrics.`;
 **Scene:** [Detailed description of the 16:9 scene]
 **Style:** [Cinematic style — lighting, mood, camera angle]
 **Colors:** [Primary colors and atmosphere]
-**Text overlay (optional):** [If applicable, 2-4 words]
+**Text overlay (optional):** [If applicable, complete readable wording]
 
 ### Scene Concept 2
 ...
@@ -1495,7 +912,7 @@ ${imageFormat}`,
     // 2. Thumbnail as MAIN TASK — imperative (≤30 char window, sentence-bounded)
     //    or object-first ("thumbnail for X").
     if (
-      /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(
+      /\b(?:make|design|generate|create|redesign|improve|fix|give me|show me|want|need|2|two|3|three)\b[^.?!]{0,30}\b(?:thumbnail|thumbs|cover art)\b/i.test(
         lower,
       ) ||
       /\b(?:thumbnail|cover art)\s+(?:for|of|concept)/i.test(lower)
@@ -1582,7 +999,7 @@ ${imageFormat}`,
    */
   private buildBasePrompt(channel: any, context: SkillContext): string {
     const { CHAT_SYSTEM_PROMPT } = require('../../openai/prompts/chat');
-    return CHAT_SYSTEM_PROMPT;
+    return CHAT_SYSTEM_PROMPT + '\n' + CREATIVE_CONTRACT;
   }
 
   /**
@@ -1753,6 +1170,9 @@ ${imageFormat}`,
       parts.push(
         `VIDEOS GETTING SEARCH TRAFFIC (consider re-optimizing):\n${context.revivalOpportunities.map((v) => `- "${v.title}" — ${v.viewCount.toLocaleString()} total views`).join('\n')}`,
       );
+    }
+    if (context.seoPatterns?.viewExamples?.length) {
+      parts.push('VIEW-ONLY EXAMPLES (not measured CTR winners; compare upload age and exposure):\n' + context.seoPatterns.viewExamples.map(v => '- "' + v.title + '" ? ' + v.views + ' views').join('\n'));
     }
     if (context.seoPatterns && context.seoPatterns.highCtrWinners.length > 0) {
       const p = context.seoPatterns;
@@ -2005,8 +1425,8 @@ ${imageFormat}`,
             .join('\n');
         context.recentPattern =
           `YOUR LAST 14 DAYS (${recent.length} videos, median ${median.toLocaleString()} views):\n` +
-          `WINNERS (at/above median):\n${fmt(recent.filter((v) => (v.viewCount || 0) >= median))}\n\n` +
-          `BELOW MEDIAN (audience skipped these):\n${fmt(recent.filter((v) => (v.viewCount || 0) < median))}`;
+          `HIGHER VIEW TOTALS (not measured CTR winners):\n${fmt(recent.filter((v) => (v.viewCount || 0) >= median))}\n\n` +
+          `LOWER VIEW TOTALS (not evidence of CTR rejection; compare age and exposure):\n${fmt(recent.filter((v) => (v.viewCount || 0) < median))}`;
       }
     } catch {
       /* optional context — never block the chat */

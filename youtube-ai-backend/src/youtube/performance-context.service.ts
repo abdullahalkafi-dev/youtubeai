@@ -949,7 +949,7 @@ export class PerformanceContextService {
       if (thumbnailUrl) {
         lines.push(`THUMBNAIL ATTACHED FOR VISION INSPECTION: ${thumbnailUrl}`);
         lines.push(
-          'Inspect the attached thumbnail image directly: evaluate visual contrast, mobile text readability (< 4 words), and facial emotion stakes.',
+          'Inspect the attached thumbnail image directly: evaluate visual contrast, mobile readability of the complete headline (no hard word limit), and facial emotion stakes.',
         );
       }
       const lastRunAt = (channel as any)?.performanceSync?.lastRunAt;

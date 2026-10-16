@@ -1,5 +1,6 @@
 'use client'
 
+import { CreativePreferencesButton } from '@/components/chat/creative-preferences'
 import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useAppSelector, useAppDispatch } from '@/store/hooks'
@@ -247,6 +248,8 @@ export default function ChatPage() {
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
   const [isHostCutoutModalOpen, setIsHostCutoutModalOpen] = useState(false)
   const [isRecomposing, setIsRecomposing] = useState(false)
+  // Set only for a legacy reply that just streamed in this session (never on historical mount).
+  const [freshAutoMessageId, setFreshAutoMessageId] = useState<string | null>(null)
   const [iteratingImage, setIteratingImage] = useState<{
     url: string
     mode: 'thumbnail' | 'scene'
@@ -634,9 +637,10 @@ export default function ChatPage() {
           targetAspectRatio = '16:9'
         }
 
-        await api.editImage(threadId, {
+        const imageResult = await api.editImage(threadId, {
           prompt: messageContent,
           baseImageUrl: pinnedImage.cleanUrl || pinnedImage.url,
+          sourceImageUrl: pinnedImage.url,
           referenceImageUrls: referenceUrls,
           mode: pinnedImage.mode || (currentSkill === 'thumbnail' ? 'thumbnail' : 'scene'),
           selectedHostImage: pinnedImage.selectedHostImage,
@@ -647,7 +651,7 @@ export default function ChatPage() {
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
         if (channelId) dispatch(fetchThreads(channelId))
-        toast.success('Image edited!', { id: toastId })
+        toast.success(imageResult.runId ? 'Revision started. Follow its progress in chat.' : 'Image edited!', { id: toastId })
       } catch (err: any) {
         toast.error(err.message || 'Image edit failed', { id: toastId })
         dispatch(removeLastUserMessage())
@@ -661,14 +665,14 @@ export default function ChatPage() {
       dispatch(optimisticAddUserMessage({ threadId, content: messageContent }))
       const toastId = toast.loading('Generating image...')
       try {
-        await api.generateImageDirect(threadId, {
+        const imageResult = await api.generateImageDirect(threadId, {
           prompt: messageContent,
           videoTitle: activeThread?.videoTitle || activeThread?.title,
         })
         dispatch(clearStreaming())
         dispatch(selectThread(threadId))
         if (channelId) dispatch(fetchThreads(channelId))
-        toast.success('Image generated!', { id: toastId })
+        toast.success(imageResult.runId ? 'Your request is underway. Follow its progress in chat.' : 'Image generated!', { id: toastId })
       } catch (err: any) {
         toast.error(err.message || 'Image generation failed', { id: toastId })
         dispatch(removeLastUserMessage())
@@ -712,9 +716,12 @@ export default function ChatPage() {
         streamPrompt,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
-        (messageId, usage, updatedTitle, streamCategory, autoImages) => {
+        (messageId, usage, updatedTitle, streamCategory, autoImages, runId) => {
           streamCompleted = true
-          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle, autoImages }))
+          // Only a legacy reply that just streamed in this session may auto-generate its two images.
+          if (autoImages && !runId && messageId) setFreshAutoMessageId(messageId)
+          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle, autoImages, runId }))
+          if (runId) dispatch(selectThread(threadId))
           if (channelId) {
             dispatch(fetchThreads(channelId))
           }
@@ -849,8 +856,8 @@ export default function ChatPage() {
       if (currentSkill === 'image' && !iteratingImage && file.type.startsWith('image/') && activeThreadId) {
         try {
           const toastId = toast.loading('Uploading reference image...')
-          const result = await api.uploadFile(activeThreadId, file)
-          const attachmentUrl = result?.url || result?.metadata?.attachments?.[0]?.url
+          const result = await api.uploadReferenceAsset(activeThreadId, file)
+          const attachmentUrl = result?.url
           if (attachmentUrl) {
             setIteratingImage({ url: attachmentUrl, mode: 'scene' })
             toast.success('Image pinned for editing. Type your changes below.', { id: toastId })
@@ -1094,6 +1101,7 @@ export default function ChatPage() {
           </div>
 
           <div className="flex items-center gap-1 shrink-0">
+            {channelId && <CreativePreferencesButton channelId={channelId} />}
             {/* Focus / Fullscreen Mode toggle */}
             <Button
               variant="ghost"
@@ -1202,7 +1210,8 @@ export default function ChatPage() {
                             threadId={activeThread?.id}
                             initialScriptId={msg.metadata?.scriptId}
                             messageImages={msg.metadata?.images}
-                            autoImages={msg.metadata?.autoImages}
+                            autoImages={!msg.metadata?.runId && !!(msg.id || msg._id) && (msg.id || msg._id) === freshAutoMessageId}
+                            runId={msg.metadata?.runId}
                             onStartGenerate={(title, count = 1) => {
                               setGalleryOpen(true)
                               setGeneratingConceptText(title)
@@ -1327,7 +1336,7 @@ export default function ChatPage() {
                   { label: '🔄 Rewrite with More Tension', prompt: `Rewrite section 3 of "${activeScriptContext.title}" with more street code tension and prison psychology insights.`, skill: 'script' as const },
                   { label: '⚖️ Legal Fact-Check', prompt: `Perform a legal reality and fact-checking audit on the script "${activeScriptContext.title}".`, skill: 'general' as const },
                   { label: '🔍 10-Part SEO Package', prompt: `Generate a 10-part SEO package (Viral Titles, Thumbnail Concepts, High-CPM Keywords, YouTube Description) for "${activeScriptContext.title}".`, skill: 'seo' as const },
-                  { label: '🎨 3 Thumbnail Concepts', prompt: `Generate 3 high-CTR 16:9 thumbnail concepts with bold visual hooks for "${activeScriptContext.title}".`, skill: 'thumbnail' as const },
+                  { label: '🎨 2 Thumbnail Concepts', prompt: `Generate two expressive 16:9 thumbnail concepts and automatically generate both images with bold visual hooks for "${activeScriptContext.title}".`, skill: 'thumbnail' as const },
                   { label: '📱 3 Viral Shorts', prompt: `Extract 3 viral 45-60s Shorts concepts from "${activeScriptContext.title}" with visual hooks and captions.`, skill: 'script' as const },
                 ].map((chip, idx) => (
                   <button

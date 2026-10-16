@@ -1,3 +1,12 @@
+import { BullModule } from '@nestjs/bull';
+import { STUDIO_MODELS } from './studio/studio.schemas';
+import { StudioService } from './studio/studio.service';
+import { StudioRouter } from './studio/studio-router';
+import { StudioController } from './studio/studio.controller';
+import {
+  StudioStageProcessor,
+  StudioImageProcessor,
+} from './studio/studio.processors';
 import { Module, forwardRef } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { ChatService } from './chat.service';
@@ -5,11 +14,23 @@ import { ChatController } from './chat.controller';
 import { Thread, ThreadSchema } from '../mongo/schemas/thread.schema';
 import { Channel, ChannelSchema } from '../mongo/schemas/channel.schema';
 import { User, UserSchema } from '../mongo/schemas/user.schema';
-import { AIOutputLog, AIOutputLogSchema } from '../mongo/schemas/ai-output-log.schema';
+import {
+  AIOutputLog,
+  AIOutputLogSchema,
+} from '../mongo/schemas/ai-output-log.schema';
 import { Video, VideoSchema } from '../mongo/schemas/video.schema';
-import { TrendingTopic, TrendingTopicSchema } from '../mongo/schemas/trending-topic.schema';
-import { SeoSuggestion, SeoSuggestionSchema } from '../mongo/schemas/seo-suggestion.schema';
-import { CompetitorChannel, CompetitorChannelSchema } from '../mongo/schemas/competitor-channel.schema';
+import {
+  TrendingTopic,
+  TrendingTopicSchema,
+} from '../mongo/schemas/trending-topic.schema';
+import {
+  SeoSuggestion,
+  SeoSuggestionSchema,
+} from '../mongo/schemas/seo-suggestion.schema';
+import {
+  CompetitorChannel,
+  CompetitorChannelSchema,
+} from '../mongo/schemas/competitor-channel.schema';
 import { OpenAIModule } from '../openai/openai.module';
 import { MinioModule } from '../minio/minio.module';
 import { ChromaModule } from '../chroma/chroma.module';
@@ -24,7 +45,12 @@ import { IntentClassifierService } from './intent-classifier.service';
 
 @Module({
   imports: [
+    BullModule.registerQueue(
+      { name: 'content-stages' },
+      { name: 'content-images' },
+    ),
     MongooseModule.forFeature([
+      ...STUDIO_MODELS,
       { name: Thread.name, schema: ThreadSchema },
       { name: Channel.name, schema: ChannelSchema },
       { name: User.name, schema: UserSchema },
@@ -42,8 +68,12 @@ import { IntentClassifierService } from './intent-classifier.service';
     CompetitorsModule,
     forwardRef(() => TrendsModule),
   ],
-  controllers: [ChatController],
+  controllers: [ChatController, StudioController],
   providers: [
+    StudioService,
+    StudioRouter,
+    StudioStageProcessor,
+    StudioImageProcessor,
     ChatService,
     SkillRegistry,
     FootageIntentService,

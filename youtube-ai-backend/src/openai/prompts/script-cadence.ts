@@ -11,10 +11,10 @@ export const SPOKEN_LINE_CONTRACT = `SPOKEN LINE CONTRACT (CRITICAL — BREATHAB
 - KEEP breath blocks: 2 to 6 consecutive "> " lines share ONE gray rail group. Do NOT put an empty "> " after every sentence. Do NOT make every single sentence its own isolated gray line with a cue after it.
 - Cues ([BEAT] / [PAUSE]) go BETWEEN breath blocks on their own line — not after every sentence.
 - Inside a breath block, each "> " line must be speakable in one natural breath:
-  * Target 5–10 words per line.
-  * Hard ceiling about 12 words for normal speech lines.
+  * Target 3-7 words as a soft preference per line.
+  * Prefer a natural clause break; do not impose a fixed hard word ceiling.
   * Punch lines may be 2–5 words.
-  * One complete spoken thought per line (subject + verb). Not random fragments.
+  * A complete thought may span multiple natural short lines; do not force full sentences onto one rail.
   * If a rail holds two independent ideas, split into two "> " lines INSIDE the same breath block (no cue between them unless that thought truly ends).
   * Split stacked clauses, long "because / built by / in order to" tails, and multi-item walls into shorter rails in the same block.
 - Delivery style is DYNAMIC per section: scene, contrast, story, Q&A, lesson, courtroom translation. Use parallel openings ONLY when the section's ideas are truly parallel — never force a fixed "If he... If he..." pattern on every list.
@@ -77,7 +77,7 @@ export const BEAUTIFY_SPOKEN_RULES = `SPOKEN VOICE & LINE LENGTH (CRITICAL):
 - Write like an OG on the couch teaching the class — NOT a news recap or true-crime documentary narrator.
 - KEEP the gray blockquote rail ("> " on every spoken line).
 - KEEP breath blocks: 2–6 consecutive "> " lines as one rail group. NEVER empty "> " after every sentence. NEVER isolate every sentence with its own cue.
-- Inside each breath block, every line must be breathable: target 5–10 words, max about 12 words. One complete thought per line.
+- Inside each breath block, every line must be breathable: target 3-7 words as a soft preference, max about 12 words. A complete thought may span related lines.
 - Split long essay rails into shorter "> " lines in the SAME block. Do not turn short lines into one-word poetry.
 - Parallel structure only when the section needs it — style stays dynamic.
 - CTAs and jewels in short rails; no long "If you..., comment X" walls.

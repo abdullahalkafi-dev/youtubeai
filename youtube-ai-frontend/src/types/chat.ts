@@ -42,6 +42,11 @@ export interface Message {
     category?: string
     /** Package skill at high confidence — auto-generates 2 thumbnails in parallel. */
     autoImages?: boolean
+    runId?: string
+    episodeId?: string
+    executionVersion?: number
+    artifactIds?: string[]
+    runStatus?: string
     generatedSeo?: {
       title: string
       description: string

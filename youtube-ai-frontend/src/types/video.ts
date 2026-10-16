@@ -7,7 +7,7 @@ export interface SeoData {
   description: string
   tags: string[]
   hashtags: string[]
-  /** 3 thumbnail concepts generated with the title (package unity) */
+  /** two thumbnail concepts generated with the title (package unity) */
   suggestedThumbnails?: Array<{ text: string; description: string; colors: string }>
 }
 

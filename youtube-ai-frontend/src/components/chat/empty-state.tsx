@@ -26,7 +26,7 @@ const SUGGESTIONS: Record<ThreadCategory, Array<{ icon: string; text: string }>>
     { icon: 'Sparkles', text: 'Suggest 15 tags for my video' },
   ],
   thumbnail: [
-    { icon: 'Image', text: 'Design 3 thumbnail concepts for my video' },
+    { icon: 'Image', text: 'Design two thumbnail concepts for my video' },
     { icon: 'Image', text: 'What text should I put on my thumbnail?' },
     { icon: 'Image', text: 'Suggest color schemes for a courtroom video' },
   ],

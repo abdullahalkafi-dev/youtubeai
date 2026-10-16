@@ -90,7 +90,7 @@ export class SeoService {
       );
       const { highCtrWinners, lowCtrMisses, channelBaselineCtr } = seoPatterns;
 
-      const topVideos = highCtrWinners;
+      const topVideos = highCtrWinners.length ? highCtrWinners : seoPatterns.viewExamples || [];
 
       const channelStats = channel
         ? buildChannelContext({ name: channel.name, handle: channel.handle, subscriberCount: channel.subscriberCount, totalVideos: channel.totalVideos, totalViews: channel.totalViews, totalWatchHours: channel.totalWatchHours, estimatedRevenue: channel.estimatedRevenue })
@@ -335,8 +335,8 @@ export class SeoService {
       const { usage: _usage, ...seoData } = result;
       seoData.title = cleanTitle;
 
-      // Package unity: ship 3 thumbnail concepts matching THIS title so the
-      // creator publishes a cohesive title+thumbnail package (75/25 rule).
+      // Package unity: ship two thumbnail concepts matching THIS title so the
+      // creator publishes a cohesive title+thumbnail package (shared video promise).
       let suggestedThumbnails: Array<{
         text: string;
         description: string;

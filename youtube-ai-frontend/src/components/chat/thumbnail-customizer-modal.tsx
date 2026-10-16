@@ -172,7 +172,7 @@ export function ThumbnailCustomizerModal({
   if (!isOpen) return null
 
   const wordCount = textOverlay.trim() ? textOverlay.trim().split(/\s+/).length : 0
-  const isOptimalWordCount = wordCount >= 2 && wordCount <= 4
+  const hasHeadline = wordCount > 0
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200">
@@ -420,23 +420,23 @@ export function ThumbnailCustomizerModal({
               </label>
               <span
                 className={`text-[10px] font-bold px-2 py-0.5 rounded border ${
-                  isOptimalWordCount
+                  hasHeadline
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30'
                     : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
                 }`}
               >
-                {wordCount} {wordCount === 1 ? 'word' : 'words'} (Goal: 2-4)
+                {wordCount} {wordCount === 1 ? 'word' : 'words'}
               </span>
             </div>
             <input
               type="text"
               value={textOverlay}
               onChange={(e) => setTextOverlay(e.target.value)}
-              placeholder="2-4 bold impact words e.g. VERDICT REVEALED"
+              placeholder="Complete headline, e.g. HOW DO I TELL MY FAMILY?"
               className="w-full px-4 py-2.5 bg-gray-950 border border-gray-800 rounded-xl text-white font-bold tracking-wide focus:border-violet-500 focus:outline-none focus:ring-1 focus:ring-violet-500 text-sm"
             />
             <p className="text-[10px] text-gray-400 mt-1">
-              Keep strictly to 2-4 uppercase words placed safely away from borders for maximum click-through rate.
+              Use clear, complete wording. Line breaks and safe margins keep the headline readable.
             </p>
           </div>
         </div>

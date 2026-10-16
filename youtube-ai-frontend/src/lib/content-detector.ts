@@ -133,7 +133,7 @@ function extractTitleFromSectionBody(body: string): string {
     body.match(/^\s*(?:\*\*)?Best Title(?:\*\*)?\s*:?\s*(.+)$/im)
   if (rec?.[1]) {
     const t = stripTitleNoise(rec[1].split('\n')[0] || '')
-    if (t && !isSeoLabelLine(t)) return t.slice(0, 70)
+    if (t && !isSeoLabelLine(t)) return t
   }
   // Prefer a non-alternate line (B./C. are last resort)
   let alternateFallback = ''
@@ -142,10 +142,10 @@ function extractTitleFromSectionBody(body: string): string {
     if (!l || isSeoLabelLine(raw)) continue
     if (/^[-*#]/.test(l)) continue
     if (/^(B\.|C\.)/i.test(l)) {
-      if (!alternateFallback) alternateFallback = l.replace(/^(B\.|C\.)\s*/i, '').trim().slice(0, 70)
+      if (!alternateFallback) alternateFallback = l.replace(/^(B\.|C\.)\s*/i, '').trim()
       continue
     }
-    return l.slice(0, 70)
+    return l
   }
   return alternateFallback
 }
@@ -202,7 +202,6 @@ function parseSeoContent(content: string): SeoContent | null {
   // Skip labels like "Recommended:" / "Alternates:" — take the actual title line
   title = titleLines.find((l) => !isSeoLabelLine(l)) || titleLines[0] || ''
   title = title.replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '').trim()
-  if (title.length > 70) title = title.split('\n')[0].slice(0, 70)
 
   // Description: drop COPY BUNDLE / APPLY / THUMBNAILS bleed
   let desc = description

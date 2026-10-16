@@ -68,6 +68,14 @@ export class ChannelOwnershipGuard implements CanActivate {
       return this.checkVideoOwnership(params.videoId, userId);
     }
 
+    // Nested thread resources always inherit their actual parent ownership.
+    // A body videoId must never override a thread/run/artifact URL.
+    if (params.id && routePath.includes('/threads/')) {
+      const channelId = await this.findChannelIdFromResource(params.id, routePath);
+      if (!channelId) throw new NotFoundException('Resource not found');
+      return this.checkChannelOwnership(channelId, userId);
+    }
+
     // Mode 1d: Body-based videoId (e.g. POST /seo/generate with { videoId } in body)
     if (request.body?.videoId) {
       return this.checkVideoOwnership(request.body.videoId, userId);

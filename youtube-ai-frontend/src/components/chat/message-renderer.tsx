@@ -1,5 +1,6 @@
 'use client'
 
+import { StudioRunCard } from './studio-run-card'
 import { detectAndParse, parsePackageContent } from '@/lib/content-detector'
 import { SeoCard } from './seo-card'
 import { ThumbnailCard } from './thumbnail-card'
@@ -25,6 +26,7 @@ interface MessageRendererProps {
   messageImages?: any[]
   /** From message metadata — fires parallel auto-generation of 2 thumbnails. */
   autoImages?: boolean
+  runId?: string
   onStartGenerate?: (conceptTitle: string, count?: number) => void
   onFinishGenerate?: () => void
   onEditImage?: (
@@ -74,12 +76,15 @@ export function MessageRenderer({
   initialScriptId,
   messageImages,
   autoImages,
+  runId,
   onStartGenerate,
   onFinishGenerate,
   onEditImage,
   videoTitle,
   threadTitle,
 }: MessageRendererProps) {
+  if (runId && threadId) return <StudioRunCard threadId={threadId} runId={runId} />
+
   // During active streaming, render Markdown directly to avoid UI parsing flickers
   if (isStreaming) {
     // Strip script delimiters and trailing incomplete HTML tags like "<span" or "<div" during active stream

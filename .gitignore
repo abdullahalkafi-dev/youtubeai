@@ -53,3 +53,7 @@ yarn-error.log*
 # OS Files
 .DS_Store
 Thumbs.db
+
+# Browser test artifacts
+**/test-results/
+**/playwright-report/
