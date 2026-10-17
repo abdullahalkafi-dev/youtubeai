@@ -54,6 +54,7 @@ import {
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { TrendsService } from '../trends/trends.service';
+import { ReelContextService } from './reel-context.service';
 import { FootageIntentService } from './footage-intent.service';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
@@ -86,6 +87,8 @@ export class ChatService {
     private readonly localNewsService: LocalNewsService,
     @Optional()
     private readonly footageIntentService: FootageIntentService,
+    @Optional()
+    private readonly reelContext: ReelContextService,
     @Inject(forwardRef(() => TrendsService))
     private readonly trendsService: TrendsService,
     private readonly configService: ConfigService,
@@ -459,6 +462,12 @@ export class ChatService {
       dto.content,
       skillContext,
     );
+    // Reels Studio facts (read-only) when the question is about reels or campaigns.
+    if (this.reelContext && ReelContextService.isReelQuery(dto.content)) {
+      performanceLookup += await this.reelContext.build(
+        updatedThread.channelId.toString(),
+      );
+    }
     let dynamicContext =
       this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
       ragContext +
@@ -865,6 +874,12 @@ export class ChatService {
       dto.content,
       skillContext,
     );
+    // Reels Studio facts (read-only) when the question is about reels or campaigns.
+    if (this.reelContext && ReelContextService.isReelQuery(dto.content)) {
+      performanceLookup += await this.reelContext.build(
+        updatedThread.channelId.toString(),
+      );
+    }
     let dynamicContext =
       this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
       ragContext +
