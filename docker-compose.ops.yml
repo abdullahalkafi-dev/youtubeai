@@ -1,0 +1,25 @@
+# Developer portal backend (/developer): read-only server health and container logs.
+# Separate compose project so it never affects the main app or the reel service:
+#   docker compose -f docker-compose.ops.yml up -d --build
+name: youtubeai-ops
+
+services:
+  ops-agent:
+    build: ./ops-agent
+    image: youtubeai-ops:latest
+    environment:
+      - PORT=5003
+      - HOST_PROC=/host/proc
+      - OPS_CONTAINER_PREFIX=youtubeai-
+    env_file:
+      # JWT_SECRET (same as the main app) and OPS_ALLOWED_EMAILS (comma separated developer logins).
+      - ./ops-agent/.env.prod
+    volumes:
+      # Docker socket: the agent only issues GET requests (list, stats, logs). Never exposed publicly.
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /proc:/host/proc:ro
+    ports:
+      - '127.0.0.1:5003:5003'
+    mem_limit: 256m
+    cpus: 0.5
+    restart: always
