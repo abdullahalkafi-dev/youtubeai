@@ -52,7 +52,7 @@ const EnvSchema = z.object({
   FFMPEG_BIN: str('ffmpeg'),
   FFPROBE_BIN: str('ffprobe'),
 
-  REEL_RENDER_CONCURRENCY: int(1),
+  REEL_RENDER_CONCURRENCY: int(2),
   REEL_FFMPEG_THREADS: int(2),
   REEL_DOWNLOAD_CONCURRENCY: int(2),
   REEL_ANALYZE_CONCURRENCY: int(2),

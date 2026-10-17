@@ -9,6 +9,7 @@ import { ReelMoment, ReelMomentSchema } from './schemas/reel-moment.schema';
 import { ReelEntity, ReelEntitySchema, ReelSetting, ReelSettingSchema } from './schemas/reel-misc.schema';
 import { ReelPost, ReelPostSchema } from './schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricSchema } from './schemas/reel-post-metric.schema';
+import { ReelCampaignChat, ReelCampaignChatSchema } from './schemas/reel-campaign-chat.schema';
 import {
   SharedChannel,
   SharedChannelSchema,
@@ -30,6 +31,7 @@ const models = MongooseModule.forFeature([
   { name: ReelSetting.name, schema: ReelSettingSchema },
   { name: ReelPost.name, schema: ReelPostSchema },
   { name: ReelPostMetric.name, schema: ReelPostMetricSchema },
+  { name: ReelCampaignChat.name, schema: ReelCampaignChatSchema },
   { name: SourceVideo.name, schema: SourceVideoSchema },
   { name: SharedVideoDailyStat.name, schema: SharedVideoDailyStatSchema },
   { name: SharedChannel.name, schema: SharedChannelSchema },

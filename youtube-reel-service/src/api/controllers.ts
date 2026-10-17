@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, NotFoundException, Param, Patch, Post, Query, Req, Res, UnauthorizedException, UseGuards } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import type { Request, Response } from 'express';
@@ -8,7 +8,9 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 import { QueueService } from '../queue/queue.service';
 import { YouTubeSessionService } from '../pipeline/youtube-session.service';
 import { AuthedRequest, ReelAuthGuard } from './auth.guard';
-import { CookiesDto, CreateCampaignDto, ListReelsQuery, parse, PatchReelDto } from './dto';
+import { AnalyticsService } from '../publishing/analytics.service';
+import { CampaignChatService } from './campaign-chat.service';
+import { CampaignChatDto, CookiesDto, CreateCampaignDto, ListReelsQuery, parse, PatchReelDto } from './dto';
 import { ReelsApiService } from './reels-api.service';
 
 const uid = (req: AuthedRequest) => req.user!.id;
@@ -61,7 +63,11 @@ export class StatusController {
 @Controller('channels/:channelId')
 @UseGuards(ReelAuthGuard)
 export class CampaignsController {
-  constructor(private readonly api: ReelsApiService) {}
+  constructor(
+    private readonly api: ReelsApiService,
+    private readonly analytics: AnalyticsService,
+    private readonly chat: CampaignChatService,
+  ) {}
 
   @Post('campaigns')
   create(@Param('channelId') channelId: string, @Body() body: unknown, @Req() req: AuthedRequest) {
@@ -87,6 +93,26 @@ export class CampaignsController {
   topUp(@Param('channelId') channelId: string, @Param('campaignId') id: string, @Body() body: { count?: number } | undefined) {
     const count = Number(body?.count);
     return this.api.topUp(channelId, id, Number.isFinite(count) && count > 0 ? count : undefined);
+  }
+
+  @Get('campaigns/:campaignId/performance')
+  performance(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.analytics.campaignPerformance(channelId, id);
+  }
+
+  @Get('campaigns/:campaignId/chat')
+  chatHistory(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.chat.history(channelId, id);
+  }
+
+  @Post('campaigns/:campaignId/chat')
+  chatAsk(@Param('channelId') channelId: string, @Param('campaignId') id: string, @Body() body: unknown) {
+    return this.chat.ask(channelId, id, parse(CampaignChatDto, body).question);
+  }
+
+  @Delete('campaigns/:campaignId/chat')
+  chatClear(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.chat.clear(channelId, id);
   }
 
   @Post('campaigns/:campaignId/retry-failed')

@@ -163,6 +163,127 @@ export class AnalyticsService {
     };
   }
 
+  /** Total views per campaign (published posts only) — for the campaign list. */
+  async viewsByCampaign(campaignIds: Types.ObjectId[]): Promise<Map<string, { views: number; posts: number }>> {
+    if (!campaignIds.length) return new Map();
+    const rows = await this.posts.aggregate<{ _id: Types.ObjectId; views: number; posts: number }>([
+      { $match: { campaignId: { $in: campaignIds }, status: 'published' } },
+      { $group: { _id: '$campaignId', views: { $sum: { $ifNull: ['$latestMetrics.views', 0] } }, posts: { $sum: 1 } } },
+    ]);
+    return new Map(rows.map((r) => [String(r._id), { views: r.views, posts: r.posts }]));
+  }
+
+  /**
+   * How one campaign is doing: totals, views per platform, its reels ranked, and a plain verdict against the
+   * channel's other campaigns. The verdict compares first-day views (24h snapshot) when both sides have them,
+   * because lifetime totals favour older posts; otherwise it falls back to lifetime views per post.
+   */
+  async campaignPerformance(channelId: string, campaignId: string) {
+    if (!Types.ObjectId.isValid(campaignId)) throw new NotFoundException('Campaign not found');
+    const cid = new Types.ObjectId(channelId);
+    const campId = new Types.ObjectId(campaignId);
+    const camp = await this.reels.db.collection('reel_campaigns').findOne({ _id: campId, channelId: cid }, { projection: { name: 1 } });
+    if (!camp) throw new NotFoundException('Campaign not found');
+
+    const [posts, reelDocs, totalReels] = await Promise.all([
+      this.posts
+        .find({ campaignId: campId, status: { $in: ['published', 'scheduled', 'processing', 'removed'] } })
+        .select('reelId platform status url publishedAt latestMetrics metadata.title')
+        .lean(),
+      this.reels.find({ campaignId: campId }).select('packaging.title concept status').lean(),
+      this.reels.countDocuments({ campaignId: campId, status: { $in: ['todo', 'posted'] } }),
+    ]);
+    const published = posts.filter((p) => p.status === 'published');
+    const sum = (list: typeof posts, k: 'views' | 'likes' | 'comments') => list.reduce((n, p) => n + (p.latestMetrics?.[k] ?? 0), 0);
+
+    const platforms = [...new Set(published.map((p) => p.platform))];
+    const byPlatform = platforms
+      .map((platform) => {
+        const list = published.filter((p) => p.platform === platform);
+        return { platform, posts: list.length, views: sum(list, 'views'), likes: sum(list, 'likes'), comments: sum(list, 'comments') };
+      })
+      .sort((a, b) => b.views - a.views);
+
+    const titleById = new Map(reelDocs.map((r) => [String(r._id), r.packaging?.title || r.concept || 'Reel']));
+    const reelIds = [...new Set(published.map((p) => String(p.reelId)))];
+    const reels = reelIds
+      .map((id) => {
+        const list = published.filter((p) => String(p.reelId) === id);
+        return {
+          reelId: id,
+          title: titleById.get(id) ?? 'Reel',
+          views: sum(list, 'views'),
+          likes: sum(list, 'likes'),
+          comments: sum(list, 'comments'),
+          platforms: list.map((p) => ({ platform: p.platform, views: p.latestMetrics?.views ?? 0, url: p.url ?? null })),
+        };
+      })
+      .sort((a, b) => b.views - a.views);
+
+    const views = sum(published, 'views');
+    const comparison = await this.compareWithChannel(cid, campId, published.map((p) => p._id as Types.ObjectId), published.length ? views / published.length : 0);
+    const lastUpdated = published.reduce<Date | null>((d, p) => {
+      const at = p.latestMetrics?.capturedAt ? new Date(p.latestMetrics.capturedAt) : null;
+      return at && (!d || at > d) ? at : d;
+    }, null);
+
+    return {
+      campaignId,
+      name: String(camp.name ?? ''),
+      totals: {
+        views,
+        likes: sum(published, 'likes'),
+        comments: sum(published, 'comments'),
+        posts: published.length,
+        reelsPublished: reelIds.length,
+        reelsReady: totalReels,
+        pending: posts.filter((p) => p.status === 'scheduled' || p.status === 'processing').length,
+      },
+      avgViewsPerPost: published.length ? Math.round(views / published.length) : 0,
+      byPlatform,
+      reels,
+      comparison,
+      lastUpdated,
+    };
+  }
+
+  private async compareWithChannel(channelId: Types.ObjectId, campaignId: Types.ObjectId, ownPostIds: Types.ObjectId[], ownLifetimeAvg: number) {
+    const others = await this.posts
+      .find({ channelId, campaignId: { $ne: campaignId }, status: 'published' })
+      .select('_id campaignId latestMetrics.views')
+      .lean();
+    const otherCampaigns = new Set(others.map((p) => String(p.campaignId))).size;
+    if (!ownPostIds.length || !others.length) {
+      return { verdict: 'not_enough_data' as const, basis: null, campaignAvg: Math.round(ownLifetimeAvg), channelAvg: null, otherCampaigns };
+    }
+
+    // First-day views where both sides have a 24h snapshot.
+    const day = await this.metrics.aggregate<{ _id: Types.ObjectId; views: number }>([
+      { $match: { postId: { $in: [...ownPostIds, ...others.map((p) => p._id as Types.ObjectId)] }, checkpoint: '24h' } },
+      { $group: { _id: '$postId', views: { $max: '$views' } } },
+    ]);
+    const dayById = new Map(day.map((d) => [String(d._id), d.views]));
+    const avg = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
+    const ownDay = ownPostIds.map((id) => dayById.get(String(id))).filter((v): v is number => v !== undefined);
+    const otherDay = others.map((p) => dayById.get(String(p._id))).filter((v): v is number => v !== undefined);
+
+    let basis: 'first_day' | 'lifetime';
+    let mine: number;
+    let theirs: number;
+    if (ownDay.length && otherDay.length) {
+      basis = 'first_day';
+      mine = avg(ownDay);
+      theirs = avg(otherDay);
+    } else {
+      basis = 'lifetime';
+      mine = ownLifetimeAvg;
+      theirs = avg(others.map((p) => p.latestMetrics?.views ?? 0));
+    }
+    const ratio = theirs > 0 ? mine / theirs : mine > 0 ? 2 : 1;
+    const verdict = ratio >= 1.25 ? ('better' as const) : ratio <= 0.8 ? ('worse' as const) : ('similar' as const);
+    return { verdict, basis, campaignAvg: Math.round(mine), channelAvg: Math.round(theirs), otherCampaigns };
+  }
+
   /** Numbers over time for one post (one point per checkpoint) — for the chart. */
   async series(channelId: string, postId: string) {
     if (!Types.ObjectId.isValid(postId)) throw new NotFoundException('Post not found');

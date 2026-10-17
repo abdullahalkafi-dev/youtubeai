@@ -103,3 +103,5 @@ export const AnalyticsQuery = z.object({
   period: z.string().regex(/^(\d{1,3}d|all)$/).default('30d'),
   by: z.enum(['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign']).default('platform'),
 });
+
+export const CampaignChatDto = z.object({ question: z.string().trim().min(1).max(2000) });

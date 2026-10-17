@@ -119,6 +119,28 @@ export class AiService {
     throw new Error('unreachable');
   }
 
+  /** Plain conversational answer (markdown). Used by the campaign assistant. */
+  async chat(opts: {
+    task: string;
+    system: string;
+    messages: Array<{ role: 'user' | 'assistant'; content: string }>;
+    reasoningEffort?: string;
+    maxCompletionTokens?: number;
+  }): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
+    const started = Date.now();
+    const res = await this.client.chat.completions.create({
+      model: this.cfg.OPENAI_REEL_MODEL,
+      messages: [{ role: 'system', content: opts.system }, ...opts.messages],
+      reasoning_effort: (opts.reasoningEffort ?? 'low') as any,
+      max_completion_tokens: opts.maxCompletionTokens ?? 4000,
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    const usage = res.usage;
+    this.logger.log(`[${opts.task}] ${this.cfg.OPENAI_REEL_MODEL} ${Date.now() - started}ms in=${usage?.prompt_tokens ?? '?'} out=${usage?.completion_tokens ?? '?'}`);
+    const choice = res.choices[0];
+    if (choice?.message?.refusal) throw new Error(`Model refused (${opts.task})`);
+    return { text: choice?.message?.content ?? '', promptTokens: usage?.prompt_tokens ?? 0, completionTokens: usage?.completion_tokens ?? 0 };
+  }
+
   /** Live web research (OpenAI Responses API + web_search tool). */
   async webResearch(opts: { task: string; system: string; user: string; usage?: UsageSink }): Promise<{
     text: string;

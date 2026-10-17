@@ -21,6 +21,7 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { QueueService } from '../queue/queue.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { PublishService } from '../publishing/publish.service';
+import { AnalyticsService } from '../publishing/analytics.service';
 import { CreateCampaignInput, PatchReelInput } from './dto';
 
 const MAX_ACTIVE_CAMPAIGNS = 2;
@@ -40,6 +41,7 @@ export class ReelsApiService {
     private readonly orchestrator: OrchestratorService,
     private readonly jwt: JwtService,
     private readonly publish: PublishService,
+    private readonly analytics: AnalyticsService,
   ) {}
 
   // ------------------------------------------------------------------ media tokens
@@ -115,10 +117,11 @@ export class ReelsApiService {
       { $match: { campaignId: { $in: docs.map((d) => d._id) } } },
       { $group: { _id: { c: '$campaignId', s: '$status' }, n: { $sum: 1 } } },
     ]);
+    const views = await this.analytics.viewsByCampaign(docs.map((d) => d._id));
     return docs.map((d) => {
       const byStatus: Record<string, number> = {};
       for (const c of counts) if (String(c._id.c) === String(d._id)) byStatus[c._id.s] = c.n;
-      return this.campaignSummary(d, byStatus);
+      return { ...this.campaignSummary(d, byStatus), performance: views.get(String(d._id)) ?? { views: 0, posts: 0 } };
     });
   }
 
