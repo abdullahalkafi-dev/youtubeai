@@ -55,6 +55,8 @@ export interface CampaignSummary {
   usage: CampaignUsage
   sourceCount: number
   reelCounts: Partial<Record<ReelStatus, number>>
+  /** Published views so far (list endpoint only). */
+  performance?: { views: number; posts: number }
   error: string | null
   createdAt: string
   finishedAt: string | null

@@ -13,7 +13,7 @@ import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { CoveragePanel } from '@/components/reels/coverage-panel'
 import { AccountsBar } from '@/components/reels/accounts-bar'
 import { PerformancePanel } from '@/components/reels/performance-panel'
-import { CampaignStatusBadge, timeAgo } from '@/components/reels/reel-ui'
+import { CampaignStatusBadge, compact, timeAgo } from '@/components/reels/reel-ui'
 
 type Tab = 'campaigns' | 'library' | 'performance' | 'coverage'
 const LIBRARY_FILTERS: Array<{ id: ReelStatus | 'all'; label: string }> = [
@@ -161,6 +161,12 @@ export default function ReelsPage() {
                     <p className="text-xs text-zinc-500 mt-0.5 truncate">{c.blockedReason === 'youtube_login_required' ? 'Waiting for YouTube reconnect' : c.progress?.message}</p>
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
+                    {!!c.performance?.posts && (
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-emerald-600 dark:text-emerald-400 tabular-nums">{compact(c.performance.views)}</p>
+                        <p className="text-[10px] uppercase tracking-wider text-zinc-400">views</p>
+                      </div>
+                    )}
                     <div className="text-right">
                       <p className="text-lg font-bold text-zinc-900 dark:text-zinc-100 tabular-nums">
                         {(c.reelCounts.todo ?? 0) + (c.reelCounts.posted ?? 0)}

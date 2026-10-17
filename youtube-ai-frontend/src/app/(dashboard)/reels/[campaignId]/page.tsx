@@ -12,6 +12,8 @@ import type { CampaignDetail, Reel, ReelServiceStatus } from '@/types/reel'
 import { ReelCard } from '@/components/reels/reel-card'
 import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
+import { CampaignPerformance } from '@/components/reels/campaign-performance'
+import { CampaignChat } from '@/components/reels/campaign-chat'
 import { CampaignStatusBadge, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
 
 const STAGES: Array<{ id: string; label: string }> = [
@@ -193,6 +195,9 @@ export default function CampaignPage() {
         </p>
       </div>
 
+      {/* How it is doing (published reels) */}
+      {c.reels.some((r) => r.status === 'todo' || r.status === 'posted') && <CampaignPerformance channelId={channelId} campaignId={c.id} refreshKey={tick} />}
+
       {/* Reels */}
       {c.reels.length > 0 && (
         <section>
@@ -327,6 +332,8 @@ export default function CampaignPage() {
           ))}
         </ul>
       </section>
+
+      <CampaignChat channelId={channelId} campaignId={c.id} campaignName={c.name} />
 
       {openReel && (
         <ReelDetailModal

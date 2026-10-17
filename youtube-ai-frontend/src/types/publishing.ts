@@ -131,3 +131,26 @@ export interface SeriesPoint {
   subscribersGained: number | null
   provisional: boolean
 }
+
+export interface CampaignPerformance {
+  campaignId: string
+  name: string
+  totals: { views: number; likes: number; comments: number; posts: number; reelsPublished: number; reelsReady: number; pending: number }
+  avgViewsPerPost: number
+  byPlatform: Array<{ platform: PlatformId; posts: number; views: number; likes: number; comments: number }>
+  reels: Array<{ reelId: string; title: string; views: number; likes: number; comments: number; platforms: Array<{ platform: PlatformId; views: number; url: string | null }> }>
+  comparison: {
+    verdict: 'better' | 'similar' | 'worse' | 'not_enough_data'
+    basis: 'first_day' | 'lifetime' | null
+    campaignAvg: number
+    channelAvg: number | null
+    otherCampaigns: number
+  }
+  lastUpdated: string | null
+}
+
+export interface CampaignChatMessage {
+  role: 'user' | 'assistant'
+  content: string
+  at?: string
+}

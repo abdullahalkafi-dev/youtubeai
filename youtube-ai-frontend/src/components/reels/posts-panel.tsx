@@ -122,6 +122,8 @@ export function PostsPanel({
         </div>
       )}
 
+      {posts && <ReelTotals posts={posts} />}
+
       {posts === null ? (
         <Loader2 className="w-4 h-4 animate-spin text-amber-500" />
       ) : posts.length === 0 ? (
@@ -189,5 +191,42 @@ export function PostsPanel({
         </ul>
       )}
     </section>
+  )
+}
+
+/** Views for this reel across every platform it was published on. */
+function ReelTotals({ posts }: { posts: ReelPost[] }) {
+  const live = posts.filter((p) => p.status === 'published')
+  if (!live.length) return null
+  const measured = live.filter((p) => p.latestMetrics)
+  const sum = (k: 'views' | 'likes' | 'comments') => measured.reduce((n, p) => n + (p.latestMetrics?.[k] ?? 0), 0)
+  const byPlatform = new Map<PlatformId, { views: number; tracked: boolean }>()
+  for (const p of live) {
+    const prev = byPlatform.get(p.platform) ?? { views: 0, tracked: false }
+    byPlatform.set(p.platform, { views: prev.views + (p.latestMetrics?.views ?? 0), tracked: prev.tracked || !!p.latestMetrics })
+  }
+  return (
+    <div className="mb-3 p-3 rounded-xl bg-amber-500/5 border border-amber-500/20">
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-1">
+        <div>
+          <p className="text-[10px] uppercase tracking-wider text-zinc-500">Total views</p>
+          <p className="text-2xl font-bold tabular-nums text-amber-600 dark:text-amber-400">{measured.length ? compact(sum('views')) : '—'}</p>
+        </div>
+        <span className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300 pb-1">
+          <Heart className="w-3.5 h-3.5" /> {compact(sum('likes'))} likes
+        </span>
+        <span className="flex items-center gap-1 text-xs text-zinc-600 dark:text-zinc-300 pb-1">
+          <MessageCircle className="w-3.5 h-3.5" /> {compact(sum('comments'))} comments
+        </span>
+      </div>
+      <div className="flex flex-wrap gap-1.5 mt-2">
+        {[...byPlatform.entries()].map(([platform, v]) => (
+          <span key={platform} className="px-2 py-0.5 rounded-md bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-[11px] text-zinc-600 dark:text-zinc-300">
+            <b>{PLATFORM_LABEL[platform]}</b> {v.tracked ? `${compact(v.views)} views` : 'no numbers yet'}
+          </span>
+        ))}
+      </div>
+      {!measured.length && <p className="text-[11px] text-zinc-500 mt-1">Numbers appear about an hour after publishing.</p>}
+    </div>
   )
 }

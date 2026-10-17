@@ -4,6 +4,8 @@ import type {
   AnalyticsOverview,
   BreakdownBy,
   BreakdownRow,
+  CampaignChatMessage,
+  CampaignPerformance,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -84,6 +86,16 @@ export const reelsApi = {
     },
   ) => request<Reel>(`/channels/${channelId}/reels/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   rerender: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/reels/${id}/rerender`, { method: 'POST' }),
+
+  // ---- campaign performance & assistant ----
+  campaignPerformance: (channelId: string, campaignId: string) =>
+    request<CampaignPerformance>(`/channels/${channelId}/campaigns/${campaignId}/performance`),
+  campaignChat: (channelId: string, campaignId: string) =>
+    request<{ messages: CampaignChatMessage[] }>(`/channels/${channelId}/campaigns/${campaignId}/chat`),
+  askCampaign: (channelId: string, campaignId: string, question: string) =>
+    request<{ answer: string }>(`/channels/${channelId}/campaigns/${campaignId}/chat`, { method: 'POST', body: JSON.stringify({ question }) }),
+  clearCampaignChat: (channelId: string, campaignId: string) =>
+    request<{ ok: boolean }>(`/channels/${channelId}/campaigns/${campaignId}/chat`, { method: 'DELETE' }),
 
   // ---- publishing (manual) ----
   accounts: (channelId: string) => request<AccountsResponse>(`/channels/${channelId}/accounts`),
