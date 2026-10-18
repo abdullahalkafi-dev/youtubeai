@@ -18,6 +18,7 @@ import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
 import { ReelTemplate } from './template';
 import { TemplateStoreService } from './template-store.service';
 import { VisualsService } from './visuals.service';
+import { ThumbnailService } from './thumbnail.service';
 
 export interface RenderResult {
   file: string;
@@ -45,6 +46,7 @@ export class RendererService {
     private readonly orchestrator: OrchestratorService,
     private readonly queues: QueueService,
     private readonly visuals: VisualsService,
+    private readonly thumbnails: ThumbnailService,
   ) {}
 
   async render(reelId: string): Promise<'done' | 'deferred' | 'skipped'> {
@@ -147,6 +149,8 @@ export class RendererService {
       );
       await this.sources.updateMany({ youtubeId: { $in: ids } }, { $set: { lastUsedAt: new Date() } });
       this.logger.log(`Rendered reel ${reelId}: ${result.duration.toFixed(1)}s, ${(size / 1e6).toFixed(1)}MB, ${result.lufs ?? '?'} LUFS`);
+      // Thumbnails once per reel (kept across re-renders); never fails the render.
+      await this.thumbnails.ensure(reel, result.cover).catch((err) => this.logger.warn(`Reel ${reelId}: no thumbnails (${err.message})`));
       await this.orchestrator.onReelSettled(String(reel.campaignId));
       return 'done';
     } finally {

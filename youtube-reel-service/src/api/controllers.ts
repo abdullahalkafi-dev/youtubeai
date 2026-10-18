@@ -150,6 +150,16 @@ export class CampaignsController {
     return this.api.changeVisual(channelId, reelId, visualId, 'remove');
   }
 
+  @Post('reels/:reelId/thumbnails/regenerate')
+  regenerateThumbnails(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Req() req: AuthedRequest) {
+    return this.api.regenerateThumbnails(channelId, reelId, uid(req));
+  }
+
+  @Post('reels/:reelId/thumbnails/:thumbId/choose')
+  chooseThumbnail(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Param('thumbId') thumbId: string, @Req() req: AuthedRequest) {
+    return this.api.chooseThumbnail(channelId, reelId, thumbId, uid(req));
+  }
+
   @Get('coverage')
   coverage(@Param('channelId') channelId: string) {
     return this.api.coverage(channelId);
@@ -176,8 +186,10 @@ export class MediaController {
   @Get(':reelId/:kind')
   async serve(@Param('reelId') reelId: string, @Param('kind') kind: string, @Query('t') token: string, @Req() req: Request, @Res() res: Response) {
     if (!token || !(await this.api.verifyMediaToken(token, reelId))) throw new UnauthorizedException('Invalid media link');
-    const reel = await this.reels.findById(reelId).select('assets packaging.title index visuals').lean();
-    const key = kind.startsWith('beat-')
+    const reel = await this.reels.findById(reelId).select('assets packaging.title index visuals thumbnails').lean();
+    const key = kind.startsWith('thumb-')
+      ? reel?.thumbnails?.find((t) => `thumb-${t.id}` === kind && t.status === 'ready')?.key
+      : kind.startsWith('beat-')
       ? reel?.visuals?.find((v) => `beat-${v.id}` === kind && v.status === 'ready')?.key
       : kind === 'video' || kind === 'download'
         ? reel?.assets?.videoKey

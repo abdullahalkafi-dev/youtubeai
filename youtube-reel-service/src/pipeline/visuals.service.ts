@@ -13,7 +13,7 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 
 export const BEAT_SIZE = '1344x944'; // ≈ the 1080x760 template window, multiples of 16
 
-interface PersonRef {
+export interface PersonRef {
   name: string;
   imageUrl: string;
 }
@@ -157,7 +157,7 @@ export class VisualsService {
   }
 
   /** Real people we hold a checked photo of (main app's subject library, read-only; client uploads win). */
-  private async peopleWithPhotos(): Promise<PersonRef[]> {
+  async peopleWithPhotos(): Promise<PersonRef[]> {
     try {
       const rows = await this.reels.db
         .collection('subject_references')
@@ -171,7 +171,7 @@ export class VisualsService {
   }
 
   /** `…/api/assets/minio/<key>` (a key in the main app's bucket) → bytes, read-only. */
-  private async readPhoto(url: string): Promise<Buffer | null> {
+  async readPhoto(url: string): Promise<Buffer | null> {
     const key = url.split('?')[0].split('/api/assets/minio/')[1];
     try {
       if (key) return await this.storage.readShared(this.cfg.MAIN_MINIO_BUCKET, decodeURIComponent(key));
@@ -183,14 +183,14 @@ export class VisualsService {
   }
 }
 
-function nameTokens(name: string): string[] {
+export function nameTokens(name: string): string[] {
   return name
     .toLowerCase()
     .replace(/[^a-z0-9 ]/g, ' ')
     .split(/\s+/)
     .filter((t) => t.length >= 4 && !['lil', 'king', 'the', 'young'].includes(t));
 }
-function sameName(a: string, b: string) {
+export function sameName(a: string, b: string) {
   const ta = nameTokens(a);
   const tb = nameTokens(b);
   return a.toLowerCase() === b.toLowerCase() || ta.some((t) => tb.includes(t));

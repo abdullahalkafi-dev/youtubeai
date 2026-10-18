@@ -40,6 +40,7 @@ export class ReelPost {
   @Prop() errorCode?: string;
   @Prop() blockedUntil?: Date;
   @Prop({ default: 0 }) unitsSpent: number;
+  @Prop() thumbnailApplied?: boolean;
 
   @Prop({ type: Object }) latestMetrics?: NormalizedMetrics & { capturedAt: Date; provisional?: boolean };
   @Prop() nextMetricsAt?: Date;

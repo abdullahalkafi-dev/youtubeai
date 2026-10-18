@@ -24,6 +24,7 @@ import { OrchestratorService } from '../queue/orchestrator.service';
 import { PublishService } from '../publishing/publish.service';
 import { AnalyticsService } from '../publishing/analytics.service';
 import { VisualsService } from '../pipeline/visuals.service';
+import { ThumbnailService } from '../pipeline/thumbnail.service';
 import { CreateCampaignInput, PatchReelInput } from './dto';
 
 const MAX_ACTIVE_CAMPAIGNS = 2;
@@ -45,6 +46,7 @@ export class ReelsApiService {
     private readonly publish: PublishService,
     private readonly analytics: AnalyticsService,
     private readonly visualsSvc: VisualsService,
+    private readonly thumbs: ThumbnailService,
   ) {}
 
   // ------------------------------------------------------------------ media tokens
@@ -87,6 +89,34 @@ export class ReelsApiService {
       realPerson: !!v.realPerson,
       url: v.status === 'ready' && v.key ? `/api/reels/media/${r._id}/beat-${v.id}?t=${t}&v=${v.variant ?? 0}` : null,
     }));
+  }
+
+  private thumbnailsOut(r: any, userId: string) {
+    const list = (r.thumbnails ?? []).filter((t: any) => t.status === 'ready' && t.key);
+    if (!list.length) return [];
+    const tok = encodeURIComponent(this.mediaToken(String(r._id), userId));
+    return list.map((t: any) => ({
+      id: t.id,
+      headline: t.headline,
+      chosen: (r.thumbnailChoice ?? list[0].id) === t.id,
+      source: t.source,
+      url: `/api/reels/media/${r._id}/thumb-${t.id}?t=${tok}`,
+    }));
+  }
+
+  async regenerateThumbnails(channelId: string, reelId: string, userId: string) {
+    const r = await this.reels.findOne({ _id: reelId, channelId }).select('status').lean();
+    if (!r) throw new NotFoundException('Reel not found');
+    if (!['todo', 'posted', 'rejected'].includes(r.status)) throw new ConflictException('Thumbnails can be made once the reel has finished rendering.');
+    await this.thumbs.regenerate(reelId);
+    return this.getReel(channelId, reelId, userId);
+  }
+
+  async chooseThumbnail(channelId: string, reelId: string, thumbId: string, userId: string) {
+    const r = await this.reels.exists({ _id: reelId, channelId });
+    if (!r) throw new NotFoundException('Reel not found');
+    await this.thumbs.choose(reelId, thumbId);
+    return this.getReel(channelId, reelId, userId);
   }
 
   async changeVisual(channelId: string, reelId: string, visualId: string, action: 'replace' | 'remove') {
@@ -318,6 +348,7 @@ export class ReelsApiService {
       createdAt: r.createdAt,
       media: this.media(String(r._id), userId, ready),
       visuals: this.visualsOut(r, userId),
+      thumbnails: this.thumbnailsOut(r, userId),
       posts,
     };
   }

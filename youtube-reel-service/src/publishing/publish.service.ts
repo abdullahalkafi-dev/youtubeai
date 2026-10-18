@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ThumbnailService } from '../pipeline/thumbnail.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as fs from 'fs';
@@ -42,6 +43,7 @@ export class PublishService {
     private readonly storage: StorageService,
     private readonly queues: QueueService,
     private readonly youtube: YouTubePublisher, // injected so the adapter registers itself at startup
+    private readonly thumbnails: ThumbnailService,
   ) {}
 
   // ------------------------------------------------------------------ helpers
@@ -255,6 +257,7 @@ export class PublishService {
         },
       );
       this.logger.log(`Post ${postId}: uploaded as ${outcome.externalId}`);
+      if (post.platform === 'youtube') await this.applyThumbnail(String(post._id), channelId, String(post.reelId), outcome.externalId);
       await this.queues.publish(postId, 'verify', VERIFY_DELAYS_MS[0], 0);
     } catch (err) {
       await this.onUploadError(post, err);
@@ -412,6 +415,24 @@ export class PublishService {
     for (const p of stuck) if (!queued.has(String(p._id))) await this.queues.publish(String(p._id), 'upload');
     const verifying = await this.posts.find({ status: 'processing', updatedAt: { $lt: cutoff } }).select('_id').lean();
     for (const p of verifying) if (!queued.has(String(p._id))) await this.queues.publish(String(p._id), 'verify');
+  }
+
+  /** Send the reel's chosen thumbnail to YouTube. Failure only adds a warning to the post. */
+  private async applyThumbnail(postId: string, channelId: string, reelId: string, videoId: string) {
+    try {
+      const reel = await this.reels.findById(reelId).select('thumbnails thumbnailChoice').lean();
+      const jpeg = reel ? await this.thumbnails.chosenImage(reel) : null;
+      if (!jpeg) return;
+      const problem = await this.youtube.setThumbnail(channelId, videoId, jpeg);
+      if (problem) {
+        this.logger.warn(`Post ${postId}: thumbnail not applied (${problem})`);
+        await this.posts.updateOne({ _id: postId }, { $addToSet: { warnings: 'YouTube did not accept the custom thumbnail. You can set it in YouTube Studio (download it from the reel).' }, $set: { thumbnailApplied: false } });
+      } else {
+        await this.posts.updateOne({ _id: postId }, { $set: { thumbnailApplied: true }, $inc: { unitsSpent: 50 } });
+      }
+    } catch (err) {
+      this.logger.warn(`Post ${postId}: thumbnail step skipped (${(err as Error).message})`);
+    }
   }
 
   // ------------------------------------------------------------------ reads

@@ -110,6 +110,30 @@ export class YouTubePublisher implements Publisher, OnModuleInit {
     return value;
   }
 
+  /**
+   * Custom thumbnail for an uploaded video (thumbnails.set, 50 units from the shared pool).
+   * Returns null on success, or a short reason when YouTube refused it (the upload itself is unaffected).
+   */
+  async setThumbnail(channelId: string, videoId: string, jpeg: Buffer): Promise<string | null> {
+    const call = async (token: string) =>
+      this.fetchFn(`https://www.googleapis.com/upload/youtube/v3/thumbnails/set?videoId=${encodeURIComponent(videoId)}&uploadType=media`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg', 'Content-Length': String(jpeg.length) },
+        body: new Uint8Array(jpeg),
+        signal: AbortSignal.timeout(60_000),
+      });
+    try {
+      let res = await call(await this.tokens.getAccessToken(channelId));
+      if (res.status === 401) res = await call(await this.tokens.getAccessToken(channelId, { forceRefresh: true }));
+      if (res.ok) return null;
+      const body: any = await res.json().catch(() => ({}));
+      const reason = body?.error?.errors?.[0]?.reason ?? body?.error?.status ?? String(res.status);
+      return `${reason}: ${String(body?.error?.message ?? '').slice(0, 160)}`;
+    } catch (err: any) {
+      return err?.message ?? 'network error';
+    }
+  }
+
   /** Drop the cached status (after a failed upload or a reconnect). */
   invalidate(channelId: string) {
     this.statusCache.delete(channelId);

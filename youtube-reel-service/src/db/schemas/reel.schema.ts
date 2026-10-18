@@ -30,6 +30,18 @@ export interface ReelVisual {
   error?: string;
 }
 
+/** A finished 9:16 thumbnail variant. */
+export interface ReelThumbnail {
+  id: string;
+  key?: string;
+  headline: string;
+  subject: string | null;
+  /** photo-ref: real person from a verified photo; ai / ai-safe: AI scene; frame: a frame of the reel. */
+  source: 'photo-ref' | 'ai' | 'ai-safe' | 'frame';
+  status: 'ready' | 'failed';
+  createdAt: Date;
+}
+
 export interface ReelClip {
   youtubeId: string;
   videoId: string;
@@ -105,6 +117,9 @@ export class Reel {
   @Prop() templateEtag?: string;
   @Prop({ type: [Object], default: [] }) visuals: ReelVisual[];
   @Prop() visualsVersion?: string;
+  @Prop({ type: [Object], default: [] }) thumbnails: ReelThumbnail[];
+  @Prop() thumbnailChoice?: string;
+  @Prop() thumbnailsVersion?: string;
   /** How the render paced the reel: speed/voice and the pauses cut (reel-timeline seconds). */
   @Prop({ type: Object }) timing?: { speed: number; voice: string; cuts: Array<[number, number]>; plannedSec: number };
   @Prop({ type: Object }) qa?: { loudnessLufs?: number; width?: number; height?: number; warnings: string[] };
