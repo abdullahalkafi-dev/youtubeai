@@ -13,9 +13,10 @@ import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { CoveragePanel } from '@/components/reels/coverage-panel'
 import { AccountsBar } from '@/components/reels/accounts-bar'
 import { PerformancePanel } from '@/components/reels/performance-panel'
+import { DailyPanel } from '@/components/reels/daily-panel'
 import { CampaignStatusBadge, compact, timeAgo } from '@/components/reels/reel-ui'
 
-type Tab = 'campaigns' | 'library' | 'performance' | 'coverage'
+type Tab = 'campaigns' | 'daily' | 'library' | 'performance' | 'coverage'
 const LIBRARY_FILTERS: Array<{ id: ReelStatus | 'all'; label: string }> = [
   { id: 'todo', label: 'To-do' },
   { id: 'posted', label: 'Posted' },
@@ -121,6 +122,7 @@ export default function ReelsPage() {
         {(
           [
             ['campaigns', 'Campaigns'],
+            ['daily', 'Daily reels'],
             ['library', 'Reel library'],
             ['performance', 'Performance'],
             ['coverage', 'Coverage & insights'],
@@ -155,6 +157,8 @@ export default function ReelsPage() {
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
                       <CampaignStatusBadge status={c.status} />
+                      {c.origin === 'daily' && <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-amber-500/10 text-amber-600 dark:text-amber-400">Daily</span>}
+                      {c.origin === 'video' && <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-violet-500/10 text-violet-600 dark:text-violet-400">Your upload</span>}
                       <span className="text-[11px] text-zinc-400">{timeAgo(c.createdAt)}</span>
                     </div>
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1.5 truncate">{c.name}</p>
@@ -224,6 +228,8 @@ export default function ReelsPage() {
           )}
         </div>
       )}
+
+      {tab === 'daily' && channelId && <DailyPanel channelId={channelId} />}
 
       {tab === 'performance' && channelId && <PerformancePanel channelId={channelId} />}
 

@@ -6,6 +6,7 @@ import type {
   BreakdownRow,
   CampaignChatMessage,
   CampaignPerformance,
+  DailyOverview,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -98,6 +99,12 @@ export const reelsApi = {
     },
   ) => request<Reel>(`/channels/${channelId}/reels/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   rerender: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/reels/${id}/rerender`, { method: 'POST' }),
+  // ---- daily automatic campaign ----
+  daily: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily`),
+  setDaily: (channelId: string, enabled: boolean) =>
+    request<DailyOverview>(`/channels/${channelId}/daily`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  runDailyNow: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily/run`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
+
   // ---- raw video uploads ("From my new video") ----
   startUpload: (channelId: string, body: { fileName: string; size: number; title?: string }) =>
     request<UploadInfo>(`/channels/${channelId}/uploads`, { method: 'POST', body: JSON.stringify(body) }),

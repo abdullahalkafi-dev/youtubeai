@@ -154,3 +154,29 @@ export interface CampaignChatMessage {
   content: string
   at?: string
 }
+
+export interface DailyDay {
+  date: string
+  status: 'running' | 'started' | 'skipped' | 'failed'
+  reason: string | null
+  topic: { name: string; brief: string; why: string; signal: 'trend' | 'performance' | 'archive'; keywords: string[] } | null
+  evidence: { moments: number; videos: number } | null
+  campaignId: string | null
+  campaignStatus: string | null
+  progress: string | null
+  reelsReady: number
+  reelsPosted: number
+  views: number
+  posts: number
+  verdict: 'better' | 'similar' | 'worse' | null
+}
+
+export interface DailyOverview {
+  enabled: boolean
+  nextRunAt: string
+  timezone: string
+  today: string
+  avgViewsPerPost: number
+  bySignal: Array<{ signal: 'trend' | 'performance' | 'archive'; days: number; views: number; avgPerPost: number }>
+  days: DailyDay[]
+}
