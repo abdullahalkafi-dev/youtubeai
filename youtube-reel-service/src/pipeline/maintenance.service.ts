@@ -133,7 +133,8 @@ export class MaintenanceService {
 
     // 2) Source-video cache (LRU). Transcripts/moments/audio stay; only the large mp4 is evicted.
     const capBytes = this.cfg.REEL_SOURCE_CACHE_GB * 1024 ** 3;
-    const present = await this.sources.find({ videoPresent: true }).sort({ lastUsedAt: 1 }).select('youtubeId videoKey sizeBytes lastUsedAt').lean();
+    await this.cleanupUploads();
+    const present = await this.sources.find({ videoPresent: true, kind: { $ne: 'upload' } }).sort({ lastUsedAt: 1 }).select('youtubeId videoKey sizeBytes lastUsedAt').lean();
     let total = present.reduce((n, s) => n + (s.sizeBytes ?? 0), 0);
     if (total <= capBytes) return;
     const busy = new Set(
@@ -146,6 +147,30 @@ export class MaintenanceService {
       await this.sources.updateOne({ youtubeId: s.youtubeId }, { $set: { videoPresent: false } });
       total -= s.sizeBytes ?? 0;
       this.logger.log(`Evicted cached source ${s.youtubeId} (${((s.sizeBytes ?? 0) / 1e6).toFixed(0)}MB)`);
+    }
+  }
+
+  /** Raw uploads: delete the original 24 h after its working copy exists (7 days at most); drop uploads abandoned for 3 days. */
+  private async cleanupUploads() {
+    const uploads = this.campaigns.db.collection('reel_uploads');
+    const now = Date.now();
+    const done = await uploads.find({ status: 'uploaded', rawDeletedAt: null }).toArray();
+    for (const u of done) {
+      const src = await this.sources.findOne({ youtubeId: u.sourceId }).select('videoPresent stage').lean();
+      const age = now - new Date(u.completedAt ?? u.updatedAt).getTime();
+      const ready = !!src?.videoPresent;
+      if ((ready && age > 24 * 3600_000) || age > 7 * 24 * 3600_000) {
+        fs.rmSync(path.dirname(String(u.rawPath)), { recursive: true, force: true });
+        await uploads.updateOne({ _id: u._id }, { $set: { rawDeletedAt: new Date() } });
+        await this.sources.updateOne({ youtubeId: u.sourceId }, { $unset: { rawPath: '' } });
+        this.logger.log(`Deleted raw upload ${u._id} (${ready ? 'working copy ready' : 'expired'})`);
+      }
+    }
+    const stale = await uploads.find({ status: 'uploading', updatedAt: { $lt: new Date(now - 3 * 24 * 3600_000) } }).toArray();
+    for (const u of stale) {
+      fs.rmSync(path.dirname(String(u.rawPath)), { recursive: true, force: true });
+      await uploads.updateOne({ _id: u._id }, { $set: { status: 'expired', rawDeletedAt: new Date() } });
+      this.logger.log(`Dropped abandoned upload ${u._id}`);
     }
   }
 }

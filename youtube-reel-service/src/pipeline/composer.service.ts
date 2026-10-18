@@ -289,7 +289,7 @@ export class ComposerService {
       const pack = packs.get(c.ref);
       const ents = await this.entities.resolve(campaign.channelId, pack?.entities ?? []);
       const main = [...c.asm.clips].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-      const link = `https://youtu.be/${main.material.youtubeId}?t=${Math.floor(main.start)}`;
+      const link = await this.fullVideoLink(main.material.youtubeId, main.start);
       const scores: ReelScores = {
         hook: c.review!.hook,
         clarity: c.review!.clarity,
@@ -330,7 +330,7 @@ export class ComposerService {
           headline: pack?.headline || truncate(c.plan.concept, 34),
           title: pack?.title || truncate(c.plan.concept, 70),
           altTitles: pack?.altTitles ?? [],
-          description: `${(pack?.description || c.plan.concept).trim()}\n\nFull breakdown: ${link}`,
+          description: `${(pack?.description || c.plan.concept).trim()}\n\n${link ? `Full breakdown: ${link}` : 'Full video on the channel.'}`,
           tags: normaliseTags(pack?.tags ?? []),
           hashtags: normaliseHashtags(pack?.hashtags ?? []),
           pinnedComment: pack?.pinnedComment ?? '',
@@ -615,6 +615,13 @@ export class ComposerService {
   }
 
   /** Time ranges already used by this channel's reels within the cooldown window (ledger). */
+  /** The long video's link for the description: YouTube sources directly; uploads only once linked to their YouTube video. */
+  private async fullVideoLink(sourceId: string, start: number): Promise<string | null> {
+    if (!sourceId.startsWith('up_')) return `https://youtu.be/${sourceId}?t=${Math.floor(start)}`;
+    const s = await this.reels.db.collection('reel_sources').findOne({ youtubeId: sourceId }, { projection: { linkedYoutubeId: 1 } });
+    return s?.linkedYoutubeId ? `https://youtu.be/${s.linkedYoutubeId}?t=${Math.floor(start)}` : null;
+  }
+
   private async usedRanges(channelId: Types.ObjectId): Promise<UsedRanges> {
     const since = new Date(Date.now() - this.cfg.REEL_RANGE_COOLDOWN_DAYS * 86_400_000);
     const prior = await this.reels

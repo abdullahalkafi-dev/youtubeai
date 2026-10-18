@@ -104,4 +104,17 @@ export const AnalyticsQuery = z.object({
   by: z.enum(['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign']).default('platform'),
 });
 
+export const StartUploadDto = z.object({
+  fileName: z.string().trim().min(1).max(300),
+  size: z.number().int().positive(),
+  title: z.string().trim().max(150).optional(),
+});
+
+export const FinishUploadDto = z.object({
+  brief: z.string().trim().max(600).optional(),
+  targetReels: z.number().int().min(1).max(10).default(6),
+});
+
+export const LinkVideoDto = z.object({ youtubeId: z.string().regex(/^[A-Za-z0-9_-]{11}$/, 'Invalid YouTube video id') });
+
 export const CampaignChatDto = z.object({ question: z.string().trim().min(1).max(2000) });

@@ -63,6 +63,11 @@ export class WorkerProcessors implements OnApplicationBootstrap {
         await this.downloader.markFailed(job.data.youtubeId, `download failed: ${errMsg(err)}`);
       }),
     );
+    q.ingest.process(1, (job: Bull.Job<DownloadJob>) =>
+      this.guard(job, async () => this.downloader.download(job.data.youtubeId), async (err) => {
+        await this.downloader.markFailed(job.data.youtubeId, `preparing the uploaded video failed: ${errMsg(err)}`);
+      }),
+    );
     q.analyze.process(c.REEL_ANALYZE_CONCURRENCY, (job: Bull.Job<AnalyzeJob>) =>
       this.guard(job, async () => this.analyzer.analyze(job.data.youtubeId), async (err) => {
         await this.sources.updateOne({ youtubeId: job.data.youtubeId }, { $set: { stage: 'failed', error: `analysis failed: ${errMsg(err)}` } });

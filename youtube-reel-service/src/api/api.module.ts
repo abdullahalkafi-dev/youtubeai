@@ -6,10 +6,12 @@ import { CampaignsController, HealthController, MediaController, StatusControlle
 import { PublishingController } from './publishing.controller';
 import { CampaignChatService } from './campaign-chat.service';
 import { ReelsApiService } from './reels-api.service';
+import { UploadsController } from './uploads.controller';
+import { UploadsService } from './uploads.service';
 
 @Module({
   imports: [CoreModule, JwtModule.register({})],
-  controllers: [HealthController, StatusController, CampaignsController, PublishingController, MediaController],
-  providers: [ReelsApiService, CampaignChatService, ReelAuthGuard],
+  controllers: [HealthController, StatusController, CampaignsController, PublishingController, UploadsController, MediaController],
+  providers: [ReelsApiService, CampaignChatService, UploadsService, ReelAuthGuard],
 })
 export class ApiModule {}

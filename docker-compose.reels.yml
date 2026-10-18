@@ -19,6 +19,9 @@ services:
       - ./youtube-reel-service/.env.prod
     ports:
       - '127.0.0.1:5002:5002'
+    # Receives raw video uploads (written straight to the shared work volume).
+    volumes:
+      - reel_work:/work
     mem_limit: 768m
     cpus: 0.75
     pids_limit: 256

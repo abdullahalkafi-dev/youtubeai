@@ -59,7 +59,9 @@ export class AnalyzerService {
         await this.queues.download(youtubeId);
         return 'skipped';
       }
-      const video = await this.videos.findOne({ youtubeId }).select('title publishedAt viewCount duration durationSeconds channelId').lean();
+      const video =
+        (await this.videos.findOne({ youtubeId }).select('title publishedAt viewCount duration durationSeconds channelId').lean()) ??
+        (src.kind === 'upload' ? ({ _id: src.videoId, title: src.title, viewCount: 0, durationSeconds: src.durationSec, channelId: src.channelId } as any) : null);
       const usage = await this.usageForSource(youtubeId);
 
       if (!src.transcriptReady || !(await this.transcripts.exists({ youtubeId }))) {

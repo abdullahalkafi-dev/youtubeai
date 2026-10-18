@@ -17,6 +17,12 @@ export type SourceStage = (typeof SOURCE_STAGES)[number];
 @Schema({ timestamps: true, collection: 'reel_sources' })
 export class ReelSource {
   @Prop({ required: true, unique: true }) youtubeId: string;
+  /** youtube: a catalog video (re-downloadable); upload: a raw file the client sent (never evicted). */
+  @Prop({ type: String, enum: ['youtube', 'upload'], default: 'youtube' }) kind: 'youtube' | 'upload';
+  /** Uploads only: where the raw original sits until it is cleaned up. */
+  @Prop() rawPath?: string;
+  /** Uploads only: the YouTube video this upload became, once the client links it. */
+  @Prop() linkedYoutubeId?: string;
   @Prop({ type: MongooseSchema.Types.ObjectId }) videoId?: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.ObjectId, index: true }) channelId?: Types.ObjectId;
   @Prop() title?: string;

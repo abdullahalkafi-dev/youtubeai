@@ -47,7 +47,7 @@ export class CampaignRunnerService {
   private async stepSource(campaignId: string) {
     const c = await this.campaigns.findOne({ _id: campaignId, status: 'sourcing' });
     if (!c) return;
-    const refs = await this.sourcing.select(c, c.research as ResearchResult);
+    const refs = c.origin === 'video' && c.settings.uploadSourceId ? await this.uploadRefs(c.settings.uploadSourceId) : await this.sourcing.select(c, c.research as ResearchResult);
     await this.campaigns.updateOne({ _id: c._id }, { $set: { sources: refs } });
     const reused = refs.filter((r) => r.fromBank).length;
     const moved = await this.orchestrator.transition(
@@ -66,6 +66,23 @@ export class CampaignRunnerService {
     if (!c) return;
     const n = await this.composer.compose(campaignId, { topUp });
     this.logger.log(`Campaign ${campaignId}: ${n} reels queued for render`);
+  }
+
+  private async uploadRefs(sourceId: string): Promise<CampaignSourceRef[]> {
+    const s = await this.sources.findOne({ youtubeId: sourceId }).lean();
+    if (!s) throw new Error('The uploaded video is missing');
+    return [
+      {
+        youtubeId: s.youtubeId,
+        videoId: String(s.videoId),
+        title: s.title ?? 'Your new video',
+        viewCount: 0,
+        durationSec: s.durationSec ?? 0,
+        reason: 'Your uploaded video',
+        fromBank: s.stage === 'ready',
+        status: 'pending',
+      },
+    ];
   }
 
   /** Make sure a source video is moving through download → analyze (idempotent). */

@@ -3,7 +3,7 @@ import Bull from 'bull';
 import { AppConfig, CONFIG } from '../config/config';
 
 /** All reel queues live under their own Redis prefix ("reels") so they never touch the main app's queues. */
-export const QUEUES = ['campaign', 'download', 'analyze', 'render', 'publish', 'maintenance'] as const;
+export const QUEUES = ['campaign', 'download', 'ingest', 'analyze', 'render', 'publish', 'maintenance'] as const;
 export type QueueName = (typeof QUEUES)[number];
 
 export type CampaignStep = 'research' | 'source' | 'compose' | 'topup';
@@ -69,6 +69,7 @@ export class QueueService implements OnModuleDestroy {
   }
 
   download(youtubeId: string, delayMs = 0) {
+    if (youtubeId.startsWith('up_')) return this.q.ingest.add({ youtubeId } satisfies DownloadJob, { delay: delayMs, attempts: 2, backoff: { type: 'fixed', delay: 60_000 } });
     return this.q.download.add({ youtubeId } satisfies DownloadJob, { delay: delayMs, attempts: 3, backoff: { type: 'exponential', delay: 60_000 } });
   }
 

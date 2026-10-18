@@ -54,6 +54,7 @@ export class DownloaderService {
         await this.afterVideoPresent(src);
         return 'skipped';
       }
+      if (src.kind === 'upload') return await this.prepareUpload(src);
 
       const session = await this.session.state();
       if (session.status === 'needs_login') {
@@ -165,6 +166,40 @@ export class DownloaderService {
     );
     this.logger.log(`Ingested ${youtubeId}: ${meta.width}x${meta.height}, ${Math.round(meta.duration)}s, ${(meta.size / 1e6).toFixed(0)}MB`);
     if (updated) await this.afterVideoPresent(updated);
+  }
+
+  /**
+   * Raw upload → 1080p H.264 working copy (niced) → the normal ingest (audio for STT, MinIO, analysis).
+   * The raw file stays until the hourly cleanup removes it (24 h after the working copy exists).
+   */
+  private async prepareUpload(src: ReelSourceDocument): Promise<DownloadOutcome> {
+    const youtubeId = src.youtubeId;
+    if (!src.rawPath || !fs.existsSync(src.rawPath)) {
+      await this.markFailed(youtubeId, 'unavailable: the uploaded file is no longer on the server — please upload the video again');
+      return 'done';
+    }
+    const analysisDone = src.transcriptReady && src.minedVersion === MINING_VERSION;
+    if (!analysisDone) await this.sources.updateOne({ youtubeId }, { $set: { stage: 'downloading', error: null }, $inc: { attempts: 1 } });
+    const meta = await probeMedia(this.cfg.FFPROBE_BIN, src.rawPath).catch(() => null);
+    if (!meta?.hasVideo || !meta.hasAudio) {
+      await this.markFailed(youtubeId, 'unavailable: the uploaded file has no playable video or no sound');
+      return 'done';
+    }
+    const dir = jobDir(this.cfg.REEL_WORK_DIR, 'ingest', youtubeId);
+    try {
+      const proxy = path.join(dir, 'proxy.mp4');
+      const scale = meta.height > 1080 ? ['-vf', 'scale=-2:1080:flags=lanczos'] : [];
+      await run(
+        this.cfg.FFMPEG_BIN,
+        ['-hide_banner', '-nostats', '-y', '-i', src.rawPath, ...scale, '-map', '0:v:0', '-map', '0:a:0', '-c:v', 'libx264', '-preset', 'veryfast', '-crf', '20', '-pix_fmt', 'yuv420p',
+          '-c:a', 'aac', '-b:a', '160k', '-ar', '48000', '-movflags', '+faststart', '-threads', String(Math.max(2, this.cfg.REEL_FFMPEG_THREADS)), proxy],
+        { timeoutMs: 8 * 3600_000, lowPriority: true },
+      );
+      await this.ingest(youtubeId, proxy, dir, analysisDone);
+      return 'done';
+    } finally {
+      removeDir(dir);
+    }
   }
 
   async markFailed(youtubeId: string, error: string) {

@@ -23,6 +23,8 @@ export interface CampaignSettings {
   allowCrossVideo: boolean;
   templateName: string;
   seedVideoIds: string[]; // youtube ids the user explicitly wants used
+  /** origin 'video': the uploaded source this campaign is built from. */
+  uploadSourceId?: string;
 }
 
 export interface CandidateLedgerEntry {
@@ -59,6 +61,10 @@ export class ReelCampaign {
   @Prop({ type: MongooseSchema.Types.ObjectId, required: true }) userId: Types.ObjectId;
   @Prop({ required: true }) name: string;
   @Prop({ required: true }) brief: string;
+  /** manual: client typed a topic; video: from an uploaded raw video; daily: the nightly automatic campaign. */
+  @Prop({ type: String, enum: ['manual', 'video', 'daily'], default: 'manual', index: true }) origin: 'manual' | 'video' | 'daily';
+  /** Daily campaigns: the New York date they belong to (YYYY-MM-DD). */
+  @Prop({ index: true }) dailyDate?: string;
   @Prop({ type: String, enum: CAMPAIGN_STATUSES, default: 'queued', index: true }) status: CampaignStatus;
   @Prop({ type: Object, required: true }) settings: CampaignSettings;
 

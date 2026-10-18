@@ -25,6 +25,7 @@ import { PublishService } from '../publishing/publish.service';
 import { AnalyticsService } from '../publishing/analytics.service';
 import { VisualsService } from '../pipeline/visuals.service';
 import { ThumbnailService } from '../pipeline/thumbnail.service';
+import { UploadsService } from './uploads.service';
 import { CreateCampaignInput, PatchReelInput } from './dto';
 
 const MAX_ACTIVE_CAMPAIGNS = 2;
@@ -47,6 +48,7 @@ export class ReelsApiService {
     private readonly analytics: AnalyticsService,
     private readonly visualsSvc: VisualsService,
     private readonly thumbs: ThumbnailService,
+    private readonly uploads: UploadsService,
   ) {}
 
   // ------------------------------------------------------------------ media tokens
@@ -142,7 +144,7 @@ export class ReelsApiService {
     if (dto.targetReels > this.cfg.REEL_MAX_REELS_PER_CAMPAIGN) {
       throw new BadRequestException(`Max ${this.cfg.REEL_MAX_REELS_PER_CAMPAIGN} reels per campaign`);
     }
-    const active = await this.campaigns.countDocuments({ channelId, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
+    const active = await this.campaigns.countDocuments({ channelId, origin: { $in: ['manual', null] }, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
     if (active >= MAX_ACTIVE_CAMPAIGNS) {
       throw new HttpException(`${active} campaigns are already running. Wait for one to finish.`, HttpStatus.TOO_MANY_REQUESTS);
     }
@@ -171,6 +173,70 @@ export class ReelsApiService {
     return this.campaignSummary(campaign.toObject(), {});
   }
 
+  /** Upload finished → a campaign built only from that video. Not limited by the running-campaign cap. */
+  async createVideoCampaign(channelId: string, userId: string, uploadId: string, opts: { brief?: string; targetReels: number }) {
+    if (!this.cfg.REELS_ENABLED) throw new ServiceUnavailableException('Reel generation is turned off');
+    const up = await this.uploads.complete(channelId, uploadId);
+    if (up.campaignId) {
+      const existing = await this.campaigns.findById(up.campaignId).lean();
+      if (existing) return this.campaignSummary(existing, {});
+    }
+    const target = Math.min(opts.targetReels, this.cfg.REEL_MAX_REELS_PER_CAMPAIGN);
+    const brief = opts.brief?.trim() || `Reels from my new video "${up.title}"`;
+    const campaign = await this.campaigns.create({
+      channelId: new Types.ObjectId(channelId),
+      userId: new Types.ObjectId(userId),
+      origin: 'video',
+      name: truncate(up.title, 80),
+      brief,
+      status: 'queued',
+      settings: { targetReels: target, minSec: 30, maxSec: 60, allowCrossVideo: false, templateName: 'default', seedVideoIds: [], uploadSourceId: up.sourceId },
+      progress: { stage: 'queued', message: 'Preparing your uploaded video' },
+      log: [{ at: new Date(), level: 'info', msg: `Campaign created from upload "${up.fileName}"` }],
+    });
+    await this.uploads.attachCampaign(up._id, campaign._id);
+    await this.queues.campaign('research', String(campaign._id));
+    return this.campaignSummary(campaign.toObject(), {});
+  }
+
+  /** Recent channel videos that could be the published version of an uploaded video (best match first). */
+  async linkCandidates(channelId: string, campaignId: string) {
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId }).select('settings createdAt').lean();
+    if (!c?.settings?.uploadSourceId) throw new NotFoundException('This campaign is not from an uploaded video');
+    const src = await this.sources.findOne({ youtubeId: c.settings.uploadSourceId }).select('durationSec title linkedYoutubeId').lean();
+    const since = new Date(new Date(c.createdAt as Date).getTime() - 2 * 86_400_000);
+    const vids = await this.videos
+      .find({ channelId: new Types.ObjectId(channelId), publishedAt: { $gte: since }, deletedFromYoutube: { $ne: true } })
+      .sort({ publishedAt: -1 })
+      .limit(15)
+      .select('youtubeId title publishedAt durationSeconds')
+      .lean();
+    const dur = src?.durationSec ?? 0;
+    return {
+      linked: src?.linkedYoutubeId ?? null,
+      candidates: vids
+        .map((v: any) => ({ youtubeId: v.youtubeId, title: v.title, publishedAt: v.publishedAt, durationSec: v.durationSeconds ?? null, likely: !!dur && !!v.durationSeconds && Math.abs(v.durationSeconds - dur) <= 3 }))
+        .sort((a, b) => Number(b.likely) - Number(a.likely)),
+    };
+  }
+
+  /** Link the uploaded video to its published YouTube video: reels not yet posted get the "Full breakdown" link. */
+  async linkVideo(channelId: string, campaignId: string, youtubeId: string) {
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId }).select('settings').lean();
+    if (!c?.settings?.uploadSourceId) throw new NotFoundException('This campaign is not from an uploaded video');
+    const owned = await this.videos.exists({ channelId: new Types.ObjectId(channelId), youtubeId });
+    if (!owned) throw new BadRequestException('That video is not on this channel');
+    await this.sources.updateOne({ youtubeId: c.settings.uploadSourceId }, { $set: { linkedYoutubeId: youtubeId } });
+    const reels = await this.reels.find({ campaignId, status: { $in: ['queued', 'rendering', 'todo', 'failed'] } }).select('clips packaging.description').lean();
+    for (const r of reels) {
+      const main = [...r.clips].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
+      const line = `Full breakdown: https://youtu.be/${youtubeId}?t=${Math.floor(main?.start ?? 0)}`;
+      const desc = (r.packaging?.description ?? '').replace(/\n\n(Full video on the channel\.|Full breakdown: \S+)\s*$/, '');
+      await this.reels.updateOne({ _id: r._id }, { $set: { 'packaging.description': `${desc}\n\n${line}` } });
+    }
+    return { ok: true, updated: reels.length };
+  }
+
   async listCampaigns(channelId: string, limit = 30) {
     const docs = await this.campaigns
       .find({ channelId })
@@ -193,6 +259,8 @@ export class ReelsApiService {
   private campaignSummary(d: any, reelCounts: Record<string, number>) {
     return {
       id: String(d._id),
+      origin: d.origin ?? 'manual',
+      dailyDate: d.dailyDate ?? null,
       name: d.name,
       brief: d.brief,
       status: d.status,
@@ -333,7 +401,7 @@ export class ReelsApiService {
         start: c.start,
         end: c.end,
         text: c.text,
-        sourceUrl: `https://youtu.be/${c.youtubeId}?t=${Math.floor(c.start)}`,
+        sourceUrl: c.youtubeId.startsWith('up_') ? null : `https://youtu.be/${c.youtubeId}?t=${Math.floor(c.start)}`,
       })),
       scores: r.scores,
       critique: r.critique,
