@@ -86,6 +86,8 @@ export const reelsApi = {
     },
   ) => request<Reel>(`/channels/${channelId}/reels/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   rerender: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/reels/${id}/rerender`, { method: 'POST' }),
+  changeVisual: (channelId: string, reelId: string, visualId: string, action: 'replace' | 'remove') =>
+    request<{ ok: boolean }>(`/channels/${channelId}/reels/${reelId}/visuals/${visualId}/${action}`, { method: 'POST' }),
 
   // ---- campaign performance & assistant ----
   campaignPerformance: (channelId: string, campaignId: string) =>

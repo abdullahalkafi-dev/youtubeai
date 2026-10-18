@@ -1,5 +1,15 @@
 import type { PostSummary } from './publishing'
 
+export interface ReelVisual {
+  id: string
+  at: number
+  duration: number
+  purpose: string
+  status: 'pending' | 'ready' | 'failed'
+  realPerson: boolean
+  url: string | null
+}
+
 export type CampaignStatus =
   | 'queued'
   | 'researching'
@@ -168,6 +178,8 @@ export interface Reel {
   media: { video: string; cover: string; download: string; srt: string } | null
   needsRerender?: boolean
   posts?: PostSummary[]
+  /** AI images shown during the reel (times are in the finished video). */
+  visuals?: ReelVisual[]
 }
 
 export interface ReelServiceStatus {
