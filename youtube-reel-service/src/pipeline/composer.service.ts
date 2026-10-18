@@ -45,6 +45,9 @@ interface Candidate {
 type UsedRanges = Map<string, Array<[number, number]>>;
 
 const MIN_KEEP = 70;
+/** Daily campaigns: always make something — a lower bar (structure and safety checks unchanged) and a 30-day reuse cooldown. */
+const MIN_KEEP_DAILY = 60;
+const DAILY_COOLDOWN_DAYS = 30;
 const MAX_ROUNDS = 3;
 
 @Injectable()
@@ -118,8 +121,9 @@ export class ComposerService {
     if (!materials.size) throw new FatalJobError('No analyzed source material available');
 
     // ---------- 2. Every usable moment, ranked by relevance to the brief ----------
-    const used = await this.usedRanges(campaign.channelId);
-    const cooldownMs = this.cfg.REEL_RANGE_COOLDOWN_DAYS * 86_400_000;
+    const cooldownDays = this.cooldownDays(campaign);
+    const used = await this.usedRanges(campaign.channelId, cooldownDays);
+    const cooldownMs = cooldownDays * 86_400_000;
     const all = await this.moments
       .find({ youtubeId: { $in: [...keyByYt.keys()] }, promptVersion: MINING_VERSION, status: { $ne: 'retired' } })
       .select('+embedding')
@@ -154,7 +158,8 @@ export class ComposerService {
 
       const remaining = need - finals.length;
       const pool = scored.filter((x) => !shown.has(String(x.m._id)) && this.freeOfUsed(x.m, used));
-      if (pool.length < 3) {
+      // A single uploaded video may only hold a handful of moments; topic campaigns need a real choice.
+      if (pool.length < (campaign.origin === 'video' ? 1 : 3)) {
         await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: no unseen moments left to review`, false);
         break;
       }
@@ -215,7 +220,7 @@ export class ComposerService {
       // ---- critic, then one revision pass for fixable ideas ----
       await this.critique(campaign, cands.filter((c) => c.asm.ok), usage);
       const material = this.materialText(materials, momentRefs, keyByYt, used);
-      const toRevise = cands.filter((c) => !c.asm.ok || c.review?.verdict === 'revise' || (c.review && c.review.verdict === 'keep' && !passesBar(c.review, MIN_KEEP)));
+      const toRevise = cands.filter((c) => !c.asm.ok || c.review?.verdict === 'revise' || (c.review && c.review.verdict === 'keep' && !passesBar(c.review, this.keepBar(campaign))));
       if (toRevise.length) {
         await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: revising ${toRevise.length} reels`);
         try {
@@ -484,7 +489,7 @@ export class ComposerService {
     };
 
     const reviewed = cands.filter((c) => c.asm.ok && c.review && c.review.verdict !== 'drop');
-    let pool = reviewed.filter((c) => passesBar(c.review!, MIN_KEEP));
+    let pool = reviewed.filter((c) => passesBar(c.review!, this.keepBar(campaign)));
     if (!chosen.length && pool.length < Math.min(2, need)) {
       // Borderline tier — only to avoid an empty campaign, never below a solid floor.
       const borderline = reviewed.filter(
@@ -622,8 +627,16 @@ export class ComposerService {
     return s?.linkedYoutubeId ? `https://youtu.be/${s.linkedYoutubeId}?t=${Math.floor(start)}` : null;
   }
 
-  private async usedRanges(channelId: Types.ObjectId): Promise<UsedRanges> {
-    const since = new Date(Date.now() - this.cfg.REEL_RANGE_COOLDOWN_DAYS * 86_400_000);
+  private keepBar(campaign: { origin?: string }) {
+    return campaign.origin === 'daily' ? MIN_KEEP_DAILY : MIN_KEEP;
+  }
+
+  private cooldownDays(campaign: { origin?: string }) {
+    return campaign.origin === 'daily' ? Math.min(DAILY_COOLDOWN_DAYS, this.cfg.REEL_RANGE_COOLDOWN_DAYS) : this.cfg.REEL_RANGE_COOLDOWN_DAYS;
+  }
+
+  private async usedRanges(channelId: Types.ObjectId, days: number): Promise<UsedRanges> {
+    const since = new Date(Date.now() - days * 86_400_000);
     const prior = await this.reels
       .find({ channelId, status: { $in: ['queued', 'rendering', 'todo', 'posted'] }, createdAt: { $gte: since } })
       .select('clips.youtubeId clips.start clips.end')

@@ -95,6 +95,9 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     await q.maintenance.add({ task: 'cookie-health' } satisfies MaintenanceJob, { repeat: { every: 6 * 3600_000 }, jobId: 'cookie-health', attempts: 1 });
     await q.maintenance.add({ task: 'cleanup' } satisfies MaintenanceJob, { repeat: { every: 3600_000 }, jobId: 'cleanup', attempts: 1 });
     await q.maintenance.add({ task: 'metrics' } satisfies MaintenanceJob, { repeat: { every: 30 * 60_000 }, jobId: 'metrics', attempts: 1 });
+    // Daily automatic campaign: 4:00 AM New York, with a 6:00 AM retry for a failed day (runs are idempotent per NY date).
+    await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 4 * * *', tz: 'America/New_York' }, jobId: 'daily', attempts: 1 });
+    await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 6 * * *', tz: 'America/New_York' }, jobId: 'daily-retry', attempts: 1 });
 
     for (const name of Object.keys(q) as Array<keyof typeof q>) {
       q[name].on('error', (err) => this.logger.error(`[queue ${name}] ${err.message}`));

@@ -117,4 +117,6 @@ export const FinishUploadDto = z.object({
 
 export const LinkVideoDto = z.object({ youtubeId: z.string().regex(/^[A-Za-z0-9_-]{11}$/, 'Invalid YouTube video id') });
 
+export const DailySettingsDto = z.object({ enabled: z.boolean() });
+
 export const CampaignChatDto = z.object({ question: z.string().trim().min(1).max(2000) });

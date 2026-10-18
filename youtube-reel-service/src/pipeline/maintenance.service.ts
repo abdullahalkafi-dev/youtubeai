@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { DailyService } from './daily.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as fs from 'fs';
@@ -37,9 +38,11 @@ export class MaintenanceService {
     private readonly session: YouTubeSessionService,
     private readonly publishing: PublishService,
     private readonly metrics: MetricsService,
+    private readonly daily: DailyService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily') {
+    if (task === 'daily') return this.daily.runScheduled();
     if (task === 'recover') return this.recover();
     if (task === 'metrics') return this.metrics.collectDue();
     if (task === 'cookie-health') return this.cookieHealth();
