@@ -12,6 +12,8 @@ export interface UsageDelta {
   sttSeconds?: number;
   embedTokens?: number;
   calls?: number;
+  /** AI images generated (reel visuals, thumbnails). */
+  images?: number;
 }
 export type UsageSink = (delta: UsageDelta) => Promise<void> | void;
 

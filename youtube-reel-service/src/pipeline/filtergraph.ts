@@ -7,6 +7,13 @@ export interface RenderClipInput {
   duration: number;
 }
 
+/** An AI image shown inside the video window from `start` to `end` (output seconds). */
+export interface RenderImageInput {
+  file: string;
+  start: number;
+  end: number;
+}
+
 export interface LoudnessMeasure {
   input_i: string;
   input_tp: string;
@@ -40,13 +47,24 @@ function audioChain(i: number, d: number): string {
   );
 }
 
-/** Pass 1: audio only, measure integrated loudness of the concatenated clips. */
-export function loudnessMeasureGraph(clips: RenderClipInput[]): string {
+/** Audio speed-up: chipmunk raises the pitch with the speed, natural keeps it. */
+export function paceAudio(speed: number, voice: 'chipmunk' | 'natural'): string {
+  if (!speed || Math.abs(speed - 1) < 1e-3) return '';
+  return voice === 'chipmunk' ? `asetrate=${Math.round(48000 * speed)},aresample=48000,` : `atempo=${speed.toFixed(4)},`;
+}
+
+/** Pass 1: audio only, measure integrated loudness of the concatenated (and sped-up) clips. */
+export function loudnessMeasureGraph(clips: RenderClipInput[], pace: { speed: number; voice: 'chipmunk' | 'natural' } = { speed: 1, voice: 'natural' }): string {
   const parts = clips.map((c, i) => audioChain(i, c.duration));
   const concatIn = clips.map((_, i) => `[a${i}]`).join('');
   parts.push(`${concatIn}concat=n=${clips.length}:v=0:a=1[ac]`);
-  parts.push(`[ac]loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:print_format=json[aout]`);
+  parts.push(`[ac]${paceAudio(pace.speed, pace.voice)}loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:print_format=json[aout]`);
   return parts.join(';');
+}
+
+/** Input args for still images (one per AI image beat), looped for their on-screen time. */
+export function imageInputArgs(images: RenderImageInput[]): string[] {
+  return images.flatMap((im) => ['-loop', '1', '-framerate', '30', '-t', n(im.end - im.start + 0.05), '-i', im.file]);
 }
 
 /**
@@ -63,10 +81,16 @@ export function renderGraph(input: {
   assFile: string;
   fontsDir: string;
   measured: LoudnessMeasure | null;
+  /** Output duration (after pace). */
   totalDuration: number;
+  speed?: number;
+  voice?: 'chipmunk' | 'natural';
+  /** AI images; their inputs follow the canvas input. */
+  images?: RenderImageInput[];
 }): string {
   const { template: t, clips } = input;
   const { w, h, x, y } = t.window;
+  const speed = input.speed && input.speed > 0 ? input.speed : 1;
   const parts: string[] = [];
   clips.forEach((c, i) => {
     parts.push(
@@ -76,10 +100,35 @@ export function renderGraph(input: {
     parts.push(audioChain(i, c.duration));
   });
   const concatIn = clips.map((_, i) => `[v${i}][a${i}]`).join('');
-  parts.push(`${concatIn}concat=n=${clips.length}:v=1:a=1[vc][ac]`);
+  parts.push(`${concatIn}concat=n=${clips.length}:v=1:a=1[vc0][ac0]`);
+  if (Math.abs(speed - 1) < 1e-3) {
+    parts.push('[vc0]null[vc]', '[ac0]anull[ac]');
+  } else {
+    parts.push(`[vc0]setpts=PTS/${speed.toFixed(4)},fps=30[vc]`);
+    parts.push(`[ac0]${paceAudio(speed, input.voice ?? 'natural').replace(/,$/, '')}[ac]`);
+  }
   parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(input.totalDuration + 0.5)}[bg]`);
   parts.push(`[bg][vc]overlay=x=${x}:y=${y}:shortest=1[b1]`);
-  parts.push(`[b1][${input.canvasInputIndex}:v]overlay=x=0:y=0:format=auto[b2]`);
+
+  // AI images: cover the window, slow pan, short fades; under the canvas and captions.
+  let cur = 'b1';
+  (input.images ?? []).forEach((im, j) => {
+    const idx = input.canvasInputIndex + 1 + j;
+    const d = Math.max(0.3, im.end - im.start);
+    const fade = Math.min(0.15, d / 4);
+    const sw = Math.ceil((w * 1.12) / 2) * 2;
+    const sh = Math.ceil((h * 1.12) / 2) * 2;
+    parts.push(
+      `[${idx}:v]scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos,` +
+        `crop=${w}:${h}:x='(iw-ow)*min(1,t/${n(d)})':y='(ih-oh)/2',setsar=1,format=yuva420p,` +
+        `fade=t=in:st=0:d=${n(fade)}:alpha=1,fade=t=out:st=${n(d - fade)}:d=${n(fade)}:alpha=1,` +
+        `setpts=PTS-STARTPTS+${n(im.start)}/TB[im${j}]`,
+    );
+    parts.push(`[${cur}][im${j}]overlay=x=${x}:y=${y}:eof_action=pass:enable='between(t,${n(im.start)},${n(im.end)})'[bi${j}]`);
+    cur = `bi${j}`;
+  });
+
+  parts.push(`[${cur}][${input.canvasInputIndex}:v]overlay=x=0:y=0:format=auto[b2]`);
   parts.push(`[b2]ass=${input.assFile}:fontsdir=${input.fontsDir},format=yuv420p[vout]`);
   const ln = input.measured
     ? `loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:measured_I=${input.measured.input_i}:measured_TP=${input.measured.input_tp}` +

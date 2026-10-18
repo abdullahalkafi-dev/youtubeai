@@ -12,10 +12,12 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { buildAss, buildSrt } from './captions';
-import { clipInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, renderGraph } from './filtergraph';
+import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, RenderImageInput, renderGraph } from './filtergraph';
+import { buildTimeline, mapWords, NO_PACE, PaceOptions, Timeline } from './timeline';
 import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
 import { ReelTemplate } from './template';
 import { TemplateStoreService } from './template-store.service';
+import { VisualsService } from './visuals.service';
 
 export interface RenderResult {
   file: string;
@@ -26,6 +28,7 @@ export interface RenderResult {
   height: number;
   lufs: number | null;
   warnings: string[];
+  timeline: Timeline;
 }
 
 @Injectable()
@@ -41,6 +44,7 @@ export class RendererService {
     private readonly templates: TemplateStoreService,
     private readonly orchestrator: OrchestratorService,
     private readonly queues: QueueService,
+    private readonly visuals: VisualsService,
   ) {}
 
   async render(reelId: string): Promise<'done' | 'deferred' | 'skipped'> {
@@ -87,6 +91,17 @@ export class RendererService {
 
     const dir = jobDir(this.cfg.REEL_WORK_DIR, 'render', reelId);
     try {
+      // AI images: planned + generated once, reused on every re-render. Never blocks the reel.
+      const images: RenderImageInput[] = [];
+      try {
+        for (const v of await this.visuals.ensure(reel)) {
+          const file = path.join(dir, `beat-${v.id}-${v.variant ?? 0}.jpg`);
+          await this.storage.getFile(BUCKETS.reels, v.key!, file);
+          images.push({ file, start: v.start, end: v.end });
+        }
+      } catch (err: any) {
+        this.logger.warn(`Reel ${reelId}: rendering without AI images (${err.message})`);
+      }
       const result = await this.renderToDir({
         dir,
         clips,
@@ -95,6 +110,8 @@ export class RendererService {
         template: tpl.template,
         canvasPath: tpl.canvasPath,
         expectedDuration: reel.durationSec,
+        pace: this.pace(),
+        images,
       });
 
       const lowRes = srcs.filter((s) => s.height && s.height < 720).map((s) => `${s.youtubeId} is ${s.height}p`);
@@ -111,6 +128,13 @@ export class RendererService {
             status: 'todo',
             error: null,
             templateEtag: tpl.etag,
+            durationSec: Math.round(result.duration * 100) / 100,
+            timing: {
+              speed: result.timeline.speed,
+              voice: result.timeline.voice,
+              cuts: result.timeline.cuts,
+              plannedSec: result.timeline.reelDuration,
+            },
             assets: { videoKey: `${prefix}/reel.mp4`, coverKey: `${prefix}/cover.jpg`, srtKey: `${prefix}/captions.srt`, sizeBytes: size },
             qa: {
               loudnessLufs: result.lufs ?? undefined,
@@ -130,25 +154,46 @@ export class RendererService {
     }
   }
 
+  /** The pace applied to every reel (env-controlled). */
+  pace(): PaceOptions {
+    return {
+      speed: this.cfg.REEL_SPEED,
+      voice: this.cfg.REEL_VOICE,
+      minGap: this.cfg.REEL_TRIM_PAUSES ? this.cfg.REEL_PAUSE_MIN_GAP_MS / 1000 : 0,
+      keep: 0.08,
+      maxSegments: 30,
+    };
+  }
+
   /** Pure render step (no DB): used by jobs, the CLI preview and local tests. */
   async renderToDir(input: {
     dir: string;
     clips: RenderClipInput[];
+    /** Words on the planned reel timeline (`reel.words`). */
     words: ReelWord[];
     headline: string | null;
     template: ReelTemplate;
     canvasPath: string;
     expectedDuration: number;
+    pace?: PaceOptions;
+    /** AI images, timed on the planned reel timeline. */
+    images?: RenderImageInput[];
   }): Promise<RenderResult> {
-    const { dir, clips, template } = input;
-    const total = clips.reduce((n, c) => n + c.duration, 0);
+    const { dir, template } = input;
+    const tl = buildTimeline(input.clips, input.words, input.pace ?? NO_PACE);
+    const clips = tl.segments;
+    const total = tl.duration;
+    const words = mapWords(input.words, tl);
+    const images = (input.images ?? [])
+      .map((im) => ({ file: im.file, start: tl.map(im.start), end: tl.map(im.end) }))
+      .filter((im) => im.end - im.start >= 0.3 && im.start < total);
 
     // Fonts + ASS live inside the job dir so filter paths stay relative (no escaping issues on any OS).
     const fonts = ensureDir(path.join(dir, 'fonts'));
     for (const f of fs.readdirSync(this.cfg.fontsDir).filter((x) => /\.(ttf|otf)$/i.test(x))) {
       fs.copyFileSync(path.join(this.cfg.fontsDir, f), path.join(fonts, f));
     }
-    fs.writeFileSync(path.join(dir, 'reel.ass'), buildAss({ words: input.words, headline: input.headline, template, duration: total }));
+    fs.writeFileSync(path.join(dir, 'reel.ass'), buildAss({ words, headline: input.headline, template, duration: total }));
     fs.copyFileSync(input.canvasPath, path.join(dir, 'canvas.png'));
 
     // Pass 1: loudness measurement.
@@ -156,7 +201,7 @@ export class RendererService {
     try {
       const m = await run(
         this.cfg.FFMPEG_BIN,
-        ['-hide_banner', '-nostats', ...clipInputArgs(clips), '-filter_complex', loudnessMeasureGraph(clips), '-map', '[aout]', '-f', 'null', '-'],
+        ['-hide_banner', '-nostats', ...clipInputArgs(clips), '-filter_complex', loudnessMeasureGraph(clips, { speed: tl.speed, voice: tl.voice }), '-map', '[aout]', '-f', 'null', '-'],
         { cwd: dir, timeoutMs: 15 * 60_000, lowPriority: true },
       );
       measured = parseLoudnorm(m.stderr);
@@ -175,8 +220,9 @@ export class RendererService {
         ...clipInputArgs(clips),
         '-i',
         'canvas.png',
+        ...imageInputArgs(images),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, images }),
         '-map',
         '[vout]',
         '-map',
@@ -237,8 +283,8 @@ export class RendererService {
       timeoutMs: 60_000,
     });
     const srt = path.join(dir, 'captions.srt');
-    fs.writeFileSync(srt, buildSrt(input.words));
+    fs.writeFileSync(srt, buildSrt(words));
 
-    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings };
+    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings, timeline: tl };
   }
 }

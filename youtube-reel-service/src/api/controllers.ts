@@ -140,6 +140,16 @@ export class CampaignsController {
     return this.api.rerender(channelId, reelId);
   }
 
+  @Post('reels/:reelId/visuals/:visualId/replace')
+  replaceVisual(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Param('visualId') visualId: string) {
+    return this.api.changeVisual(channelId, reelId, visualId, 'replace');
+  }
+
+  @Post('reels/:reelId/visuals/:visualId/remove')
+  removeVisual(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Param('visualId') visualId: string) {
+    return this.api.changeVisual(channelId, reelId, visualId, 'remove');
+  }
+
   @Get('coverage')
   coverage(@Param('channelId') channelId: string) {
     return this.api.coverage(channelId);
@@ -166,9 +176,16 @@ export class MediaController {
   @Get(':reelId/:kind')
   async serve(@Param('reelId') reelId: string, @Param('kind') kind: string, @Query('t') token: string, @Req() req: Request, @Res() res: Response) {
     if (!token || !(await this.api.verifyMediaToken(token, reelId))) throw new UnauthorizedException('Invalid media link');
-    const reel = await this.reels.findById(reelId).select('assets packaging.title index').lean();
-    const key =
-      kind === 'video' || kind === 'download' ? reel?.assets?.videoKey : kind === 'cover' ? reel?.assets?.coverKey : kind === 'srt' ? reel?.assets?.srtKey : undefined;
+    const reel = await this.reels.findById(reelId).select('assets packaging.title index visuals').lean();
+    const key = kind.startsWith('beat-')
+      ? reel?.visuals?.find((v) => `beat-${v.id}` === kind && v.status === 'ready')?.key
+      : kind === 'video' || kind === 'download'
+        ? reel?.assets?.videoKey
+        : kind === 'cover'
+          ? reel?.assets?.coverKey
+          : kind === 'srt'
+            ? reel?.assets?.srtKey
+            : undefined;
     if (!reel || !key) throw new NotFoundException('Media not found');
     const stat = await this.storage.stat(BUCKETS.reels, key);
     if (!stat) throw new NotFoundException('Media not found');

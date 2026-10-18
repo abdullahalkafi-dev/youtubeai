@@ -64,6 +64,18 @@ const EnvSchema = z.object({
   REEL_MIN_FREE_DISK_GB: int(10),
   REEL_DOWNLOAD_DAILY_CAP: int(40),
   REEL_SOURCE_CACHE_GB: int(40),
+  // Pace: pauses inside clips are cut, then the reel is sped up. chipmunk = pitch rises ("Mickey Mouse" voice).
+  REEL_SPEED: str('1.2').transform((v) => parseFloat(v)).pipe(z.number().min(1).max(1.6)),
+  REEL_VOICE: z.enum(['chipmunk', 'natural']).default('chipmunk'),
+  REEL_TRIM_PAUSES: bool(true),
+  REEL_PAUSE_MIN_GAP_MS: int(350),
+  // AI images inside reels (GPT Image). Low quality keeps each image around a cent.
+  REEL_IMAGES_ENABLED: bool(true),
+  REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),
+  REEL_IMAGE_QUALITY: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('low'),
+  REEL_IMAGES_MAX: int(4),
+  /** The main app's MinIO bucket (read-only use: its subject photos, host cutouts). */
+  MAIN_MINIO_BUCKET: str('thumbnails'),
 
   // Publishing (manual, YouTube first). Google client = the same OAuth client the main app uses.
   GOOGLE_CLIENT_ID: str(''),

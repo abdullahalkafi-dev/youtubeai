@@ -17,6 +17,8 @@ import { RendererService } from './pipeline/renderer.service';
 import { CampaignRunnerService } from './pipeline/campaign-runner.service';
 import { MaintenanceService } from './pipeline/maintenance.service';
 import { AnalyticsService } from './publishing/analytics.service';
+import { ImageGenService } from './ai/image-gen.service';
+import { VisualsService } from './pipeline/visuals.service';
 import { GoogleTokenProvider } from './publishing/google-token.provider';
 import { MetricsService } from './publishing/metrics.service';
 import { PublishQuotaService } from './publishing/publish-quota.service';
@@ -40,6 +42,8 @@ const providers = [
   RendererService,
   CampaignRunnerService,
   MaintenanceService,
+  ImageGenService,
+  VisualsService,
   // publishing (manual, YouTube first)
   PublisherRegistry,
   GoogleTokenProvider,

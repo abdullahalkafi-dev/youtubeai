@@ -59,6 +59,14 @@ export class StorageService implements OnModuleInit {
     return Buffer.concat(chunks);
   }
 
+  /** Read an object from a bucket owned by the main app (e.g. its subject photos). Never writes there. */
+  async readShared(bucket: string, key: string): Promise<Buffer> {
+    const stream = await this.client.getObject(bucket, key);
+    const chunks: Buffer[] = [];
+    for await (const chunk of stream) chunks.push(chunk as Buffer);
+    return Buffer.concat(chunks);
+  }
+
   async stat(bucket: BucketName, key: string): Promise<Minio.BucketItemStat | null> {
     try {
       return await this.client.statObject(bucket, key);

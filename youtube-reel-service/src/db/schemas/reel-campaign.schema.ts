@@ -74,7 +74,7 @@ export class ReelCampaign {
     type: Object,
     default: () => ({ promptTokens: 0, completionTokens: 0, reasoningTokens: 0, sttSeconds: 0, embedTokens: 0, calls: 0 }),
   })
-  usage: { promptTokens: number; completionTokens: number; reasoningTokens: number; sttSeconds: number; embedTokens: number; calls: number };
+  usage: { promptTokens: number; completionTokens: number; reasoningTokens: number; sttSeconds: number; embedTokens: number; calls: number; images?: number };
 
   @Prop({
     type: Object,
