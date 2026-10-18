@@ -173,11 +173,17 @@ export class DailyService {
     for (const c of res.candidates) {
       const words = [...new Set(c.keywords.map((k) => k.trim().toLowerCase()).filter((k) => k.length >= 3))].slice(0, 10);
       if (!words.length) continue;
-      const re = new RegExp(words.map(escapeRe).join('|'), 'i');
-      const [moments, videos] = await Promise.all([
-        db.collection('reel_moments').countDocuments({ channelId, $or: [{ title: re }, { summary: re }, { entityNames: re }, { themes: re }] }),
-        db.collection('videos').countDocuments({ channelId, deletedFromYoutube: { $ne: true }, durationSeconds: { $gt: 240 }, title: re }),
-      ]);
+      // A moment counts when it matches at least two of the topic's keywords (one broad word like "consequences"
+      // matches almost everything); a catalog video counts when its title has one of the 3 main keywords.
+      const text = { $concat: [{ $ifNull: ['$title', ''] }, ' ', { $ifNull: ['$summary', ''] }, ' ', { $reduce: { input: { $concatArrays: [{ $ifNull: ['$entityNames', []] }, { $ifNull: ['$themes', []] }] }, initialValue: '', in: { $concat: ['$$value', ' ', '$$this'] } } }] };
+      const hits = { $add: words.map((w) => ({ $cond: [{ $regexMatch: { input: text, regex: escapeRe(w), options: 'i' } }, 1, 0] })) };
+      const [m] = await db
+        .collection('reel_moments')
+        .aggregate<{ n: number }>([{ $match: { channelId } }, { $project: { hits } }, { $match: { hits: { $gte: Math.min(2, words.length) } } }, { $count: 'n' }])
+        .toArray();
+      const moments = m?.n ?? 0;
+      const titleRe = new RegExp(words.slice(0, 3).map(escapeRe).join('|'), 'i');
+      const videos = await db.collection('videos').countDocuments({ channelId, deletedFromYoutube: { $ne: true }, durationSeconds: { $gt: 240 }, title: titleRe });
       const score = Math.round((moments * 2 + videos) * (SIGNAL_WEIGHT[c.signal] ?? 1) * 10) / 10;
       scored.push({ c: { ...c, keywords: words }, moments, videos, score });
     }
