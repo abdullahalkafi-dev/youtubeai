@@ -42,7 +42,8 @@ export function clipInputArgs(clips: RenderClipInput[]): string[] {
 function audioChain(i: number, d: number): string {
   const outStart = Math.max(0, d - FADE - 0.01);
   return (
-    `[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+    // atrim: exact length, so many short segments (pause cuts) can't add up to drift.
+    `[${i}:a]asetpts=PTS-STARTPTS,aresample=48000,atrim=duration=${n(d)},asetpts=PTS-STARTPTS,aformat=sample_fmts=fltp:channel_layouts=stereo,` +
     `afade=t=in:st=0:d=${FADE},afade=t=out:st=${n(outStart)}:d=${FADE}[a${i}]`
   );
 }
@@ -94,7 +95,7 @@ export function renderGraph(input: {
   const parts: string[] = [];
   clips.forEach((c, i) => {
     parts.push(
-      `[${i}:v]setpts=PTS-STARTPTS,fps=30,scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,` +
+      `[${i}:v]setpts=PTS-STARTPTS,fps=30,trim=duration=${n(c.duration)},setpts=PTS-STARTPTS,scale=${w}:${h}:force_original_aspect_ratio=increase:flags=lanczos,` +
         `crop=${w}:${h}:(iw-${w})*${t.focusX}:(ih-${h})*${t.focusY},setsar=1,format=yuv420p[v${i}]`,
     );
     parts.push(audioChain(i, c.duration));
