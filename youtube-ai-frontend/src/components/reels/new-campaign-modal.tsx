@@ -1,10 +1,11 @@
 'use client'
 
 import { useState } from 'react'
-import { Clapperboard, Loader2, X } from 'lucide-react'
+import { Clapperboard, Lightbulb, Loader2, UploadCloud, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { reelsApi, errorMessage } from '@/lib/reels-api'
 import type { CampaignSummary } from '@/types/reel'
+import { UploadVideo } from './upload-video'
 
 const EXAMPLES = [
   'Viral reels about Diddy in federal custody — what really happens to him inside',
@@ -22,6 +23,7 @@ export function NewCampaignModal({
   onClose: () => void
   onCreated: (c: CampaignSummary) => void
 }) {
+  const [mode, setMode] = useState<'choose' | 'topic' | 'video'>('choose')
   const [brief, setBrief] = useState('')
   const [targetReels, setTargetReels] = useState(5)
   const [minSec, setMinSec] = useState(30)
@@ -61,6 +63,40 @@ export function NewCampaignModal({
     } finally {
       setBusy(false)
     }
+  }
+
+  if (mode !== 'topic') {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
+        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+          <div className="px-6 py-4 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Clapperboard className="w-5 h-5 text-amber-500" />
+              <h2 className="text-lg font-bold text-zinc-900 dark:text-zinc-100">{mode === 'video' ? 'Reels from my new video' : 'New reel campaign'}</h2>
+            </div>
+            <button type="button" onClick={onClose} className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+          {mode === 'video' ? (
+            <UploadVideo channelId={channelId} onCreated={onCreated} onBack={() => setMode('choose')} />
+          ) : (
+            <div className="p-6 grid sm:grid-cols-2 gap-4">
+              <button type="button" onClick={() => setMode('topic')} className="text-left p-5 rounded-2xl border-2 border-zinc-200 dark:border-zinc-700 hover:border-amber-500 transition space-y-2">
+                <Lightbulb className="w-7 h-7 text-amber-500" />
+                <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">From a topic</p>
+                <p className="text-xs text-zinc-500">Type a person, case or theme. We find the best moments across all your YouTube videos.</p>
+              </button>
+              <button type="button" onClick={() => setMode('video')} className="text-left p-5 rounded-2xl border-2 border-zinc-200 dark:border-zinc-700 hover:border-amber-500 transition space-y-2">
+                <UploadCloud className="w-7 h-7 text-amber-500" />
+                <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100">From my new video</p>
+                <p className="text-xs text-zinc-500">Upload the raw file of a video you just made — even before it is on YouTube — and get reels from it.</p>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    )
   }
 
   return (

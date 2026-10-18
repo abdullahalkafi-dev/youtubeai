@@ -24,6 +24,18 @@ import type {
   ReelStatus,
 } from '@/types/reel'
 
+export interface UploadInfo {
+  id: string
+  fileName: string
+  title: string
+  size: number
+  partSize: number
+  parts: number
+  received: number[]
+  status: 'uploading' | 'uploaded' | 'cancelled' | 'expired'
+  sourceId: string
+}
+
 /**
  * Client for the isolated reel service (served under /api/reels by its own container).
  * Kept separate from the main ApiClient so reel changes never touch the rest of the app.
@@ -86,6 +98,32 @@ export const reelsApi = {
     },
   ) => request<Reel>(`/channels/${channelId}/reels/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
   rerender: (channelId: string, id: string) => request<{ ok: boolean }>(`/channels/${channelId}/reels/${id}/rerender`, { method: 'POST' }),
+  // ---- raw video uploads ("From my new video") ----
+  startUpload: (channelId: string, body: { fileName: string; size: number; title?: string }) =>
+    request<UploadInfo>(`/channels/${channelId}/uploads`, { method: 'POST', body: JSON.stringify(body) }),
+  uploadPart: async (channelId: string, uploadId: string, n: number, blob: Blob, signal: AbortSignal) => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('auth_token') : null
+    const res = await fetch(`${getApiBaseUrl()}/api/reels/channels/${channelId}/uploads/${uploadId}/parts/${n}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/octet-stream', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+      body: blob,
+      signal,
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({ message: res.statusText }))
+      throw new ApiError(data.message || `Upload error ${res.status}`, res.status, data)
+    }
+  },
+  finishUpload: (channelId: string, uploadId: string, body: { brief?: string; targetReels: number }) =>
+    request<CampaignSummary>(`/channels/${channelId}/uploads/${uploadId}/complete`, { method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(300000) }),
+  cancelUpload: (channelId: string, uploadId: string) => request<{ ok: boolean }>(`/channels/${channelId}/uploads/${uploadId}`, { method: 'DELETE' }),
+  linkCandidates: (channelId: string, campaignId: string) =>
+    request<{ linked: string | null; candidates: Array<{ youtubeId: string; title: string; publishedAt: string; durationSec: number | null; likely: boolean }> }>(
+      `/channels/${channelId}/campaigns/${campaignId}/link-candidates`,
+    ),
+  linkVideo: (channelId: string, campaignId: string, youtubeId: string) =>
+    request<{ ok: boolean; updated: number }>(`/channels/${channelId}/campaigns/${campaignId}/link-video`, { method: 'POST', body: JSON.stringify({ youtubeId }) }),
+
   regenerateThumbnails: (channelId: string, reelId: string) =>
     request<Reel>(`/channels/${channelId}/reels/${reelId}/thumbnails/regenerate`, { method: 'POST' }),
   chooseThumbnail: (channelId: string, reelId: string, thumbId: string) =>

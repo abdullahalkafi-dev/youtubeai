@@ -46,6 +46,9 @@ export interface CampaignUsage {
 
 export interface CampaignSummary {
   id: string
+  /** manual: from a topic; video: from an uploaded video; daily: the nightly automatic campaign. */
+  origin?: 'manual' | 'video' | 'daily'
+  dailyDate?: string | null
   name: string
   brief: string
   status: CampaignStatus

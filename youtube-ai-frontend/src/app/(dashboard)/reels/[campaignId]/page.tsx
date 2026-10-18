@@ -14,6 +14,7 @@ import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
 import { CampaignPerformance } from '@/components/reels/campaign-performance'
 import { CampaignChat } from '@/components/reels/campaign-chat'
+import { LinkVideoCard } from '@/components/reels/link-video-card'
 import { CampaignStatusBadge, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
 
 const STAGES: Array<{ id: string; label: string }> = [
@@ -194,6 +195,8 @@ export default function CampaignPage() {
           {c.stats?.candidates ? ` · ${c.stats.candidates} reel ideas reviewed, ${c.stats.kept} kept` : ''}
         </p>
       </div>
+
+      {c.origin === 'video' && c.reels.length > 0 && <LinkVideoCard channelId={channelId} campaignId={c.id} />}
 
       {/* How it is doing (published reels) */}
       {c.reels.some((r) => r.status === 'todo' || r.status === 'posted') && <CampaignPerformance channelId={channelId} campaignId={c.id} refreshKey={tick} />}
