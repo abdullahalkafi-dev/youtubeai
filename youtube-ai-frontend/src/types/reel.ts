@@ -180,6 +180,8 @@ export interface Reel {
   posts?: PostSummary[]
   /** AI images shown during the reel (times are in the finished video). */
   visuals?: ReelVisual[]
+  /** 9:16 thumbnail variants; `chosen` is the one sent to YouTube. */
+  thumbnails?: Array<{ id: string; headline: string; chosen: boolean; source: string; url: string }>
 }
 
 export interface ReelServiceStatus {

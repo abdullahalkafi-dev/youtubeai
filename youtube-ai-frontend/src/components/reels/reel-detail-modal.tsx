@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import type { Reel } from '@/types/reel'
 import { PostsPanel } from './posts-panel'
 import { ReelImages } from './reel-images'
+import { ReelThumbnails } from './reel-thumbnails'
 import { PublishModal } from './publish-modal'
 import { fmtSec, ReelStatusBadge, ROLE_COLOR, ScorePill, SHAPE_LABEL } from './reel-ui'
 
@@ -178,6 +179,8 @@ export function ReelDetailModal({
             {/* Story + packaging */}
             <div className="space-y-5 min-w-0">
               <PostsPanel channelId={channelId} reel={reel} reloadKey={postsReload} onReelChanged={onChanged} />
+
+              <ReelThumbnails channelId={channelId} reel={reel} onChanged={onChanged} />
 
               <ReelImages channelId={channelId} reel={reel} onChanged={onChanged} />
 
