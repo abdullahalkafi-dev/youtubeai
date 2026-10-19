@@ -72,10 +72,19 @@ describe('placeBeats (picture timing rules)', () => {
     expect(placeBeats(res([beat('a courtroom full of people')]), words, payoffAt)).toEqual([]);
   });
 
-  it('keeps a gap between pictures and prefers high importance on a clash', () => {
+  it('keeps a gap between pictures and prefers high importance when two start almost together', () => {
     const out = placeBeats(res([beat('flush my toilet', 'medium'), beat('controlled the water', 'high')]), words, payoffAt);
     expect(out).toHaveLength(1);
     expect(out[0].phrase).toBe('controlled the water');
+  });
+
+  it('on a collision shortens the EARLIER picture (its start stays on its word) instead of dropping the later one', () => {
+    const out = placeBeats(res([beat('twenty six years', 'medium'), beat('saw everything', 'medium')]), words, payoffAt);
+    expect(out).toHaveLength(2);
+    expect(out[1].start - out[0].end).toBeGreaterThanOrEqual(BEAT_RULES.gap - 1e-6);
+    // both still begin right at their spoken words
+    expect(Math.abs(out[1].start - (words[idx('saw')].s - BEAT_RULES.lead))).toBeLessThan(0.01);
+    expect(out[0].end - out[0].start).toBeGreaterThanOrEqual(1.2);
   });
 
   it('caps the count and the share of the reel covered', () => {

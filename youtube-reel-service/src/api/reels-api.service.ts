@@ -363,6 +363,24 @@ export class ReelsApiService {
     return { ok: true, adding: add };
   }
 
+  /** "Refresh look": re-make every reel that is not posted yet with the latest voice, picture placement and style. */
+  async refreshLook(channelId: string, campaignId: string) {
+    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
+    if (!c) throw new NotFoundException('Campaign not found');
+    if (!TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) throw new ConflictException('Wait until this campaign has finished.');
+    const list = await this.reels.find({ campaignId: c._id, status: 'todo' }).select('_id').lean();
+    if (!list.length) return { queued: 0 };
+    await this.campaigns.updateOne(
+      { _id: c._id },
+      { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Refreshing ${list.length} reels with the latest voice and pictures` } },
+    );
+    for (const r of list) {
+      await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+      await this.queues.render(String(r._id));
+    }
+    return { queued: list.length };
+  }
+
   async retryFailedRenders(channelId: string, campaignId: string) {
     const c = await this.campaigns.findOne({ _id: campaignId, channelId });
     if (!c) throw new NotFoundException('Campaign not found');

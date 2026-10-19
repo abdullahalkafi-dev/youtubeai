@@ -6,7 +6,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { parsePeriodDays } from './publish.service';
 
-export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign'] as const;
+export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice'] as const;
 export type Breakdown = (typeof BREAKDOWNS)[number];
 
 const DURATION_BUCKETS = [0, 30, 45, 60, 1e9];
@@ -112,6 +112,35 @@ export class AnalyticsService {
       case 'duration':
         key = '$bucketKey'; // computed below
         break;
+      case 'images': {
+        // how many AI pictures the reel had: does a busier reel keep people watching?
+        const n = { $size: { $filter: { input: { $ifNull: ['$reel.visuals', []] }, as: 'v', cond: { $eq: ['$$v.status', 'ready'] } } } };
+        pipeline.push({
+          $addFields: {
+            picKey: { $switch: { branches: [{ case: { $eq: [n, 0] }, then: 'No pictures' }, { case: { $lte: [n, 2] }, then: '1–2 pictures' }, { case: { $lte: [n, 4] }, then: '3–4 pictures' }], default: '5 or more pictures' } },
+          },
+        });
+        key = '$picKey';
+        break;
+      }
+      case 'voice':
+        // the pace/voice treatment the reel was rendered with (older reels have none recorded)
+        pipeline.push({
+          $addFields: {
+            voiceKey: {
+              $switch: {
+                branches: [
+                  { case: { $eq: ['$reel.timing.voice', 'energetic'] }, then: { $concat: ['Energetic voice ', { $toString: '$reel.timing.speed' }, 'x'] } },
+                  { case: { $eq: ['$reel.timing.voice', 'chipmunk'] }, then: { $concat: ['Chipmunk voice ', { $toString: '$reel.timing.speed' }, 'x'] } },
+                  { case: { $eq: ['$reel.timing.voice', 'natural'] }, then: { $concat: ['Natural voice ', { $toString: '$reel.timing.speed' }, 'x'] } },
+                ],
+                default: 'Older reels (before pacing)',
+              },
+            },
+          },
+        });
+        key = '$voiceKey';
+        break;
       case 'theme':
         pipeline.push({ $unwind: '$reel.themes' });
         key = '$reel.themes';
@@ -182,7 +211,7 @@ export class AnalyticsService {
     if (!Types.ObjectId.isValid(campaignId)) throw new NotFoundException('Campaign not found');
     const cid = new Types.ObjectId(channelId);
     const campId = new Types.ObjectId(campaignId);
-    const camp = await this.reels.db.collection('reel_campaigns').findOne({ _id: campId, channelId: cid }, { projection: { name: 1 } });
+    const camp = await this.reels.db.collection('reel_campaigns').findOne({ _id: campId, channelId: cid, deletedAt: null }, { projection: { name: 1 } });
     if (!camp) throw new NotFoundException('Campaign not found');
 
     const [posts, reelDocs, totalReels] = await Promise.all([

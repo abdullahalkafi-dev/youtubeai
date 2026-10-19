@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
+import { softDelete } from './soft-delete';
 
 export const CAMPAIGN_STATUSES = [
   'queued',
@@ -106,6 +107,8 @@ export class ReelCampaign {
   @Prop({ default: false }) cancelRequested: boolean;
   @Prop() startedAt?: Date;
   @Prop() finishedAt?: Date;
+  /** Set when the client deletes the campaign (hidden everywhere; published videos are untouched). */
+  @Prop({ type: Date, default: null, index: true }) deletedAt?: Date | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -114,3 +117,4 @@ export type ReelCampaignDocument = HydratedDocument<ReelCampaign>;
 export const ReelCampaignSchema = SchemaFactory.createForClass(ReelCampaign);
 ReelCampaignSchema.index({ channelId: 1, createdAt: -1 });
 ReelCampaignSchema.index({ status: 1, updatedAt: 1 });
+ReelCampaignSchema.plugin(softDelete);

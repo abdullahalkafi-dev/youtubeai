@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
+import { softDelete } from './soft-delete';
 
 export const REEL_STATUSES = ['queued', 'rendering', 'todo', 'posted', 'rejected', 'failed'] as const;
 export type ReelStatus = (typeof REEL_STATUSES)[number];
@@ -132,6 +133,8 @@ export class Reel {
   @Prop() postedUrl?: string;
   @Prop() rejectedAt?: Date;
   @Prop() rejectReason?: string;
+  /** Set when its campaign is deleted from the app (it stays on any platform it was published to). */
+  @Prop({ type: Date, default: null, index: true }) deletedAt?: Date | null;
 
   createdAt: Date;
   updatedAt: Date;
@@ -141,3 +144,4 @@ export const ReelSchema = SchemaFactory.createForClass(Reel);
 ReelSchema.index({ channelId: 1, createdAt: -1 });
 ReelSchema.index({ channelId: 1, status: 1 });
 ReelSchema.index({ 'clips.youtubeId': 1 });
+ReelSchema.plugin(softDelete);

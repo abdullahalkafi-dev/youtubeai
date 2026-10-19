@@ -2,7 +2,7 @@ import { z } from 'zod';
 import type { ReelWord } from '../db/schemas/reel.schema';
 
 /** v2: the model quotes the spoken PHRASE; code finds it in the transcript and sets the timing (v1 asked for a line index and landed 2-5 s off). */
-export const BEATS_VERSION = 'beats-v2';
+export const BEATS_VERSION = 'beats-v3';
 
 export const BEATS_SYSTEM = `You are the visual editor for vertical YouTube Shorts cut from a long talk/podcast video.
 The host talks on camera. You choose the moments where a short AI-generated picture should appear as a CARD on top of
@@ -46,7 +46,7 @@ export const BeatsSchema = z.object({
         people: z.array(z.string()),
       }),
     )
-    .max(10),
+    .max(14),
 });
 export type BeatsResult = z.infer<typeof BeatsSchema>;
 
@@ -166,14 +166,30 @@ export function placeBeats(result: BeatsResult, words: ReelWord[], protectedFrom
   }
   candidates.sort((a, b) => (a.importance === b.importance ? a.start - b.start : a.importance === 'high' ? -1 : 1));
 
+  // Place by importance. When a picture collides with a neighbour, the EARLIER one is shortened (its start is anchored to a
+  // spoken word, its end is flexible) instead of dropping the later picture; a picture is only dropped if shortening would
+  // leave either one under 1.2 s, or the coverage / count limits are hit.
+  const MIN = 1.2;
   const kept: PlannedBeat[] = [];
-  let covered = 0;
+  const duration = (x: PlannedBeat) => x.end - x.start;
   for (const c of candidates) {
     if (kept.length >= max) break;
-    if (covered + (c.end - c.start) > total * R.maxCoverage) continue;
-    if (kept.some((k) => c.start < k.end + R.gap && k.start < c.end + R.gap)) continue;
-    kept.push(c);
-    covered += c.end - c.start;
+    const cand = { ...c };
+    const prev = kept.filter((k) => k.start <= cand.start).sort((x, y) => y.start - x.start)[0];
+    const next = kept.filter((k) => k.start > cand.start).sort((x, y) => x.start - y.start)[0];
+    let prevEnd = prev?.end ?? 0;
+    if (prev && prev.end > cand.start - R.gap) {
+      prevEnd = cand.start - R.gap;
+      if (prevEnd - prev.start < MIN) continue;
+    }
+    if (next && cand.end > next.start - R.gap) {
+      cand.end = next.start - R.gap;
+      if (cand.end - cand.start < MIN) continue;
+    }
+    const covered = kept.reduce((n, k) => n + duration(k), 0) + (prev ? prevEnd - prev.end : 0) + duration(cand);
+    if (covered > total * R.maxCoverage) continue;
+    if (prev) prev.end = prevEnd;
+    kept.push(cand);
   }
   const r2 = (n: number) => Math.round(n * 100) / 100;
   return kept.sort((a, b) => a.start - b.start).map((b) => ({ ...b, start: r2(b.start), end: r2(b.end) }));

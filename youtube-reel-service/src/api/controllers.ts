@@ -10,6 +10,7 @@ import { YouTubeSessionService } from '../pipeline/youtube-session.service';
 import { AuthedRequest, ReelAuthGuard } from './auth.guard';
 import { AnalyticsService } from '../publishing/analytics.service';
 import { CampaignChatService } from './campaign-chat.service';
+import { CampaignDeleteService } from './campaign-delete.service';
 import { CampaignChatDto, CookiesDto, CreateCampaignDto, ListReelsQuery, parse, PatchReelDto } from './dto';
 import { ReelsApiService } from './reels-api.service';
 
@@ -67,6 +68,7 @@ export class CampaignsController {
     private readonly api: ReelsApiService,
     private readonly analytics: AnalyticsService,
     private readonly chat: CampaignChatService,
+    private readonly remover: CampaignDeleteService,
   ) {}
 
   @Post('campaigns')
@@ -95,6 +97,16 @@ export class CampaignsController {
     return this.api.topUp(channelId, id, Number.isFinite(count) && count > 0 ? count : undefined);
   }
 
+  @Get('campaigns/:campaignId/delete-preview')
+  deletePreview(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.remover.preview(channelId, id);
+  }
+
+  @Delete('campaigns/:campaignId')
+  deleteCampaign(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.remover.remove(channelId, id);
+  }
+
   @Get('campaigns/:campaignId/performance')
   performance(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
     return this.analytics.campaignPerformance(channelId, id);
@@ -113,6 +125,11 @@ export class CampaignsController {
   @Delete('campaigns/:campaignId/chat')
   chatClear(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
     return this.chat.clear(channelId, id);
+  }
+
+  @Post('campaigns/:campaignId/refresh-look')
+  refreshLook(@Param('channelId') channelId: string, @Param('campaignId') id: string) {
+    return this.api.refreshLook(channelId, id);
   }
 
   @Post('campaigns/:campaignId/retry-failed')

@@ -104,6 +104,15 @@ export class StorageService implements OnModuleInit {
     return keys.length;
   }
 
+  /** Remove everything under a prefix except keys matching `keep` (e.g. keep a published reel's cover and thumbnails). */
+  async removePrefixExcept(bucket: BucketName, prefix: string, keep: RegExp) {
+    const keys: string[] = [];
+    const stream = this.client.listObjectsV2(bucket, prefix, true);
+    for await (const obj of stream) if (obj.name && !keep.test(obj.name)) keys.push(obj.name);
+    if (keys.length) await this.client.removeObjects(bucket, keys);
+    return keys.length;
+  }
+
   async prefixSize(bucket: BucketName, prefix = ''): Promise<number> {
     let total = 0;
     const stream = this.client.listObjectsV2(bucket, prefix, true);

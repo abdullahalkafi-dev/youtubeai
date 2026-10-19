@@ -204,7 +204,7 @@ export class DailyService {
     const runs = await this.runs.find({ channelId: cid }).sort({ date: -1 }).limit(45).lean();
     const campIds = runs.map((r) => r.campaignId).filter(Boolean) as Types.ObjectId[];
     const [camps, reelCounts, views] = await Promise.all([
-      this.campaigns.find({ _id: { $in: campIds } }).select('status progress name').lean(),
+      this.campaigns.find({ _id: { $in: campIds } }).setOptions({ withDeleted: true }).select('status progress name deletedAt').lean(),
       this.campaigns.db
         .collection('reels')
         .aggregate<{ _id: { c: Types.ObjectId; s: string }; n: number }>([{ $match: { campaignId: { $in: campIds } } }, { $group: { _id: { c: '$campaignId', s: '$status' }, n: { $sum: 1 } } }])
@@ -217,14 +217,16 @@ export class DailyService {
       const counts = (s: string) => reelCounts.find((x) => String(x._id.c) === id && x._id.s === s)?.n ?? 0;
       const c = id ? campById.get(id) : undefined;
       const v = id ? views.get(id) : undefined;
+      const deleted = !!c?.deletedAt;
       return {
         date: r.date,
+        deleted,
         status: r.status,
         reason: r.reason ?? null,
         topic: r.topic ?? null,
         evidence: r.evidence ?? null,
         candidates: (r.candidates ?? []).slice(0, 6),
-        campaignId: id,
+        campaignId: deleted ? null : id,
         campaignStatus: c?.status ?? null,
         progress: c && !TERMINAL_CAMPAIGN_STATUSES.includes(c.status) ? c.progress?.message ?? null : null,
         reelsReady: counts('todo') + counts('posted'),

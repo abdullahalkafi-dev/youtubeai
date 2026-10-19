@@ -25,7 +25,7 @@ export class ReelContextService {
       const cid = new Types.ObjectId(channelId);
       const campaigns = await db
         .collection('reel_campaigns')
-        .find({ channelId: cid }, { projection: { name: 1, brief: 1, status: 1, createdAt: 1, 'settings.targetReels': 1 } })
+        .find({ channelId: cid, deletedAt: null }, { projection: { name: 1, brief: 1, status: 1, createdAt: 1, 'settings.targetReels': 1 } })
         .sort({ createdAt: -1 })
         .limit(15)
         .toArray();
@@ -36,7 +36,7 @@ export class ReelContextService {
         db
           .collection('reels')
           .aggregate<{ _id: { c: Types.ObjectId; s: string }; n: number }>([
-            { $match: { campaignId: { $in: ids } } },
+            { $match: { campaignId: { $in: ids }, deletedAt: null } },
             { $group: { _id: { c: '$campaignId', s: '$status' }, n: { $sum: 1 } } },
           ])
           .toArray(),
@@ -57,7 +57,7 @@ export class ReelContextService {
           .toArray(),
         db
           .collection('reel_posts')
-          .find({ channelId: cid, status: 'published' }, { projection: { campaignId: 1, platform: 1, 'metadata.title': 1, latestMetrics: 1, publishedAt: 1 } })
+          .find({ channelId: cid, status: 'published', campaignId: { $in: ids } }, { projection: { campaignId: 1, platform: 1, 'metadata.title': 1, latestMetrics: 1, publishedAt: 1 } })
           .sort({ 'latestMetrics.views': -1 })
           .limit(8)
           .toArray(),
