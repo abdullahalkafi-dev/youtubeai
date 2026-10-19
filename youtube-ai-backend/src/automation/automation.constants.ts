@@ -3,7 +3,7 @@
  */
 
 export const DEFAULT_DAILY_BATCH_SIZE = parseInt(
-  process.env.AUTOMATION_DAILY_BATCH_SIZE || '15',
+  process.env.AUTOMATION_DAILY_BATCH_SIZE || '5',
   10,
 );
 
@@ -16,7 +16,7 @@ export const HEARTBEAT_STALE_MS = 15 * 60 * 1000; // 15 minutes without heartbea
 
 // Comment Auto-Reply Constants
 export const DEFAULT_COMMENT_DAILY_CAP = parseInt(
-  process.env.COMMENT_DAILY_CAP || '120',
+  process.env.COMMENT_DAILY_CAP || '130',
   10,
 );
 export const MAX_ACTIVE_COMMENT_VIDEOS = 10;
@@ -25,6 +25,15 @@ export const COMMENT_PUSH_SAFETY_GAP_MS = 3000; // 3-second pacing between comme
 export const QUOTA_COST_COMMENT_INSERT = 50;
 /** Hard sub-budget for all comment list+insert units/day (protects SEO/trends inside the 10k). */
 export const COMMENTS_DAILY_QUOTA_BUDGET = parseInt(
-  process.env.COMMENTS_DAILY_QUOTA_BUDGET || '5500',
+  process.env.COMMENTS_DAILY_QUOTA_BUDGET || '7000',
+  10,
+);
+
+/**
+ * Batch SEO only fetches a missing transcript for videos published within this many days.
+ * Older videos are optimized from title/description/performance (saves quota and credits).
+ */
+export const SEO_TRANSCRIPT_MAX_AGE_DAYS = parseInt(
+  process.env.SEO_TRANSCRIPT_MAX_AGE_DAYS || '15',
   10,
 );

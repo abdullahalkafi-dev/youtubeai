@@ -26,7 +26,8 @@ import { ChromaService } from '../chroma/chroma.service';
 import { AutomationService } from '../automation/automation.service';
 import { buildChannelContext } from '../openai/prompts/context';
 import { GenerateSeoDto } from './dto/seo.dto';
-import { DEFAULT_DAILY_BATCH_SIZE } from '../automation/automation.constants';
+import { DEFAULT_DAILY_BATCH_SIZE, SEO_TRANSCRIPT_MAX_AGE_DAYS } from '../automation/automation.constants';
+import { shouldFetchTranscript } from './transcript-policy';
 import { RedisService } from '../redis/redis.service';
 
 @Injectable()
@@ -125,6 +126,11 @@ export class SeoService {
       if (video.transcriptSegments && video.transcriptSegments.length > 0) {
         transcriptAnchors = this.transcriptService.formatTranscriptAnchors(video.transcriptSegments);
         this.logger.log(`[Transcript Cache Hit] Loaded ${video.transcriptSegments.length} segments from DB for video ${video.youtubeId} (0 quota, 0 network)`);
+      } else if (
+        !shouldFetchTranscript({ source: dto.source, publishedAt: video.publishedAt })
+      ) {
+        // Old video in a batch with no stored transcript: optimize without one (no fetch, no 'none' marker).
+        this.logger.log(`[Transcript Skipped] ${video.youtubeId} is older than ${SEO_TRANSCRIPT_MAX_AGE_DAYS} days and has no stored transcript; generating SEO without it`);
       } else if (!isConfirmedNone && video.youtubeId) {
         // Step 1-3: Multi-Tier InnerTube Scraper (Android -> iOS -> Web) (0 quota)
         try {

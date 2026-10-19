@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Channel, ChannelDocument } from '../mongo/schemas/channel.schema';
+import { COMMENTS_DAILY_QUOTA_BUDGET } from '../automation/automation.constants';
 
 export class QuotaExceededException extends Error {
   public readonly reason = 'quotaExceeded';
@@ -29,10 +30,7 @@ export class QuotaExceededException extends Error {
 export class QuotaService {
   private readonly logger = new Logger(QuotaService.name);
   private readonly YOUTUBE_DAILY_LIMIT = 10000;
-  private readonly COMMENTS_DAILY_BUDGET = parseInt(
-    process.env.COMMENTS_DAILY_QUOTA_BUDGET || '5500',
-    10,
-  );
+  private readonly COMMENTS_DAILY_BUDGET = COMMENTS_DAILY_QUOTA_BUDGET;
   /** After Google says quota exceeded — pause Data API work until next PT midnight */
   private dataApiExhaustedUntil: Date | null = null;
   /** Comments-only sub-budget wall — does not stop SEO/trends/sync. */
@@ -121,7 +119,7 @@ export class QuotaService {
   }
 
   /**
-   * Comments-only sub-budget (default 4500/day). Stops comment list+insert without
+   * Comments-only sub-budget (default 7000/day). Stops comment list+insert without
    * pausing SEO/trends/sync. Also respects the global Data API wall.
    */
   async checkCommentsBudget(channelId: string, endpoint: string, cost: number): Promise<void> {
