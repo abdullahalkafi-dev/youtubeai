@@ -106,7 +106,7 @@ export interface AnalyticsOverview {
   top: Array<{ postId: string; reelId: string; platform: PlatformId; url: string | null; title: string; views: number; publishedAt: string }>
 }
 
-export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign'
+export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign' | 'images' | 'voice'
 
 export interface BreakdownRow {
   key: string
@@ -157,6 +157,8 @@ export interface CampaignChatMessage {
 
 export interface DailyDay {
   date: string
+  /** The day's campaign was deleted from the app. */
+  deleted: boolean
   status: 'running' | 'started' | 'skipped' | 'failed'
   reason: string | null
   topic: { name: string; brief: string; why: string; signal: 'trend' | 'performance' | 'archive'; keywords: string[] } | null

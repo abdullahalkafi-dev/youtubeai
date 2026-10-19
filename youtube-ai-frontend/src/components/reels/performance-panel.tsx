@@ -24,6 +24,8 @@ const BREAKDOWNS: Array<[BreakdownBy, string]> = [
   ['duration', 'Length'],
   ['weekday', 'Weekday'],
   ['campaign', 'Campaign'],
+  ['images', 'Pictures'],
+  ['voice', 'Voice'],
 ]
 
 type Keyed<T> = { key: string; data: T } | null

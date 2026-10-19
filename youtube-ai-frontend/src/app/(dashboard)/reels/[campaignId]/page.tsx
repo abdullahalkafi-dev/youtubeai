@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { useParams } from 'next/navigation'
-import { ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, Loader2, Plus, RotateCcw, Square, XCircle } from 'lucide-react'
+import { useParams, useRouter } from 'next/navigation'
+import { ArrowLeft, CheckCircle2, CircleDashed, ExternalLink, Loader2, Plus, RotateCcw, Sparkles, Square, Trash2, XCircle } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppSelector } from '@/store/hooks'
 import { ACTIVE_CAMPAIGN_STATUSES, reelsApi, errorMessage } from '@/lib/reels-api'
@@ -15,6 +15,7 @@ import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
 import { CampaignPerformance } from '@/components/reels/campaign-performance'
 import { CampaignChat } from '@/components/reels/campaign-chat'
 import { LinkVideoCard } from '@/components/reels/link-video-card'
+import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
 import { CampaignStatusBadge, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
 
 const STAGES: Array<{ id: string; label: string }> = [
@@ -45,6 +46,8 @@ export default function CampaignPage() {
   const [error, setError] = useState<string | null>(null)
   const [openReel, setOpenReel] = useState<Reel | null>(null)
   const [busy, setBusy] = useState(false)
+  const [showDelete, setShowDelete] = useState(false)
+  const router = useRouter()
 
   // Bumping the tick re-fetches; state is only set from async callbacks.
   const [tick, setTick] = useState(0)
@@ -104,6 +107,22 @@ export default function CampaignPage() {
     }
   }
 
+  const refreshLook = async () => {
+    if (!c) return
+    const n = c.reels.filter((r) => r.status === 'todo').length
+    if (!confirm(`Re-make ${n} reel${n === 1 ? '' : 's'} that are not posted yet with the latest voice and pictures? It takes about a minute per reel.`)) return
+    setBusy(true)
+    try {
+      const r = await reelsApi.refreshLook(channelId, c.id)
+      toast.success(`${r.queued} reels are being refreshed`)
+      load()
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const retry = async () => {
     if (!c) return
     setBusy(true)
@@ -151,9 +170,19 @@ export default function CampaignPage() {
               {c.reels.filter((r) => ['todo', 'posted', 'queued', 'rendering'].includes(r.status)).length < c.settings.targetReels ? 'Find more reels' : 'Make 3 more'}
             </button>
           )}
+          {!active && c.reels.some((r) => r.status === 'todo') && (
+            <button onClick={refreshLook} disabled={busy} title="Re-make the reels that are not posted yet with the latest voice and pictures" className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5" /> Refresh look
+            </button>
+          )}
           {failedReels > 0 && !active && (
             <button onClick={retry} disabled={busy} className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
               <RotateCcw className="w-3.5 h-3.5" /> Retry {failedReels} failed
+            </button>
+          )}
+          {!active && (
+            <button onClick={() => setShowDelete(true)} disabled={busy} title="Delete this campaign" className="px-3 py-2 rounded-xl bg-red-500/10 text-red-500 text-xs font-semibold flex items-center gap-1.5 hover:bg-red-500/20">
+              <Trash2 className="w-3.5 h-3.5" /> Delete
             </button>
           )}
           {(ACTIVE_CAMPAIGN_STATUSES as readonly string[]).includes(c.status) && (
@@ -337,6 +366,15 @@ export default function CampaignPage() {
       </section>
 
       <CampaignChat channelId={channelId} campaignId={c.id} campaignName={c.name} />
+      {showDelete && (
+        <DeleteCampaignDialog
+          channelId={channelId}
+          campaignId={c.id}
+          name={c.name}
+          onClose={() => setShowDelete(false)}
+          onDeleted={() => router.push('/reels')}
+        />
+      )}
 
       {openReel && (
         <ReelDetailModal

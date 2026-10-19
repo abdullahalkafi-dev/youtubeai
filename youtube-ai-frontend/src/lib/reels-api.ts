@@ -25,6 +25,14 @@ import type {
   ReelStatus,
 } from '@/types/reel'
 
+export interface DeletePreview {
+  name: string
+  reels: number
+  blockers: string[]
+  /** Already on a platform: these stay there. */
+  livePosts: Array<{ platform: string; status: string; title: string; url: string | null; views: number | null; scheduledFor: string | null }>
+}
+
 export interface UploadInfo {
   id: string
   fileName: string
@@ -137,6 +145,12 @@ export const reelsApi = {
     request<Reel>(`/channels/${channelId}/reels/${reelId}/thumbnails/${thumbId}/choose`, { method: 'POST' }),
   changeVisual: (channelId: string, reelId: string, visualId: string, action: 'replace' | 'remove') =>
     request<{ ok: boolean }>(`/channels/${channelId}/reels/${reelId}/visuals/${visualId}/${action}`, { method: 'POST' }),
+
+  // ---- delete / refresh ----
+  deletePreview: (channelId: string, campaignId: string) => request<DeletePreview>(`/channels/${channelId}/campaigns/${campaignId}/delete-preview`),
+  deleteCampaign: (channelId: string, campaignId: string) =>
+    request<{ ok: boolean; reelsHidden: number; stillOnPlatforms: number }>(`/channels/${channelId}/campaigns/${campaignId}`, { method: 'DELETE' }),
+  refreshLook: (channelId: string, campaignId: string) => request<{ queued: number }>(`/channels/${channelId}/campaigns/${campaignId}/refresh-look`, { method: 'POST' }),
 
   // ---- campaign performance & assistant ----
   campaignPerformance: (channelId: string, campaignId: string) =>

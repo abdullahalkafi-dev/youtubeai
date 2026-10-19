@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { Bar, BarChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { AlertTriangle, CalendarClock, ChevronRight, Eye, Flame, History, Loader2, PauseCircle, Play, TrendingDown, TrendingUp, Trophy, Minus } from 'lucide-react'
+import { AlertTriangle, CalendarClock, ChevronRight, Eye, Flame, History, Loader2, PauseCircle, Play, Trash2, TrendingDown, TrendingUp, Trophy, Minus } from 'lucide-react'
 import { toast } from 'sonner'
 import { errorMessage, reelsApi } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
@@ -202,6 +202,11 @@ function DayCard({ d }: { d: DailyDay }) {
           {d.status === 'skipped' ? (
             <p className="text-xs text-zinc-500 flex items-center gap-1.5">
               <PauseCircle className="w-4 h-4" /> Skipped — {d.reason}
+            </p>
+          ) : d.deleted ? (
+            <p className="text-xs text-zinc-500 flex items-center gap-1.5">
+              <Trash2 className="w-4 h-4" /> {d.topic?.name ?? 'Daily campaign'} — campaign deleted
+              {d.posts > 0 ? ` (${compact(d.views)} views from videos that stay on YouTube)` : ''}
             </p>
           ) : d.status === 'failed' ? (
             <p className="text-xs text-red-500 flex items-center gap-1.5">

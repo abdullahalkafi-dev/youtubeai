@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { ChevronRight, Clapperboard, Film, Inbox, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { ChevronRight, Clapperboard, Film, Inbox, Loader2, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import { useAppSelector } from '@/store/hooks'
 import { ACTIVE_CAMPAIGN_STATUSES, reelsApi, errorMessage } from '@/lib/reels-api'
 import type { CampaignSummary, Reel, ReelServiceStatus, ReelStatus } from '@/types/reel'
@@ -14,6 +14,7 @@ import { CoveragePanel } from '@/components/reels/coverage-panel'
 import { AccountsBar } from '@/components/reels/accounts-bar'
 import { PerformancePanel } from '@/components/reels/performance-panel'
 import { DailyPanel } from '@/components/reels/daily-panel'
+import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
 import { CampaignStatusBadge, compact, timeAgo } from '@/components/reels/reel-ui'
 
 type Tab = 'campaigns' | 'daily' | 'library' | 'performance' | 'coverage'
@@ -38,6 +39,7 @@ export default function ReelsPage() {
   const [error, setError] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [openReel, setOpenReel] = useState<Reel | null>(null)
+  const [deleting, setDeleting] = useState<CampaignSummary | null>(null)
 
   // Bumping a tick re-runs the matching fetch effect (state is only set from async callbacks).
   const [tick, setTick] = useState(0)
@@ -178,6 +180,20 @@ export default function ReelsPage() {
                       </p>
                       <p className="text-[10px] uppercase tracking-wider text-zinc-400">reels ready</p>
                     </div>
+                    {!(ACTIVE_CAMPAIGN_STATUSES as readonly string[]).includes(c.status) && (
+                      <button
+                        type="button"
+                        title="Delete this campaign"
+                        onClick={(e) => {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          setDeleting(c)
+                        }}
+                        className="p-1.5 rounded-lg text-zinc-300 hover:text-red-500 hover:bg-red-500/10"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    )}
                     <ChevronRight className="w-4 h-4 text-zinc-400" />
                   </div>
                 </div>
@@ -240,6 +256,20 @@ export default function ReelsPage() {
             setEntity({ slug, name })
             setFilter('all')
             setTab('library')
+          }}
+        />
+      )}
+
+      {deleting && channelId && (
+        <DeleteCampaignDialog
+          channelId={channelId}
+          campaignId={deleting.id}
+          name={deleting.name}
+          onClose={() => setDeleting(null)}
+          onDeleted={() => {
+            setCampaigns((prev) => prev.filter((x) => x.id !== deleting.id))
+            setDeleting(null)
+            refresh()
           }}
         />
       )}
