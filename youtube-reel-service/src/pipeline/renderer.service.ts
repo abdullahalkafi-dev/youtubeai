@@ -134,6 +134,7 @@ export class RendererService {
             timing: {
               speed: result.timeline.speed,
               voice: result.timeline.voice,
+              semitones: result.timeline.semitones,
               cuts: result.timeline.cuts,
               plannedSec: result.timeline.reelDuration,
             },
@@ -163,8 +164,9 @@ export class RendererService {
     return {
       speed: this.cfg.REEL_SPEED,
       voice: this.cfg.REEL_VOICE,
+      semitones: this.cfg.REEL_PITCH_SEMITONES,
       minGap: this.cfg.REEL_TRIM_PAUSES ? this.cfg.REEL_PAUSE_MIN_GAP_MS / 1000 : 0,
-      keep: 0.08,
+      keep: 0.12,
       maxSegments: 30,
     };
   }
@@ -205,7 +207,7 @@ export class RendererService {
     try {
       const m = await run(
         this.cfg.FFMPEG_BIN,
-        ['-hide_banner', '-nostats', ...clipInputArgs(clips), '-filter_complex', loudnessMeasureGraph(clips, { speed: tl.speed, voice: tl.voice }), '-map', '[aout]', '-f', 'null', '-'],
+        ['-hide_banner', '-nostats', ...clipInputArgs(clips), '-filter_complex', loudnessMeasureGraph(clips, { speed: tl.speed, voice: tl.voice, semitones: tl.semitones }), '-map', '[aout]', '-f', 'null', '-'],
         { cwd: dir, timeoutMs: 15 * 60_000, lowPriority: true },
       );
       measured = parseLoudnorm(m.stderr);
@@ -226,7 +228,7 @@ export class RendererService {
         'canvas.png',
         ...imageInputArgs(images),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, images }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images }),
         '-map',
         '[vout]',
         '-map',

@@ -11,13 +11,15 @@ import type { RenderClipInput } from './filtergraph';
  *  - reel time:   the planned reel timeline (clips back to back), what `reel.words` uses
  *  - output time: the finished file after pause cuts and speed-up
  */
-export type Voice = 'chipmunk' | 'natural';
+/** energetic: faster + a little higher, voice character kept (rubberband, formants preserved); chipmunk: legacy resample; natural: tempo only. */
+export type Voice = 'energetic' | 'chipmunk' | 'natural';
 
 export interface PaceOptions {
   /** Playback speed of the whole reel (1 = unchanged). */
   speed: number;
-  /** chipmunk: pitch rises with speed ("Mickey Mouse"); natural: pitch kept. */
   voice: Voice;
+  /** energetic only: pitch raise in semitones (1.5 ≈ +9%). */
+  semitones: number;
   /** Remove silences longer than this inside a clip (0 = never). */
   minGap: number;
   /** Silence kept on each side of a removed pause. */
@@ -26,11 +28,12 @@ export interface PaceOptions {
   maxSegments: number;
 }
 
-export const NO_PACE: PaceOptions = { speed: 1, voice: 'natural', minGap: 0, keep: 0, maxSegments: 1000 };
+export const NO_PACE: PaceOptions = { speed: 1, voice: 'natural', semitones: 0, minGap: 0, keep: 0, maxSegments: 1000 };
 
 export interface Timeline {
   speed: number;
   voice: Voice;
+  semitones: number;
   /** Removed pauses on the reel timeline: [start, end). */
   cuts: Array<[number, number]>;
   /** What ffmpeg reads, in order. */
@@ -74,22 +77,39 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
   }
   // Keep the longest pauses when there are too many to cut.
   const budget = Math.max(0, pace.maxSegments - clips.length);
-  const cuts = candidates
+  const planned = candidates
     .sort((x, y) => y[1] - y[0] - (x[1] - x[0]))
     .slice(0, budget)
     .sort((x, y) => x[0] - y[0])
     .map(([a, b]) => [r3(a), r3(b)] as [number, number]);
 
-  // Split every clip around the cuts that fall inside it.
+  // Split every clip around the cuts that fall inside it. Every kept segment is a WHOLE number of output frames
+  // (FPS): the video chain re-times each segment to 30 fps, so fractional frames would round up and the error would
+  // add up over 30 segments (measured: 0.24 s late at the end of a reel). Any sliver given up by rounding is recorded
+  // as part of the cut, so caption/image times (map) stay exact.
+  const FPS = 30;
+  const frames = (sec: number, mode: 'round' | 'floor') => Math.max(1, mode === 'floor' ? Math.floor(sec * FPS + 1e-6) : Math.round(sec * FPS)) / FPS;
   const segments: RenderClipInput[] = [];
+  const cuts: Array<[number, number]> = [];
   for (const s of spans) {
     let cursor = s.from;
-    for (const [a, b] of cuts) {
+    for (const [a, b] of planned) {
       if (a < s.from || b > s.to) continue;
-      if (a > cursor) segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(a - cursor) });
+      if (a > cursor) {
+        const dq = frames(a - cursor, 'round'); // a pause is >= 0.1 s, so cursor + dq stays inside it
+        segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq) });
+        cuts.push([r3(cursor + dq), r3(b)]);
+      }
       cursor = b;
     }
-    if (s.to - cursor > 0.02) segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(s.to - cursor) });
+    const tail = s.to - cursor;
+    if (tail > 0.02) {
+      const dq = frames(tail, 'floor');
+      segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq) });
+      if (tail - dq > 1e-4) cuts.push([r3(cursor + dq), r3(s.to)]);
+    } else if (tail > 1e-4) {
+      cuts.push([r3(cursor), r3(s.to)]);
+    }
   }
 
   const removedBefore = (t: number) => {
@@ -103,7 +123,7 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
   const map = (t: number) => Math.max(0, (t - removedBefore(t)) / speed);
   const kept = segments.reduce((n, sg) => n + sg.duration, 0);
 
-  return { speed, voice: pace.voice, cuts, segments, reelDuration: r3(reelDuration), duration: r3(kept / speed), map };
+  return { speed, voice: pace.voice, semitones: pace.semitones, cuts, segments, reelDuration: r3(reelDuration), duration: r3(kept / speed), map };
 }
 
 /** Words moved onto the output timeline (for captions and subtitles). */

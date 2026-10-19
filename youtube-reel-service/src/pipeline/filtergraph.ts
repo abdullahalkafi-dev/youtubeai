@@ -1,4 +1,5 @@
 import type { ReelTemplate } from './template';
+import type { Voice } from './timeline';
 
 export interface RenderClipInput {
   /** Path or URL of the source video. */
@@ -48,18 +49,26 @@ function audioChain(i: number, d: number): string {
   );
 }
 
-/** Audio speed-up: chipmunk raises the pitch with the speed, natural keeps it. */
-export function paceAudio(speed: number, voice: 'chipmunk' | 'natural'): string {
+/**
+ * Audio speed-up (returns a filter prefix ending in a comma, or '').
+ *  - energetic: rubberband tempo + a small pitch raise with formants PRESERVED, so the voice keeps its character
+ *    (measured on the host: speed 1.15, pitch +9%, voice brightness unchanged)
+ *  - chipmunk: asetrate resample: pitch and voice character both rise (+17% pitch, +18% brightness at 1.2x)
+ *  - natural: tempo only
+ */
+export function paceAudio(speed: number, voice: Voice, semitones = 0): string {
   if (!speed || Math.abs(speed - 1) < 1e-3) return '';
-  return voice === 'chipmunk' ? `asetrate=${Math.round(48000 * speed)},aresample=48000,` : `atempo=${speed.toFixed(4)},`;
+  if (voice === 'chipmunk') return `asetrate=${Math.round(48000 * speed)},aresample=48000,`;
+  if (voice === 'energetic') return `rubberband=tempo=${speed.toFixed(4)}:pitch=${Math.pow(2, semitones / 12).toFixed(4)}:formant=preserved:pitchq=quality,`;
+  return `atempo=${speed.toFixed(4)},`;
 }
 
 /** Pass 1: audio only, measure integrated loudness of the concatenated (and sped-up) clips. */
-export function loudnessMeasureGraph(clips: RenderClipInput[], pace: { speed: number; voice: 'chipmunk' | 'natural' } = { speed: 1, voice: 'natural' }): string {
+export function loudnessMeasureGraph(clips: RenderClipInput[], pace: { speed: number; voice: Voice; semitones?: number } = { speed: 1, voice: 'natural' }): string {
   const parts = clips.map((c, i) => audioChain(i, c.duration));
   const concatIn = clips.map((_, i) => `[a${i}]`).join('');
   parts.push(`${concatIn}concat=n=${clips.length}:v=0:a=1[ac]`);
-  parts.push(`[ac]${paceAudio(pace.speed, pace.voice)}loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:print_format=json[aout]`);
+  parts.push(`[ac]${paceAudio(pace.speed, pace.voice, pace.semitones ?? 0)}loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:print_format=json[aout]`);
   return parts.join(';');
 }
 
@@ -85,7 +94,8 @@ export function renderGraph(input: {
   /** Output duration (after pace). */
   totalDuration: number;
   speed?: number;
-  voice?: 'chipmunk' | 'natural';
+  voice?: Voice;
+  semitones?: number;
   /** AI images; their inputs follow the canvas input. */
   images?: RenderImageInput[];
 }): string {
@@ -106,7 +116,7 @@ export function renderGraph(input: {
     parts.push('[vc0]null[vc]', '[ac0]anull[ac]');
   } else {
     parts.push(`[vc0]setpts=PTS/${speed.toFixed(4)},fps=30[vc]`);
-    parts.push(`[ac0]${paceAudio(speed, input.voice ?? 'natural').replace(/,$/, '')}[ac]`);
+    parts.push(`[ac0]${paceAudio(speed, input.voice ?? 'natural', input.semitones ?? 0).replace(/,$/, '')}[ac]`);
   }
   parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(input.totalDuration + 0.5)}[bg]`);
   parts.push(`[bg][vc]overlay=x=${x}:y=${y}:shortest=1[b1]`);

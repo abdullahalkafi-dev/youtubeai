@@ -65,10 +65,12 @@ const EnvSchema = z.object({
   REEL_DOWNLOAD_DAILY_CAP: int(40),
   REEL_SOURCE_CACHE_GB: int(40),
   // Pace: pauses inside clips are cut, then the reel is sped up. chipmunk = pitch rises ("Mickey Mouse" voice).
-  REEL_SPEED: str('1.2').transform((v) => parseFloat(v)).pipe(z.number().min(1).max(1.6)),
-  REEL_VOICE: z.enum(['chipmunk', 'natural']).default('chipmunk'),
+  REEL_SPEED: str('1.15').transform((v) => parseFloat(v)).pipe(z.number().min(1).max(1.6)),
+  // energetic: pitch raise in semitones (voice character kept); ignored by chipmunk/natural.
+  REEL_PITCH_SEMITONES: str('1.5').transform((v) => parseFloat(v)).pipe(z.number().min(0).max(4)),
+  REEL_VOICE: z.enum(['energetic', 'chipmunk', 'natural']).default('energetic'),
   REEL_TRIM_PAUSES: bool(true),
-  REEL_PAUSE_MIN_GAP_MS: int(350),
+  REEL_PAUSE_MIN_GAP_MS: int(450),
   // AI images inside reels (GPT Image). Low quality keeps each image around a cent.
   REEL_IMAGES_ENABLED: bool(true),
   REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),
