@@ -121,18 +121,16 @@ export function renderGraph(input: {
   parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(input.totalDuration + 0.5)}[bg]`);
   parts.push(`[bg][vc]overlay=x=${x}:y=${y}:shortest=1[b1]`);
 
-  // AI images: cover the window, slow pan, short fades; under the canvas and captions.
+  // AI pictures: each input is a window-sized card overlay (card.ts: dimmed backdrop + shadow + border + rounded picture),
+  // faded in/out, under the canvas and captions so the host's video stays visible around the card.
   let cur = 'b1';
   (input.images ?? []).forEach((im, j) => {
     const idx = input.canvasInputIndex + 1 + j;
-    const d = Math.max(0.3, im.end - im.start);
-    const fade = Math.min(0.15, d / 4);
-    const sw = Math.ceil((w * 1.12) / 2) * 2;
-    const sh = Math.ceil((h * 1.12) / 2) * 2;
+    const d = Math.max(0.4, im.end - im.start);
+    const fin = 0.18;
+    const fout = 0.12;
     parts.push(
-      `[${idx}:v]scale=${sw}:${sh}:force_original_aspect_ratio=increase:flags=lanczos,` +
-        `crop=${w}:${h}:x='(iw-ow)*min(1,t/${n(d)})':y='(ih-oh)/2',setsar=1,format=yuva420p,` +
-        `fade=t=in:st=0:d=${n(fade)}:alpha=1,fade=t=out:st=${n(d - fade)}:d=${n(fade)}:alpha=1,` +
+      `[${idx}:v]format=yuva420p,fade=t=in:st=0:d=${n(fin)}:alpha=1,fade=t=out:st=${n(Math.max(fin, d - fout))}:d=${n(fout)}:alpha=1,` +
         `setpts=PTS-STARTPTS+${n(im.start)}/TB[im${j}]`,
     );
     parts.push(`[${cur}][im${j}]overlay=x=${x}:y=${y}:eof_action=pass:enable='between(t,${n(im.start)},${n(im.end)})'[bi${j}]`);

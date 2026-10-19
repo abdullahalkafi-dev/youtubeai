@@ -17,6 +17,8 @@ export interface ReelVisual {
   end: number;
   importance: 'high' | 'medium';
   purpose: string;
+  /** The words he says when the picture appears. */
+  phrase?: string;
   prompt: string;
   safePrompt: string;
   people: string[];

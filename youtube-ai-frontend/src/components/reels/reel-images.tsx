@@ -49,7 +49,7 @@ export function ReelImages({ channelId, reel, onChanged }: { channelId: string; 
                 at {v.at.toFixed(1)}s · {v.duration.toFixed(1)}s{v.realPerson ? ' · real person' : ''}
               </p>
               <p className="text-[11px] text-zinc-700 dark:text-zinc-300 line-clamp-2" title={v.purpose}>
-                {v.status === 'failed' ? 'Could not create this image' : v.purpose}
+                {v.status === 'failed' ? 'Could not create this image' : v.phrase ? `when he says “${v.phrase}”` : v.purpose}
               </p>
               <div className="flex gap-1">
                 <button

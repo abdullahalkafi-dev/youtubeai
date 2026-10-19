@@ -75,7 +75,7 @@ const EnvSchema = z.object({
   REEL_IMAGES_ENABLED: bool(true),
   REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),
   REEL_IMAGE_QUALITY: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('low'),
-  REEL_IMAGES_MAX: int(4),
+  REEL_IMAGES_MAX: int(7),
   REEL_THUMBNAILS_ENABLED: bool(true),
   /** The main app's MinIO bucket (read-only use: its subject photos, host cutouts). */
   MAIN_MINIO_BUCKET: str('thumbnails'),

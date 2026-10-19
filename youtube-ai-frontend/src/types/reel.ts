@@ -5,6 +5,8 @@ export interface ReelVisual {
   at: number
   duration: number
   purpose: string
+  /** The words he says when this picture appears. */
+  phrase?: string | null
   status: 'pending' | 'ready' | 'failed'
   realPerson: boolean
   url: string | null

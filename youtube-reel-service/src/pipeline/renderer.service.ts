@@ -13,6 +13,7 @@ import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { buildAss, buildSrt } from './captions';
 import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, RenderImageInput, renderGraph } from './filtergraph';
+import { cardGraph } from './card';
 import { buildTimeline, mapWords, NO_PACE, PaceOptions, Timeline } from './timeline';
 import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
 import { ReelTemplate } from './template';
@@ -97,9 +98,16 @@ export class RendererService {
       const images: RenderImageInput[] = [];
       try {
         for (const v of await this.visuals.ensure(reel)) {
-          const file = path.join(dir, `beat-${v.id}-${v.variant ?? 0}.jpg`);
-          await this.storage.getFile(BUCKETS.reels, v.key!, file);
-          images.push({ file, start: v.start, end: v.end });
+          const jpg = path.join(dir, `beat-${v.id}-${v.variant ?? 0}.jpg`);
+          const card = path.join(dir, `card-${v.id}-${v.variant ?? 0}.png`);
+          await this.storage.getFile(BUCKETS.reels, v.key!, jpg);
+          // the picture becomes a card on top of the host's video (see card.ts); ~0.2 s per picture
+          await run(this.cfg.FFMPEG_BIN, ['-hide_banner', '-y', '-i', jpg, '-filter_complex', cardGraph(tpl.template.window), '-map', '[out]', '-frames:v', '1', card], {
+            cwd: dir,
+            timeoutMs: 60_000,
+            lowPriority: true,
+          });
+          images.push({ file: card, start: v.start, end: v.end });
         }
       } catch (err: any) {
         this.logger.warn(`Reel ${reelId}: rendering without AI images (${err.message})`);

@@ -80,7 +80,7 @@ describe('render graph pace + images', () => {
     expect(renderGraph({ clips: [{ src: 'a', start: 0, duration: 5 }], template, canvasInputIndex: 1, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 4, speed: 1.2, voice: 'natural' })).toContain('atempo=1.2000');
     expect(renderGraph({ clips: [{ src: 'a', start: 0, duration: 5 }], template, canvasInputIndex: 1, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 5 })).toContain('[vc0]null[vc]');
   });
-  it('overlays images inside the window, under the canvas, only during their beat', () => {
+  it('overlays picture cards inside the window, under the canvas, only during their beat, with fades', () => {
     const g = renderGraph({
       clips: [{ src: 'a', start: 0, duration: 10 }],
       template,
@@ -89,9 +89,9 @@ describe('render graph pace + images', () => {
       fontsDir: 'f',
       measured: null,
       totalDuration: 10,
-      images: [{ file: 'i.jpg', start: 2, end: 4.5 }],
+      images: [{ file: 'card.png', start: 2, end: 4.5 }],
     });
-    expect(g).toContain("[2:v]scale=1210:682");
+    expect(g).toContain('[2:v]format=yuva420p,fade=t=in:st=0:d=0.180:alpha=1,fade=t=out:st=2.380:d=0.120:alpha=1,setpts=PTS-STARTPTS+2.000/TB[im0]');
     expect(g).toContain("[b1][im0]overlay=x=0:y=656:eof_action=pass:enable='between(t,2.000,4.500)'[bi0]");
     expect(g).toContain('[bi0][1:v]overlay=x=0:y=0');
   });

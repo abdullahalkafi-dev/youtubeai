@@ -87,6 +87,7 @@ export class ReelsApiService {
       at: r1(map(v.start)),
       duration: r1(map(v.end) - map(v.start)),
       purpose: v.purpose,
+      phrase: v.phrase ?? null,
       status: v.status,
       realPerson: !!v.realPerson,
       url: v.status === 'ready' && v.key ? `/api/reels/media/${r._id}/beat-${v.id}?t=${t}&v=${v.variant ?? 0}` : null,

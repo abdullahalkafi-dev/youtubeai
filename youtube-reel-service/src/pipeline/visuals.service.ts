@@ -96,6 +96,7 @@ export class VisualsService {
         end: b.end,
         importance: b.importance,
         purpose: b.purpose,
+        phrase: b.phrase,
         prompt: `${res.style.trim()}. ${b.prompt}`,
         safePrompt: `${res.style.trim()}. ${b.safePrompt}`,
         people: b.people,
