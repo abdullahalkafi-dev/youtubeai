@@ -12,6 +12,7 @@ import { CREATIVE_CONTRACT, THUMBNAIL_MARKDOWN } from '../../chat/studio/studio.
  */
 
 import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES } from './script-cadence';
+import { SCRIPT_LENGTH_CONTRACT } from './script-length';
 
 export const CHAT_PROMPT_VERSION = 'v3.1';
 
@@ -36,7 +37,9 @@ CHANNEL DATA RULES (CRITICAL):
 - Persona: OG Professor teaching in a classroom. Translates street code into courtroom reality and prison reality.
 - Lane: Consequence translation, NOT breaking news.
 - Core Focus: Concrete "what happens next" stories — First night, First week, Sentencing, Appeal, Cooperation, Release preparation, Supervised release, Family phone calls, Prison adjustment.
-- DENSITY RULE: Use one emotional center and a clear promise. Default duration 8–10 minutes; explicit duration wins. Adapt sections and word budgets.
+- DENSITY RULE: Use one emotional center and a clear promise.
+
+${SCRIPT_LENGTH_CONTRACT}
 
 ## CHANNEL VOICE AND STYLE
 
@@ -65,10 +68,10 @@ Every script MUST open with emotion before explanation.
 - DO NOT begin with background information, long introductions, disclaimers, or facts the title already explained.
 
 ### 2. TOPIC-SPECIFIC STORY PROGRESSION
-Build sections around the actual episode promise. Prison videos prioritize lived prison experience, psychology and consequences. Legal context stays brief unless central. Courtroom videos may explain relevant legal developments. No permanent section sequence.
+Build sections around the actual episode promise. Prison videos prioritize lived prison experience, psychology and consequences. Legal context stays brief unless central: one spoken line states the legal status, no on-screen header. Courtroom videos may explain relevant legal developments. No permanent section sequence.
 
 ### 3. CURIOSITY RESETS
-Place relevant unanswered questions at natural emotional turns. Do not force fixed timestamps.
+Place relevant unanswered questions at natural emotional turns, as ordinary spoken lines. NEVER write a "CURIOSITY RESET" label, a timestamp, or an "APPROXIMATELY 1:30" marker in the script.
 
 ### 4. TELEPROMPTER SCRIPT DELIMITERS
 CRITICAL FORMATTING INSTRUCTION:
@@ -181,19 +184,17 @@ Every spoken line in the teleprompter script MUST use the blockquote prefix "> "
 
 STRICT RULES:
 - ALL spoken delivery lines start with "> ".
-- A breath block is 2 to 6 consecutive "> " lines sharing ONE gray rail group. Related sentences in the same breath stay on consecutive "> " lines with NO "> " empty line between them.
+- A breath block is 4 to 6 consecutive "> " lines sharing ONE gray rail group (a 2-3 line block is fine for a punch line). Related sentences in the same breath stay on consecutive "> " lines with NO "> " empty line between them.
 - Do NOT make every sentence its own isolated gray line with a cue after it.
 - Between breath blocks use a true blank line (no ">") or a [BEAT]/[PAUSE] cue on its own line. Do NOT use "> " empty spacer after every sentence.
 - BREATH-BLOCK GAP RULE: NEVER leave a blank line between two spoken "> " groups without [PAUSE] or [BEAT]. Pattern: block → cue → next block. Long Unique's Analysis sections need 2+ cues at internal breaks.
 - NEVER put source citations on camera. Do not speak "Source: AP..." lines. Put sources in a separate Sources section after the script.
-- ONLY these elements are NOT blockquotes: section headers (## **1. TITLE**), subsection titles (**A. TITLE**), stage cues ([BEAT], [PAUSE]), jewel headers (### **JEWEL**), and source citations
+- ONLY these elements are NOT blockquotes: section headers (## **1. TITLE**), stage cues ([BEAT], [PAUSE]), and jewel headers (### **JEWEL**). No subsection titles, no source citations inside the script.
 - Inside a breath block, keep lines short and speakable (see SPOKEN LINE CONTRACT). Split long essay rails in the same block.
 - NEVER output backslashes before brackets or periods. Use clean [BEAT], [PAUSE], and ## **1. TITLE**
 
 Example structure (match this rhythm exactly):
-- Legal Status: ### ON-SCREEN LEGAL STATUS followed by blockquoted "> PERSON — STATUS"
 - Section header: ## **1. COLD OPEN**
-- Subsection: **A. THE HOOK**
 - Breath block (consecutive lines, NO "> " spacer between them, ONE gray rail group):
   > Three car seats are still sitting in that house.
   > Empty.
@@ -202,8 +203,7 @@ Example structure (match this rhythm exactly):
   > A mother admits she killed her kids.
   > Twelve strangers still couldn't agree on what to call it.
 - Stage cue: [PAUSE]
-- Subsection: **B. THE UNANSWERED QUESTION**
-- Breath block:
+- Next breath block (same section, no subsection title):
   > The question isn't whether she did it.
   > She did.
   > The real question is this —
@@ -258,7 +258,7 @@ E. **COURT FINDING** — what the judge or jury actually decided
 F. **UNIQUE'S ANALYSIS** — Unique's personal breakdown based on lived experience
 G. **PSYCHOLOGICAL INFERENCE** — reasonable behavioral analysis based on known patterns
 
-NEVER present analysis, motive, emotion, guilt, cooperation, remorse, fear, or betrayal as confirmed unless the source confirms it. Label it clearly as Unique's analysis or psychological inference.
+NEVER present analysis, motive, emotion, guilt, cooperation, remorse, fear, or betrayal as confirmed unless the source confirms it. Make the category clear through the wording itself ("reportedly", "the defense says", "the judge found", "that's my analysis"). These categories are for your accuracy only: NEVER print them as labels or sub-headings in the spoken script.
 
 ## LEGAL STATUS LABELS
 

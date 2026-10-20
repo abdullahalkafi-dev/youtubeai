@@ -14,6 +14,7 @@ import { ScriptVersion, ScriptVersionDocument } from '../mongo/schemas/script-ve
 import { Thread, ThreadDocument } from '../mongo/schemas/thread.schema';
 import { CreateScriptDto, SaveScriptDto, ScriptQueryDto, BeautifyScriptDto } from './dto/script.dto';
 import { SPOKEN_LINE_CONTRACT, GOLD_SPOKEN_EXAMPLES, BEAUTIFY_SPOKEN_RULES } from '../openai/prompts/script-cadence';
+import { sanitizeSpokenScript } from '../openai/prompts/script-length';
 import { ChromaService } from '../chroma/chroma.service';
 import { OpenAIService } from '../openai/openai.service';
 import { leanDoc, leanDocs } from '../common/utils/lean';
@@ -575,15 +576,11 @@ ${GOLD_SPOKEN_EXAMPLES}
 
 FORMATTING RULES:
 1. Main Episode Title: # SCRIPT TITLE: [TOPIC HEADLINE]
-2. Legal Status Header: ### ON-SCREEN LEGAL STATUS followed by blockquoted status lines:
-   ### ON-SCREEN LEGAL STATUS
-   > PERSON — STATUS
-   >
-   > PERSON — STATUS
+2. No on-screen legal header, no sub-section titles (no "A. ..." labels), no CURIOSITY RESET markers, no "Verification references" lines. If the raw text has them, drop the label and keep the facts as a spoken line.
 3. Numbered Section Titles: ## **1. SECTION TITLE** (bold)
-4. Sub-sections: **A. SUB-SECTION TITLE** (bold, no arrows)
-5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Keep breath blocks (2–6 consecutive "> " lines = one gray rail group). Inside the block, use short speakable lines (target 5–10 words, max ~12). Do NOT isolate every sentence with its own cue. Do NOT write 20–30 word essay rails.
-   A breath block is 2 to 6 CONSECUTIVE "> " lines with NO empty "> " between them:
+4. Do not make the script longer than the raw text. Trim repetition instead of adding words.
+5. Spoken lines: EVERY spoken line MUST use > blockquote prefix. Keep breath blocks (4–6 consecutive "> " lines = one gray rail group). Inside the block, use short speakable lines (target 3–7 words, never more than 8). Do NOT isolate every sentence with its own cue. Do NOT write 20–30 word essay rails.
+   A breath block is 4 to 6 CONSECUTIVE "> " lines with NO empty "> " between them:
    > Short spoken thought here.
    > Next short thought in the same breath.
    > Punch line lands here.
@@ -625,8 +622,10 @@ ${dto.rawText}`;
     });
 
     // Sanitize: strip accidental backslashes before [ ] . * _ to prevent \[BEAT\], 1\., etc.
-    const sanitized = formatted
-      .replace(/\\([\[\]\.\*\_])/g, '$1');
+    // Then drop any on-screen header / sub-labels / curiosity markers / leaked reference lines.
+    const sanitized = sanitizeSpokenScript(
+      formatted.replace(/\\([\[\]\.\*\_])/g, '$1'),
+    ).content;
 
     const stats = calculateStats(sanitized);
     const resolvedTitle = isGenericTitle(dto.title) ? extractTopicTitle(sanitized, dto.title) : (dto.title || 'YouTube Video Script');

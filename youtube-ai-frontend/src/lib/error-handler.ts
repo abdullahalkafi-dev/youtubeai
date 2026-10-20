@@ -7,11 +7,16 @@ export interface ParsedApiError {
   isAuthExpired: boolean
   isQuotaExceeded: boolean
   isRateLimited: boolean
+  isOpenAiNoCredits?: boolean
   action?: {
     label: string
     onClick: () => void
   }
 }
+
+export const OPENAI_BILLING_URL = 'https://platform.openai.com/settings/organization/billing'
+export const OPENAI_NO_CREDITS_TEXT =
+  'OpenAI has no credits left on this account, so AI features are paused. Add credits on OpenAI (platform.openai.com > Settings > Billing) and try again. Automation resumes by itself once credits are available.'
 
 /**
  * Classifies an API / runtime error into human-readable, client-friendly explanation
@@ -70,6 +75,32 @@ export function parseApiError(err: unknown, defaultTitle: string = 'Action Faile
         onClick: () => {
           if (typeof window !== 'undefined') {
             window.location.href = api.getGoogleAuthUrl()
+          }
+        },
+      },
+    }
+  }
+
+  // 1b. OpenAI account is out of credits (must come before the YouTube quota check)
+  if (
+    code === 'OPENAI_NO_CREDITS' ||
+    statusCode === 402 ||
+    lowerMsg.includes('no openai credits') ||
+    lowerMsg.includes('no credits remaining') ||
+    lowerMsg.includes('insufficient_quota')
+  ) {
+    return {
+      title: 'No OpenAI Credits',
+      description: OPENAI_NO_CREDITS_TEXT,
+      isAuthExpired: false,
+      isQuotaExceeded: false,
+      isRateLimited: false,
+      isOpenAiNoCredits: true,
+      action: {
+        label: 'Add credits',
+        onClick: () => {
+          if (typeof window !== 'undefined') {
+            window.open(OPENAI_BILLING_URL, '_blank', 'noopener,noreferrer')
           }
         },
       },
@@ -151,7 +182,7 @@ export function parseApiError(err: unknown, defaultTitle: string = 'Action Faile
 export function showApiErrorToast(err: unknown, defaultTitle: string = 'Action Failed') {
   const parsed = parseApiError(err, defaultTitle)
 
-  if (parsed.isAuthExpired && parsed.action) {
+  if ((parsed.isAuthExpired || parsed.isOpenAiNoCredits) && parsed.action) {
     toast.error(parsed.title, {
       description: parsed.description,
       action: {
@@ -178,7 +209,7 @@ export function showApiErrorToast(err: unknown, defaultTitle: string = 'Action F
 
 export function getFriendlyErrorMessage(err: unknown, defaultTitle: string = 'Action Failed'): string {
   const parsed = parseApiError(err, defaultTitle)
-  return parsed.isAuthExpired || parsed.isQuotaExceeded
+  return parsed.isAuthExpired || parsed.isQuotaExceeded || parsed.isOpenAiNoCredits
     ? `${parsed.title}: ${parsed.description}`
     : parsed.description
 }

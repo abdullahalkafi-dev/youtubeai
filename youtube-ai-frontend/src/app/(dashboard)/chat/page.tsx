@@ -442,7 +442,7 @@ export default function ChatPage() {
           prompt += `${idx + 1}. ${sec.title || sec.name || ''} (${sec.timing || ''}): ${sec.points?.join(', ') || ''}\n`
         })
       }
-      prompt += `\nPlease write the full spoken teleprompter script targeting 10 to 12 minutes (approx. 1,400 to 1,600 words). Use > blockquote prefix on ALL spoken lines for teleprompter rendering.`
+      prompt += `\nPlease write the full spoken teleprompter script in 7 to 9 minutes (approx. 900 to 1,150 spoken words), short breathable lines, no sub-labels. Use > blockquote prefix on ALL spoken lines for teleprompter rendering.`
       setInput(prompt)
     }
 
@@ -729,7 +729,9 @@ export default function ChatPage() {
         (error) => {
           // Only clean up if we're still on the same thread (user may have switched)
           if (streamThreadId === activeThreadId) {
-            if (error !== 'The operation was aborted') {
+            if (/no openai credits/i.test(error)) {
+              showApiErrorToast(error)
+            } else if (error !== 'The operation was aborted') {
               toast.error(`Stream interrupted: ${error}`)
             }
             dispatch(clearStreaming())
@@ -740,7 +742,8 @@ export default function ChatPage() {
     } catch (err: any) {
       if (streamThreadId === activeThreadId) {
         if (err.name !== 'AbortError') {
-          toast.error(err.message || 'Stream failed')
+          if (/no openai credits/i.test(err.message || '')) showApiErrorToast(err)
+          else toast.error(err.message || 'Stream failed')
         }
         dispatch(clearStreaming())
       }

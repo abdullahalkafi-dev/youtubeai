@@ -10,6 +10,11 @@ import {
 } from '@nestjs/common';
 import { Request, Response } from 'express';
 import { DevLogsService } from '../../dev-logs/dev-logs.service';
+import {
+  OPENAI_NO_CREDITS_CODE,
+  OPENAI_NO_CREDITS_MESSAGE,
+  toOpenAiCreditsError,
+} from '../errors/openai-credits';
 
 /**
  * Global exception filter. Catches all unhandled exceptions and returns
@@ -62,7 +67,16 @@ export class AllExceptionsFilter implements ExceptionFilter {
       lowerExMsg.includes('token expired') ||
       lowerExMsg.includes('re-login with google');
 
-    if (isQuotaExceeded) {
+    // OpenAI account out of credits (typed error, or a raw SDK 429 insufficient_quota)
+    const openAiCreditsError = toOpenAiCreditsError(exception);
+
+    if (openAiCreditsError) {
+      status = HttpStatus.PAYMENT_REQUIRED;
+      errorCode = OPENAI_NO_CREDITS_CODE;
+      errorName = 'OpenAiCreditsError';
+      message = OPENAI_NO_CREDITS_MESSAGE;
+      rawErrorResponse = { error: errorCode, message };
+    } else if (isQuotaExceeded) {
       status = HttpStatus.TOO_MANY_REQUESTS;
       errorCode = 'QUOTA_EXCEEDED';
       errorName = 'QuotaExceededException';

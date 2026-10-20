@@ -16,7 +16,7 @@ const SUGGESTIONS: Record<ThreadCategory, Array<{ icon: string; text: string }>>
     { icon: 'TrendingUp', text: 'How can I improve my channel performance?' },
   ],
   script: [
-    { icon: 'FileText', text: 'Write a 10-minute script about a trending case' },
+    { icon: 'FileText', text: 'Write an 8-minute script about a trending case' },
     { icon: 'FileText', text: 'Create a cold open for my next video' },
     { icon: 'FileText', text: 'Help me write the youth warning section' },
   ],

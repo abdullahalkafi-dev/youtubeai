@@ -53,6 +53,12 @@ import {
 } from './intent-classifier.service';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
+import {
+  isOpenAiCreditsError,
+  OPENAI_NO_CREDITS_CODE,
+  OPENAI_NO_CREDITS_MESSAGE,
+} from '../common/errors/openai-credits';
+import { analyzeSpokenScript, sanitizeSpokenScript } from '../openai/prompts/script-length';
 import { TrendsService } from '../trends/trends.service';
 import { ReelContextService } from './reel-context.service';
 import { FootageIntentService } from './footage-intent.service';
@@ -612,7 +618,7 @@ export class ChatService {
           imageUrls: visionImages.slice(1),
         });
       } catch (err: any) {
-        if (!visionImages.length) throw err;
+        if (!visionImages.length || isOpenAiCreditsError(err)) throw err;
         // Vision payload rejected (bad URL / model) → never lose the answer: retry text-only
         this.logger.warn(
           `Chat vision failed (${err?.message || err}) — retrying without images`,
@@ -623,9 +629,9 @@ export class ChatService {
 
     // Phase 3: backend-rendered clip list — server-appended so the model cannot
     // drop or invent clip IDs (inserted before the model's Sources section).
-    const finalContent = this.appendFootagePackBlock(
-      aiResponse.content,
-      footagePack,
+    const finalContent = this.cleanSavedScript(
+      this.appendFootagePackBlock(aiResponse.content, footagePack),
+      threadId,
     );
 
     // Save AI response atomically
@@ -682,6 +688,23 @@ export class ChatService {
   }
 
   /**
+   * Safety net for spoken scripts: strips the on-screen legal header, sub-labels, curiosity-reset
+   * markers and leaked "verification references" lines, and logs scripts that run over the default budget.
+   */
+  private cleanSavedScript(content: string, threadId: string | Types.ObjectId): string {
+    if (!content.includes('<!-- SCRIPT_START -->')) return content;
+    const { content: cleaned, removed } = sanitizeSpokenScript(content);
+    if (removed.length) {
+      this.logger.warn(`Thread ${threadId}: removed ${removed.length} non-spoken script line(s): ${removed.join('; ').slice(0, 300)}`);
+    }
+    const shape = analyzeSpokenScript(cleaned);
+    this.logger.log(
+      `Thread ${threadId}: script ${shape.spokenWords} spoken words, ${shape.sections} sections, longest line ${shape.longestLineWords} words`,
+    );
+    return cleaned;
+  }
+
+  /**
    * Stream a message — returns an async generator that yields chunks.
    */
   async *streamMessage(
@@ -695,6 +718,7 @@ export class ChatService {
     title?: string;
     category?: string;
     autoImages?: boolean;
+    code?: string;
   }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
@@ -1039,6 +1063,14 @@ export class ChatService {
           this.logger.warn(
             `Stream research error for thread ${threadId}: ${error.message}`,
           );
+          if (isOpenAiCreditsError(error)) {
+            yield {
+              type: 'error',
+              content: OPENAI_NO_CREDITS_MESSAGE,
+              code: OPENAI_NO_CREDITS_CODE,
+            };
+            return;
+          }
           yield {
             type: 'error',
             content: 'Stream interrupted. Please try again.',
@@ -1092,6 +1124,14 @@ export class ChatService {
           } catch (error: any) {
             // Drop any partial text from the failed attempt before retrying
             fullContent = fullContent.slice(0, checkpoint);
+            if (isOpenAiCreditsError(error)) {
+              yield {
+                type: 'error',
+                content: OPENAI_NO_CREDITS_MESSAGE,
+                code: OPENAI_NO_CREDITS_CODE,
+              };
+              return;
+            }
             if (withImages && visionImages.length) {
               this.logger.warn(
                 `Stream vision failed (${error?.message || error}) — retrying without images`,
@@ -1120,6 +1160,7 @@ export class ChatService {
     } finally {
       // Save response atomically — GUARANTEED to execute even on client abort/disconnect
       if (fullContent && fullContent.trim().length > 0) {
+        fullContent = this.cleanSavedScript(fullContent, threadId);
         try {
           const assistantMessage: Message = {
             role: 'assistant',

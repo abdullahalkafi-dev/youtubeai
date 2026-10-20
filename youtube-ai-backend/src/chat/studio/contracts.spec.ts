@@ -25,13 +25,13 @@ const plan = (): RequestPlan => ({
   standingPreferences: [],
 });
 describe('episode planning contracts', () => {
-  it('preserves mixed deliverables and defaults to 8–10 minutes', () => {
+  it('preserves mixed deliverables and defaults to 7–9 minutes', () => {
     const result = normalizePlan(
       plan(),
       'Script, title and thumbnails for this video',
     );
     expect(result.deliverables).toEqual(['script', 'packaging']);
-    expect(result.duration).toEqual({ min: 8, max: 10 });
+    expect(result.duration).toEqual({ min: 7, max: 9 });
     expect(result.thumbnails).toBe(true);
   });
   it.each([

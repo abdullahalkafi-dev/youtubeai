@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { clearOpenAiCreditsExhausted, toOpenAiCreditsError } from '../errors/openai-credits';
 
 const logger = new Logger('RetryUtil');
 
@@ -33,9 +34,19 @@ export async function retryWithBackoff<T>(
 
   for (let attempt = 0; attempt <= opts.maxRetries; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+      // A successful OpenAI call means credits are back.
+      if (opts.operationName.startsWith('OpenAI')) clearOpenAiCreditsExhausted();
+      return result;
     } catch (error: any) {
       lastError = error;
+
+      // Out of OpenAI credits: retrying cannot help, fail fast with a typed error.
+      const creditsError = toOpenAiCreditsError(error);
+      if (creditsError) {
+        logger.warn(`${opts.operationName} failed: OpenAI account has no credits. Not retrying.`);
+        throw creditsError;
+      }
 
       // Determine if we should retry
       const statusCode =

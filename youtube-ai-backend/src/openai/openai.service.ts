@@ -5,6 +5,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import OpenAI from 'openai';
 import { retryWithBackoff } from '../common/utils/retry';
+import { toOpenAiCreditsError } from '../common/errors/openai-credits';
 import {
   buildSeoPrompt,
   buildChatMessages,
@@ -1331,6 +1332,8 @@ export class OpenAIService {
         break;
       } catch (error: any) {
         // A rejected rate-limit request is safe to retry. Network/5xx outcomes are uncertain.
+        const creditsError = toOpenAiCreditsError(error);
+        if (creditsError) throw creditsError;
         if (error.status !== 429 || attempt === 2) throw error;
         await new Promise(resolve => setTimeout(resolve, 1000 * 2 ** attempt));
       }

@@ -7,6 +7,7 @@ import { AutomationBatch, AutomationBatchDocument } from '../mongo/schemas/autom
 import { YouTubeService } from '../youtube/youtube.service';
 import { QuotaService } from '../quota/quota.service';
 import { OpenAIService } from '../openai/openai.service';
+import { isOpenAiCreditsError, OPENAI_NO_CREDITS_MESSAGE } from '../common/errors/openai-credits';
 import { CommentCacheService } from './comment-cache.service';
 import {
   COMMENT_CHUNK_SIZE,
@@ -250,6 +251,8 @@ Do not include markdown codeblocks or extra text.`;
         return parsed;
       }
     } catch (error: any) {
+      // No credits: surface it (manual UI shows the message, auto-reply pauses) instead of canned replies.
+      if (isOpenAiCreditsError(error)) throw error;
       this.logger.warn(`Failed to generate multi-tone replies: ${error?.message || error}`);
     }
 
@@ -648,6 +651,8 @@ ${JSON.stringify(
         }));
       }
     } catch (err: any) {
+      // No credits: the fallback would fail too. Let the caller pause instead of posting anything.
+      if (isOpenAiCreditsError(err)) throw err;
       this.logger.warn(`Batch reply AI generation parsing failed: ${err.message}. Falling back to single-comment generator.`);
     }
 
@@ -671,7 +676,8 @@ ${JSON.stringify(
           tone: replies[0]?.tone || 'General',
           replyText: this.cleanReplyText(replies[0]?.text || `Salute for tapping in. Stay sharp out here.`),
         });
-      } catch {
+      } catch (fallbackErr: any) {
+        if (isOpenAiCreditsError(fallbackErr)) throw fallbackErr;
         fallbackResults.push({
           commentId: c.commentId,
           action: 'skip' as const,
@@ -987,12 +993,27 @@ ${JSON.stringify(
         parentText: c.parentText,
       }));
 
-      const aiReplies = await this.generateBatchReplies(
-        commentsForAi,
-        video.title,
-        channel.name,
-        video.description,
-      );
+      let aiReplies: Awaited<ReturnType<CommentsService['generateBatchReplies']>>;
+      try {
+        aiReplies = await this.generateBatchReplies(
+          commentsForAi,
+          video.title,
+          channel.name,
+          video.description,
+        );
+      } catch (aiErr: any) {
+        if (!isOpenAiCreditsError(aiErr)) throw aiErr;
+        // Out of OpenAI credits: post nothing, leave every remaining comment unsettled so the
+        // cron retries them once credits are back, and stop this run.
+        this.logger.warn(`[Auto-Comment] OpenAI credits exhausted. Pausing auto-replies for video ${video.youtubeId}.`);
+        for (let i = offset; i < targetComments.length; i++) {
+          batchDoc.items[i].status = 'failed';
+          batchDoc.items[i].error = OPENAI_NO_CREDITS_MESSAGE;
+          batchDoc.items[i].processedAt = new Date();
+        }
+        failedCount += targetComments.length - offset;
+        break;
+      }
 
       for (let i = 0; i < chunk.length; i++) {
         const comment = chunk[i];

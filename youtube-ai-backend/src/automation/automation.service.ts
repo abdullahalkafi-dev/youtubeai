@@ -33,6 +33,7 @@ import { RedisService } from '../redis/redis.service';
 import { AutomationGateway } from './automation.gateway';
 import { BatchQueryDto } from './dto/automation.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
+import { isOpenAiCreditsError, OPENAI_NO_CREDITS_MESSAGE } from '../common/errors/openai-credits';
 
 import {
   DEFAULT_DAILY_BATCH_SIZE,
@@ -674,6 +675,30 @@ export class AutomationService implements OnApplicationBootstrap {
             error: 'Daily YouTube quota exhausted',
           });
           throw genError;
+        }
+
+        if (isOpenAiCreditsError(genError)) {
+          // Every remaining video would fail the same way: halt now instead of failing them one by one.
+          this.logger.warn(`[Batch ${batchId}] OpenAI credits exhausted during generation. Halting batch.`);
+          item.status = 'failed';
+          item.error = OPENAI_NO_CREDITS_MESSAGE;
+          batch.failedItems++;
+          for (let j = i + 1; j < batch.items.length; j++) {
+            const rest = batch.items[j];
+            if (rest.status === 'staged') continue;
+            rest.status = 'failed';
+            rest.error = OPENAI_NO_CREDITS_MESSAGE;
+            batch.failedItems++;
+          }
+          batch.status = 'failed';
+          await batch.save();
+          await this.channelModel.findByIdAndUpdate(channelId, { $set: { isBatchRunning: false, activeBatchId: null } });
+          this.gateway.emitBatchCompleted(channelId, {
+            batchId,
+            status: 'failed',
+            error: OPENAI_NO_CREDITS_MESSAGE,
+          });
+          return;
         }
 
         this.logger.error(`[Batch ${batchId}] AI Generation failed for video ${item.videoId}: ${genError.message}`);

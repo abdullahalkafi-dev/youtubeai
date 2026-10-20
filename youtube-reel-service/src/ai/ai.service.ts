@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import { z } from 'zod';
 import { AppConfig, CONFIG } from '../config/config';
 import { toStrictJsonSchema } from './json-schema';
+import { toOpenAiCreditsError } from '../common/errors';
 
 export interface UsageDelta {
   promptTokens?: number;
@@ -56,6 +57,15 @@ export class AiService {
     return this.cfg.OPENAI_REEL_MODEL;
   }
 
+  /** Runs an OpenAI call; an out-of-credits 429 becomes a fatal OpenAiCreditsError with a client-readable message. */
+  private async guard<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      throw toOpenAiCreditsError(err) ?? err;
+    }
+  }
+
   /**
    * Structured output with a strict JSON schema, validated again with zod.
    * One self-repair attempt is made if the model's JSON fails validation.
@@ -70,7 +80,7 @@ export class AiService {
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       const started = Date.now();
-      const res = await this.client.chat.completions.create({
+      const res = await this.guard(() => this.client.chat.completions.create({
         model,
         messages,
         response_format: {
@@ -79,7 +89,7 @@ export class AiService {
         },
         reasoning_effort: (opts.reasoningEffort ?? this.cfg.OPENAI_REEL_REASONING_EFFORT) as any,
         ...(opts.maxCompletionTokens ? { max_completion_tokens: opts.maxCompletionTokens } : {}),
-      } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+      } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming));
 
       const usage = res.usage;
       await opts.usage?.({
@@ -130,12 +140,12 @@ export class AiService {
     maxCompletionTokens?: number;
   }): Promise<{ text: string; promptTokens: number; completionTokens: number }> {
     const started = Date.now();
-    const res = await this.client.chat.completions.create({
+    const res = await this.guard(() => this.client.chat.completions.create({
       model: this.cfg.OPENAI_REEL_MODEL,
       messages: [{ role: 'system', content: opts.system }, ...opts.messages],
       reasoning_effort: (opts.reasoningEffort ?? 'low') as any,
       max_completion_tokens: opts.maxCompletionTokens ?? 4000,
-    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming);
+    } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming));
     const usage = res.usage;
     this.logger.log(`[${opts.task}] ${this.cfg.OPENAI_REEL_MODEL} ${Date.now() - started}ms in=${usage?.prompt_tokens ?? '?'} out=${usage?.completion_tokens ?? '?'}`);
     const choice = res.choices[0];
@@ -149,13 +159,13 @@ export class AiService {
     sources: Array<{ title: string; url: string }>;
   }> {
     const started = Date.now();
-    const res: any = await this.client.responses.create({
+    const res: any = await this.guard(() => this.client.responses.create({
       model: this.cfg.OPENAI_REEL_MODEL,
       instructions: opts.system,
       input: opts.user,
       tools: [{ type: 'web_search' } as any],
       reasoning: { effort: 'medium' },
-    } as any);
+    } as any));
     await opts.usage?.({
       promptTokens: res.usage?.input_tokens ?? 0,
       completionTokens: res.usage?.output_tokens ?? 0,
@@ -178,13 +188,13 @@ export class AiService {
 
   /** Speech-to-text with word + segment timestamps. */
   async transcribe(filePath: string, prompt: string, usage?: UsageSink): Promise<WhisperResult> {
-    const res: any = await this.client.audio.transcriptions.create({
+    const res: any = await this.guard(() => this.client.audio.transcriptions.create({
       file: fs.createReadStream(filePath),
       model: this.cfg.OPENAI_STT_MODEL,
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
       prompt: prompt.slice(0, 800),
-    } as any);
+    } as any));
     await usage?.({ sttSeconds: Math.round(res.duration ?? 0), calls: 1 });
     return {
       text: res.text ?? '',
@@ -200,7 +210,7 @@ export class AiService {
     const out: number[][] = [];
     for (let i = 0; i < texts.length; i += 96) {
       const batch = texts.slice(i, i + 96).map((t) => t.slice(0, 6000) || ' ');
-      const res = await this.client.embeddings.create({ model: this.cfg.OPENAI_EMBED_MODEL, input: batch });
+      const res = await this.guard(() => this.client.embeddings.create({ model: this.cfg.OPENAI_EMBED_MODEL, input: batch }));
       await usage?.({ embedTokens: res.usage?.total_tokens ?? 0 });
       out.push(...res.data.map((d) => d.embedding));
     }

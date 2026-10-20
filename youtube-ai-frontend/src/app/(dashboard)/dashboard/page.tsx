@@ -4,6 +4,7 @@ import { StatCards } from '@/components/dashboard/stat-cards'
 import { RecentUpdates } from '@/components/dashboard/recent-updates'
 import { TrendingIdeas } from '@/components/dashboard/trending-ideas'
 import { ReconnectBanner } from '@/components/dashboard/reconnect-banner'
+import { OpenAiCreditsBanner } from '@/components/dashboard/openai-credits-banner'
 
 export default function DashboardPage() {
   return (
@@ -14,6 +15,7 @@ export default function DashboardPage() {
       </div>
 
       <ReconnectBanner />
+      <OpenAiCreditsBanner />
 
       <StatCards />
 

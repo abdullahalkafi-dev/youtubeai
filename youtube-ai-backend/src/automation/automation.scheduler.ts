@@ -7,6 +7,7 @@ import { Video, VideoDocument } from '../mongo/schemas/video.schema';
 import { AutomationService } from './automation.service';
 import { CommentsService } from '../comments/comments.service';
 import { QuotaService } from '../quota/quota.service';
+import { isOpenAiCreditsError, isOpenAiCreditsExhausted } from '../common/errors/openai-credits';
 import {
   DEFAULT_DAILY_BATCH_SIZE,
   DEFAULT_COMMENT_DAILY_CAP,
@@ -131,6 +132,11 @@ export class AutomationScheduler {
       return;
     }
 
+    if (isOpenAiCreditsExhausted()) {
+      this.logger.warn('Comment auto-reply cron skipped — OpenAI credits exhausted. Resumes automatically once credits are added.');
+      return;
+    }
+
     this.isProcessingCommentCron = true;
     try {
       const channels = await this.channelModel.find({}).lean();
@@ -210,8 +216,17 @@ export class AutomationScheduler {
           this.logger.warn('Stopping comment auto-reply for the rest of the tick — quota/comments budget exhausted.');
           break;
         }
+        if (isOpenAiCreditsExhausted()) {
+          this.logger.warn('Stopping comment auto-reply for the rest of the tick — OpenAI credits exhausted.');
+          break;
+        }
       }
     } catch (err: any) {
+      if (isOpenAiCreditsError(err)) {
+        // Never mistake "OpenAI quota" for the YouTube quota walls below.
+        this.logger.warn('Comment auto-reply cron stopped — OpenAI credits exhausted.');
+        return;
+      }
       this.logger.error(`Error in handleAutoCommentRepliesCron: ${err.message}`, err.stack);
       if (/quota/i.test(String(err?.message || ''))) {
         if (err?.scope === 'comments_budget' || /comments daily budget/i.test(String(err?.message || ''))) {

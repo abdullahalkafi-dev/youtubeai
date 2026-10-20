@@ -27,6 +27,7 @@ import {
   SPOKEN_LINE_CONTRACT,
   GOLD_SPOKEN_EXAMPLES,
 } from '../../openai/prompts/script-cadence';
+import { SCRIPT_LENGTH_CONTRACT } from '../../openai/prompts/script-length';
 
 @Injectable()
 export class SkillRegistry {
@@ -88,7 +89,7 @@ export class SkillRegistry {
 ## OUTPUT FORMATS BY INTENT
 
 ### If SCRIPT intent:
-Plan a topic-specific script for 8-10 minutes by default; explicit duration wins. Follow the shared spoken-line contract and wrap only speech in SCRIPT_START/SCRIPT_END delimiters.
+Plan a topic-specific script for 7-9 minutes (about 900-1,150 spoken words) by default; explicit duration wins and scales the word budget. Follow the shared spoken-line contract and wrap only speech in SCRIPT_START/SCRIPT_END delimiters.
 
 ### If SEO intent:
 ## Title
@@ -265,7 +266,7 @@ ${generalFormat}`,
     });
 
     // Script skill — complete video package
-    const scriptFormat = `Deliver the requested script/package. Default duration 8-10 minutes, explicit duration wins. Plan topic-specific sections (usually 5-7); no fixed courtroom or family sections. Use a single emotional center.
+    const scriptFormat = `Deliver the requested script/package. Default duration 7-9 minutes (about 900-1,150 spoken words), explicit duration wins and scales the word budget. Plan topic-specific sections (5-6 for the default length); no fixed courtroom or family sections. Use a single emotional center.
 Wrap spoken script in <!-- SCRIPT_START --> / <!-- SCRIPT_END --> with # SCRIPT TITLE: [Topic] then numbered section headings. Follow breathable gray-rail blocks; preserve complete thoughts across short lines. Add relevant jewels and one closing CTA. Keep metadata, sources and community questions outside spoken delimiters.
 For formatting-only edits output only the revised script, preserving facts and story. If a VERIFIED TOPIC FOOTAGE PACK or LOCAL NEWS FOOTAGE PACK is supplied, do NOT re-list clip URLs; the backend appends the verified list automatically. Provide usage notes and cite only real retrieved sources.
 If full packaging is requested include one clear title, description/tags and exactly two thumbnail variants:
@@ -278,13 +279,13 @@ ${THUMBNAIL_MARKDOWN}`;
         `\n\nYou are a script writer for this YouTube channel. Write only requested deliverables, using topic-specific sections.
 
 IMPORTANT RULES:
-- TIMING & DURATION: Default 8-10 minutes; explicit duration/range wins. Adapt section counts and budgets to the topic and speaking pace.
+- TIMING & DURATION: ${SCRIPT_LENGTH_CONTRACT}
 - REVISIONS: If the user asks to rewrite, edit, or adjust a specific section or the script (e.g. "make it more breathable"), output ONLY the revised spoken script beats. DO NOT regenerate Sections 1–7 or metadata unless requested. Apply the spoken line contract: keep gray rails and breath blocks; split long essay rails into short speakable lines inside the same block; do not isolate every sentence; keep facts/legal points; style stays dynamic.
 - PRIORITIZE VERIFIED YOUTUBE VIDEO SOURCES (Court TV, Law & Crime, AP, NBC, CBS, 1090 Jake, VladTV + local market affiliates when the story is location-based) formatted as direct YouTube links: [Channel: Title](https://www.youtube.com/watch?v=VIDEO_ID). Each URL exactly once — never repeat it in How to Use or as a second link. NEVER list this channel's own videos as sources. No competitor explainer padding. Real timestamps or "full clip" only — never "Review manually".
-- Separate REPORTED FACTS from UNIQUE'S ANALYSIS clearly in the script
-- Label the legal status of any case (Arrested, Charged, Indictmented, Convicted, Sentenced, etc.)
+- Keep reported facts and Unique's analysis clearly separate through wording ("reportedly", "the court found", "that's my analysis") — never as printed labels or sub-headings in the script
+- State the legal status of any case (Arrested, Charged, Indicted, Convicted, Sentenced, etc.) in one spoken line, never as an on-screen header
 - Use "allegedly" and "reportedly" for unconfirmed claims
-- Write for teleprompter like an OG on the couch — NOT a documentary narrator. ${SPOKEN_LINE_CONTRACT} Use [BEAT] before reveals/pivots and [PAUSE] after punch lines/questions/jewels (between breath blocks). Target 2-4 cues per major section. Never put CTAs inside ### **JEWEL**.
+- Write for teleprompter like an OG on the couch — NOT a documentary narrator. ${SPOKEN_LINE_CONTRACT} Use [BEAT] before reveals/pivots and [PAUSE] after punch lines/questions/jewels (between breath blocks). About 3-4 cues per section (one after each 4-6 line block). Never put CTAs inside ### **JEWEL**.
 - Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') followed by [PAUSE]
 - Place engagement CTAs (comment prompts) as short spoken rails BEFORE ### **JEWEL**. Never after ### **JEWEL**.
 - For global viewers, explain American legal terms in street language when they appear
@@ -670,7 +671,7 @@ ${THUMBNAIL_MARKDOWN}`;
     });
 
     // Outline skill
-    const outlineFormat = `Research and plan THIS video's promise. Provide a recommended hook and topic-specific sections with purpose and estimated time. Default 8-10 minutes, explicit duration wins. Prison episodes prioritize lived experience and psychology. Courtroom episodes may use deeper legal explanation. Keep community questions outside spoken duration. Do not force a fixed structure.`;
+    const outlineFormat = `Research and plan THIS video's promise. Provide a recommended hook and topic-specific sections with purpose and estimated time. Default 7-9 minutes (5-6 sections), explicit duration wins. Prison episodes prioritize lived experience and psychology. Courtroom episodes may use deeper legal explanation. Keep community questions outside spoken duration. Do not force a fixed structure.`;
     this.register({
       name: 'Outline Builder',
       category: 'outline',

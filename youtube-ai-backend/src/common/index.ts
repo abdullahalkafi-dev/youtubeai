@@ -5,3 +5,4 @@ export * from './guards/channel-ownership.guard';
 export * from './interceptors/logging.interceptor';
 export * from './interceptors/transform.interceptor';
 export * from './utils/retry';
+export * from './errors/openai-credits';

@@ -89,7 +89,9 @@ export class ApiError extends Error {
       message.includes('YouTube token expired') ||
       message.includes('invalid_grant')
     )
-    this.isQuotaError = Boolean(
+    // OpenAI "no credits" is not a YouTube quota problem (the backend sends 402 + OPENAI_NO_CREDITS)
+    const isOpenAiCredits = data?.code === 'OPENAI_NO_CREDITS' || statusCode === 402
+    this.isQuotaError = !isOpenAiCredits && Boolean(
       statusCode === 429 ||
       data?.code === 'QUOTA_EXCEEDED' ||
       message.includes('quotaExceeded') ||
@@ -778,6 +780,10 @@ class ApiClient {
   }
 
   // Quota
+  async getOpenAiStatus() {
+    return this.get<{ exhausted: boolean; since: string | null; message: string | null }>('/api/openai/status')
+  }
+
   async getQuotaUsage(channelId: string) {
     return this.get<QuotaUsage>(`/api/channels/${channelId}/quota`)
   }

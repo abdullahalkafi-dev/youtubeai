@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from '@nestjs/common';
 import OpenAI, { toFile } from 'openai';
 import * as crypto from 'crypto';
 import { AppConfig, CONFIG } from '../config/config';
+import { toOpenAiCreditsError } from '../common/errors';
 
 export class ImageRefusedError extends Error {}
 
@@ -56,6 +57,8 @@ export class ImageGenService {
         this.logger.log(`[${req.task}] ${this.cfg.REEL_IMAGE_MODEL}/${this.cfg.REEL_IMAGE_QUALITY} ${req.size}${req.references?.length ? ' +ref' : ''} ${Date.now() - started}ms out=${outputTokens}`);
         return { data: Buffer.from(b64, 'base64'), outputTokens };
       } catch (err: any) {
+        const creditsError = toOpenAiCreditsError(err);
+        if (creditsError) throw creditsError;
         const code = err?.code ?? err?.error?.code;
         const type = err?.type ?? err?.error?.type;
         if (code === 'moderation_blocked' || type === 'image_generation_user_error' || err?.status === 400) {

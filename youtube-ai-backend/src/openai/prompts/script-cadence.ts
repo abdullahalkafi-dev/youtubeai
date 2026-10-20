@@ -8,11 +8,11 @@
 
 export const SPOKEN_LINE_CONTRACT = `SPOKEN LINE CONTRACT (CRITICAL — BREATHABLE TELEPROMPTER):
 - KEEP the gray blockquote rail: EVERY spoken line still starts with "> ".
-- KEEP breath blocks: 2 to 6 consecutive "> " lines share ONE gray rail group. Do NOT put an empty "> " after every sentence. Do NOT make every single sentence its own isolated gray line with a cue after it.
+- KEEP breath blocks: 4 to 6 consecutive "> " lines share ONE gray rail group (a 2-3 line block is fine for a punch). Do NOT put an empty "> " after every sentence. Do NOT make every single sentence its own isolated gray line with a cue after it.
 - Cues ([BEAT] / [PAUSE]) go BETWEEN breath blocks on their own line — not after every sentence.
 - Inside a breath block, each "> " line must be speakable in one natural breath:
-  * Target 3-7 words as a soft preference per line.
-  * Prefer a natural clause break; do not impose a fixed hard word ceiling.
+  * Target 3-7 words per line. HARD LIMIT: 8 words. If a line runs past 8 words, split it.
+  * Prefer a natural clause break at the split.
   * Punch lines may be 2–5 words.
   * A complete thought may span multiple natural short lines; do not force full sentences onto one rail.
   * If a rail holds two independent ideas, split into two "> " lines INSIDE the same breath block (no cue between them unless that thought truly ends).
@@ -77,7 +77,7 @@ export const BEAUTIFY_SPOKEN_RULES = `SPOKEN VOICE & LINE LENGTH (CRITICAL):
 - Write like an OG on the couch teaching the class — NOT a news recap or true-crime documentary narrator.
 - KEEP the gray blockquote rail ("> " on every spoken line).
 - KEEP breath blocks: 2–6 consecutive "> " lines as one rail group. NEVER empty "> " after every sentence. NEVER isolate every sentence with its own cue.
-- Inside each breath block, every line must be breathable: target 3-7 words as a soft preference, max about 12 words. A complete thought may span related lines.
+- Inside each breath block, every line must be breathable: target 3-7 words, never more than 8 words. A complete thought may span related lines.
 - Split long essay rails into shorter "> " lines in the SAME block. Do not turn short lines into one-word poetry.
 - Parallel structure only when the section needs it — style stays dynamic.
 - CTAs and jewels in short rails; no long "If you..., comment X" walls.

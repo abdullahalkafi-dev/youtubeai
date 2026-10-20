@@ -50,7 +50,7 @@ The UI shows progress, two image slots, independent failures/retries, selected-a
 
 ## Creative behavior
 
-Default duration is 8-10 minutes, with a nine-minute center; explicit requests override it. Estimates use configured spoken words per minute plus one second per BEAT and two seconds per PAUSE. Only speech contributes to spoken-word count.
+Default duration is 7-9 minutes, with an eight-minute center; explicit requests override it. Estimates use configured spoken words per minute plus one second per BEAT and two seconds per PAUSE. Only speech contributes to spoken-word count.
 
 Script sections follow the episode. Prison/family stories prioritize lived experience and psychology; courtroom stories may explain legal developments. Formatting an existing structured script reflows tokens without changing speech. A newly pasted script takes priority over older material.
 

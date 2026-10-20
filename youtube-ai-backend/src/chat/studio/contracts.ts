@@ -75,7 +75,7 @@ export interface ReferenceAsset {
 export const DEFAULT_PREFERENCES = {
   revision: 1,
   enabled: false,
-  duration: { min: 8, max: 10 },
+  duration: { min: 7, max: 9 },
   wordsPerMinute: 130,
   instructions: [] as string[],
   approvedExamples: [] as string[],
