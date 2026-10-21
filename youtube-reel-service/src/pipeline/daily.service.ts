@@ -156,7 +156,7 @@ export class DailyService {
             status: 'started',
             topic: topicOf(main),
             exploreTopic: explore ? topicOf(explore) : null,
-            evidence: { moments: main.ev.moments, videos: main.ev.videos, strongMoments: main.ev.strongMoments },
+            evidence: { moments: main.ev.moments, videos: main.ev.videos, strongMoments: main.ev.strongMoments, minableVideos: main.ev.minableVideos },
             candidates: decision.candidates,
             degraded: decision.degraded,
             mainReels,
@@ -265,9 +265,12 @@ export class DailyService {
         ])
         .toArray();
       const titleRe = new RegExp(words.slice(0, 3).map(escapeRe).join('|'), 'i');
-      const videos = await db.collection('videos').countDocuments({ channelId, deletedFromYoutube: { $ne: true }, durationSeconds: { $gt: 240 }, title: titleRe });
+      const matching = (await db.collection('videos').find({ channelId, deletedFromYoutube: { $ne: true }, durationSeconds: { $gt: 240 }, title: titleRe }, { projection: { youtubeId: 1 } }).limit(600).toArray()).map((v: any) => v.youtubeId).filter(Boolean);
+      const videos = matching.length;
+      // matching videos nobody has analysed yet: the campaign can download and mine them
+      const analysed = videos ? await db.collection('reel_sources').countDocuments({ youtubeId: { $in: matching }, momentCount: { $gt: 0 } }) : 0;
       const trend = matchTrend(cand, usableTrends);
-      const ev: CandidateEvidence = { moments: m?.n ?? 0, videos, strongMoments: m?.strong ?? 0, trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own) };
+      const ev: CandidateEvidence = { moments: m?.n ?? 0, videos, strongMoments: m?.strong ?? 0, minableVideos: Math.max(0, videos - analysed), trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own) };
       const s = scoreCandidate(cand, ev, { ...ctxBase, targetReels: 7 });
       scored.push(s);
     }
@@ -286,6 +289,7 @@ export class DailyService {
         moments: s.ev.moments,
         videos: s.ev.videos,
         strongMoments: s.ev.strongMoments,
+        minableVideos: s.ev.minableVideos,
         trendMatch: s.ev.trendMatch,
         trendTitle: s.ev.trendTitle,
         velocityShare: s.ev.velocityShare,

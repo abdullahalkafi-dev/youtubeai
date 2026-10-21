@@ -1,7 +1,7 @@
-import { BrainCandidate, BrainContext, CandidateEvidence, ENTITY_CAP, scoreCandidate, selectPortfolio, splitReels, isSpike } from './daily-brain';
+import { BrainCandidate, BrainContext, CandidateEvidence, capacity, ENTITY_CAP, scoreCandidate, selectPortfolio, splitReels, isSpike } from './daily-brain';
 
 const cand = (name: string, entity: string | null, pillar: string | null, signal: BrainCandidate['signal'] = 'trend'): BrainCandidate => ({ name, brief: name, why: name, keywords: [name], signal, pillar, entity });
-const ev = (o: Partial<CandidateEvidence> = {}): CandidateEvidence => ({ moments: 80, videos: 100, strongMoments: 20, trendMatch: 0.5, trendTitle: null, velocityShare: 0.1, ...o });
+const ev = (o: Partial<CandidateEvidence> = {}): CandidateEvidence => ({ moments: 80, videos: 100, strongMoments: 20, minableVideos: 0, trendMatch: 0.5, trendTitle: null, velocityShare: 0.1, ...o });
 const ctx = (o: Partial<BrainContext> = {}): BrainContext => ({ recentMainEntities: [], pillars: {}, targetReels: 7, ...o });
 
 describe('daily brain: scoring', () => {
@@ -18,8 +18,16 @@ describe('daily brain: scoring', () => {
   });
 
   it('is ineligible without enough strong unused moments or footage, and says why', () => {
-    expect(scoreCandidate(cand('x', 'a', null), ev({ strongMoments: 2 }), ctx())).toMatchObject({ eligible: false, reason: 'only 2 strong unused moments' });
+    expect(scoreCandidate(cand('x', 'a', null), ev({ strongMoments: 2 }), ctx())).toMatchObject({ eligible: false, reason: 'only 2 strong unused moments and 0 unanalysed videos' });
     expect(scoreCandidate(cand('x', 'a', null), ev({ moments: 1, videos: 1 }), ctx()).reason).toBe('not enough matching footage');
+  });
+
+  it('footage the campaign can still analyse counts as material (a topic the host covers a lot is not rejected for having no mined moments yet)', () => {
+    const unmined = scoreCandidate(cand('pooh', 'pooh shiesty', 'p'), ev({ moments: 2, videos: 114, strongMoments: 0, minableVideos: 100, trendMatch: 0.4 }), ctx());
+    expect(unmined.eligible).toBe(true);
+    expect(capacity({ strongMoments: 0, minableVideos: 100 })).toBe(12); // capped at 8 videos x 1.5
+    const mined = scoreCandidate(cand('m', 'm', 'p'), ev({ strongMoments: 14, minableVideos: 0, trendMatch: 0.4 }), ctx());
+    expect(mined.components.supply).toBeGreaterThanOrEqual(unmined.components.supply);
   });
 
   it('a pillar not covered for a long time scores higher than one covered yesterday', () => {

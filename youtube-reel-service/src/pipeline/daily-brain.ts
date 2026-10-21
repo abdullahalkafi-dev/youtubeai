@@ -26,6 +26,8 @@ export interface CandidateEvidence {
   videos: number;
   /** Unused, standalone-strong moments among the matching ones. */
   strongMoments: number;
+  /** Catalog videos about this topic that have not been analysed yet: the campaign can download and mine them (slower, costs speech-to-text). */
+  minableVideos: number;
   /** 0..1: best matching trending topic, weighted by opportunity and by how fresh the scan is. */
   trendMatch: number;
   trendTitle: string | null;
@@ -72,6 +74,14 @@ export interface ScoredCandidate {
 
 export const WEIGHTS = { demand: 0.35, velocity: 0.2, lift: 0.15, need: 0.15, supply: 0.15 };
 export const MIN_STRONG_MOMENTS = 4;
+/** An unanalysed video is worth about this many strong moments once mined (the analysed ones average about 19 moments per video). */
+export const MINABLE_VALUE = 1.5;
+export const MINABLE_CAP = 8;
+
+/** Material the day could really use: strong moments already mined plus what a few unanalysed videos would give. */
+export function capacity(ev: Pick<CandidateEvidence, 'strongMoments' | 'minableVideos'>): number {
+  return ev.strongMoments + MINABLE_VALUE * Math.min(MINABLE_CAP, ev.minableVideos);
+}
 export const MIN_ARCHIVE_EVIDENCE = 3;
 /** An entity may lead the day this many times in the last 5 days (more during a real news spike). */
 export const ENTITY_CAP = 2;
@@ -102,13 +112,13 @@ export function scoreCandidate(c: BrainCandidate, ev: CandidateEvidence, ctx: Br
     velocity: round(clamp(ev.velocityShare / 0.5)),
     lift: round(clamp(((pillar?.lift ?? 1) - 0.6) / 1.0)),
     need: round(coverageNeed(pillar)),
-    supply: round(clamp(ev.strongMoments / Math.max(1, ctx.targetReels * 2))),
+    supply: round(clamp(capacity(ev) / Math.max(1, ctx.targetReels * 2))),
     saturation: round(c.entity ? Math.max(0.25, 1 - 0.18 * entityUses) : 1),
   };
 
   let reason: string | null = null;
   if (ev.moments + ev.videos < MIN_ARCHIVE_EVIDENCE) reason = 'not enough matching footage';
-  else if (ev.strongMoments < MIN_STRONG_MOMENTS) reason = `only ${ev.strongMoments} strong unused moments`;
+  else if (capacity(ev) < MIN_STRONG_MOMENTS) reason = `only ${ev.strongMoments} strong unused moments and ${ev.minableVideos} unanalysed videos`;
   else if (c.entity && entityUses >= cap) reason = `${c.entity} already led ${entityUses} of the last 5 days`;
 
   const base =

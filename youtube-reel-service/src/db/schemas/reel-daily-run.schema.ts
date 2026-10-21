@@ -12,7 +12,7 @@ export class ReelDailyRun {
   @Prop({ type: Object }) topic?: { name: string; brief: string; why: string; signal: string; keywords: string[]; pillar?: string | null; entity?: string | null; score?: number };
   /** The explore part of the day (a hidden child campaign shown inside the same card). */
   @Prop({ type: Object }) exploreTopic?: { name: string; brief: string; why: string; signal: string; keywords: string[]; pillar?: string | null; entity?: string | null; score?: number };
-  @Prop({ type: Object }) evidence?: { moments: number; videos: number; strongMoments?: number };
+  @Prop({ type: Object }) evidence?: { moments: number; videos: number; strongMoments?: number; minableVideos?: number };
   @Prop({ type: [Object], default: [] }) candidates: Array<{
     name: string;
     signal: string;
@@ -21,6 +21,7 @@ export class ReelDailyRun {
     moments: number;
     videos: number;
     strongMoments?: number;
+    minableVideos?: number;
     trendMatch?: number;
     trendTitle?: string | null;
     velocityShare?: number;
