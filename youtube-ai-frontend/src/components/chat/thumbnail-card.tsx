@@ -350,6 +350,15 @@ export function ThumbnailCard({
                   <span className="text-xs font-semibold text-violet-700 dark:text-violet-300">
                     Concept {idx + 1}
                   </span>
+                  {idx === 1 ? (
+                    <span className="text-[10px] font-semibold text-orange-600 dark:text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20">
+                      Bold · high CTR
+                    </span>
+                  ) : idx === 0 && thumbnails.length > 1 ? (
+                    <span className="text-[10px] font-semibold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      Safe
+                    </span>
+                  ) : null}
                   <span className="text-[10px] text-violet-600 dark:text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded border border-violet-500/20 font-mono">
                     {currentRatio}
                   </span>

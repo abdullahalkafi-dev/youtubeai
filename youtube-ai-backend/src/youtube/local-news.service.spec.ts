@@ -5,6 +5,7 @@ import {
   escapeRegex,
   rankAndCapNews,
   rankAndCapBroll,
+  titleMatchesEntity,
 } from './local-news.service';
 import type { YouTubeService } from './youtube.service';
 import type { QuotaService } from '../quota/quota.service';
@@ -618,3 +619,24 @@ describe('Phase 4 — findAdaptiveFootagePack Autonomous Gating & Ranking', () =
 });
 
 
+
+describe('celebrity clip matching', () => {
+  it('matches a title by alias when the main name is absent', () => {
+    const tokens = new Set(['diddy']);
+    expect(titleMatchesEntity('Sean Combs arrives at court', tokens, ['Diddy', 'Sean Combs'])).toBe(true);
+    expect(titleMatchesEntity('Random rapper arrives at court', tokens, ['Diddy', 'Sean Combs'])).toBe(false);
+  });
+
+  it('keeps up to the requested number of B-roll clips', () => {
+    const clips = Array.from({ length: 9 }, (_, i) => ({
+      videoId: `v${i}`,
+      title: `Diddy clip ${i}`,
+      channelTitle: 'c',
+      videoUrl: '',
+      durationSeconds: 60,
+      viewCount: i,
+    }));
+    expect(rankAndCapBroll(clips as any, new Set(['diddy']))).toHaveLength(2);
+    expect(rankAndCapBroll(clips as any, new Set(['diddy']), 7)).toHaveLength(7);
+  });
+});

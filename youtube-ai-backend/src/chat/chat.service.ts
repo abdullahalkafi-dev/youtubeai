@@ -37,6 +37,7 @@ import { MinioService } from '../minio/minio.service';
 import { ChromaService } from '../chroma/chroma.service';
 import { PerformanceContextService } from '../youtube/performance-context.service';
 import {
+  LocalClip,
   LocalNewsService,
   LocalScenePack,
 } from '../youtube/local-news.service';
@@ -543,6 +544,7 @@ export class ChatService {
       (skillContext.trendingTopics || [])
         .map((t: any) => t?.title)
         .filter(Boolean),
+      intentResult.footage === true,
     );
     if (footagePack) {
       this.logger.log(
@@ -972,6 +974,7 @@ export class ChatService {
       (skillContext.trendingTopics || [])
         .map((t: any) => t?.title)
         .filter(Boolean),
+      intentResult.footage === true,
     );
     if (footagePack) {
       this.logger.log(
@@ -1799,6 +1802,7 @@ export class ChatService {
     conversationText: string,
     needsResearch: boolean,
     trendTitles: string[] = [],
+    forceFootage = false,
   ): Promise<LocalScenePack | null> {
     try {
       if (!channel?.userId) return null;
@@ -1809,10 +1813,12 @@ export class ChatService {
             message,
             conversationText,
             trendTitles,
+            force: forceFootage,
           })
         : null;
 
       const wantsFootage =
+        forceFootage ||
         (footageIntent?.hasFootageIntent ?? false) ||
         this.localNewsService.isFootageRequest(message);
       const wantsLocalNews =
@@ -1855,18 +1861,16 @@ export class ChatService {
         /\b(?:what should i (?:post|make|cover|upload)|next (?:post|video|upload)|topic (?:suggestion|idea|recommendation)|video idea|content plan)\b/i.test(
           message,
         );
-      let topic = this.extractEntityTopic(message);
+      // The AI-extracted entity wins: a capitalized phrase in the message (a quoted
+      // title, a pasted headline) must not replace the person the client named.
+      let topic: string | null = footageIntent?.primaryEntity || null;
+      if (!topic) topic = this.extractEntityTopic(message);
       let topicSrc:
         | 'message'
         | 'message-search'
         | 'conversation-heading'
         | 'trends'
         | 'none' = topic ? 'message' : 'none';
-
-      if (!topic && footageIntent?.primaryEntity) {
-        topic = footageIntent.primaryEntity;
-        topicSrc = 'message';
-      }
 
       if (!topic && wantsFootage) {
         const stripped = this.localNewsService.extractSearchTopic(message);
@@ -1955,6 +1959,7 @@ export class ChatService {
           requestTypes: footageIntent?.requestTypes,
           newsQueries: footageIntent?.newsQueries,
           brollQueries: footageIntent?.brollQueries,
+          aliases: footageIntent?.aliases,
           denyChannelIds,
         });
       }
@@ -2060,14 +2065,22 @@ export class ChatService {
         if (!pack || pack.clips.length === 0) pack = fallback || thin || pack;
       }
 
-      // 3) Raw celebrity B-roll clips (5–7 clips, strict anti-commentary filter)
+      // 3) Raw celebrity B-roll clips (5–7 clips, strict anti-commentary filter).
+      //    Runs whenever the adaptive pass found fewer than 3 B-roll clips, not only
+      //    when it found nothing at all (an empty pack is still a pack).
       let brollPack: LocalScenePack | null = null;
       const brollSubject = (footageIntent?.primaryEntity || topic || '').trim();
-      if (!pack && wantsBroll && brollSubject) {
+      const adaptiveBrollCount = pack
+        ? pack.kind === 'broll'
+          ? pack.clips.length
+          : (pack.brollClips?.length ?? 0)
+        : 0;
+      if (wantsBroll && brollSubject && adaptiveBrollCount < 3) {
         const denyChannelIds = await this.getFootageDenyChannelIds(channel);
         brollPack = await this.localNewsService.findCelebrityBrollPack({
           userId: channel.userId.toString(),
           entity: brollSubject,
+          aliases: footageIntent?.aliases,
           queries: footageIntent?.brollQueries,
           denyChannelIds,
           maxClips: 7,
@@ -2075,19 +2088,41 @@ export class ChatService {
         });
       }
 
+      const mergeClips = (a: LocalClip[] = [], b: LocalClip[] = []) => {
+        const seen = new Set<string>();
+        return [...a, ...b].filter((c) => {
+          if (seen.has(c.videoId)) return false;
+          seen.add(c.videoId);
+          return true;
+        });
+      };
+
       if (pack && brollPack && brollPack.clips.length > 0 && !wantsBrollOnly) {
         pack = {
           market: pack.market || 'News & B-Roll',
           locationLabel: pack.locationLabel || 'Verified Footage',
           topic: topic || brollPack.topic,
           stations: [...new Set([...pack.stations, ...brollPack.stations])],
-          clips: pack.clips,
-          brollClips: brollPack.clips,
-          note: `${pack.note}\nRaw B-roll clips: ${brollPack.clips.length} clean visual cutaway clips.`,
+          clips: pack.kind === 'broll' ? [] : pack.clips,
+          brollClips: mergeClips(
+            pack.kind === 'broll' ? pack.clips : pack.brollClips,
+            brollPack.clips,
+          ),
+          note: `${pack.note}
+Raw B-roll clips: ${brollPack.clips.length} clean visual cutaway clips.`,
           kind: 'combined',
         };
       } else if (wantsBrollOnly && brollPack) {
-        pack = brollPack;
+        pack =
+          pack && pack.kind === 'broll' && pack.clips.length > 0
+            ? {
+                ...brollPack,
+                clips: mergeClips(pack.clips, brollPack.clips),
+                stations: [
+                  ...new Set([...pack.stations, ...brollPack.stations]),
+                ],
+              }
+            : brollPack;
       } else if (!pack && brollPack) {
         pack = brollPack;
       }
@@ -2921,6 +2956,8 @@ Hard rules:
       aspectRatio: resolvedAspectRatio,
       storyContext,
       referenceImageUrls,
+      // Concept 2 is the bold, higher-CTR thumbnail; concept 1 keeps today's look.
+      variant: /^concept\s*2\b/i.test(dto.conceptTitle || '') ? 'bold' : 'safe',
     });
 
     // The AI renders the headline: check spelling and that it is clear of the logo and

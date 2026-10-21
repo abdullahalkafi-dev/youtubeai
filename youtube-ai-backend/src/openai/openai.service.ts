@@ -1362,11 +1362,14 @@ export class OpenAIService {
     aspectRatio?: '16:9' | '9:16';
     storyContext?: string;
     referenceImageUrls?: string[];
+    /** safe = the clean default; bold = the riskier, higher-CTR second thumbnail. */
+    variant?: 'safe' | 'bold';
   }): Promise<{
     imageUrl: string;
     cleanBackgroundUrl?: string;
     revisedPrompt: string;
   }> {
+    const bold = params.variant === 'bold';
     let cleanDescription = params.concept.description || '';
     // 1. Strip logo/brand/host references so OpenAI doesn't paint duplicate overlays
     // (the real host sticker + logo are composited locally by Sharp afterwards —
@@ -1429,25 +1432,38 @@ export class OpenAIService {
       excludeHost: params.excludeHost,
     });
 
+    const styleBlock = bold
+      ? `Maximum-impact ${targetRatioLabel} YouTube thumbnail photograph: hyper-saturated punchy colors, very strong contrast, glowing rim light, dramatic but clearly exposed, natural skin pores. Realistic photo style, NOT 3D render, NOT cartoon. Extreme, instantly readable emotion.`
+      : `High-Dynamic-Range (HDR) cinematic studio photography, 85mm portrait lens, sharp micro-contrast, natural skin pores, bright punchy key lighting, luminous rim highlights, rich midtones. Clear vibrant exposure — ZERO murky crushed blacks, ZERO dark voids, ZERO plastic skin smoothing. Realistic photo style, NOT 3D render, NOT cartoon.`;
+    const backgroundBlock = bold
+      ? `- Draw exactly what the scene describes. Graphic devices (arrow, split panel, circle, X, ? or !, story objects) appear ONLY if the scene names them; never add one on your own.
+- Faces are huge (50–70% of canvas height) with extreme emotion readable at phone size. Keep the background simple and high-contrast so faces and text pop.
+- Draw only the people the scene names (up to two).`
+      : `- Use only the setting the scene describes; keep it rich but uncluttered. Do NOT add courtrooms, gavels, scales of justice, sheriffs, evidence props or spectators unless the scene asks for them.
+- Main faces are commanding close-up/bust shots (40–60% of canvas height) with clearly visible emotion.
+- Do not invent extra people. Draw only the people the scene names.`;
+    const typographyBlock = bold
+      ? `- Huge, ultra-bold, short gut-reaction lettering with a thick dark outline and drop shadow: white plus one word in vivid red or yellow. It must read instantly on a phone.
+- Spell every word exactly as given. Never shorten, paraphrase or add words.`
+      : `- Ultra-bold, colorful, high-contrast lettering: crisp WHITE plus a vivid accent color (yellow, or red when the scene calls for it) on the most important words, with a thick dark outline and drop shadow for mobile readability.
+- Spell every word exactly as given. Never shorten, paraphrase or add words.`;
+
     let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
 
 STYLE & LIGHTING:
-High-Dynamic-Range (HDR) cinematic studio photography, 85mm portrait lens, sharp micro-contrast, natural skin pores, bright punchy key lighting, luminous rim highlights, rich midtones. Clear vibrant exposure — ZERO murky crushed blacks, ZERO dark voids, ZERO plastic skin smoothing. Realistic photo style, NOT 3D render, NOT cartoon.
+${styleBlock}
 
 SCENE STAGING & COMPOSITION:
 ${cleanDescription || 'Emotional close-up of the story subject in a setting that fits the story.'}
 ${subjectIdentitySection ? `\n${subjectIdentitySection}\n` : ''}
 BACKGROUND:
-- Use only the setting the scene describes; keep it rich but uncluttered. Do NOT add courtrooms, gavels, scales of justice, sheriffs, evidence props or spectators unless the scene asks for them.
-- Main faces are commanding close-up/bust shots (40–60% of canvas height) with clearly visible emotion.
-- Do not invent extra people. Draw only the people the scene names.
+${backgroundBlock}
 
 LAYOUT (strict):
 ${zonePrompt(zones, params.concept.text)}
 
 HEADLINE TYPOGRAPHY:
-- Ultra-bold, colorful, high-contrast lettering: crisp WHITE plus a vivid accent color (yellow, or red when the scene calls for it) on the most important words, with a thick dark outline and drop shadow for mobile readability.
-- Spell every word exactly as given. Never shorten, paraphrase or add words.
+${typographyBlock}
 ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors}.` : ''}`;
 
     if (params.showType) {

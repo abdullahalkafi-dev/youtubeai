@@ -12,6 +12,8 @@ export interface IntentClassification {
   /** 0-1 routing confidence. Auto-thumbnail generation only fires at >= AUTO_IMAGE_MIN_CONFIDENCE. */
   confidence: number;
   source: 'llm' | 'fastpath' | 'fallback';
+  /** The client wants real video clips / footage; the reply stays a normal chat answer (skill general). */
+  footage?: boolean;
 }
 
 /** Auto image generation fires only when the router is this sure about the ask. */
@@ -24,6 +26,7 @@ const KNOWN_INTENTS = new Set([
   'thumbnail',
   'package',
   'image',
+  'footage',
   'competitor',
   'trends',
   'ideas',
@@ -45,7 +48,8 @@ CATEGORIES:
 - "ideas": score, rate, or evaluate a video idea.
 - "trends": trending topics or what is current.
 - "competitor": what other channels are doing, content gaps.
-- "image": scene / b-roll / background image generation.
+- "footage": the user wants REAL video clips, news clips, b-roll or footage of a person, event or topic to use in their video ("give me clips of P Diddy for the background", "find footage of the arrest", "local news for this", "b-roll for the script"). Real videos, not generated pictures.
+- "image": the user wants an AI-GENERATED picture or scene image made (not real video).
 - "general": channel strategy, questions, chit-chat, AND topic recommendation ("what should I post next", "give me a topic suggestion") EVEN IF it mentions thumbnails or a title.
 
 RULES:
@@ -121,11 +125,15 @@ export class IntentClassifierService {
         const confidence = this.clamp01(Number(parsed.confidence));
         const mode: PackageMode | undefined =
           intent === 'package' && parsed.mode === 'audit' ? 'audit' : 'new';
+        // Footage is a retrieval ask, not a skill: the chat answers as general and the
+        // footage pack is loaded for it. It must never trigger AI image generation.
+        const isFootage = intent === 'footage';
         const result: IntentClassification = {
-          intent,
+          intent: isFootage ? 'general' : intent,
           confidence: Number.isFinite(confidence) ? confidence : 0.7,
           source: 'llm',
           ...(intent === 'package' ? { mode } : {}),
+          ...(isFootage ? { footage: true } : {}),
         };
         this.logger.log(
           `[Intent] "${message.slice(0, 80)}" -> ${result.intent}${

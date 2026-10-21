@@ -55,7 +55,30 @@ export function rankAndCapNews(clips: LocalClip[]): LocalClip[] {
     .slice(0, 3);
 }
 
-export function rankAndCapBroll(clips: LocalClip[], entityTokens?: Set<string>): LocalClip[] {
+/** True when the title names the subject: any full alias, or enough of the entity's own tokens. */
+export function titleMatchesEntity(
+  title: string,
+  entityTokens: Set<string>,
+  aliases: string[] = [],
+): boolean {
+  const flat = (t: string) =>
+    normalizeText(t).replace(/[^a-z0-9 ]+/g, ' ').replace(/\s+/g, ' ').trim();
+  const norm = flat(title);
+  for (const alias of aliases) {
+    const a = flat(alias);
+    if (a.length >= 3 && norm.includes(a)) return true;
+  }
+  if (entityTokens.size === 0) return true;
+  let n = 0;
+  for (const tok of entityTokens) if (norm.includes(tok)) n++;
+  return n >= requiredMatches(entityTokens.size);
+}
+
+export function rankAndCapBroll(
+  clips: LocalClip[],
+  entityTokens?: Set<string>,
+  cap = 2,
+): LocalClip[] {
   const durationPenalty = (sec: number) => {
     if (sec >= 15 && sec <= 120) return 0;
     if (sec < 15) return 15 - sec;
@@ -86,7 +109,7 @@ export function rankAndCapBroll(clips: LocalClip[], entityTokens?: Set<string>):
 
       return (b.viewCount || 0) - (a.viewCount || 0);
     })
-    .slice(0, 2);
+    .slice(0, cap);
 }
 
 export interface LocalClip {
@@ -979,6 +1002,7 @@ export class LocalNewsService {
   async findCelebrityBrollPack(params: {
     userId: string;
     entity: string;
+    aliases?: string[];
     queries?: string[];
     denyChannelIds?: string[];
     maxClips?: number;
@@ -994,6 +1018,8 @@ export class LocalNewsService {
     const queries = params.queries?.length
       ? params.queries.slice(0, 2)
       : [`${entity} lifestyle clips`, `${entity} moments shorts`];
+    const entityTokens = this.significantTokens(entity);
+    const aliases = [entity, ...(params.aliases || [])];
 
     const found = new Map<
       string,
@@ -1101,6 +1127,7 @@ export class LocalNewsService {
         continue;
       }
       if (BROLL_REACTION_TITLE_SKIP.test(d.title)) continue;
+      if (!titleMatchesEntity(d.title, entityTokens, aliases)) continue;
 
       const meta = found.get(d.videoId);
       clips.push({
@@ -1150,6 +1177,7 @@ export class LocalNewsService {
     requestTypes?: Array<'news' | 'broll'>;
     newsQueries?: string[];
     brollQueries?: string[];
+    aliases?: string[];
     denyChannelIds?: string[];
   }): Promise<LocalScenePack | null> {
     const entity = (params.primaryEntity || '').trim().slice(0, 100);
@@ -1208,6 +1236,7 @@ export class LocalNewsService {
     const publishedAfter = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
     const entityTokens = this.significantTokens(entity || topic);
     const reqEntityMatches = requiredMatches(entityTokens.size);
+    const entityAliases = [entity, ...(params.aliases || [])].filter(Boolean);
     const locRegex = location ? new RegExp(`\\b${escapeRegex(location)}\\b`, 'i') : null;
 
     let quotaTripped = false;
@@ -1285,12 +1314,7 @@ export class LocalNewsService {
             if (!isAllowed && COMMENTARY_TITLE_SKIP.test(r.title) && !isHearing) continue;
 
             // Entity token matching check
-            const normTitle = normalizeText(r.title);
-            let matchCount = 0;
-            for (const tok of entityTokens) {
-              if (normTitle.includes(tok)) matchCount++;
-            }
-            if (entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
+            if (!titleMatchesEntity(r.title, entityTokens, entityAliases)) continue;
 
             // Location gating for local_crime / breaking_crime
             if (storyType === 'local_crime' || storyType === 'breaking_crime') {
@@ -1440,8 +1464,14 @@ export class LocalNewsService {
       const maxBrollSeconds = isAllowed ? 2400 : 240;
       if (d.durationSeconds > maxBrollSeconds) continue;
 
-      // Category 10 exclusion for celebrity B-roll
-      if (storyType === 'celebrity_hiphop' && d.categoryId === '10') continue;
+      // Official music videos are not B-roll; live clips and appearances in the Music category are.
+      if (
+        storyType === 'celebrity_hiphop' &&
+        d.categoryId === '10' &&
+        /\b(official|lyrics?|audio|music video|visualizer)\b/i.test(d.title || r.title)
+      ) {
+        continue;
+      }
 
       // Visual terms & entity gating for B-roll
       const normTitle = normalizeText(d.title || r.title);
@@ -1451,9 +1481,9 @@ export class LocalNewsService {
       }
 
       if (storyType === 'celebrity_hiphop') {
-        const visualMatch = /\b(walking|eating|arriving|exterior|appearance|crowd|interview|lifestyle|moments|b-roll|clips|shorts|court)\b/i.test(normTitle);
+        const visualMatch = /\b(walking|walks|eating|arriv\w*|leav\w*|exterior|appearance|appears?|crowd|interview|lifestyle|moments|b-roll|clips?|shorts?|court|spotted|outside|perform\w*|live|concert|party|red carpet|paparazzi|press|footage|caught|seen|out in|candid)\b/i.test(normTitle);
         if (!visualMatch) continue;
-        if (entityTokens.size > 0 && matchCount < reqEntityMatches) continue;
+        if (!titleMatchesEntity(d.title || r.title, entityTokens, entityAliases)) continue;
       } else {
         const visualInstMatch = /\b(courthouse|courtroom|exterior|b-roll|skyline|aerial|police|station|scene|footage|raw|bodycam|dashcam|surveillance|traffic\s*cam|presser|conference|briefing|shorts|reels?|clips?)\b/i.test(normTitle);
         if (!visualInstMatch) continue;
@@ -1477,7 +1507,10 @@ export class LocalNewsService {
 
     // Rank & Cap (Max 3 News, Max 2 B-Roll)
     const finalNewsClips = rankAndCapNews(validatedNewsClips);
-    const finalBrollClips = rankAndCapBroll(validatedBrollClips, entityTokens);
+    // Celebrity or B-roll-only asks want a usable pile of cutaways; news-led packs stay small.
+    const brollCap =
+      storyType === 'celebrity_hiphop' || !requestTypes.includes('news') ? 7 : 2;
+    const finalBrollClips = rankAndCapBroll(validatedBrollClips, entityTokens, brollCap);
 
     const isCombined = requestTypes.includes('news') && requestTypes.includes('broll');
     const kind: 'combined' | 'topic' | 'broll' = isCombined

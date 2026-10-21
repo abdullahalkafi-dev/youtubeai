@@ -12,6 +12,8 @@ export interface FootageIntentResult {
   hasFootageIntent: boolean;
   requestTypes: Array<'news' | 'broll'>;
   primaryEntity: string;
+  /** Other names the subject goes by in video titles (e.g. Diddy, Sean Combs, P Diddy). */
+  aliases?: string[];
   eventOrTopic: string;
   locationHint?: string;
   storyType: StoryType;
@@ -66,6 +68,8 @@ export class FootageIntentService {
     message: string;
     conversationText?: string;
     trendTitles?: string[];
+    /** The intent router already decided this is a footage ask: skip the keyword pre-check. */
+    force?: boolean;
   }): Promise<FootageIntentResult> {
     const rawMessage = (params.message || '').trim();
     if (!rawMessage) {
@@ -73,7 +77,7 @@ export class FootageIntentService {
     }
 
     // Quick regex pre-check: if completely unrelated, skip AI call to save latency and cost
-    if (!this.quickMightHaveFootageIntent(rawMessage, params.conversationText)) {
+    if (!params.force && !this.quickMightHaveFootageIntent(rawMessage, params.conversationText)) {
       return this.emptyResult();
     }
 
@@ -94,7 +98,8 @@ Analyze the user's message and recent context:
    - "local_crime": Municipal crime, local drug bust, county sheriff case.
    - "national_legal": Federal indictment, RICO trial, supreme court case, high-profile televised lawsuit.
    - "general": General interest or uncategorized news topic.
-4. "primaryEntity": The specific person or entity name (e.g., "Lil Durk", "Drake", "Donald Trump"). Clean up casing, typos, or voice artifacts. If anaphoric ("this", "him", "that topic") resolve from context.
+4. "primaryEntity": The specific person or entity name (e.g., "Lil Durk", "Drake", "Donald Trump"). Use the name the person is best known by in video titles. Clean up casing, typos, or voice artifacts ("D Diddy", "P Diddy" -> "Diddy"). If anaphoric ("this", "him", "that topic") resolve from context. NEVER take the entity from a pasted headline or quoted title when the user names a person.
+4b. "aliases": 2-4 other names this person is commonly called in YouTube titles (e.g. for Diddy: ["Sean Combs", "P Diddy", "Puff Daddy"]). Empty array if none.
 5. "eventOrTopic": The specific event if any (e.g., "arrest", "court hearing", "shooting", "album release"), or "" if general.
 6. "locationHint": City/state if mentioned or implied (e.g., "Miami", "Denver"), else "".
 7. "newsQueries": 1-2 focused YouTube search queries for news/court/affiliate coverage (e.g., ["Lil Durk arrest news", "Lil Durk court hearing"]).
@@ -106,6 +111,7 @@ Return ONLY valid JSON matching this schema:
   "requestTypes": ["news" | "broll"],
   "storyType": "celebrity_hiphop" | "breaking_crime" | "local_crime" | "national_legal" | "general",
   "primaryEntity": string,
+  "aliases": string[],
   "eventOrTopic": string,
   "locationHint": string,
   "newsQueries": string[],
@@ -120,7 +126,7 @@ ${params.trendTitles?.length ? `Trending Topics:\n${params.trendTitles.slice(0, 
         systemPrompt,
         userMessage,
         temperature: 0.1,
-        maxCompletionTokens: 300,
+        maxCompletionTokens: 400,
       });
 
       const parsed = this.parseJsonSafe(rawAi);
@@ -144,6 +150,9 @@ ${params.trendTitles?.length ? `Trending Topics:\n${params.trendTitles.slice(0, 
             : ['news'],
           storyType,
           primaryEntity: (parsed.primaryEntity || '').trim(),
+          aliases: Array.isArray(parsed.aliases)
+            ? parsed.aliases.map((a: string) => String(a).trim()).filter(Boolean).slice(0, 4)
+            : [],
           eventOrTopic: (parsed.eventOrTopic || '').trim(),
           locationHint: normalizeLocationHint(rawLoc) || undefined,
           newsQueries: Array.isArray(parsed.newsQueries)

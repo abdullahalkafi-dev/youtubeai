@@ -88,7 +88,7 @@ export const COMMENTARY_TITLE_SKIP =
  * Drops talking heads, drama channels, video essays, podcasts, and react streamers.
  */
 export const BROLL_REACTION_TITLE_SKIP =
-  /\b(reaction|reacts?|reacting|breakdown|commentary|opinion|review|responds?|explained|thoughts on|drama|tea|exposed|podcast|interview with|why he|why she|what happened to|my take|streamer|stream|talks about|exposes?|analysis|documentary|deep dive)\b/i;
+  /\b(reaction|reacts?|reacting|breakdown|commentary|opinion|review|responds?|explained|thoughts on|exposed|podcast|why he|why she|what happened to|my take|streamer|stream|talks about|exposes?|analysis|documentary|deep dive)\b/i;
 
 /**
  * Strict case-sensitive regex for broadcast stations.

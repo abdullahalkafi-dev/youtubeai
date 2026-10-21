@@ -16,6 +16,7 @@ interface ClassifierHost {
     mode?: 'audit' | 'new';
     confidence: number;
     source: string;
+    footage?: boolean;
   }>;
 }
 
@@ -156,5 +157,16 @@ describe('IntentClassifierService', () => {
     const result = await svc.classify({ message: 'what is trending' });
     expect(result.intent).toBe('trends');
     expect(result.source).toBe('llm');
+  });
+
+  it('routes a clip request as footage (general skill), never as an AI image', async () => {
+    const svc = makeClassifier(() =>
+      JSON.stringify({ intent: 'footage', confidence: 0.95 }),
+    );
+    const result = await svc.classify({
+      message: 'give me some clips from P Diddy that I could use in the background',
+    });
+    expect(result.intent).toBe('general');
+    expect(result.footage).toBe(true);
   });
 });
