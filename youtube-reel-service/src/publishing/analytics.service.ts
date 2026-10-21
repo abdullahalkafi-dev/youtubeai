@@ -6,7 +6,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { parsePeriodDays } from './publish.service';
 
-export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice', 'look'] as const;
+export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice', 'look', 'slot', 'pillar', 'track', 'signal'] as const;
 export type Breakdown = (typeof BREAKDOWNS)[number];
 
 const DURATION_BUCKETS = [0, 30, 45, 60, 1e9];
@@ -140,6 +140,41 @@ export class AnalyticsService {
           },
         });
         key = '$voiceKey';
+        break;
+      case 'slot':
+        // the New York publishing time Auto-publish chose (posts made by hand have none)
+        pipeline.push({ $addFields: { slotKey: { $ifNull: ['$autoPlan.slot', 'Posted by hand'] } } });
+        key = '$slotKey';
+        break;
+      case 'pillar':
+        pipeline.push({ $addFields: { pillarKey: { $ifNull: ['$reel.pillar', 'Not filed yet'] } } });
+        key = '$pillarKey';
+        break;
+      case 'track':
+        // main topic vs explore topic of the daily campaign (everything else is "Not a daily campaign")
+        pipeline.push(
+          { $lookup: { from: 'reel_campaigns', localField: 'campaignId', foreignField: '_id', as: 'camp' } },
+          { $addFields: { trackKey: { $cond: [{ $eq: [{ $arrayElemAt: ['$camp.origin', 0] }, 'daily'] }, { $cond: [{ $eq: [{ $arrayElemAt: ['$camp.track', 0] }, 'explore'] }, 'Explore topic', 'Main topic'] }, 'Not a daily campaign'] } } },
+        );
+        key = '$trackKey';
+        break;
+      case 'signal':
+        // why the day's topic was chosen: trend / performance / explore / archive (the explore part uses its own topic's signal)
+        pipeline.push(
+          { $lookup: { from: 'reel_campaigns', localField: 'campaignId', foreignField: '_id', as: 'camp' } },
+          { $lookup: { from: 'reel_daily_runs', let: { c: '$campaignId' }, pipeline: [{ $match: { $expr: { $or: [{ $eq: ['$campaignId', '$$c'] }, { $eq: ['$exploreCampaignId', '$$c'] }] } } }, { $limit: 1 }], as: 'dayRun' } },
+          {
+            $addFields: {
+              signalKey: {
+                $let: {
+                  vars: { run: { $arrayElemAt: ['$dayRun', 0] }, track: { $arrayElemAt: ['$camp.track', 0] } },
+                  in: { $ifNull: [{ $cond: [{ $eq: ['$$track', 'explore'] }, '$$run.exploreTopic.signal', '$$run.topic.signal'] }, 'Not a daily campaign'] },
+                },
+              },
+            },
+          },
+        );
+        key = '$signalKey';
         break;
       case 'look':
         // effects the reel was rendered with: punch-in on cuts, topic-change flash, progress line (older reels have none)

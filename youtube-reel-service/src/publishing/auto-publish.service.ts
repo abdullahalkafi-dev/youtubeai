@@ -6,11 +6,13 @@ import { ReelAutoDay, ReelAutoDayDocument } from '../db/schemas/reel-autopublish
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { ReelDailyRun, ReelDailyRunDocument } from '../db/schemas/reel-daily-run.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
+import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
 import { assignRotation, AutoSettings, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, gateReason, nyToUtc, pickSlots, validSlot } from './auto-plan';
+import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
 
@@ -48,6 +50,7 @@ export class AutoPublishService {
     @InjectModel(ReelCampaign.name) private readonly campaigns: Model<ReelCampaignDocument>,
     @InjectModel(Reel.name) private readonly reels: Model<ReelDocument>,
     @InjectModel(ReelPost.name) private readonly posts: Model<ReelPostDocument>,
+    @InjectModel(ReelPostMetric.name) private readonly metrics: Model<ReelPostMetricDocument>,
     @InjectModel(SharedChannel.name) private readonly channels: Model<SharedChannelDocument>,
     @InjectModel(SourceVideo.name) private readonly videos: Model<SourceVideoDocument>,
     private readonly publish: PublishService,
@@ -116,6 +119,33 @@ export class AutoPublishService {
       .select('viewCount')
       .lean();
     return rows.length >= 8 ? median(rows.map((r: any) => r.viewCount ?? 0)) : null;
+  }
+
+  /** Each settled automatic post with its views after about a day (the 24h snapshot, else the latest numbers once it is over 36 hours old). */
+  async slotPosts(channelId: string, days = 90): Promise<DayPost[]> {
+    const cid = new Types.ObjectId(channelId);
+    const posts = await this.posts
+      .find({ channelId: cid, source: 'auto', status: 'published', 'autoPlan.slot': { $exists: true }, publishedAt: { $gte: new Date(Date.now() - days * 86_400_000) } })
+      .select('autoPlan publishedAt latestMetrics.views')
+      .lean();
+    const snaps = await this.metrics.find({ postId: { $in: posts.map((p) => p._id) }, checkpoint: '24h' }).select('postId views').lean();
+    const at24 = new Map(snaps.map((s) => [String(s.postId), s.views]));
+    const out: DayPost[] = [];
+    for (const p of posts) {
+      const age = Date.now() - new Date(p.publishedAt!).getTime();
+      const views = at24.get(String(p._id)) ?? (age >= 36 * 3600_000 ? p.latestMetrics?.views : undefined);
+      if (views === undefined || !p.autoPlan) continue;
+      out.push({ id: String(p._id), date: p.autoPlan.planDate, slot: p.autoPlan.slot, views });
+    }
+    return out;
+  }
+
+  /** What each slot has shown so far (mean rank inside the day, with how many posts it rests on). */
+  async slotReport(channelId: string) {
+    const s = await this.settings(channelId);
+    const slots = [...new Set([...s.slots, ...s.extraSlots])].sort();
+    const obs = rankObservations(await this.slotPosts(channelId));
+    return { ready: banditReady(obs, s.slots), observations: obs.length, slots: posteriors(obs, slots).map((p) => ({ slot: p.slot, posts: p.n, score: Math.round(p.mean * 100) / 100 })) };
   }
 
   /** Stops auto-publish (and cancels what has not started uploading) when YouTube flags something or the results collapse. */
@@ -200,8 +230,13 @@ export class AutoPublishService {
         await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'skipped', reason, held } });
         return { status: 'skipped' as const, reason };
       }
-      // the strongest reels are kept when there are fewer slots than reels, then the slot order is randomised
-      const assigned = assignRotation(wanted.slice(0, slots.length), slots, `${channelId}:${date}`);
+      // The strongest reels are kept when there are fewer slots than reels. Until the slots have shown enough, the order is random (a fair
+      // test of every slot); afterwards slots are chosen by Thompson sampling, with an exploration floor so no slot is ever dropped.
+      const obs = rankObservations(await this.slotPosts(channelId));
+      const useBandit = banditReady(obs, slots);
+      const mode: 'rotation' | 'bandit' = useBandit ? 'bandit' : 'rotation';
+      const top = wanted.slice(0, slots.length);
+      const assigned = useBandit ? assignBandit(top, slots, posteriors(obs, slots), `${channelId}:${date}`) : assignRotation(top, slots, `${channelId}:${date}`);
       const owner = await this.channels.findOne({ _id: cid }).select('userId').lean();
       if (!owner?.userId) throw new Error('Channel owner not found');
       const items = [];
@@ -212,7 +247,7 @@ export class AutoPublishService {
             runAt: nyToUtc(date, slot),
             slot,
             planDate: date,
-            mode: 'rotation',
+            mode,
             privacy: s.privacy,
             track: trackOf.get(String(item.r.campaignId)) ?? 'main',
             score: item.score,
@@ -223,9 +258,9 @@ export class AutoPublishService {
         }
       }
       for (const g of wanted.slice(slots.length)) held.push({ reelId: g.r._id, title: g.r.packaging?.title || g.r.concept || 'Reel', reason: 'no publishing slot left today' });
-      await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'planned', items, held } });
+      await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'planned', items, held, mode } });
       this.logger.log(`Auto-publish ${date} for ${channelId}: ${items.length} posts planned (${items.map((i) => i.slot).join(', ')}), ${held.length} held back`);
-      return { status: 'planned' as const, planned: items.length, held: held.length };
+      return { status: 'planned' as const, planned: items.length, held: held.length, mode };
     } catch (err) {
       await this.days.deleteOne({ channelId: cid, date, status: 'planning' }); // let the next tick try again
       throw err;
@@ -275,6 +310,7 @@ export class AutoPublishService {
       settings: { enabled: s.enabled, privacy: s.privacy, slots: s.slots, extraSlots: s.extraSlots, minScore: s.minScore, maxPerDay: s.maxPerDay, pausedReason: s.pausedReason, pausedAt: s.pausedAt },
       timezone: 'America/New_York',
       shortsBaseline: baseline ? Math.round(baseline) : null,
+      slotReport: await this.slotReport(channelId),
       today: today ? shape(today) : null,
       recent: recentDays.filter((d) => d.date !== nyDate()).map(shape),
     };

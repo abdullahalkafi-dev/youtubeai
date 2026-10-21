@@ -106,7 +106,7 @@ export interface AnalyticsOverview {
   top: Array<{ postId: string; reelId: string; platform: PlatformId; url: string | null; title: string; views: number; publishedAt: string }>
 }
 
-export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign' | 'images' | 'voice' | 'look'
+export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign' | 'images' | 'voice' | 'look' | 'slot' | 'pillar' | 'track' | 'signal'
 
 export interface BreakdownRow {
   key: string
@@ -237,6 +237,7 @@ export interface DailyOverview {
   bySignal: Array<{ signal: DailySignalKind; days: number; views: number; avgPerPost: number }>
   health: DailyHealthNote[]
   brain: DailyBrain | null
+  review: DailyReview | null
   days: DailyDay[]
 }
 
@@ -276,7 +277,16 @@ export interface AutoPublishOverview {
   settings: AutoPublishSettings
   timezone: string
   shortsBaseline: number | null
+  slotReport: { ready: boolean; observations: number; slots: Array<{ slot: string; posts: number; score: number }> }
   today: AutoPublishDay | null
   recent: AutoPublishDay[]
   result?: { status: string; reason?: string; planned?: number; held?: number }
+}
+
+export interface DailyReview {
+  weekOf: string
+  posts: number
+  enoughData: boolean
+  summary: string | null
+  findings: Array<{ claim: string; evidence: string; sample: number; confidence: 'low' | 'medium' | 'high'; action: string }>
 }

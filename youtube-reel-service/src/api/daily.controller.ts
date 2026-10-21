@@ -1,6 +1,7 @@
 import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { DailyService } from '../pipeline/daily.service';
 import { AutoPublishService } from '../publishing/auto-publish.service';
+import { LearningService } from '../publishing/learning.service';
 import { PublishService } from '../publishing/publish.service';
 import { ReelAuthGuard } from './auth.guard';
 import { AutoPublishMoveDto, AutoPublishSettingsDto, DailySettingsDto, parse } from './dto';
@@ -13,6 +14,7 @@ export class DailyController {
     private readonly daily: DailyService,
     private readonly auto: AutoPublishService,
     private readonly publish: PublishService,
+    private readonly learning: LearningService,
   ) {}
 
   @Get()
@@ -35,6 +37,13 @@ export class DailyController {
   @Post('run')
   async runNow(@Param('channelId') channelId: string) {
     await this.daily.runForChannel(channelId, 'manual');
+    return this.daily.overview(channelId);
+  }
+
+  /** Write this week's "what worked" review now (one model call; it only says something once enough posts have settled). */
+  @Post('review')
+  async review(@Param('channelId') channelId: string) {
+    await this.learning.review(channelId);
     return this.daily.overview(channelId);
   }
 

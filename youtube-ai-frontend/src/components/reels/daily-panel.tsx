@@ -7,7 +7,7 @@ import { AlertTriangle, Brain, CalendarClock, ChevronRight, Compass, Eye, Flame,
 import { toast } from 'sonner'
 import { errorMessage, reelsApi } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
-import type { DailyBrain, DailyDay, DailyHealthNote, DailyOverview, DailyPreview } from '@/types/publishing'
+import type { DailyBrain, DailyDay, DailyHealthNote, DailyOverview, DailyPreview, DailyReview } from '@/types/publishing'
 import { AutoPublishPanel } from './auto-publish-panel'
 import { compact } from './reel-ui'
 
@@ -24,7 +24,7 @@ const fmtDay = (d: string) => new Date(`${d}T12:00:00Z`).toLocaleDateString(unde
 export function DailyPanel({ channelId }: { channelId: string }) {
   const [data, setData] = useState<DailyOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<'toggle' | 'run' | 'preview' | null>(null)
+  const [busy, setBusy] = useState<'toggle' | 'run' | 'preview' | 'review' | null>(null)
   const [preview, setPreview] = useState<DailyPreview | null>(null)
   const [tick, setTick] = useState(0)
   const reload = useCallback(() => setTick((t) => t + 1), [])
@@ -63,6 +63,16 @@ export function DailyPanel({ channelId }: { channelId: string }) {
     setBusy('preview')
     try {
       setPreview(await reelsApi.dailyPreview(channelId))
+    } catch (err) {
+      toast.error(errorMessage(err))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const writeReview = async () => {
+    setBusy('review')
+    try {
+      setData(await reelsApi.dailyReview(channelId))
     } catch (err) {
       toast.error(errorMessage(err))
     } finally {
@@ -150,6 +160,7 @@ export function DailyPanel({ channelId }: { channelId: string }) {
       <HealthBanner notes={data.health} />
       {preview && <PreviewPanel p={preview} onClose={() => setPreview(null)} />}
       {data.brain && <BrainPanel b={data.brain} />}
+      <ReviewCard r={data.review} busy={busy === 'review'} onWrite={writeReview} />
 
       {/* Insights */}
       {data.days.some((d) => d.posts > 0) && (
@@ -431,5 +442,37 @@ function BrainPanel({ b }: { b: DailyBrain }) {
         </div>
       </div>
     </details>
+  )
+}
+
+function ReviewCard({ r, busy, onWrite }: { r: DailyReview | null; busy: boolean; onWrite: () => void }) {
+  return (
+    <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 space-y-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-amber-500" /> What worked (weekly review)
+          {r && <span className="font-normal text-zinc-500">week of {r.weekOf}</span>}
+        </p>
+        <button onClick={onWrite} disabled={busy} className="px-2.5 py-1 rounded-lg bg-zinc-100 dark:bg-zinc-800 text-[11px] font-semibold text-zinc-700 dark:text-zinc-200 flex items-center gap-1 disabled:opacity-50">
+          {busy ? <Loader2 className="w-3 h-3 animate-spin" /> : null} {r ? 'Refresh now' : 'Write it now'}
+        </button>
+      </div>
+      {!r ? (
+        <p className="text-[11px] text-zinc-500">Written every Monday morning from your own results once enough posts have settled. Every claim comes with how many posts it rests on.</p>
+      ) : (
+        <>
+          {r.summary && <p className="text-xs text-zinc-700 dark:text-zinc-300">{r.summary}</p>}
+          {r.findings.map((f, i) => (
+            <div key={i} className="p-2.5 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
+              <p className="text-xs font-semibold text-zinc-900 dark:text-zinc-100">
+                {f.claim} <span className={cn('ml-1 px-1.5 py-0.5 rounded-md text-[10px] font-semibold', f.confidence === 'high' ? 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400' : f.confidence === 'medium' ? 'bg-amber-500/10 text-amber-700 dark:text-amber-400' : 'bg-zinc-500/10 text-zinc-500')}>{f.confidence} confidence · {f.sample} posts</span>
+              </p>
+              <p className="text-[11px] text-zinc-500 mt-0.5">{f.evidence}</p>
+              <p className="text-[11px] text-zinc-700 dark:text-zinc-300 mt-0.5">→ {f.action}</p>
+            </div>
+          ))}
+        </>
+      )}
+    </div>
   )
 }

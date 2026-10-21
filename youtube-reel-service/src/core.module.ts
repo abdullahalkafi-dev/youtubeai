@@ -28,6 +28,7 @@ import { MetricsService } from './publishing/metrics.service';
 import { PublishQuotaService } from './publishing/publish-quota.service';
 import { PublishService } from './publishing/publish.service';
 import { AutoPublishService } from './publishing/auto-publish.service';
+import { LearningService } from './publishing/learning.service';
 import { PublisherRegistry } from './publishing/registry';
 import { YouTubePublisher } from './publishing/youtube.publisher';
 
@@ -60,6 +61,7 @@ const providers = [
   YouTubePublisher,
   PublishService,
   AutoPublishService,
+  LearningService,
   MetricsService,
   AnalyticsService,
 ];

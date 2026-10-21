@@ -96,6 +96,8 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     await q.maintenance.add({ task: 'cleanup' } satisfies MaintenanceJob, { repeat: { every: 3600_000 }, jobId: 'cleanup', attempts: 1 });
     await q.maintenance.add({ task: 'metrics' } satisfies MaintenanceJob, { repeat: { every: 30 * 60_000 }, jobId: 'metrics', attempts: 1 });
     // Auto-publish (does nothing for a channel whose switch is off): plan the day's posts once its reels are ready, and the stop-by-itself check.
+    // Monday 8:30 AM New York: the weekly "what worked" review (needs enough settled posts; otherwise it just records how many are missing).
+    await q.maintenance.add({ task: 'weekly-review' } satisfies MaintenanceJob, { repeat: { cron: '30 8 * * 1', tz: 'America/New_York' }, jobId: 'weekly-review', attempts: 1 });
     await q.maintenance.add({ task: 'auto-publish' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'auto-publish', attempts: 1 });
     // Daily automatic campaign: 4:00 AM New York, with a 6:00 AM retry for a failed day (runs are idempotent per NY date).
     await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 4 * * *', tz: 'America/New_York' }, jobId: 'daily', attempts: 1 });

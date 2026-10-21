@@ -238,6 +238,25 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
         </div>
       ) : null}
 
+      {/* What the times have shown so far */}
+      {data.slotReport.slots.some((s) => s.posts > 0) && (
+        <div className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 space-y-1.5">
+          <p className="text-[11px] font-semibold text-zinc-500">
+            What the posting times have shown so far ({data.slotReport.observations} settled posts) — {data.slotReport.ready ? 'now favouring the better times, still testing the others' : 'still testing every time evenly'}
+          </p>
+          {data.slotReport.slots.map((s) => (
+            <div key={s.slot} className="flex items-center gap-2 text-[11px]">
+              <span className="w-12 tabular-nums text-zinc-700 dark:text-zinc-200">{s.slot}</span>
+              <div className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.round(s.score * 100)}%` }} />
+              </div>
+              <span className="w-28 text-right text-zinc-500">{s.posts} posts</span>
+            </div>
+          ))}
+          <p className="text-[10px] text-zinc-500">The bar is how a post at that time ranked against the same day&apos;s other posts (full bar = best of the day). With only a few posts per time, small differences are noise.</p>
+        </div>
+      )}
+
       {data.recent.some((d) => d.items.length) && (
         <details className="text-[11px]">
           <summary className="cursor-pointer font-semibold text-zinc-500">Earlier days</summary>

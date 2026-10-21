@@ -122,6 +122,7 @@ export const reelsApi = {
   autoPublishMove: (channelId: string, postId: string, runAt: string) =>
     request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/posts/${postId}/move`, { method: 'POST', body: JSON.stringify({ runAt }) }),
   autoPublishCancel: (channelId: string, postId: string) => request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/posts/${postId}/cancel`, { method: 'POST' }),
+  dailyReview: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily/review`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
   dailyPreview: (channelId: string) => request<DailyPreview>(`/channels/${channelId}/daily/preview`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
   runDailyNow: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily/run`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
 

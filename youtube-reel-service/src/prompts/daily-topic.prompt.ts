@@ -45,6 +45,8 @@ export function buildDailyTopicUser(input: {
   own: Array<{ key: string; share: number }>;
   performed: Array<{ key: string; views: number; posts: number }>;
   pillars: Array<{ key: string; name: string; description: string; daysSinceCovered: number | null; lift: number }>;
+  /** Findings of the latest weekly review that have enough posts behind them. */
+  learned?: string[];
   recent: string[];
   bankThemes: Array<{ key: string; n: number }>;
 }): string {
@@ -60,6 +62,7 @@ export function buildDailyTopicUser(input: {
     'OWN CHANNEL TRAFFIC (share of the channel\'s views over the last 3 days, by person/case):',
     ...(input.own.length ? input.own.map((o) => `- ${o.key}: ${Math.round(o.share * 100)}%`) : ['- (not available)']),
     '',
+    ...(input.learned?.length ? ['WHAT THE WEEKLY REVIEW LEARNED (only claims with enough posts; weigh them, do not copy them blindly):', ...input.learned.map((l) => `- ${l}`), ''] : []),
     'WHAT OUR REELS EARNED (last 30 days):',
     ...(input.performed.length ? input.performed.map((p) => `- ${p.key}: ${p.views} views over ${p.posts} posts`) : ['- (not enough published data yet)']),
     '',

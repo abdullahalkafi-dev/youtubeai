@@ -4,25 +4,22 @@ import { Model, Types } from 'mongoose';
 import { AiService } from '../ai/ai.service';
 import { errMsg } from '../common/errors';
 import { truncate } from '../common/text';
+import { DAILY_TZ, nyDate } from '../common/time';
 import { AppConfig, CONFIG } from '../config/config';
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { ReelDailyRun, ReelDailyRunDocument } from '../db/schemas/reel-daily-run.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
 import { buildDailyTopicUser, DAILY_TOPIC_SYSTEM, DailyTopicResult, DailyTopicSchema } from '../prompts/daily-topic.prompt';
 import { AnalyticsService } from '../publishing/analytics.service';
+import { LearningService } from '../publishing/learning.service';
 import { QueueService } from '../queue/queue.service';
 import { BrainCandidate, CandidateEvidence, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
 import { freeDiskGb } from './media';
 import { isBrandEntity, PillarService } from './pillars.service';
 import { matchTrend, SignalsService, TREND_USABLE_HOURS, velocityShareFor } from './signals.service';
 
-export const DAILY_TZ = 'America/New_York';
+export { DAILY_TZ, nyDate };
 export const DAILY_HOUR = 4;
-
-/** New York calendar date (YYYY-MM-DD) of a moment. */
-export function nyDate(d = new Date()): string {
-  return d.toLocaleDateString('en-CA', { timeZone: DAILY_TZ });
-}
 
 /** Next 4:00 AM New York (handles daylight-saving changes: NY offsets are whole hours). */
 export function nextDailyRun(from = new Date()): Date {
@@ -65,6 +62,7 @@ export class DailyService {
     private readonly queues: QueueService,
     private readonly pillars: PillarService,
     private readonly signals: SignalsService,
+    private readonly learning: LearningService,
   ) {}
 
   async isEnabled(channelId: string): Promise<boolean> {
@@ -213,6 +211,7 @@ export class DailyService {
       this.runs.find({ channelId, status: 'started', date: { $ne: date } }).sort({ date: -1 }).limit(14).select('topic exploreTopic').lean(),
     ]);
     const trendNote = snap.degraded.find((d) => /trend|lite/i.test(d)) ?? null;
+    const learned = await this.learning.learnedLines(channelId).catch(() => []);
 
     const res: DailyTopicResult = await this.ai.generateJson({
       task: `daily-topic:${channelId}:${date}`,
@@ -224,6 +223,7 @@ export class DailyService {
         own: (snap.own?.byEntity ?? []).slice(0, 6).map((e) => ({ key: e.key, share: e.share3d })),
         performed: [...themes.rows, ...entities.rows].sort((a, b) => b.views - a.views).slice(0, 10).map((r) => ({ key: r.key, views: r.views, posts: r.posts })),
         pillars: pillarDefs.map((p) => ({ ...p, daysSinceCovered: pillarState[p.key]?.daysSinceCovered ?? null, lift: pillarState[p.key]?.lift ?? 1 })),
+        learned,
         recent: recent.flatMap((r) => [r.topic?.name, r.exploreTopic?.name]).filter(Boolean) as string[],
         // the channel's own name is not a topic: it would otherwise top the "most present people" list
         bankThemes: [...bank, ...bankPeople].filter((b: any) => !isBrandEntity(String(b._id), brands)).map((b: any) => ({ key: String(b._id), n: b.n })),
@@ -398,7 +398,7 @@ export class DailyService {
       const posts = list.reduce((n, d) => n + d.posts, 0);
       return { signal: s, days: list.length, views: list.reduce((n, d) => n + d.views, 0), avgPerPost: posts ? Math.round(list.reduce((n, d) => n + d.views, 0) / posts) : 0 };
     });
-    const [enabled, health, brain] = await Promise.all([this.isEnabled(channelId), this.health(channelId), this.brain(channelId).catch(() => null)]);
+    const [enabled, health, brain, review] = await Promise.all([this.isEnabled(channelId), this.health(channelId), this.brain(channelId).catch(() => null), this.learning.latest(cid)]);
     return {
       enabled,
       nextRunAt: nextDailyRun(),
@@ -408,6 +408,7 @@ export class DailyService {
       bySignal,
       health,
       brain,
+      review: review ? { weekOf: review.weekOf, posts: review.posts, enoughData: review.enoughData, summary: review.summary ?? null, findings: review.findings } : null,
       days: days.map((d) => ({
         ...d,
         verdict: d.posts === 0 || !avgPerPost ? null : d.views / d.posts >= avgPerPost * 1.25 ? 'better' : d.views / d.posts <= avgPerPost * 0.8 ? 'worse' : 'similar',

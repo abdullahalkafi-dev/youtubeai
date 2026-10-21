@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AutoPublishService } from '../publishing/auto-publish.service';
+import { LearningService } from '../publishing/learning.service';
 import { DailyService } from './daily.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -41,9 +42,11 @@ export class MaintenanceService {
     private readonly metrics: MetricsService,
     private readonly daily: DailyService,
     private readonly autoPublish: AutoPublishService,
+    private readonly learning: LearningService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'weekly-review') {
+    if (task === 'weekly-review') return this.learning.runWeekly();
     if (task === 'daily') return this.daily.runScheduled();
     if (task === 'auto-publish') return this.autoPublish.runDue();
     if (task === 'recover') return this.recover();

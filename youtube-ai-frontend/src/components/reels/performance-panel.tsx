@@ -27,6 +27,10 @@ const BREAKDOWNS: Array<[BreakdownBy, string]> = [
   ['images', 'Pictures'],
   ['voice', 'Voice'],
   ['look', 'Look'],
+  ['slot', 'Time slot'],
+  ['pillar', 'Topic area'],
+  ['track', 'Main vs explore'],
+  ['signal', 'Why chosen'],
 ]
 
 type Keyed<T> = { key: string; data: T } | null
