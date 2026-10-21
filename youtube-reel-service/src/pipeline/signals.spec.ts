@@ -25,18 +25,47 @@ describe('trend matching', () => {
     expect(matchTrend(c, [trend('WSJ: Paxton donor federal indictment', 56, 1)], NOW).match).toBe(0);
   });
 
+  it('a quick ("lite") scan counts for less than the full web-search scan at the same score and age', () => {
+    const full = matchTrend(c, [trend('Diddy transfer news', 50, 2, 'web_search')], NOW).match;
+    const lite = matchTrend(c, [trend('Diddy transfer news', 50, 2, 'lite')], NOW).match;
+    expect(lite).toBeLessThan(full);
+    expect(lite).toBeGreaterThan(0.5 * full);
+  });
+
   it('decodes html entities in titles (the scan stores &#39;)', () => {
     expect(matchTrend({ entity: 'drilla', keywords: ['drilla'] }, [trend('Drilla&#39;s Probation Woes', 13, 3)], NOW).match).toBeGreaterThan(0);
   });
 });
 
 describe('own-channel velocity share', () => {
-  const snap = { byEntity: [{ key: 'diddy', views3d: 800, share3d: 0.8 }], byPillar: [{ key: 'solitary', views3d: 50, share3d: 0.05 }] };
-  it('uses the person when known, then the pillar, else 0', () => {
-    expect(velocityShareFor({ entity: 'diddy', pillar: 'solitary' }, snap)).toBe(0.8);
-    expect(velocityShareFor({ entity: null, pillar: 'solitary' }, snap)).toBe(0.05);
-    expect(velocityShareFor({ entity: 'nobody', pillar: 'unknown' }, snap)).toBe(0);
-    expect(velocityShareFor({ entity: 'diddy', pillar: null }, undefined)).toBe(0);
+  const snap = {
+    views3d: 1000,
+    byEntity: [{ key: 'diddy', views3d: 800, share3d: 0.8 }],
+    byPillar: [{ key: 'solitary', views3d: 50, share3d: 0.05 }, { key: 'intake', views3d: 420, share3d: 0.42 }],
+    videos: [
+      { title: 'Diddy: The Prison Move Nobody Explained', views3d: 800 },
+      { title: 'Pooh Shiesty LIVE lockdown update', views3d: 46 },
+      { title: 'Solitary confinement and the mind', views3d: 50 },
+    ],
+  };
+  const c = (o: any) => ({ entity: null, pillar: null, keywords: [], ...o });
+
+  it('uses the tracked person first', () => {
+    expect(velocityShareFor(c({ entity: 'diddy', pillar: 'solitary' }), snap)).toBe(0.8);
+  });
+
+  it('a person who is NOT on the channel traffic is not carried by the traffic of their pillar (the Pras Michel case)', () => {
+    expect(velocityShareFor(c({ entity: 'pras michel', pillar: 'intake', keywords: ['pras'] }), snap)).toBe(0);
+  });
+
+  it('finds traffic for a person nobody tracked, from the video titles', () => {
+    expect(velocityShareFor(c({ entity: 'pooh shiesty' }), snap)).toBeCloseTo(0.046, 3);
+  });
+
+  it('a general lesson needs two keywords in the titles, or gets half of its pillar', () => {
+    expect(velocityShareFor(c({ keywords: ['solitary', 'confinement', 'isolation'] }), snap)).toBeCloseTo(0.05, 3);
+    expect(velocityShareFor(c({ pillar: 'intake', keywords: ['nothing'] }), snap)).toBeCloseTo(0.21, 3);
+    expect(velocityShareFor(c({}), undefined)).toBe(0);
   });
 });
 

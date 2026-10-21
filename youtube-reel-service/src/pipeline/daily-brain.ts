@@ -72,7 +72,8 @@ export interface ScoredCandidate {
   reason: string | null;
 }
 
-export const WEIGHTS = { demand: 0.35, velocity: 0.2, lift: 0.15, need: 0.15, supply: 0.15 };
+// own-channel traffic is measured demand; a trend headline is only a hint (and a quick scan is a weak one)
+export const WEIGHTS = { demand: 0.25, velocity: 0.3, lift: 0.15, need: 0.15, supply: 0.15 };
 export const MIN_STRONG_MOMENTS = 4;
 /** An unanalysed video is worth about this many strong moments once mined (the analysed ones average about 19 moments per video). */
 export const MINABLE_VALUE = 1.5;

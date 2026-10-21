@@ -23,6 +23,8 @@ export class ReelSignal {
     byEntity: SignalShare[];
     byPillar: SignalShare[];
     topVideos: Array<{ youtubeId: string; title: string; views3d: number }>;
+    /** The channel's most watched videos of the last 3 days (up to 40): lets any topic, even one nobody tracked as a person, be matched to real traffic. */
+    videos?: Array<{ title: string; views3d: number }>;
   };
   /** The main app's trend scan as the brain could use it. */
   @Prop({ type: Object }) trends?: {

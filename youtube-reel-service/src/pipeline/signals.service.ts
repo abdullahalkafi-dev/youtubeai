@@ -41,19 +41,35 @@ export function matchTrend(c: Pick<BrainCandidate, 'keywords' | 'entity'>, trend
     const relevance = Math.min(1, hits / Math.min(2, words.length));
     // opportunity score is 0-100 and mostly low (median in the live data is 13-50): scale so a mid score still counts
     const opp = t.score === null ? 0.4 : Math.min(1, 0.25 + t.score / 70);
-    const m = Math.min(1, relevance * opp * (0.5 + 0.5 * fresh));
+    const quality = t.source === 'lite' ? 0.6 : 1; // quick scans are mostly other creators' video titles
+    const m = Math.min(1, relevance * opp * quality * (0.5 + 0.5 * fresh));
     if (m > best.match) best = { match: Math.round(m * 1000) / 1000, title: t.title };
   }
   return best;
 }
 
 /** Share of the channel's last-3-day views that went to videos about this candidate (by person first, then by pillar). */
-export function velocityShareFor(c: Pick<BrainCandidate, 'entity' | 'pillar'>, snap: { byEntity: SignalShare[]; byPillar: SignalShare[] } | undefined): number {
+export function velocityShareFor(
+  c: Pick<BrainCandidate, 'entity' | 'pillar' | 'keywords'>,
+  snap: { byEntity: SignalShare[]; byPillar: SignalShare[]; views3d?: number; videos?: Array<{ title: string; views3d: number }> } | undefined,
+): number {
   if (!snap) return 0;
-  const e = c.entity ? snap.byEntity.find((x) => x.key === c.entity) : undefined;
-  if (e) return e.share3d;
-  const p = c.pillar ? snap.byPillar.find((x) => x.key === c.pillar) : undefined;
-  return p ? p.share3d : 0;
+  const total = snap.views3d ?? 0;
+  const titleShare = (match: (title: string) => boolean) => {
+    if (!total || !snap.videos) return 0;
+    return Math.min(1, snap.videos.filter((v) => match(norm(v.title))).reduce((n, v) => n + v.views3d, 0) / total);
+  };
+  if (c.entity) {
+    // a named person: what the channel's last videos about THEM earned. Not the whole pillar's traffic (a person who is not on the channel's traffic is not trending there).
+    const known = snap.byEntity.find((x) => x.key === c.entity)?.share3d ?? 0;
+    const name = norm(c.entity);
+    return Math.max(known, name ? titleShare((t) => t.includes(name)) : 0);
+  }
+  // a general lesson: videos that match at least two of its keywords, plus a smaller credit for its pillar
+  const words = [...new Set(c.keywords.map(norm).filter((w) => w.length >= 4))].slice(0, 6);
+  const kw = words.length >= 2 ? titleShare((t) => words.filter((w) => t.includes(w)).length >= 2) : 0;
+  const p = c.pillar ? snap.byPillar.find((x) => x.key === c.pillar)?.share3d ?? 0 : 0;
+  return Math.max(kw, 0.5 * p);
 }
 
 /** Builds and stores the day's signal snapshot from data that already exists (no API calls, no cost). */
@@ -141,6 +157,11 @@ export class SignalsService {
         views14d: total14,
         byEntity: shares(entViews),
         byPillar: shares(pilViews),
+        videos: [...rows]
+          .sort((a, b) => b.v3 - a.v3)
+          .slice(0, 40)
+          .filter((r) => r.v3 > 0 && meta.get(String(r._id)))
+          .map((r) => ({ title: String((meta.get(String(r._id)) as any).title), views3d: r.v3 })),
         topVideos: rows
           .sort((a, b) => b.v3 - a.v3)
           .slice(0, 8)

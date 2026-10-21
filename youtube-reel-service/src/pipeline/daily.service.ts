@@ -270,7 +270,7 @@ export class DailyService {
       // matching videos nobody has analysed yet: the campaign can download and mine them
       const analysed = videos ? await db.collection('reel_sources').countDocuments({ youtubeId: { $in: matching }, momentCount: { $gt: 0 } }) : 0;
       const trend = matchTrend(cand, usableTrends);
-      const ev: CandidateEvidence = { moments: m?.n ?? 0, videos, strongMoments: m?.strong ?? 0, minableVideos: Math.max(0, videos - analysed), trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own) };
+      const ev: CandidateEvidence = { moments: m?.n ?? 0, videos, strongMoments: m?.strong ?? 0, minableVideos: Math.max(0, videos - analysed), trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own ? { ...snap.own, byEntity: snap.own.byEntity, byPillar: snap.own.byPillar } : undefined) };
       const s = scoreCandidate(cand, ev, { ...ctxBase, targetReels: 7 });
       scored.push(s);
     }
