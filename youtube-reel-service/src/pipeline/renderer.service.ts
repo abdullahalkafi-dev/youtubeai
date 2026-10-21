@@ -12,7 +12,7 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { buildAss, buildSrt } from './captions';
-import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, RenderImageInput, renderGraph } from './filtergraph';
+import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, RenderFx, RenderImageInput, renderGraph } from './filtergraph';
 import { cardGraph } from './card';
 import { buildTimeline, mapWords, NO_PACE, PaceOptions, Timeline } from './timeline';
 import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
@@ -31,6 +31,7 @@ export interface RenderResult {
   lufs: number | null;
   warnings: string[];
   timeline: Timeline;
+  fx: RenderFx | null;
 }
 
 @Injectable()
@@ -122,6 +123,7 @@ export class RendererService {
         expectedDuration: reel.durationSec,
         pace: this.pace(),
         images,
+        fx: this.fx(),
       });
 
       const lowRes = srcs.filter((s) => s.height && s.height < 720).map((s) => `${s.youtubeId} is ${s.height}p`);
@@ -145,6 +147,7 @@ export class RendererService {
               semitones: result.timeline.semitones,
               cuts: result.timeline.cuts,
               plannedSec: result.timeline.reelDuration,
+              fx: result.fx,
             },
             assets: { videoKey: `${prefix}/reel.mp4`, coverKey: `${prefix}/cover.jpg`, srtKey: `${prefix}/captions.srt`, sizeBytes: size },
             qa: {
@@ -179,6 +182,11 @@ export class RendererService {
     };
   }
 
+  /** The visual rhythm applied to every reel (env-controlled; whoosh needs the topic-change flash). */
+  fx(): RenderFx {
+    return { punch: this.cfg.REEL_FX_PUNCH, join: this.cfg.REEL_FX_JOIN, whoosh: this.cfg.REEL_FX_JOIN && this.cfg.REEL_FX_WHOOSH, bar: this.cfg.REEL_FX_BAR };
+  }
+
   /** Pure render step (no DB): used by jobs, the CLI preview and local tests. */
   async renderToDir(input: {
     dir: string;
@@ -192,6 +200,7 @@ export class RendererService {
     pace?: PaceOptions;
     /** AI images, timed on the planned reel timeline. */
     images?: RenderImageInput[];
+    fx?: RenderFx;
   }): Promise<RenderResult> {
     const { dir, template } = input;
     const tl = buildTimeline(input.clips, input.words, input.pace ?? NO_PACE);
@@ -236,7 +245,7 @@ export class RendererService {
         'canvas.png',
         ...imageInputArgs(images),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx }),
         '-map',
         '[vout]',
         '-map',
@@ -299,6 +308,6 @@ export class RendererService {
     const srt = path.join(dir, 'captions.srt');
     fs.writeFileSync(srt, buildSrt(words));
 
-    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings, timeline: tl };
+    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings, timeline: tl, fx: input.fx ?? null };
   }
 }

@@ -1,5 +1,5 @@
 import { buildTimeline, mapWords, NO_PACE, PaceOptions } from './timeline';
-import { renderGraph, loudnessMeasureGraph } from './filtergraph';
+import { renderGraph, loudnessMeasureGraph, segmentStarts, NO_FX, RenderFx } from './filtergraph';
 import { parseTemplate } from './template';
 
 const pace: PaceOptions = { speed: 1.2, voice: 'chipmunk', semitones: 0, minGap: 0.35, keep: 0.08, maxSegments: 30 };
@@ -16,7 +16,7 @@ describe('timeline (pause cuts + speed)', () => {
   it('without pace it is the identity', () => {
     const tl = buildTimeline(clips, words, NO_PACE);
     expect(tl.cuts).toEqual([]);
-    expect(tl.segments).toEqual(clips);
+    expect(tl.segments).toEqual([{ ...clips[0], kind: 'start' }, { ...clips[1], kind: 'join' }]);
     expect(tl.duration).toBe(15);
     expect(tl.map(7.3)).toBeCloseTo(7.3);
   });
@@ -26,9 +26,9 @@ describe('timeline (pause cuts + speed)', () => {
     // the cut start moves by at most half a frame so the kept segment is whole frames (92 frames = 3.0667 s)
     expect(tl.cuts).toEqual([[3.067, 4.42], [9.987, 10]]);
     expect(tl.segments).toEqual([
-      { src: 'a.mp4', start: 100, duration: 3.067 },
-      { src: 'a.mp4', start: 104.42, duration: 5.567 }, // 167 frames; the last 0.013 s is the cut above
-      { src: 'b.mp4', start: 40, duration: 5 },
+      { src: 'a.mp4', start: 100, duration: 3.067, kind: 'start' },
+      { src: 'a.mp4', start: 104.42, duration: 5.567, kind: 'cut' }, // 167 frames; the last 0.013 s is the cut above
+      { src: 'b.mp4', start: 40, duration: 5, kind: 'join' },
     ]);
     expect(tl.duration).toBeCloseTo((3.067 + 5.567 + 5) / 1.2, 2);
   });
@@ -94,5 +94,66 @@ describe('render graph pace + images', () => {
     expect(g).toContain('[2:v]format=yuva420p,fade=t=in:st=0:d=0.180:alpha=1,fade=t=out:st=2.380:d=0.120:alpha=1,setpts=PTS-STARTPTS+2.000/TB[im0]');
     expect(g).toContain("[b1][im0]overlay=x=0:y=656:eof_action=pass:enable='between(t,2.000,4.500)'[bi0]");
     expect(g).toContain('[bi0][1:v]overlay=x=0:y=0');
+  });
+});
+
+describe('visual rhythm (effects never change a segment length)', () => {
+  const template = parseTemplate({ window: { x: 0, y: 656, w: 1080, h: 760 }, headline: {}, captions: {} });
+  const clips = [
+    { src: 'a', start: 0, duration: 4, kind: 'start' as const },
+    { src: 'a', start: 4.5, duration: 4, kind: 'cut' as const },
+    { src: 'a', start: 9, duration: 4, kind: 'cut' as const },
+    { src: 'b', start: 0, duration: 6, kind: 'join' as const },
+    { src: 'b', start: 6.5, duration: 4, kind: 'cut' as const },
+  ];
+  const all: RenderFx = { punch: true, join: true, whoosh: true, bar: true };
+  const g = (fx?: RenderFx, speed = 1) => renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 22 / speed, speed, voice: 'natural', fx });
+
+  it('with no effects the graph has no flash, bar, whoosh or zoom', () => {
+    for (const graph of [g(), g(NO_FX)]) {
+      expect(graph).not.toContain('color=c=white');
+      expect(graph).not.toContain('0xFFD400');
+      expect(graph).not.toContain('anoisesrc');
+      expect(graph).not.toContain('eval=frame');
+      expect(graph).toContain('scale=1080:760:force_original_aspect_ratio=increase:flags=lanczos');
+    }
+  });
+  it('punch-in alternates 100% / 112% on each jump cut and resets at a topic change', () => {
+    const graph = g({ ...NO_FX, punch: true });
+    const scaleOf = (i: number) => /\[\d+:v\].*?(scale=[^,]+),crop/.exec(graph.split(';').find((p) => p.startsWith(`[${i}:v]`))!)![1];
+    expect(scaleOf(0)).toBe('scale=1080:760:force_original_aspect_ratio=increase:flags=lanczos');
+    expect(scaleOf(1)).toBe('scale=1210:852:force_original_aspect_ratio=increase:flags=lanczos'); // 112%, even sizes
+    expect(scaleOf(2)).toBe('scale=1080:760:force_original_aspect_ratio=increase:flags=lanczos');
+    expect(scaleOf(3)).toBe('scale=1080:760:force_original_aspect_ratio=increase:flags=lanczos'); // new topic starts at 100%
+    expect(scaleOf(4)).toContain('1210');
+  });
+  it('a topic change flashes and settles; the output start of each segment follows the speed', () => {
+    expect(segmentStarts(clips, 1.2).map((x) => +x.toFixed(3))).toEqual([0, 3.333, 6.667, 10, 15]);
+    const graph = g(all, 1.2);
+    // the join starts 12 / 1.2 = 10 s into the output: flash from 9.9 s to 10.2 s, settle in output seconds (0.22 s -> 0.264 s of source clock)
+    expect(graph).toContain('fade=t=in:st=9.900:d=0.100:alpha=1,fade=t=out:st=10.000:d=0.200:alpha=1[fl0]');
+    expect(graph).toContain("enable='between(t,9.900,10.200)'");
+    expect(graph).toContain('t/0.264');
+    expect(graph.match(/color=c=white/g)).toHaveLength(1);
+  });
+  it('a topic change in the first 3 seconds only settles (no flash, no whoosh)', () => {
+    const early = [{ src: 'a', start: 0, duration: 1.5, kind: 'start' as const }, { src: 'b', start: 0, duration: 6, kind: 'join' as const }];
+    const graph = renderGraph({ clips: early, template, canvasInputIndex: 2, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 7.5, speed: 1, voice: 'natural', fx: all });
+    expect(graph).toContain('eval=frame');
+    expect(graph).not.toContain('color=c=white');
+    expect(graph).not.toContain('anoisesrc');
+  });
+  it('the whoosh is mixed after loudnorm (voice level untouched) with a limiter, and the bar crosses the window in the reel length', () => {
+    const graph = g(all);
+    expect(graph).toMatch(/loudnorm=[^;]*aformat=[^;]*\[avo\]/);
+    expect(graph).toContain('adelay=11700|11700'); // 0.3 s before the join at 12 s
+    expect(graph).toContain('amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.84:level=disabled:latency=1');
+    expect(graph).toContain("overlay=x='-w+W*t/22.000':y=1406:shortest=1");
+  });
+  it('effects sit above the pictures and under the canvas and captions', () => {
+    const graph = renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 22, speed: 1, voice: 'natural', fx: all, images: [{ file: 'c.png', start: 2, end: 4 }] });
+    const order = ['[bi0]', '[fl0]', '[bar]', `[bbar][${clips.length}:v]overlay=x=0:y=0`].map((m) => graph.indexOf(m));
+    expect(order.every((i) => i >= 0)).toBe(true);
+    expect([...order].sort((a, b) => a - b)).toEqual(order);
   });
 });

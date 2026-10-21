@@ -91,13 +91,20 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
   const frames = (sec: number, mode: 'round' | 'floor') => Math.max(1, mode === 'floor' ? Math.floor(sec * FPS + 1e-6) : Math.round(sec * FPS)) / FPS;
   const segments: RenderClipInput[] = [];
   const cuts: Array<[number, number]> = [];
-  for (const s of spans) {
+  spans.forEach((s, si) => {
     let cursor = s.from;
+    // The first piece of a clip is the opening (first clip) or a topic change; every later piece follows a pause cut.
+    let first = true;
+    const kindOf = () => {
+      const k = first ? (si === 0 ? 'start' : 'join') : 'cut';
+      first = false;
+      return k as 'start' | 'join' | 'cut';
+    };
     for (const [a, b] of planned) {
       if (a < s.from || b > s.to) continue;
       if (a > cursor) {
         const dq = frames(a - cursor, 'round'); // a pause is >= 0.1 s, so cursor + dq stays inside it
-        segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq) });
+        segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf() });
         cuts.push([r3(cursor + dq), r3(b)]);
       }
       cursor = b;
@@ -105,12 +112,12 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
     const tail = s.to - cursor;
     if (tail > 0.02) {
       const dq = frames(tail, 'floor');
-      segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq) });
+      segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf() });
       if (tail - dq > 1e-4) cuts.push([r3(cursor + dq), r3(s.to)]);
     } else if (tail > 1e-4) {
       cuts.push([r3(cursor), r3(s.to)]);
     }
-  }
+  });
 
   const removedBefore = (t: number) => {
     let removed = 0;

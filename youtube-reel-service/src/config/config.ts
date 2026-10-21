@@ -65,12 +65,19 @@ const EnvSchema = z.object({
   REEL_DOWNLOAD_DAILY_CAP: int(40),
   REEL_SOURCE_CACHE_GB: int(40),
   // Pace: pauses inside clips are cut, then the reel is sped up. chipmunk = pitch rises ("Mickey Mouse" voice).
-  REEL_SPEED: str('1.15').transform((v) => parseFloat(v)).pipe(z.number().min(1).max(1.6)),
+  // 1.08 plus the pause cuts is about 1.19x real speed on the host (measured); the voice itself is only time-stretched.
+  REEL_SPEED: str('1.08').transform((v) => parseFloat(v)).pipe(z.number().min(1).max(1.6)),
   // energetic: pitch raise in semitones (voice character kept); ignored by chipmunk/natural.
   REEL_PITCH_SEMITONES: str('1.5').transform((v) => parseFloat(v)).pipe(z.number().min(0).max(4)),
-  REEL_VOICE: z.enum(['energetic', 'chipmunk', 'natural']).default('energetic'),
+  // natural = atempo only (pitch and voice colour untouched, the client's choice); energetic = rubberband +pitch; chipmunk = legacy.
+  REEL_VOICE: z.enum(['energetic', 'chipmunk', 'natural']).default('natural'),
   REEL_TRIM_PAUSES: bool(true),
   REEL_PAUSE_MIN_GAP_MS: int(450),
+  // Visual rhythm (none of these changes a clip length): punch-in on jump cuts, flash + settle (+ whoosh) at topic changes, progress line.
+  REEL_FX_PUNCH: bool(true),
+  REEL_FX_JOIN: bool(true),
+  REEL_FX_WHOOSH: bool(true),
+  REEL_FX_BAR: bool(true),
   // AI images inside reels (GPT Image). Low quality keeps each image around a cent.
   REEL_IMAGES_ENABLED: bool(true),
   REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),

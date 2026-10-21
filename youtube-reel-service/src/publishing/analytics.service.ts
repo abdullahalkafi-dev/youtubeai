@@ -6,7 +6,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { parsePeriodDays } from './publish.service';
 
-export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice'] as const;
+export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice', 'look'] as const;
 export type Breakdown = (typeof BREAKDOWNS)[number];
 
 const DURATION_BUCKETS = [0, 30, 45, 60, 1e9];
@@ -140,6 +140,21 @@ export class AnalyticsService {
           },
         });
         key = '$voiceKey';
+        break;
+      case 'look':
+        // effects the reel was rendered with: punch-in on cuts, topic-change flash, progress line (older reels have none)
+        pipeline.push({
+          $addFields: {
+            lookKey: {
+              $cond: [
+                { $or: ['$reel.timing.fx.punch', '$reel.timing.fx.join', '$reel.timing.fx.bar'] },
+                'Dynamic look (cuts, topic flash, progress line)',
+                'Classic look (hard cuts)',
+              ],
+            },
+          },
+        });
+        key = '$lookKey';
         break;
       case 'theme':
         pipeline.push({ $unwind: '$reel.themes' });
