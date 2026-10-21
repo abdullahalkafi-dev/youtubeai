@@ -239,3 +239,44 @@ export interface DailyOverview {
   brain: DailyBrain | null
   days: DailyDay[]
 }
+
+export interface AutoPublishItem {
+  postId: string
+  reelId: string
+  title: string
+  slot: string
+  runAt: string
+  moved: boolean
+  track: 'main' | 'explore'
+  score: number | null
+  status: 'queued' | 'uploading' | 'processing' | 'scheduled' | 'published' | 'failed' | 'cancelled' | 'blocked' | 'removed'
+  url: string | null
+  views: number | null
+  error: string | null
+}
+export interface AutoPublishDay {
+  date: string
+  status: 'planning' | 'planned' | 'skipped'
+  reason: string | null
+  mode: 'rotation' | 'bandit'
+  items: AutoPublishItem[]
+  held: Array<{ reelId: string; title: string; reason: string }>
+}
+export interface AutoPublishSettings {
+  enabled: boolean
+  privacy: 'public' | 'unlisted'
+  slots: string[]
+  extraSlots: string[]
+  minScore: number
+  maxPerDay: number
+  pausedReason: string | null
+  pausedAt: string | null
+}
+export interface AutoPublishOverview {
+  settings: AutoPublishSettings
+  timezone: string
+  shortsBaseline: number | null
+  today: AutoPublishDay | null
+  recent: AutoPublishDay[]
+  result?: { status: string; reason?: string; planned?: number; held?: number }
+}

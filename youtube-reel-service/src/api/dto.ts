@@ -119,4 +119,16 @@ export const LinkVideoDto = z.object({ youtubeId: z.string().regex(/^[A-Za-z0-9_
 
 export const DailySettingsDto = z.object({ enabled: z.boolean() });
 
+const slotTime = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Use HH:mm (New York time)');
+export const AutoPublishSettingsDto = z.object({
+  enabled: z.boolean().optional(),
+  privacy: z.enum(['public', 'unlisted']).optional(),
+  slots: z.array(slotTime).min(1).max(8).optional(),
+  extraSlots: z.array(slotTime).max(8).optional(),
+  minScore: z.number().min(0).max(100).optional(),
+  maxPerDay: z.number().int().min(1).max(10).optional(),
+  resume: z.boolean().optional(),
+});
+export const AutoPublishMoveDto = z.object({ runAt: z.string().datetime() });
+
 export const CampaignChatDto = z.object({ question: z.string().trim().min(1).max(2000) });

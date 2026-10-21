@@ -8,6 +8,8 @@ import type {
   CampaignPerformance,
   DailyOverview,
   DailyPreview,
+  AutoPublishOverview,
+  AutoPublishSettings,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -112,6 +114,14 @@ export const reelsApi = {
   daily: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily`),
   setDaily: (channelId: string, enabled: boolean) =>
     request<DailyOverview>(`/channels/${channelId}/daily`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  autoPublish: (channelId: string) => request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish`),
+  setAutoPublish: (channelId: string, patch: Partial<Pick<AutoPublishSettings, 'enabled' | 'privacy' | 'slots' | 'extraSlots' | 'minScore' | 'maxPerDay'>> & { resume?: boolean }) =>
+    request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish`, { method: 'PATCH', body: JSON.stringify(patch) }),
+  autoPublishPlan: (channelId: string) => request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/plan`, { method: 'POST', signal: AbortSignal.timeout(120000) }),
+  autoPublishNow: (channelId: string, postId: string) => request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/posts/${postId}/now`, { method: 'POST' }),
+  autoPublishMove: (channelId: string, postId: string, runAt: string) =>
+    request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/posts/${postId}/move`, { method: 'POST', body: JSON.stringify({ runAt }) }),
+  autoPublishCancel: (channelId: string, postId: string) => request<AutoPublishOverview>(`/channels/${channelId}/daily/autopublish/posts/${postId}/cancel`, { method: 'POST' }),
   dailyPreview: (channelId: string) => request<DailyPreview>(`/channels/${channelId}/daily/preview`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
   runDailyNow: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily/run`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
 

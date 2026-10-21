@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { errorMessage, reelsApi } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
 import type { DailyBrain, DailyDay, DailyHealthNote, DailyOverview, DailyPreview } from '@/types/publishing'
+import { AutoPublishPanel } from './auto-publish-panel'
 import { compact } from './reel-ui'
 
 const SIGNAL = {
@@ -111,7 +112,7 @@ export function DailyPanel({ channelId }: { channelId: string }) {
           <p className="text-xs text-zinc-500 mt-1">
             Every night at 4:00 AM New York time we score today&apos;s topics (what&apos;s trending, what your channel is being watched for, what we have not covered lately, and
             how much strong footage you have) and make 4–7 reels from your videos: about 60% on the best topic and the rest on a new one to learn what else works.
-            They wait here for you — nothing is posted automatically yet.
+            They wait here for you; they are only posted for you if you turn on Auto-publish below.
           </p>
           <p className="text-[11px] mt-2 text-zinc-600 dark:text-zinc-300">
             {data.enabled ? (
@@ -145,6 +146,7 @@ export function DailyPanel({ channelId }: { channelId: string }) {
         </div>
       </div>
 
+      <AutoPublishPanel channelId={channelId} />
       <HealthBanner notes={data.health} />
       {preview && <PreviewPanel p={preview} onClose={() => setPreview(null)} />}
       {data.brain && <BrainPanel b={data.brain} />}

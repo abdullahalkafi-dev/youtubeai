@@ -13,6 +13,7 @@ import { QueueService, PublishJob } from '../queue/queue.service';
 import { BUCKETS, StorageService } from '../storage/storage.service';
 import { ensureDir, removeDir } from '../pipeline/media';
 import { firstCheckpointAt } from './checkpoints';
+import { UPLOAD_LEAD_MS } from './auto-plan';
 import { hasErrors } from './preflight';
 import { msUntilPacificMidnight, PublishQuotaService } from './publish-quota.service';
 import { PublisherRegistry } from './registry';
@@ -167,6 +168,63 @@ export class PublishService {
     });
     await this.queues.publish(String(post._id), 'upload');
     return this.serialize(post.toObject());
+  }
+
+  /**
+   * A post made by Auto-publish: only ever called by AutoPublishService, which exists only behind the client's Auto-publish switch.
+   * The upload starts shortly before `runAt` from OUR queue (not scheduled on YouTube), so cancelling, moving or publishing now
+   * before that time costs nothing and never touches YouTube.
+   */
+  async createAutoPost(
+    channelId: string,
+    ownerUserId: string,
+    reelId: string,
+    o: { runAt: Date; slot: string; planDate: string; mode: 'rotation' | 'bandit'; privacy: 'public' | 'unlisted'; track: 'main' | 'explore'; score: number | null },
+  ) {
+    const pre = await this.preflight(channelId, reelId, 'youtube', { privacy: o.privacy, scheduleAt: null });
+    if (!pre.canPublish) throw new BadRequestException({ message: 'The reel cannot be published yet', issues: pre.issues.filter((i) => i.level === 'error') });
+    const reel = await this.loadReel(channelId, reelId);
+    const stat = reel.assets.videoKey ? await this.storage.stat(BUCKETS.reels, reel.assets.videoKey) : null;
+    if (!stat) throw new BadRequestException('The rendered video file is missing. Re-render the reel first.');
+    const post = await this.posts.create({
+      reelId: reel._id,
+      campaignId: reel.campaignId,
+      channelId: reel.channelId,
+      platform: 'youtube',
+      accountExternalId: pre.account.externalId,
+      accountName: pre.account.displayName,
+      source: 'auto',
+      status: 'queued',
+      metadata: pre.metadata,
+      approvedBy: new Types.ObjectId(ownerUserId),
+      approvedAt: new Date(),
+      assetKey: reel.assets.videoKey,
+      assetSizeBytes: stat.size,
+      requestedPrivacy: o.privacy,
+      // The standing advisories (e.g. "may contain third-party clips") are NOT copied here: `warnings` is what YouTube itself reports,
+      // and the stop-by-itself rule reads it. A permanent advisory would trip that rule on the first post.
+      warnings: [],
+      autoPlan: { slot: o.slot, runAt: o.runAt, planDate: o.planDate, mode: o.mode, track: o.track, score: o.score },
+    });
+    await this.queues.publish(String(post._id), 'upload', Math.max(0, o.runAt.getTime() - Date.now() - UPLOAD_LEAD_MS));
+    return this.serialize(post.toObject());
+  }
+
+  /** Remove the waiting timer(s) of a post that has not started uploading. */
+  private async dropWaitingJobs(postId: string) {
+    const jobs = await this.queues.q.publish.getJobs(['delayed', 'waiting']);
+    for (const j of jobs) if (j && String(j.data?.postId) === postId && j.data?.step === 'upload') await j.remove().catch(() => undefined);
+  }
+
+  /** "Publish now" / "Move" for an auto post that has not started uploading. */
+  async rescheduleAuto(channelId: string, postId: string, runAt: Date) {
+    const post = await this.loadPost(channelId, postId);
+    if (post.source !== 'auto' || post.status !== 'queued') throw new BadRequestException('Only an automatic post that has not started uploading can be moved');
+    if (!Number.isFinite(runAt.getTime())) throw new BadRequestException('The time is not valid');
+    await this.dropWaitingJobs(postId);
+    await this.posts.updateOne({ _id: post._id }, { $set: { 'autoPlan.runAt': runAt, 'autoPlan.movedByClient': true } });
+    await this.queues.publish(postId, 'upload', Math.max(0, runAt.getTime() - Date.now() - UPLOAD_LEAD_MS));
+    return { ok: true, runAt };
   }
 
   /** Record a post made outside the app (any platform) so it is still tracked against the reel. */
@@ -371,6 +429,7 @@ export class PublishService {
     const post = await this.loadPost(channelId, postId);
     if (['queued', 'blocked'].includes(post.status)) {
       await this.posts.updateOne({ _id: post._id }, { $set: { status: 'cancelled', cancelRequested: true, error: null } });
+      await this.dropWaitingJobs(postId);
     } else if (post.status === 'uploading') {
       await this.posts.updateOne({ _id: post._id }, { $set: { cancelRequested: true } }); // stops between chunks
     } else {
@@ -408,11 +467,16 @@ export class PublishService {
   /** Posts whose job was lost (e.g. Redis flush) are picked up again; the saved session makes this safe. */
   async requeueStuck() {
     const cutoff = new Date(Date.now() - 20 * 60_000);
-    const stuck = await this.posts.find({ status: { $in: ['queued', 'uploading'] }, updatedAt: { $lt: cutoff } }).select('_id').lean();
+    const stuck = await this.posts.find({ status: { $in: ['queued', 'uploading'] }, updatedAt: { $lt: cutoff } }).select('_id status autoPlan.runAt').lean();
     if (!stuck.length) return;
     const waiting = await this.queues.q.publish.getJobs(['waiting', 'active', 'delayed']);
     const queued = new Set(waiting.filter(Boolean).map((j) => String(j.data?.postId)));
-    for (const p of stuck) if (!queued.has(String(p._id))) await this.queues.publish(String(p._id), 'upload');
+    for (const p of stuck) {
+      if (queued.has(String(p._id))) continue;
+      // An automatic post whose timer was lost (e.g. a Redis flush) must still wait for its slot, not go out at once.
+      const wait = p.status === 'queued' && p.autoPlan?.runAt ? new Date(p.autoPlan.runAt).getTime() - Date.now() - UPLOAD_LEAD_MS : 0;
+      await this.queues.publish(String(p._id), 'upload', Math.max(0, wait));
+    }
     const verifying = await this.posts.find({ status: 'processing', updatedAt: { $lt: cutoff } }).select('_id').lean();
     for (const p of verifying) if (!queued.has(String(p._id))) await this.queues.publish(String(p._id), 'verify');
   }
@@ -475,6 +539,7 @@ export class PublishService {
       campaignId: String(p.campaignId),
       platform: p.platform as PlatformId,
       source: p.source,
+      autoPlan: p.autoPlan ? { slot: p.autoPlan.slot, runAt: p.autoPlan.runAt, mode: p.autoPlan.mode, track: p.autoPlan.track, movedByClient: !!p.autoPlan.movedByClient } : null,
       status: p.status as PostStatus,
       accountName: p.accountName ?? null,
       title: p.metadata?.title ?? '',

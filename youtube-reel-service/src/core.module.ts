@@ -27,6 +27,7 @@ import { GoogleTokenProvider } from './publishing/google-token.provider';
 import { MetricsService } from './publishing/metrics.service';
 import { PublishQuotaService } from './publishing/publish-quota.service';
 import { PublishService } from './publishing/publish.service';
+import { AutoPublishService } from './publishing/auto-publish.service';
 import { PublisherRegistry } from './publishing/registry';
 import { YouTubePublisher } from './publishing/youtube.publisher';
 
@@ -58,6 +59,7 @@ const providers = [
   PublishQuotaService,
   YouTubePublisher,
   PublishService,
+  AutoPublishService,
   MetricsService,
   AnalyticsService,
 ];

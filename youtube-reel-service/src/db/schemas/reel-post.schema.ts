@@ -4,7 +4,7 @@ import { NormalizedMetrics, PLATFORMS, POST_STATUSES, PlatformId, PostMetadata, 
 
 /**
  * One row per (reel × platform × account × attempt): what we published where, its state, and its latest numbers.
- * Every post exists because a person pressed Publish (or recorded a manual post) — nothing is created automatically.
+ * A post exists because a person pressed Publish, recorded a manual post, or the client's Auto-publish switch is on (source 'auto').
  */
 @Schema({ timestamps: true, collection: 'reel_posts' })
 export class ReelPost {
@@ -15,7 +15,10 @@ export class ReelPost {
   /** Platform-side account id (YouTube channel id). */
   @Prop() accountExternalId?: string;
   @Prop() accountName?: string;
-  @Prop({ type: String, enum: ['api', 'manual'], default: 'api' }) source: 'api' | 'manual';
+  /** api: a person pressed Publish; manual: a link recorded by hand; auto: the Daily auto-publish (only while its switch is on). */
+  @Prop({ type: String, enum: ['api', 'manual', 'auto'], default: 'api' }) source: 'api' | 'manual' | 'auto';
+  /** Auto posts: when the upload is planned to start, in which New York slot, and how the slot was chosen. Kept for learning which times work. */
+  @Prop({ type: Object }) autoPlan?: { slot: string; runAt: Date; planDate: string; mode: 'rotation' | 'bandit'; track: 'main' | 'explore'; score: number | null; movedByClient?: boolean };
   @Prop({ type: String, enum: POST_STATUSES, default: 'queued', index: true }) status: PostStatus;
 
   @Prop({ type: Object }) metadata: PostMetadata;
