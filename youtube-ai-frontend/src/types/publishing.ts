@@ -199,6 +199,8 @@ export interface DailyDay {
   degraded: string[]
   /** A paused day still records what the brain would have picked. */
   shadow: { topic: string | null; exploreTopic: string | null; at: string } | null
+  /** Topics of this day that failed (not enough usable footage) and were replaced by the next-best one, in the same card. */
+  replaced: Array<{ name: string; reason: string }>
   mainReels: number | null
   exploreReels: number | null
   campaignId: string | null

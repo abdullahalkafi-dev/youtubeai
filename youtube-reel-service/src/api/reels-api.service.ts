@@ -1,3 +1,4 @@
+import { estimateCostUsd, mergeModelTokens, parsePrices } from '../ai/task-routing';
 import {
   BadRequestException,
   ConflictException,
@@ -270,11 +271,18 @@ export class ReelsApiService {
     });
   }
 
-  private sumUsage(a: Record<string, number> | undefined, b: Record<string, number> | undefined) {
+  private sumUsage(a: Record<string, any> | undefined, b: Record<string, any> | undefined) {
     if (!b) return a;
-    const out: Record<string, number> = { ...(a ?? {}) };
-    for (const [k, v] of Object.entries(b)) out[k] = (out[k] ?? 0) + (typeof v === 'number' ? v : 0);
+    const out: Record<string, any> = { ...(a ?? {}) };
+    for (const [k, v] of Object.entries(b)) if (typeof v === 'number') out[k] = (out[k] ?? 0) + v;
+    if (a?.models || b.models) out.models = mergeModelTokens(a?.models, b.models);
     return out;
+  }
+
+  /** Token usage plus an estimated model cost in US dollars (prices: OPENAI_REEL_PRICES). */
+  private withCost(u: Record<string, any> | undefined) {
+    if (!u) return u;
+    return { ...u, costUsd: estimateCostUsd(u.models, u, parsePrices(this.cfg.OPENAI_REEL_PRICES), this.cfg.OPENAI_REEL_MODEL) };
   }
 
   private campaignSummary(d: any, reelCounts: Record<string, number>) {
@@ -289,7 +297,7 @@ export class ReelsApiService {
       blockedReason: d.blockedReason ?? null,
       settings: d.settings,
       stats: d.stats,
-      usage: d.usage,
+      usage: this.withCost(d.usage),
       sourceCount: d.sources?.length ?? 0,
       reelCounts,
       error: d.error ?? null,

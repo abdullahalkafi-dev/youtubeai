@@ -68,6 +68,11 @@ export class MaintenanceService {
     } catch (err) {
       this.logger.warn(`Publish recovery failed: ${errMsg(err)}`);
     }
+    try {
+      await this.daily.rescue();
+    } catch (err) {
+      this.logger.warn(`Daily rescue failed: ${errMsg(err)}`);
+    }
     const session = await this.session.state();
     // Re-login happened → release blocked sources.
     if (session.status === 'ok') {

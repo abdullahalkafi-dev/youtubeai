@@ -50,6 +50,21 @@ const MIN_KEEP_DAILY = 60;
 const DAILY_COOLDOWN_DAYS = 30;
 const MAX_ROUNDS = 3;
 
+/** How many mined moments the director reviews in a round: a wide first look, narrower top-ups. */
+export function roundWidth(round: number, remaining: number): number {
+  return round === 1 ? Math.min(60, Math.max(40, remaining * 9)) : Math.min(45, Math.max(20, remaining * 6));
+}
+
+/** How many reel ideas the director is asked for: twice the target in round 1 (the critic keeps about half), a smaller margin afterwards. */
+export function askForIdeas(round: number, remaining: number): number {
+  return round === 1 ? Math.min(remaining + 7, remaining * 2) : Math.min(remaining + 4, Math.ceil(remaining * 1.6));
+}
+
+/** Round 1 produced nothing a revision could save: every idea was invalid, unreviewed or dropped outright by the critic. */
+export function thinMaterial(round: number, kept: number, cands: Array<{ asm: { ok: boolean }; review?: { verdict: string } }>): boolean {
+  return round === 1 && kept === 0 && cands.every((c) => !c.asm.ok || !c.review || c.review.verdict === 'drop');
+}
+
 @Injectable()
 export class ComposerService {
   private readonly logger = new Logger(ComposerService.name);
@@ -163,8 +178,9 @@ export class ComposerService {
         await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: no unseen moments left to review`, false);
         break;
       }
-      const k = Math.min(rounds === 1 ? 60 : 45, Math.max(20, remaining * 6));
-      const picked = this.pickDiverse(pool, k, rounds === 1 ? 2 : 4);
+      // Round 1 shows the director a wide slice of the best moments in one go (two parallel batches), so most days finish in 1-2 rounds.
+      const k = roundWidth(rounds, remaining);
+      const picked = this.pickDiverse(pool, k, rounds === 1 ? 3 : 4);
       picked.forEach((x) => shown.add(String(x.m._id)));
       const momentRefs = new Map<string, (typeof usable)[number]>();
       picked.forEach((x, i) => momentRefs.set(`M${i + 1}`, x.m));
@@ -175,7 +191,7 @@ export class ComposerService {
       );
 
       // ---- director (two parallel batches when there is a lot to choose from) ----
-      const requestCount = Math.min(remaining + 4, Math.ceil(remaining * 1.6));
+      const requestCount = askForIdeas(rounds, remaining);
       const groups = this.splitGroups(picked, requestCount);
       const doNotRepeat = [...doNotRepeatBase, ...finals.map((f) => `"${f.plan.concept}" — hook: "${truncate(f.plan.hookText, 120)}"`)];
       const directed = await Promise.all(
@@ -270,6 +286,11 @@ export class ComposerService {
         `Round ${rounds}: kept ${roundFinals.length} of ${cands.length} ideas — ${finals.length}/${need} reels so far`,
       );
       await this.campaigns.updateOne({ _id: campaign._id }, { $push: { candidates: { $each: cands.map((c) => this.ledgerEntry(c)) } } });
+      // Daily campaigns have a replacement topic waiting (DailyService.rescue): when the best moments gave nothing worth fixing, more rounds over the weaker tail only burn tokens.
+      if (campaign.origin === 'daily' && thinMaterial(rounds, finals.length, cands)) {
+        await this.orchestrator.log(campaignId, 'warn', 'The best footage for this topic gave nothing usable, so composing stopped early (a replacement topic can be tried)');
+        break;
+      }
     }
 
     await this.campaigns.updateOne(
@@ -281,7 +302,7 @@ export class ComposerService {
     );
     if (!finals.length) {
       const issues = allCands.flatMap((c) => c.review?.issues ?? c.lastErrors).slice(0, 5).join(' | ');
-      throw new FatalJobError(`No reel cleared the quality bar after ${rounds} round(s) over ${shown.size} moments. Main issues: ${issues || 'weak material for this brief'}`);
+      throw new FatalJobError(`No reel cleared the quality bar after ${rounds} round(s) over ${shown.size} moments (the footage does not say what this topic needs). Main issues: ${issues || 'weak material for this brief'}`);
     }
 
     // ---------- 4. Packaging ----------

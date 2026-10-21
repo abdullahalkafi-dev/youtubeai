@@ -70,14 +70,23 @@ export interface ScoredCandidate {
   spike: boolean;
   eligible: boolean;
   reason: string | null;
+  /** Too little mined footage to carry the main topic: it may still be chosen when nothing better exists, but it ranks last. */
+  thin: boolean;
 }
 
 // own-channel traffic is measured demand; a trend headline is only a hint (and a quick scan is a weak one)
 export const WEIGHTS = { demand: 0.25, velocity: 0.3, lift: 0.15, need: 0.15, supply: 0.15 };
 export const MIN_STRONG_MOMENTS = 4;
-/** An unanalysed video is worth about this many strong moments once mined (the analysed ones average about 19 moments per video). */
-export const MINABLE_VALUE = 1.5;
-export const MINABLE_CAP = 8;
+/**
+ * An unanalysed video only counts a little: titles promise more than the host actually says (Oct 21: 13 unanalysed videos "about"
+ * a person gave 1 relevant video and a failed day). The credit is capped at MINABLE_VALUE x MINABLE_CAP moments.
+ */
+export const MINABLE_VALUE = 1;
+export const MINABLE_CAP = 4;
+/** The main topic needs this many already-mined on-topic moments (matching 2+ keywords) to be trusted with most of the day. */
+export const MIN_MAIN_MOMENTS = 8;
+/** How many times a failed main topic is replaced by the next-best one on the same day. */
+export const MAX_FALLBACKS = 2;
 
 /** Material the day could really use: strong moments already mined plus what a few unanalysed videos would give. */
 export function capacity(ev: Pick<CandidateEvidence, 'strongMoments' | 'minableVideos'>): number {
@@ -132,7 +141,12 @@ export function scoreCandidate(c: BrainCandidate, ev: CandidateEvidence, ctx: Br
   // Explore ignores the channel's concentration on one story: it wants a fresh pillar with real material.
   const exploreScore = round(100 * (0.4 * components.demand + 0.4 * components.need + 0.2 * components.supply), 1);
 
-  return { c, ev, components, score, exploreScore, spike, eligible: reason === null, reason };
+  return { c, ev, components, score, exploreScore, spike, eligible: reason === null, reason, thin: ev.moments < MIN_MAIN_MOMENTS };
+}
+
+/** Eligible main topics in the order they should be tried: topics with enough mined footage first, then by score. */
+export function rankMain(scored: ScoredCandidate[]): ScoredCandidate[] {
+  return scored.filter((s) => s.eligible).sort((a, b) => Number(a.thin) - Number(b.thin) || b.score - a.score);
 }
 
 export interface Portfolio {
@@ -151,7 +165,7 @@ export function splitReels(total: number): { main: number; explore: number } {
 }
 
 export function selectPortfolio(scored: ScoredCandidate[], ctx: BrainContext): Portfolio {
-  const main = [...scored].filter((s) => s.eligible).sort((a, b) => b.score - a.score)[0] ?? null;
+  const main = rankMain(scored)[0] ?? null;
   const split = splitReels(ctx.targetReels);
   if (!main) return { main: null, explore: null, mainReels: 0, exploreReels: 0 };
 

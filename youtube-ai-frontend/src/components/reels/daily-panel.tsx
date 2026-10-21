@@ -258,6 +258,12 @@ function DayCard({ d }: { d: DailyDay }) {
                 {d.verdict && <Verdict v={d.verdict} />}
               </div>
               {d.topic?.why && <p className="text-[11px] text-zinc-500 line-clamp-2">{d.topic.why}</p>}
+              {d.replaced?.length > 0 && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400 flex items-start gap-1.5" title={d.replaced.map((r) => `${r.name}: ${r.reason}`).join('\n')}>
+                  <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+                  <span>Plan B: “{d.replaced[d.replaced.length - 1].name}” did not have enough of his own footage, so this topic replaced it.</span>
+                </p>
+              )}
               {d.exploreTopic && (
                 <p className="text-[11px] text-zinc-600 dark:text-zinc-300 flex flex-wrap items-center gap-1.5">
                   <span className={cn('px-1.5 py-0.5 rounded-md text-[10px] font-semibold flex items-center gap-1', SIGNAL.explore.cls)}>

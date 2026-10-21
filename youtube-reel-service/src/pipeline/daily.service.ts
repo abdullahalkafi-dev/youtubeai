@@ -13,7 +13,7 @@ import { buildDailyTopicUser, DAILY_TOPIC_SYSTEM, DailyTopicResult, DailyTopicSc
 import { AnalyticsService } from '../publishing/analytics.service';
 import { LearningService } from '../publishing/learning.service';
 import { QueueService } from '../queue/queue.service';
-import { BrainCandidate, CandidateEvidence, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
+import { BrainCandidate, CandidateEvidence, MAX_FALLBACKS, MIN_MAIN_MOMENTS, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
 import { freeDiskGb } from './media';
 import { isBrandEntity, PillarService } from './pillars.service';
 import { matchTrend, SignalsService, TREND_USABLE_HOURS, velocityShareFor } from './signals.service';
@@ -172,6 +172,80 @@ export class DailyService {
     }
   }
 
+  // ------------------------------------------------------------------ plan B: a failed main topic is replaced the same day
+
+  /**
+   * Looks at today's run of every channel. When the MAIN campaign has failed (typically: the host's footage did not say what the topic
+   * needed), the next-best candidate of the same run takes its place INSIDE THE SAME CARD, up to MAX_FALLBACKS times.
+   * Cheap (one indexed query); called from the 10-minute maintenance tick.
+   */
+  async rescue() {
+    if (!this.cfg.REELS_ENABLED) return;
+    const runs = await this.runs.find({ date: nyDate(), status: 'started', rescueExhausted: { $ne: true } }).lean();
+    for (const run of runs) {
+      try {
+        await this.rescueRun(run);
+      } catch (err) {
+        this.logger.warn(`Daily rescue for run ${run._id} failed: ${errMsg(err)}`);
+      }
+    }
+  }
+
+  private async rescueRun(run: ReelDailyRun & { _id: Types.ObjectId }) {
+    if (!run.campaignId) return;
+    const camp = await this.campaigns.findById(run.campaignId).lean();
+    const stop = async (why: string) => {
+      await this.runs.updateOne({ _id: run._id }, { $set: { rescueExhausted: true } });
+      this.logger.log(`Daily ${run.date}: no replacement topic (${why})`);
+    };
+    if (!camp) return stop('the campaign was deleted');
+    if (camp.status !== 'failed' || camp.cancelRequested) return; // still working, finished, or stopped by the client
+    if (/credits/i.test(camp.error ?? '')) return stop('OpenAI credits are out');
+    if ((run.fallbackCount ?? 0) >= MAX_FALLBACKS) return stop('limit reached');
+    if (await this.campaigns.db.collection('reels').countDocuments({ campaignId: camp._id, deletedAt: null })) return stop('the failed campaign already has reels');
+
+    const tried = new Set([run.topic?.name, run.exploreTopic?.name, ...(run.fallbacks ?? []).map((f) => f.name)].filter(Boolean) as string[]);
+    const usedEntities = new Set([run.topic?.entity, run.exploreTopic?.entity, ...(run.fallbacks ?? []).map((f) => f.entity)].filter(Boolean) as string[]);
+    const next = (run.candidates ?? [])
+      .filter((c) => c.eligible !== false && c.brief && c.keywords?.length && !tried.has(c.name) && !(c.entity && usedEntities.has(c.entity)))
+      .sort((a, b) => Number(a.thin ?? a.moments < MIN_MAIN_MOMENTS) - Number(b.thin ?? b.moments < MIN_MAIN_MOMENTS) || b.score - a.score)[0];
+    if (!next) return stop('no other candidate had enough footage');
+
+    const label = new Date(`${run.date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const reset = await this.campaigns.updateOne(
+      { _id: camp._id, status: 'failed', cancelRequested: { $ne: true } },
+      {
+        $set: {
+          name: truncate(`Daily ${label}: ${next.name}`, 80),
+          brief: next.brief,
+          status: 'queued',
+          sources: [],
+          candidates: [],
+          blockedReason: null,
+          'progress.stage': 'queued',
+          'progress.message': `Replacement topic after "${run.topic?.name ?? 'the first topic'}" had too little usable footage — starting research`,
+          stats: { candidates: 0, kept: 0, dropped: 0, rendered: 0, failed: 0, rounds: 0, momentsShown: 0, momentsAvailable: 0 },
+        },
+        $unset: { research: '', error: '', finishedAt: '', startedAt: '' },
+        $push: { log: { $each: [{ at: new Date(), level: 'warn' as const, msg: `Main topic "${run.topic?.name}" failed (${truncate(camp.error ?? 'unknown reason', 200)}). Trying the next-best topic: ${next.name}` }], $slice: -300 } },
+      },
+    );
+    if (!reset.modifiedCount) return;
+    await this.queues.campaign('research', String(camp._id));
+    await this.runs.updateOne(
+      { _id: run._id },
+      {
+        $set: {
+          topic: { name: next.name, brief: next.brief, why: next.why ?? '', signal: next.signal, keywords: next.keywords ?? [], pillar: next.pillar ?? null, entity: next.entity ?? null, score: next.score },
+          evidence: { moments: next.moments, videos: next.videos, strongMoments: next.strongMoments, minableVideos: next.minableVideos },
+        },
+        $push: { fallbacks: { name: run.topic?.name ?? '', entity: run.topic?.entity ?? null, reason: truncate(camp.error ?? 'failed', 240), at: new Date() } },
+        $inc: { fallbackCount: 1 },
+      },
+    );
+    this.logger.log(`Daily ${run.date}: "${run.topic?.name}" failed, trying "${next.name}" in the same campaign (${(run.fallbackCount ?? 0) + 1} of ${MAX_FALLBACKS})`);
+  }
+
   // ------------------------------------------------------------------ topic choice (the brain)
 
   /** What the brain would pick today, without creating anything. Costs one model call. */
@@ -203,13 +277,24 @@ export class DailyService {
     const pillarKeys = new Set(pillarDefs.map((p) => p.key));
     const usableTrends = snap.trendRows.filter((t) => (Date.now() - t.fetchedAt.getTime()) / 3_600_000 <= TREND_USABLE_HOURS);
 
-    const [themes, entities, bank, bankPeople, recent] = await Promise.all([
+    const [themes, entities, bank, bankPeople, recent, headlineRows] = await Promise.all([
       this.analytics.breakdown(String(channelId), 'theme', '30d').catch(() => ({ rows: [] as any[] })),
       this.analytics.breakdown(String(channelId), 'entity', '30d').catch(() => ({ rows: [] as any[] })),
       db.collection('reel_moments').aggregate([{ $match: { channelId } }, { $unwind: '$themes' }, { $group: { _id: '$themes', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 10 }]).toArray(),
       db.collection('reel_moments').aggregate([{ $match: { channelId } }, { $unwind: '$entityNames' }, { $group: { _id: '$entityNames', n: { $sum: 1 } } }, { $sort: { n: -1 } }, { $limit: 12 }]).toArray(),
       this.runs.find({ channelId, status: 'started', date: { $ne: date } }).sort({ date: -1 }).limit(14).select('topic exploreTopic').lean(),
+      db.collection('reel_moments').find({ channelId, status: 'unused', standalone: { $gte: 8 } }, { projection: { title: 1, entityNames: 1, pillar: 1, standalone: 1, intensity: 1 } }).sort({ standalone: -1, intensity: -1 }).limit(120).toArray(),
     ]);
+    // One line per passage, but no single person fills the list (otherwise the biggest pile of footage drowns everything else)
+    const perWho = new Map<string, number>();
+    const headlines = headlineRows
+      .map((m: any) => ({ title: String(m.title ?? '').slice(0, 110), who: (m.entityNames ?? []).filter((n: string) => !isBrandEntity(String(n), brands)).slice(0, 2).join(', ') }))
+      .filter((h) => {
+        const k = h.who || '-';
+        perWho.set(k, (perWho.get(k) ?? 0) + 1);
+        return h.title && (perWho.get(k) ?? 0) <= 4;
+      })
+      .slice(0, 40);
     const trendNote = snap.degraded.find((d) => /trend|lite/i.test(d)) ?? null;
     const learned = await this.learning.learnedLines(channelId).catch(() => []);
 
@@ -226,6 +311,7 @@ export class DailyService {
         learned,
         recent: recent.flatMap((r) => [r.topic?.name, r.exploreTopic?.name]).filter(Boolean) as string[],
         // the channel's own name is not a topic: it would otherwise top the "most present people" list
+        headlines,
         bankThemes: [...bank, ...bankPeople].filter((b: any) => !isBrandEntity(String(b._id), brands)).map((b: any) => ({ key: String(b._id), n: b.n })),
       }),
       schema: DailyTopicSchema,
@@ -300,6 +386,10 @@ export class DailyService {
         reason: s.reason,
         picked: s === portfolio.main ? 'main' : s === portfolio.explore ? 'explore' : undefined,
         reels: reelsFor(s) || undefined,
+        thin: s.thin,
+        brief: s.c.brief,
+        why: s.c.why,
+        keywords: s.c.keywords,
       });
     }
     candidates.sort((a, b) => b.score - a.score);
@@ -380,6 +470,7 @@ export class DailyService {
         candidates: (r.candidates ?? []).slice(0, 8),
         degraded: r.degraded ?? [],
         shadow: r.shadow ?? null,
+        replaced: (r.fallbacks ?? []).map((f) => ({ name: f.name, reason: f.reason })),
         mainReels: r.mainReels ?? null,
         exploreReels: r.exploreReels ?? null,
         campaignId: deleted ? null : id,

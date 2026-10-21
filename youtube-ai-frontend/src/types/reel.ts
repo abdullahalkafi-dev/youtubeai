@@ -44,6 +44,8 @@ export interface CampaignUsage {
   sttSeconds: number
   embedTokens: number
   calls: number
+  /** Estimated model cost in US dollars. */
+  costUsd?: number
 }
 
 export interface CampaignSummary {

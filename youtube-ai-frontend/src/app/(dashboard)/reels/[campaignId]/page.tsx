@@ -220,7 +220,7 @@ export default function CampaignPage() {
         </div>
         <p className={cn('text-xs mt-4 text-center', c.status === 'failed' ? 'text-red-500' : 'text-zinc-500')}>{c.error || c.progress?.message}</p>
         <p className="text-[10px] mt-1 text-center text-zinc-400">
-          AI usage: {compact(tokens)} tokens · {Math.round((c.usage?.sttSeconds ?? 0) / 60)} min transcribed
+          AI usage: {compact(tokens)} tokens{c.usage?.costUsd ? ` (about $${c.usage.costUsd.toFixed(2)})` : ''} · {Math.round((c.usage?.sttSeconds ?? 0) / 60)} min transcribed
           {c.stats?.candidates ? ` · ${c.stats.candidates} reel ideas reviewed, ${c.stats.kept} kept` : ''}
         </p>
       </div>

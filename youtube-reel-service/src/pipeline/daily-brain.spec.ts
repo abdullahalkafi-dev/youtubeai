@@ -1,4 +1,4 @@
-import { BrainCandidate, BrainContext, CandidateEvidence, capacity, ENTITY_CAP, scoreCandidate, selectPortfolio, splitReels, isSpike } from './daily-brain';
+import { BrainCandidate, BrainContext, CandidateEvidence, capacity, ENTITY_CAP, MIN_MAIN_MOMENTS, rankMain, scoreCandidate, selectPortfolio, splitReels, isSpike } from './daily-brain';
 
 const cand = (name: string, entity: string | null, pillar: string | null, signal: BrainCandidate['signal'] = 'trend'): BrainCandidate => ({ name, brief: name, why: name, keywords: [name], signal, pillar, entity });
 const ev = (o: Partial<CandidateEvidence> = {}): CandidateEvidence => ({ moments: 80, videos: 100, strongMoments: 20, minableVideos: 0, trendMatch: 0.5, trendTitle: null, velocityShare: 0.1, ...o });
@@ -25,7 +25,7 @@ describe('daily brain: scoring', () => {
   it('footage the campaign can still analyse counts as material (a topic the host covers a lot is not rejected for having no mined moments yet)', () => {
     const unmined = scoreCandidate(cand('pooh', 'pooh shiesty', 'p'), ev({ moments: 2, videos: 114, strongMoments: 0, minableVideos: 100, trendMatch: 0.4 }), ctx());
     expect(unmined.eligible).toBe(true);
-    expect(capacity({ strongMoments: 0, minableVideos: 100 })).toBe(12); // capped at 8 videos x 1.5
+    expect(capacity({ strongMoments: 0, minableVideos: 100 })).toBe(4); // a small, capped credit: 4 videos x 1
     const mined = scoreCandidate(cand('m', 'm', 'p'), ev({ strongMoments: 14, minableVideos: 0, trendMatch: 0.4 }), ctx());
     expect(mined.components.supply).toBeGreaterThanOrEqual(unmined.components.supply);
   });
@@ -72,6 +72,35 @@ describe('daily brain: entity saturation (the Diddy-every-day problem)', () => {
     const n = picks.filter((p) => p === 'Diddy transfer').length;
     expect(n).toBeGreaterThan(ENTITY_CAP);
     expect(n).toBeLessThan(5);
+  });
+});
+
+describe('daily brain: thin footage (the Oct 21 YNW Melly failure)', () => {
+  // the real numbers of that day: Melly 3 mined moments + 13 unanalysed videos and a hot trend; Diddy 34 moments, no trend
+  const melly = (c: BrainContext) => scoreCandidate(cand('Melly', 'ynw melly', 'court'), ev({ moments: 3, videos: 13, strongMoments: 3, minableVideos: 13, trendMatch: 0.99, velocityShare: 0 }), c);
+  const diddy = (c: BrainContext) => scoreCandidate(cand('Diddy', 'diddy', 'family'), ev({ moments: 34, videos: 229, strongMoments: 34, minableVideos: 217, trendMatch: 0, velocityShare: 1 }), c);
+
+  it('unanalysed videos give only a small credit, so a hot trend cannot carry a topic with almost no mined footage', () => {
+    const c = ctx();
+    expect(melly(c).components.supply).toBeLessThan(0.6);
+    expect(melly(c).thin).toBe(true);
+    expect(diddy(c).thin).toBe(false);
+  });
+
+  it('a topic with enough mined footage is tried before a thin one even when the thin one scores higher', () => {
+    const c = ctx();
+    const m = melly(c);
+    const d = diddy(c);
+    m.score = 90;
+    d.score = 40;
+    expect(rankMain([m, d]).map((s) => s.c.name)).toEqual(['Diddy', 'Melly']);
+    expect(selectPortfolio([m, d], c).main!.c.name).toBe('Diddy');
+  });
+
+  it('a thin topic is still used when it is the only eligible one (a day is better than no day)', () => {
+    const c = ctx();
+    expect(selectPortfolio([melly(c)], c).main!.c.name).toBe('Melly');
+    expect(MIN_MAIN_MOMENTS).toBe(8);
   });
 });
 

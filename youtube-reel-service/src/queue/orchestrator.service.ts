@@ -11,6 +11,7 @@ import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
 import { UsageDelta, UsageSink } from '../ai/ai.service';
 import { CancelledError } from '../common/errors';
+import { modelKey } from '../ai/task-routing';
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from './queue.service';
 
@@ -43,7 +44,11 @@ export class OrchestratorService {
   usageSink(campaignId: string | Types.ObjectId): UsageSink {
     return async (d: UsageDelta) => {
       const inc: Record<string, number> = {};
-      for (const [k, v] of Object.entries(d)) if (v) inc[`usage.${k}`] = v;
+      for (const [k, v] of Object.entries(d)) if (v && typeof v === 'number') inc[`usage.${k}`] = v;
+      if (d.model) {
+        if (d.promptTokens) inc[`usage.models.${modelKey(d.model)}.prompt`] = d.promptTokens;
+        if (d.completionTokens) inc[`usage.models.${modelKey(d.model)}.completion`] = d.completionTokens;
+      }
       if (Object.keys(inc).length) await this.campaigns.updateOne({ _id: campaignId }, { $inc: inc });
     };
   }

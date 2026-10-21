@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { AppConfig, CONFIG } from '../config/config';
 import { toStrictJsonSchema } from './json-schema';
 import { toOpenAiCreditsError } from '../common/errors';
+import { parsePairs, taskKind } from './task-routing';
 
 export interface UsageDelta {
   promptTokens?: number;
@@ -15,6 +16,8 @@ export interface UsageDelta {
   calls?: number;
   /** AI images generated (reel visuals, thumbnails). */
   images?: number;
+  /** The model that produced these tokens (for the per-model cost split). */
+  model?: string;
 }
 export type UsageSink = (delta: UsageDelta) => Promise<void> | void;
 
@@ -43,8 +46,12 @@ export interface WhisperResult {
 export class AiService {
   private readonly logger = new Logger(AiService.name);
   private readonly client: OpenAI;
+  private readonly taskModels: Map<string, string>;
+  private readonly taskEffort: Map<string, string>;
 
   constructor(@Inject(CONFIG) private readonly cfg: AppConfig) {
+    this.taskModels = parsePairs(cfg.OPENAI_REEL_TASK_MODELS);
+    this.taskEffort = parsePairs(cfg.OPENAI_REEL_TASK_EFFORT);
     this.client = new OpenAI({
       apiKey: cfg.OPENAI_API_KEY,
       baseURL: cfg.OPENAI_BASE_URL || undefined,
@@ -71,7 +78,9 @@ export class AiService {
    * One self-repair attempt is made if the model's JSON fails validation.
    */
   async generateJson<T extends z.ZodType>(opts: JsonCallOptions<T>): Promise<z.infer<T>> {
-    const model = opts.tier === 'fast' ? this.cfg.OPENAI_REEL_FAST_MODEL : this.cfg.OPENAI_REEL_MODEL;
+    const kind = taskKind(opts.task);
+    const model = this.taskModels.get(kind) ?? (opts.tier === 'fast' ? this.cfg.OPENAI_REEL_FAST_MODEL : this.cfg.OPENAI_REEL_MODEL);
+    const effort = this.taskEffort.get(kind) ?? opts.reasoningEffort ?? this.cfg.OPENAI_REEL_REASONING_EFFORT;
     const jsonSchema = toStrictJsonSchema(opts.schema);
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: opts.system },
@@ -87,7 +96,7 @@ export class AiService {
           type: 'json_schema',
           json_schema: { name: opts.schemaName, strict: true, schema: jsonSchema },
         },
-        reasoning_effort: (opts.reasoningEffort ?? this.cfg.OPENAI_REEL_REASONING_EFFORT) as any,
+        reasoning_effort: effort as any,
         ...(opts.maxCompletionTokens ? { max_completion_tokens: opts.maxCompletionTokens } : {}),
       } as OpenAI.Chat.ChatCompletionCreateParamsNonStreaming));
 
@@ -97,6 +106,7 @@ export class AiService {
         completionTokens: usage?.completion_tokens ?? 0,
         reasoningTokens: (usage as any)?.completion_tokens_details?.reasoning_tokens ?? 0,
         calls: 1,
+        model,
       });
       this.logger.log(
         `[${opts.task}] ${model} ${Date.now() - started}ms in=${usage?.prompt_tokens ?? '?'} out=${usage?.completion_tokens ?? '?'}`,
@@ -159,8 +169,9 @@ export class AiService {
     sources: Array<{ title: string; url: string }>;
   }> {
     const started = Date.now();
+    const model = this.taskModels.get(taskKind(opts.task)) ?? this.cfg.OPENAI_REEL_MODEL;
     const res: any = await this.guard(() => this.client.responses.create({
-      model: this.cfg.OPENAI_REEL_MODEL,
+      model,
       instructions: opts.system,
       input: opts.user,
       tools: [{ type: 'web_search' } as any],
@@ -171,6 +182,7 @@ export class AiService {
       completionTokens: res.usage?.output_tokens ?? 0,
       reasoningTokens: res.usage?.output_tokens_details?.reasoning_tokens ?? 0,
       calls: 1,
+      model,
     });
     this.logger.log(`[${opts.task}] web research ${Date.now() - started}ms`);
 

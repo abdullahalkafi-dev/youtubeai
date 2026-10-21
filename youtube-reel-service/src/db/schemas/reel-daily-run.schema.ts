@@ -31,6 +31,11 @@ export class ReelDailyRun {
     eligible?: boolean;
     reason?: string | null;
     picked?: 'main' | 'explore';
+    /** Kept so a failed main topic can be replaced by the next candidate without another model call. */
+    brief?: string;
+    why?: string;
+    keywords?: string[];
+    thin?: boolean;
   }>;
   @Prop({ type: MongooseSchema.Types.ObjectId }) campaignId?: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.ObjectId }) exploreCampaignId?: Types.ObjectId;
@@ -40,6 +45,11 @@ export class ReelDailyRun {
   @Prop({ type: [String], default: [] }) degraded: string[];
   /** A paused day still records what the brain WOULD have picked, so the choices can be compared before turning it on. */
   @Prop({ type: Object }) shadow?: { topic: string | null; exploreTopic: string | null; at: Date };
+  /** Main topics that failed today (not enough usable footage...) and were replaced by the next-best candidate, oldest first. */
+  @Prop({ type: [Object], default: [] }) fallbacks: Array<{ name: string; entity?: string | null; reason: string; at: Date }>;
+  @Prop({ default: 0 }) fallbackCount: number;
+  /** True once no further replacement will be tried today (limit reached, or nothing suitable left). */
+  @Prop({ default: false }) rescueExhausted: boolean;
   @Prop() reason?: string;
   @Prop({ default: 1 }) attempts: number;
 }

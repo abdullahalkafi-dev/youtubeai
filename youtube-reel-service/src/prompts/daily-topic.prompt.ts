@@ -15,10 +15,17 @@ Propose 8 candidate topics:
 - 1 "archive": an evergreen topic from his strongest old material that has not been used recently.
 Never repeat a topic from RECENT DAILY TOPICS unless there is genuinely new news. Do not propose the same person for more than 3 candidates.
 
+GROUNDING (most important): a reel can only use what the host ACTUALLY SAID in his old episodes, never what the news says. ARCHIVE HEADLINES lists
+the strongest passages he has said. A news item is only a good topic when his archive has passages about the SAME person, case or situation.
+- The brief must describe what he says in those passages, with the news only as the reason to publish today. Never write a brief that asks him
+  to "explain", "comment on" or "connect" a news event he never discussed (for example "use his street-code commentary to explain why <news item> ...").
+- "basis" names the ARCHIVE HEADLINE (copy its words) that the topic is built on. If you cannot find one, write "none yet" and make that a lower-priority candidate.
+
 For each: name (short, 3-7 words), brief (one sentence the campaign uses: who/what + the angle, like a creator would type it),
 why (one plain sentence for the creator: why this today), keywords (4-10 lowercase search words/names that would appear in his transcripts:
 names, nicknames, case words, themes), signal (trend | performance | explore | archive), pillar (exactly one pillar key from PILLARS),
-entity (the main person or case this topic is about, lowercase, or null when it is a general lesson; never the channel or its host).`;
+entity (the main person or case this topic is about, lowercase, or null when it is a general lesson; never the channel or its host),
+basis (the ARCHIVE HEADLINE it is built on, or "none yet").`;
 
 export const DailyTopicSchema = z.object({
   candidates: z
@@ -31,6 +38,7 @@ export const DailyTopicSchema = z.object({
         signal: z.enum(['trend', 'performance', 'archive', 'explore']),
         pillar: z.string(),
         entity: z.string().nullable(),
+        basis: z.string(),
       }),
     )
     .min(1)
@@ -49,6 +57,8 @@ export function buildDailyTopicUser(input: {
   learned?: string[];
   recent: string[];
   bankThemes: Array<{ key: string; n: number }>;
+  /** The strongest unused passages the host has actually said (title + who/what), from the mined archive. */
+  headlines?: Array<{ title: string; who: string }>;
 }): string {
   return [
     `TODAY (New York): ${input.date}`,
@@ -68,6 +78,9 @@ export function buildDailyTopicUser(input: {
     '',
     'THEMES/PEOPLE MOST PRESENT IN HIS ANALYZED ARCHIVE:',
     ...(input.bankThemes.length ? input.bankThemes.map((b) => `- ${b.key} (${b.n} moments)`) : ['- (archive not analyzed yet)']),
+    '',
+    'ARCHIVE HEADLINES (strongest passages he has actually said; build topics on these):',
+    ...(input.headlines?.length ? input.headlines.map((h) => `- ${h.title}${h.who ? ` [${h.who}]` : ''}`) : ['- (none mined yet)']),
     '',
     'RECENT DAILY TOPICS (avoid repeats):',
     ...(input.recent.length ? input.recent.map((r) => `- ${r}`) : ['- (none)']),

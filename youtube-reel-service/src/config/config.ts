@@ -41,6 +41,14 @@ const EnvSchema = z.object({
   OPENAI_REEL_MODEL: str('gpt-6.1-sol'),
   OPENAI_REEL_FAST_MODEL: str('gpt-6-luna'),
   OPENAI_REEL_REASONING_EFFORT: str('high'),
+  /** Send some kinds of calls to another model, e.g. "mining=gpt-6-luna,source-select=gpt-6-luna" (empty = the primary/fast split below). */
+  OPENAI_REEL_TASK_MODELS: str(''),
+  /** Reasoning effort per kind of call, e.g. "mining=medium" (empty = each call's own setting). */
+  OPENAI_REEL_TASK_EFFORT: str(''),
+  /** US dollars per 1M tokens as "model=in:out", used only to show an estimated cost per campaign. */
+  OPENAI_REEL_PRICES: str('gpt-6.1-sol=2:10,gpt-6-luna=0.1:0.5,gpt-6-astra=10:50'),
+  /** Transcript parts mined at the same time for one video. */
+  REEL_MINING_CONCURRENCY: int(3),
   OPENAI_STT_MODEL: str('whisper-1'),
   OPENAI_EMBED_MODEL: str('text-embedding-3-small'),
 

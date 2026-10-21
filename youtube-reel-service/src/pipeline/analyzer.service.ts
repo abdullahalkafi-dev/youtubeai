@@ -263,24 +263,35 @@ export class AnalyzerService {
 
     type Mined = ReturnType<typeof MiningSchema.parse>['moments'][number];
     const all: Mined[] = [];
+    // The parts of one video are independent: a few at a time (results are still processed in order).
+    const results: Array<ReturnType<typeof MiningSchema.parse>> = [];
+    const width = Math.max(1, this.cfg.REEL_MINING_CONCURRENCY);
+    for (let b = 0; b < parts.length; b += width) {
+      const batch = await Promise.all(
+        parts.slice(b, b + width).map(([from, to], j) =>
+          this.ai.generateJson({
+            task: `mining:${youtubeId}:${b + j + 1}/${parts.length}`,
+            system: MINING_SYSTEM,
+            user: buildMiningUser({
+              title: video?.title ?? youtubeId,
+              publishedAt: video?.publishedAt ? new Date(video.publishedAt).toISOString().slice(0, 10) : undefined,
+              viewCount: video?.viewCount ?? 0,
+              durationMin: Math.round((video?.durationSeconds || parseIsoDuration(video?.duration) || t.durationSec) / 60),
+              knownEntities: known,
+              part: parts.length > 1 ? { index: b + j + 1, total: parts.length } : undefined,
+              transcript: formatLines(lines, from, to),
+            }),
+            schema: MiningSchema,
+            schemaName: 'mined_moments',
+            usage,
+          }),
+        ),
+      );
+      results.push(...batch);
+    }
     for (let p = 0; p < parts.length; p++) {
       const [from, to] = parts[p];
-      const res = await this.ai.generateJson({
-        task: `mining:${youtubeId}:${p + 1}/${parts.length}`,
-        system: MINING_SYSTEM,
-        user: buildMiningUser({
-          title: video?.title ?? youtubeId,
-          publishedAt: video?.publishedAt ? new Date(video.publishedAt).toISOString().slice(0, 10) : undefined,
-          viewCount: video?.viewCount ?? 0,
-          durationMin: Math.round((video?.durationSeconds || parseIsoDuration(video?.duration) || t.durationSec) / 60),
-          knownEntities: known,
-          part: parts.length > 1 ? { index: p + 1, total: parts.length } : undefined,
-          transcript: formatLines(lines, from, to),
-        }),
-        schema: MiningSchema,
-        schemaName: 'mined_moments',
-        usage,
-      });
+      const res = results[p];
       for (const m of res.moments) {
         const startLine = Math.max(from, Math.min(to, Math.round(m.startLine)));
         const endLine = Math.max(startLine, Math.min(to, Math.round(m.endLine)));

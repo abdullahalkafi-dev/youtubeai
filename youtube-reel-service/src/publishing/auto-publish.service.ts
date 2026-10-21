@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { errMsg } from '../common/errors';
 import { ReelAutoDay, ReelAutoDayDocument } from '../db/schemas/reel-autopublish.schema';
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
+import { MAX_FALLBACKS } from '../pipeline/daily-brain';
 import { ReelDailyRun, ReelDailyRunDocument } from '../db/schemas/reel-daily-run.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
@@ -194,6 +195,9 @@ export class AutoPublishService {
     const ids = [run.campaignId, run.exploreCampaignId].filter(Boolean) as Types.ObjectId[];
     const camps = await this.campaigns.find({ _id: { $in: ids } }).select('status track').lean();
     if (camps.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status))) return { status: 'still-making' as const };
+    // a failed main topic is about to be replaced by the next-best one (see DailyService.rescue): wait for it instead of planning a half day
+    const mainCamp = camps.find((c) => String(c._id) === String(run.campaignId));
+    if (mainCamp?.status === 'failed' && !run.rescueExhausted && (run.fallbackCount ?? 0) < MAX_FALLBACKS) return { status: 'still-making' as const };
     const trackOf = new Map(camps.map((c) => [String(c._id), (c.track ?? 'main') as 'main' | 'explore']));
 
     const publisher = this.registry.get('youtube');
