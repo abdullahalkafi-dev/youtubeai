@@ -184,12 +184,33 @@ export class AnalyticsService {
       { $sort: { views: -1 } },
       { $limit: 30 },
     );
-    const rows = await this.posts.aggregate<{ _id: unknown; posts: number; views: number; likes: number; comments: number; watchMinutes: number; avgViewPct: number | null }>(pipeline);
+    let rows = await this.posts.aggregate<{ _id: unknown; posts: number; views: number; likes: number; comments: number; watchMinutes: number; avgViewPct: number | null }>(pipeline);
 
     let names = new Map<string, string>();
     if (by === 'campaign') {
-      const camps = await this.reels.db.collection('reel_campaigns').find({ _id: { $in: rows.map((r) => r._id as Types.ObjectId) } }, { projection: { name: 1 } }).toArray();
-      names = new Map(camps.map((c) => [String(c._id), String(c.name)]));
+      const camps = await this.reels.db.collection('reel_campaigns').find({ _id: { $in: rows.map((r) => r._id as Types.ObjectId) } }, { projection: { name: 1, parentCampaignId: 1 } }).toArray();
+      // a daily campaign's hidden explore part is the same campaign to the client: fold its row into the parent's
+      const parentOf = new Map(camps.filter((c) => c.parentCampaignId).map((c) => [String(c._id), String(c.parentCampaignId)]));
+      if (parentOf.size) {
+        const merged = new Map<string, (typeof rows)[number]>();
+        for (const r of rows) {
+          const k = parentOf.get(String(r._id)) ?? String(r._id);
+          const m = merged.get(k);
+          if (!m) merged.set(k, { ...r, _id: new Types.ObjectId(k) });
+          else {
+            const posts = m.posts + r.posts;
+            m.avgViewPct = m.avgViewPct !== null && r.avgViewPct !== null ? (m.avgViewPct * m.posts + r.avgViewPct * r.posts) / posts : m.avgViewPct ?? r.avgViewPct;
+            m.posts = posts;
+            m.views += r.views;
+            m.likes += r.likes;
+            m.comments += r.comments;
+            m.watchMinutes += r.watchMinutes;
+          }
+        }
+        rows = [...merged.values()].sort((a, b) => b.views - a.views);
+      }
+      const roots = await this.reels.db.collection('reel_campaigns').find({ _id: { $in: rows.map((r) => r._id as Types.ObjectId) } }, { projection: { name: 1 } }).toArray();
+      names = new Map(roots.map((c) => [String(c._id), String(c.name)]));
     }
     return {
       by,
@@ -226,16 +247,20 @@ export class AnalyticsService {
     if (!Types.ObjectId.isValid(campaignId)) throw new NotFoundException('Campaign not found');
     const cid = new Types.ObjectId(channelId);
     const campId = new Types.ObjectId(campaignId);
-    const camp = await this.reels.db.collection('reel_campaigns').findOne({ _id: campId, channelId: cid, deletedAt: null }, { projection: { name: 1 } });
+    const camps = this.reels.db.collection('reel_campaigns');
+    let camp = await camps.findOne({ _id: campId, channelId: cid, deletedAt: null }, { projection: { name: 1, parentCampaignId: 1, exploreCampaignId: 1 } });
     if (!camp) throw new NotFoundException('Campaign not found');
+    // a daily campaign's hidden explore part counts as the same campaign
+    if (camp.parentCampaignId) camp = (await camps.findOne({ _id: camp.parentCampaignId, channelId: cid, deletedAt: null }, { projection: { name: 1, exploreCampaignId: 1 } })) ?? camp;
+    const family: Types.ObjectId[] = [camp._id as Types.ObjectId, ...(camp.exploreCampaignId ? [camp.exploreCampaignId as Types.ObjectId] : [])];
 
     const [posts, reelDocs, totalReels] = await Promise.all([
       this.posts
-        .find({ campaignId: campId, status: { $in: ['published', 'scheduled', 'processing', 'removed'] } })
+        .find({ campaignId: { $in: family }, status: { $in: ['published', 'scheduled', 'processing', 'removed'] } })
         .select('reelId platform status url publishedAt latestMetrics metadata.title')
         .lean(),
-      this.reels.find({ campaignId: campId }).select('packaging.title concept status').lean(),
-      this.reels.countDocuments({ campaignId: campId, status: { $in: ['todo', 'posted'] } }),
+      this.reels.find({ campaignId: { $in: family } }).select('packaging.title concept status').lean(),
+      this.reels.countDocuments({ campaignId: { $in: family }, status: { $in: ['todo', 'posted'] } }),
     ]);
     const published = posts.filter((p) => p.status === 'published');
     const sum = (list: typeof posts, k: 'views' | 'likes' | 'comments') => list.reduce((n, p) => n + (p.latestMetrics?.[k] ?? 0), 0);
@@ -265,7 +290,7 @@ export class AnalyticsService {
       .sort((a, b) => b.views - a.views);
 
     const views = sum(published, 'views');
-    const comparison = await this.compareWithChannel(cid, campId, published.map((p) => p._id as Types.ObjectId), published.length ? views / published.length : 0);
+    const comparison = await this.compareWithChannel(cid, family, published.map((p) => p._id as Types.ObjectId), published.length ? views / published.length : 0);
     const lastUpdated = published.reduce<Date | null>((d, p) => {
       const at = p.latestMetrics?.capturedAt ? new Date(p.latestMetrics.capturedAt) : null;
       return at && (!d || at > d) ? at : d;
@@ -291,9 +316,9 @@ export class AnalyticsService {
     };
   }
 
-  private async compareWithChannel(channelId: Types.ObjectId, campaignId: Types.ObjectId, ownPostIds: Types.ObjectId[], ownLifetimeAvg: number) {
+  private async compareWithChannel(channelId: Types.ObjectId, family: Types.ObjectId[], ownPostIds: Types.ObjectId[], ownLifetimeAvg: number) {
     const others = await this.posts
-      .find({ channelId, campaignId: { $ne: campaignId }, status: 'published' })
+      .find({ channelId, campaignId: { $nin: family }, status: 'published' })
       .select('_id campaignId latestMetrics.views')
       .lean();
     const otherCampaigns = new Set(others.map((p) => String(p.campaignId))).size;

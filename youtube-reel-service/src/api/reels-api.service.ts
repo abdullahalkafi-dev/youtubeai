@@ -12,6 +12,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AppConfig, CONFIG } from '../config/config';
+import { campaignFamily, familyStatus } from '../common/campaign-family';
 import { truncate } from '../common/text';
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
@@ -239,22 +240,41 @@ export class ReelsApiService {
   }
 
   async listCampaigns(channelId: string, limit = 30) {
+    // The hidden explore part of a daily campaign is never a card of its own: it is folded into its parent.
     const docs = await this.campaigns
-      .find({ channelId })
+      .find({ channelId, parentCampaignId: null })
       .sort({ createdAt: -1 })
       .limit(Math.min(100, limit))
       .select('-log -research.memo')
       .lean();
+    const kidIds = docs.map((d) => d.exploreCampaignId).filter(Boolean) as Types.ObjectId[];
+    const kids = kidIds.length ? await this.campaigns.find({ _id: { $in: kidIds } }).select('status progress usage').lean() : [];
+    const kidById = new Map(kids.map((k) => [String(k._id), k]));
+    const allIds = [...docs.map((d) => d._id), ...kidIds];
     const counts = await this.reels.aggregate<{ _id: { c: Types.ObjectId; s: string }; n: number }>([
-      { $match: { campaignId: { $in: docs.map((d) => d._id) } } },
+      { $match: { campaignId: { $in: allIds } } },
       { $group: { _id: { c: '$campaignId', s: '$status' }, n: { $sum: 1 } } },
     ]);
-    const views = await this.analytics.viewsByCampaign(docs.map((d) => d._id));
+    const views = await this.analytics.viewsByCampaign(allIds);
     return docs.map((d) => {
+      const kid = d.exploreCampaignId ? kidById.get(String(d.exploreCampaignId)) : undefined;
+      const mine = [String(d._id), ...(kid ? [String(kid._id)] : [])];
       const byStatus: Record<string, number> = {};
-      for (const c of counts) if (String(c._id.c) === String(d._id)) byStatus[c._id.s] = c.n;
-      return { ...this.campaignSummary(d, byStatus), performance: views.get(String(d._id)) ?? { views: 0, posts: 0 } };
+      for (const c of counts) if (mine.includes(String(c._id.c))) byStatus[c._id.s] = (byStatus[c._id.s] ?? 0) + c.n;
+      const v = mine.reduce((a, id) => ({ views: a.views + (views.get(id)?.views ?? 0), posts: a.posts + (views.get(id)?.posts ?? 0) }), { views: 0, posts: 0 });
+      const shown = familyStatus(d.status, kid ?? null, TERMINAL_CAMPAIGN_STATUSES);
+      return {
+        ...this.campaignSummary({ ...d, status: shown.status, progress: shown.progressMessage ? { ...d.progress, message: shown.progressMessage } : d.progress, usage: this.sumUsage(d.usage, kid?.usage) }, byStatus),
+        performance: v,
+      };
     });
+  }
+
+  private sumUsage(a: Record<string, number> | undefined, b: Record<string, number> | undefined) {
+    if (!b) return a;
+    const out: Record<string, number> = { ...(a ?? {}) };
+    for (const [k, v] of Object.entries(b)) out[k] = (out[k] ?? 0) + (typeof v === 'number' ? v : 0);
+    return out;
   }
 
   private campaignSummary(d: any, reelCounts: Record<string, number>) {
@@ -279,9 +299,22 @@ export class ReelsApiService {
   }
 
   async getCampaign(channelId: string, campaignId: string, userId: string) {
-    const d = await this.campaigns.findOne({ _id: campaignId, channelId }).select('-research.memo').lean();
-    if (!d) throw new NotFoundException('Campaign not found');
-    const reels = await this.reels.find({ campaignId: d._id }).sort({ index: 1 }).lean();
+    const fam = await campaignFamily(this.campaigns, campaignId, { channelId });
+    if (!fam) throw new NotFoundException('Campaign not found');
+    const d = (await this.campaigns.findById(fam.root._id).select('-research.memo').lean())!;
+    const reels = await this.reels.find({ campaignId: { $in: fam.ids } }).sort({ campaignId: 1, index: 1 }).lean();
+    const trackOf = new Map<string, 'main' | 'explore'>([[String(d._id), 'main'], ...(fam.child ? ([[String(fam.child._id), 'explore']] as Array<[string, 'main' | 'explore']>) : [])]);
+    const explore = fam.child
+      ? {
+          campaignId: String(fam.child._id),
+          name: fam.child.name,
+          brief: fam.child.brief,
+          status: fam.child.status,
+          progress: fam.child.progress,
+          error: fam.child.error ?? null,
+          topicSummary: fam.child.research?.topicSummary ?? null,
+        }
+      : null;
     const srcStages = await this.sources
       .find({ youtubeId: { $in: d.sources.map((s) => s.youtubeId) } })
       .select('youtubeId stage error height momentCount')
@@ -290,8 +323,11 @@ export class ReelsApiService {
     const postMap = await this.publish.summariesForReels(reels.map((r) => r._id));
     const counts: Record<string, number> = {};
     for (const r of reels) counts[r.status] = (counts[r.status] ?? 0) + 1;
+    const shown = familyStatus(d.status, fam.child, TERMINAL_CAMPAIGN_STATUSES);
     return {
-      ...this.campaignSummary(d, counts),
+      ...this.campaignSummary({ ...d, status: shown.status, progress: shown.progressMessage ? { ...d.progress, message: shown.progressMessage } : d.progress, usage: this.sumUsage(d.usage as any, fam.child?.usage as any) }, counts),
+      track: 'main' as const,
+      explore,
       research: d.research
         ? {
             topicSummary: d.research.topicSummary,
@@ -308,26 +344,30 @@ export class ReelsApiService {
       }),
       log: (d.log ?? []).slice(-80),
       candidates: d.candidates ?? [],
-      reels: reels.map((r) => this.reelSummary(r, userId, postMap.get(String(r._id)))),
+      reels: reels.map((r) => ({ ...this.reelSummary(r, userId, postMap.get(String(r._id))), track: trackOf.get(String(r.campaignId)) ?? 'main' })),
     };
   }
 
   async cancelCampaign(channelId: string, campaignId: string) {
-    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
-    if (!c) throw new NotFoundException('Campaign not found');
-    if (TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) return { ok: true, status: c.status };
-    await this.campaigns.updateOne(
-      { _id: c._id },
-      {
-        $set: { cancelRequested: true, status: 'cancelled', finishedAt: new Date(), 'progress.stage': 'cancelled', 'progress.message': 'Cancelled by user' },
-        $push: { log: { $each: [{ at: new Date(), level: 'warn', msg: 'Cancelled by user' }], $slice: -300 } },
-      },
-    );
-    const reelIds = new Set((await this.reels.find({ campaignId: c._id, status: 'queued' }).select('_id').lean()).map((r) => String(r._id)));
-    const jobs = await this.queues.q.render.getJobs(['waiting', 'delayed', 'paused']);
-    for (const j of jobs) if (j && reelIds.has(String(j.data?.reelId))) await j.remove().catch(() => undefined);
-    await this.reels.updateMany({ campaignId: c._id, status: 'queued' }, { $set: { status: 'failed', error: 'Campaign cancelled' } });
-    return { ok: true, status: 'cancelled' };
+    const fam = await campaignFamily(this.campaigns, campaignId, { channelId });
+    if (!fam) throw new NotFoundException('Campaign not found');
+    let status = fam.root.status as string;
+    for (const c of [fam.root, fam.child].filter(Boolean)) {
+      if (TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) continue;
+      await this.campaigns.updateOne(
+        { _id: c._id },
+        {
+          $set: { cancelRequested: true, status: 'cancelled', finishedAt: new Date(), 'progress.stage': 'cancelled', 'progress.message': 'Cancelled by user' },
+          $push: { log: { $each: [{ at: new Date(), level: 'warn', msg: 'Cancelled by user' }], $slice: -300 } },
+        },
+      );
+      const reelIds = new Set((await this.reels.find({ campaignId: c._id, status: 'queued' }).select('_id').lean()).map((r) => String(r._id)));
+      const jobs = await this.queues.q.render.getJobs(['waiting', 'delayed', 'paused']);
+      for (const j of jobs) if (j && reelIds.has(String(j.data?.reelId))) await j.remove().catch(() => undefined);
+      await this.reels.updateMany({ campaignId: c._id, status: 'queued' }, { $set: { status: 'failed', error: 'Campaign cancelled' } });
+      if (c._id.equals(fam.root._id)) status = 'cancelled';
+    }
+    return { ok: true, status };
   }
 
   /** "Find more reels": runs more composing rounds over the moments this campaign has not reviewed yet. No new downloads, speech-to-text or mining. */
@@ -337,7 +377,7 @@ export class ReelsApiService {
     if (!c) throw new NotFoundException('Campaign not found');
     if (!['partial', 'completed'].includes(c.status)) throw new BadRequestException('Only finished campaigns can be topped up');
     if (!c.sources.some((s) => s.status === 'ready')) throw new BadRequestException('This campaign has no analyzed source videos');
-    const active = await this.campaigns.countDocuments({ channelId, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
+    const active = await this.campaigns.countDocuments({ channelId, parentCampaignId: null, status: { $nin: TERMINAL_CAMPAIGN_STATUSES } });
     if (active >= MAX_ACTIVE_CAMPAIGNS) throw new HttpException(`${active} campaigns are already running. Wait for one to finish.`, HttpStatus.TOO_MANY_REQUESTS);
 
     const existing = await this.reels.countDocuments({ campaignId: c._id, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
@@ -363,38 +403,47 @@ export class ReelsApiService {
     return { ok: true, adding: add };
   }
 
-  /** "Refresh look": re-make every reel that is not posted yet with the latest voice, picture placement and style. */
+  /** "Refresh look": re-make every reel that is not posted yet (both parts of a daily campaign) with the latest voice, picture placement and style. */
   async refreshLook(channelId: string, campaignId: string) {
-    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
-    if (!c) throw new NotFoundException('Campaign not found');
-    if (!TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) throw new ConflictException('Wait until this campaign has finished.');
-    const list = await this.reels.find({ campaignId: c._id, status: 'todo' }).select('_id').lean();
-    if (!list.length) return { queued: 0 };
-    await this.campaigns.updateOne(
-      { _id: c._id },
-      { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Refreshing ${list.length} reels with the latest voice and pictures` } },
-    );
-    for (const r of list) {
-      await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
-      await this.queues.render(String(r._id));
+    const fam = await campaignFamily(this.campaigns, campaignId, { channelId });
+    if (!fam) throw new NotFoundException('Campaign not found');
+    const parts = [fam.root, fam.child].filter(Boolean);
+    if (parts.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status))) throw new ConflictException('Wait until this campaign has finished.');
+    let queued = 0;
+    for (const c of parts) {
+      const list = await this.reels.find({ campaignId: c._id, status: 'todo' }).select('_id').lean();
+      if (!list.length) continue;
+      await this.campaigns.updateOne(
+        { _id: c._id },
+        { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Refreshing ${list.length} reels with the latest voice and pictures` } },
+      );
+      for (const r of list) {
+        await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+        await this.queues.render(String(r._id));
+      }
+      queued += list.length;
     }
-    return { queued: list.length };
+    return { queued };
   }
 
   async retryFailedRenders(channelId: string, campaignId: string) {
-    const c = await this.campaigns.findOne({ _id: campaignId, channelId });
-    if (!c) throw new NotFoundException('Campaign not found');
-    const failed = await this.reels.find({ campaignId: c._id, status: 'failed', error: { $ne: 'Campaign cancelled' } }).select('_id').lean();
-    if (!failed.length) return { retried: 0 };
-    await this.campaigns.updateOne(
-      { _id: c._id },
-      { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Retrying ${failed.length} renders` } },
-    );
-    for (const r of failed) {
-      await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
-      await this.queues.render(String(r._id));
+    const fam = await campaignFamily(this.campaigns, campaignId, { channelId });
+    if (!fam) throw new NotFoundException('Campaign not found');
+    let retried = 0;
+    for (const c of [fam.root, fam.child].filter(Boolean)) {
+      const failed = await this.reels.find({ campaignId: c._id, status: 'failed', error: { $ne: 'Campaign cancelled' } }).select('_id').lean();
+      if (!failed.length) continue;
+      await this.campaigns.updateOne(
+        { _id: c._id },
+        { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Retrying ${failed.length} renders` } },
+      );
+      for (const r of failed) {
+        await this.reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+        await this.queues.render(String(r._id));
+      }
+      retried += failed.length;
     }
-    return { retried: failed.length };
+    return { retried };
   }
 
   // ------------------------------------------------------------------ reels
@@ -444,7 +493,11 @@ export class ReelsApiService {
     const filter: Record<string, unknown> = { channelId: new Types.ObjectId(channelId) };
     if (q.status) filter.status = q.status;
     else filter.status = { $in: ['todo', 'posted', 'rejected', 'queued', 'rendering', 'failed'] };
-    if (q.campaignId) filter.campaignId = new Types.ObjectId(q.campaignId);
+    if (q.campaignId) {
+      // a daily campaign's reels live in two campaigns (main + hidden explore part): list both under the parent
+      const fam = Types.ObjectId.isValid(q.campaignId) ? await campaignFamily(this.campaigns, q.campaignId, { channelId }) : null;
+      filter.campaignId = fam ? { $in: fam.ids } : new Types.ObjectId(q.campaignId);
+    }
     if (q.entity) filter.entitySlugs = q.entity;
     if (q.period !== 'all') filter.createdAt = { $gte: new Date(Date.now() - (q.period === '7d' ? 7 : 30) * 86_400_000) };
     const [items, total] = await Promise.all([

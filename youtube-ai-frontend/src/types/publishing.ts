@@ -155,14 +155,52 @@ export interface CampaignChatMessage {
   at?: string
 }
 
+export type DailySignalKind = 'trend' | 'performance' | 'archive' | 'explore'
+export interface DailyTopic {
+  name: string
+  brief: string
+  why: string
+  signal: DailySignalKind
+  keywords: string[]
+  pillar?: string | null
+  entity?: string | null
+  score?: number
+}
+export interface DailyCandidate {
+  name: string
+  signal: DailySignalKind
+  pillar?: string | null
+  entity?: string | null
+  moments: number
+  videos: number
+  strongMoments?: number
+  trendMatch?: number
+  trendTitle?: string | null
+  velocityShare?: number
+  components?: Record<string, number>
+  score: number
+  exploreScore?: number
+  eligible?: boolean
+  reason?: string | null
+  picked?: 'main' | 'explore'
+  reels?: number
+}
 export interface DailyDay {
   date: string
   /** The day's campaign was deleted from the app. */
   deleted: boolean
   status: 'running' | 'started' | 'skipped' | 'failed'
   reason: string | null
-  topic: { name: string; brief: string; why: string; signal: 'trend' | 'performance' | 'archive'; keywords: string[] } | null
-  evidence: { moments: number; videos: number } | null
+  topic: DailyTopic | null
+  /** The explore part of the day: shown inside the same card, never as a second campaign. */
+  exploreTopic: DailyTopic | null
+  evidence: { moments: number; videos: number; strongMoments?: number } | null
+  candidates: DailyCandidate[]
+  degraded: string[]
+  /** A paused day still records what the brain would have picked. */
+  shadow: { topic: string | null; exploreTopic: string | null; at: string } | null
+  mainReels: number | null
+  exploreReels: number | null
   campaignId: string | null
   campaignStatus: string | null
   progress: string | null
@@ -172,13 +210,32 @@ export interface DailyDay {
   posts: number
   verdict: 'better' | 'similar' | 'worse' | null
 }
-
+export interface DailyHealthNote {
+  level: 'info' | 'warn' | 'error'
+  code: string
+  message: string
+}
+export interface DailyBrain {
+  pillars: Array<{ key: string; name: string; daysSinceCovered: number | null; lift: number; posts: number }>
+  own: { through: string; views3d: number; byEntity: Array<{ key: string; views3d: number; share3d: number }> } | null
+  trends: { count: number; usable: number; freshestAt: string | null; ageHours: number | null; top: Array<{ title: string; score: number | null; ageHours: number; source: string | null }> } | null
+  degraded: string[]
+  signalDate: string | null
+}
+export interface DailyPreview {
+  main: { name: string; why: string; score: number; reels: number; pillar: string | null; entity: string | null } | null
+  explore: { name: string; why: string; score: number; reels: number; pillar: string | null; entity: string | null } | null
+  candidates: DailyCandidate[]
+  degraded: string[]
+}
 export interface DailyOverview {
   enabled: boolean
   nextRunAt: string
   timezone: string
   today: string
   avgViewsPerPost: number
-  bySignal: Array<{ signal: 'trend' | 'performance' | 'archive'; days: number; views: number; avgPerPost: number }>
+  bySignal: Array<{ signal: DailySignalKind; days: number; views: number; avgPerPost: number }>
+  health: DailyHealthNote[]
+  brain: DailyBrain | null
   days: DailyDay[]
 }

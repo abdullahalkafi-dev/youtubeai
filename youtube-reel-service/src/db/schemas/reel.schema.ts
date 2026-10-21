@@ -111,6 +111,8 @@ export class Reel {
   @Prop({ type: [String], default: [], index: true }) entitySlugs: string[];
   @Prop({ type: [String], default: [] }) entityNames: string[];
   @Prop({ type: [String], default: [] }) themes: string[];
+  /** Content pillar, taken from the moments this reel was cut from. */
+  @Prop({ index: true }) pillar?: string;
   @Prop({ type: [MongooseSchema.Types.ObjectId], default: [] }) momentIds: Types.ObjectId[];
   @Prop({ type: [Number], select: false }) embedding?: number[];
 

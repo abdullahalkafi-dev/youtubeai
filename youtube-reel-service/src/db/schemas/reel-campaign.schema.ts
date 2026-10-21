@@ -66,6 +66,11 @@ export class ReelCampaign {
   @Prop({ type: String, enum: ['manual', 'video', 'daily'], default: 'manual', index: true }) origin: 'manual' | 'video' | 'daily';
   /** Daily campaigns: the New York date they belong to (YYYY-MM-DD). */
   @Prop({ index: true }) dailyDate?: string;
+  /** A hidden child of a daily campaign (its 'explore' part): shown inside the parent's card and details page, never on its own. */
+  @Prop({ type: MongooseSchema.Types.ObjectId, default: null, index: true }) parentCampaignId?: Types.ObjectId | null;
+  @Prop({ type: String, enum: ['main', 'explore'], default: 'main' }) track?: 'main' | 'explore';
+  /** On the parent: its hidden explore child. */
+  @Prop({ type: MongooseSchema.Types.ObjectId, default: null }) exploreCampaignId?: Types.ObjectId | null;
   @Prop({ type: String, enum: CAMPAIGN_STATUSES, default: 'queued', index: true }) status: CampaignStatus;
   @Prop({ type: Object, required: true }) settings: CampaignSettings;
 

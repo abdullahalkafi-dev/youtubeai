@@ -234,11 +234,40 @@ export default function CampaignPage() {
       {c.reels.length > 0 && (
         <section>
           <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3">Reels ({c.reels.length})</h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-            {c.reels.map((r) => (
-              <ReelCard key={r.id} reel={r} onOpen={setOpenReel} />
-            ))}
-          </div>
+          {c.explore ? (
+            // A daily campaign: today's main topic, then the explore topic (a different kind of story, so we learn what else works)
+            <div className="space-y-6">
+              {(['main', 'explore'] as const).map((track) => {
+                const list = c.reels.filter((r) => (r.track ?? 'main') === track)
+                if (!list.length && track === 'main') return null
+                return (
+                  <div key={track}>
+                    <div className="mb-2">
+                      <p className="text-xs font-bold text-zinc-800 dark:text-zinc-200">
+                        {track === 'main' ? 'Main topic' : 'Explore topic'}
+                        <span className="font-normal text-zinc-500"> — {(track === 'main' ? c.name : c.explore!.name).replace(/^Daily [^:]*?(\(explore\))?:\s*/, '')}</span>
+                      </p>
+                      <p className="text-[11px] text-zinc-500 line-clamp-2">{track === 'main' ? c.brief : c.explore!.brief}</p>
+                      {track === 'explore' && !list.length && <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">{c.explore!.error ? c.explore!.error : c.explore!.progress?.message ?? 'Working…'}</p>}
+                    </div>
+                    {list.length > 0 && (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+                        {list.map((r) => (
+                          <ReelCard key={r.id} reel={r} onOpen={setOpenReel} />
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
+              {c.reels.map((r) => (
+                <ReelCard key={r.id} reel={r} onOpen={setOpenReel} />
+              ))}
+            </div>
+          )}
         </section>
       )}
 

@@ -20,6 +20,12 @@ export class DailyController {
     return this.daily.overview(channelId);
   }
 
+  /** What the brain would pick today, scored and explained, without starting anything (one model call). */
+  @Post('preview')
+  preview(@Param('channelId') channelId: string) {
+    return this.daily.preview(channelId);
+  }
+
   @Post('run')
   async runNow(@Param('channelId') channelId: string) {
     await this.daily.runForChannel(channelId, 'manual');

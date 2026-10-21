@@ -9,10 +9,36 @@ export class ReelDailyRun {
   @Prop({ required: true }) date: string;
   @Prop({ type: String, enum: ['running', 'started', 'skipped', 'failed'], required: true }) status: 'running' | 'started' | 'skipped' | 'failed';
   @Prop({ type: String, enum: ['schedule', 'manual'], default: 'schedule' }) trigger: 'schedule' | 'manual';
-  @Prop({ type: Object }) topic?: { name: string; brief: string; why: string; signal: string; keywords: string[] };
-  @Prop({ type: Object }) evidence?: { moments: number; videos: number };
-  @Prop({ type: [Object], default: [] }) candidates: Array<{ name: string; signal: string; moments: number; videos: number; score: number }>;
+  @Prop({ type: Object }) topic?: { name: string; brief: string; why: string; signal: string; keywords: string[]; pillar?: string | null; entity?: string | null; score?: number };
+  /** The explore part of the day (a hidden child campaign shown inside the same card). */
+  @Prop({ type: Object }) exploreTopic?: { name: string; brief: string; why: string; signal: string; keywords: string[]; pillar?: string | null; entity?: string | null; score?: number };
+  @Prop({ type: Object }) evidence?: { moments: number; videos: number; strongMoments?: number };
+  @Prop({ type: [Object], default: [] }) candidates: Array<{
+    name: string;
+    signal: string;
+    pillar?: string | null;
+    entity?: string | null;
+    moments: number;
+    videos: number;
+    strongMoments?: number;
+    trendMatch?: number;
+    trendTitle?: string | null;
+    velocityShare?: number;
+    components?: Record<string, number>;
+    score: number;
+    exploreScore?: number;
+    eligible?: boolean;
+    reason?: string | null;
+    picked?: 'main' | 'explore';
+  }>;
   @Prop({ type: MongooseSchema.Types.ObjectId }) campaignId?: Types.ObjectId;
+  @Prop({ type: MongooseSchema.Types.ObjectId }) exploreCampaignId?: Types.ObjectId;
+  @Prop() mainReels?: number;
+  @Prop() exploreReels?: number;
+  /** What the brain saw (stale trends, no analytics...). */
+  @Prop({ type: [String], default: [] }) degraded: string[];
+  /** A paused day still records what the brain WOULD have picked, so the choices can be compared before turning it on. */
+  @Prop({ type: Object }) shadow?: { topic: string | null; exploreTopic: string | null; at: Date };
   @Prop() reason?: string;
   @Prop({ default: 1 }) attempts: number;
 }

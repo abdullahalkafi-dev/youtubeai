@@ -122,6 +122,8 @@ export interface CampaignDetail extends CampaignSummary {
   log: Array<{ at: string; level: 'info' | 'warn' | 'error'; msg: string }>
   candidates: CandidateLedgerEntry[]
   reels: Reel[]
+  /** A daily campaign's explore part (its reels are in `reels` with track 'explore'). */
+  explore?: { campaignId: string; name: string; brief: string; status: string; progress: { stage: string; message: string }; error: string | null; topicSummary: string | null } | null
 }
 
 export interface ReelClip {
@@ -159,6 +161,8 @@ export interface ReelPackaging {
 export interface Reel {
   id: string
   campaignId: string
+  /** Daily campaigns: which part of the day this reel belongs to. */
+  track?: 'main' | 'explore'
   index: number
   status: ReelStatus
   shape: ReelShape

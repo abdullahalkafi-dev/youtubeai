@@ -6,6 +6,7 @@ import { ReelCampaignChat, ReelCampaignChatDocument } from '../db/schemas/reel-c
 import { ReelMoment, ReelMomentDocument } from '../db/schemas/reel-moment.schema';
 import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
+import { campaignFamily } from '../common/campaign-family';
 import { BUCKETS, StorageService } from '../storage/storage.service';
 
 /** A post that is (or will be) on a platform: it stays there, and we keep its record so views keep being tracked. */
@@ -32,14 +33,16 @@ export class CampaignDeleteService {
   /** What the delete dialog shows: how many reels, which posts stay on their platform, and anything blocking it. */
   async preview(channelId: string, campaignId: string) {
     if (!Types.ObjectId.isValid(campaignId)) throw new NotFoundException('Campaign not found');
-    const c = await this.campaigns.findOne({ _id: campaignId, channelId }).select('name status').lean();
-    if (!c) throw new NotFoundException('Campaign not found');
+    // A daily campaign and its hidden explore part are one thing to the client: both go together.
+    const fam = await campaignFamily(this.campaigns, campaignId, { channelId });
+    if (!fam) throw new NotFoundException('Campaign not found');
+    const c = fam.root;
     const [reels, posts] = await Promise.all([
-      this.reels.find({ campaignId: c._id }).select('status').lean(),
-      this.posts.find({ campaignId: c._id, status: { $in: [...ON_PLATFORM, 'uploading'] } }).select('platform status url metadata.title metadata.scheduleAt latestMetrics.views').lean(),
+      this.reels.find({ campaignId: { $in: fam.ids } }).select('status').lean(),
+      this.posts.find({ campaignId: { $in: fam.ids }, status: { $in: [...ON_PLATFORM, 'uploading'] } }).select('platform status url metadata.title metadata.scheduleAt latestMetrics.views').lean(),
     ]);
     const blockers: string[] = [];
-    if (!TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) blockers.push('This campaign is still running. Press Stop first, then delete it.');
+    if ([c, fam.child].some((x) => x && !TERMINAL_CAMPAIGN_STATUSES.includes(x.status))) blockers.push('This campaign is still running. Press Stop first, then delete it.');
     if (reels.some((r) => r.status === 'queued' || r.status === 'rendering')) blockers.push('Some reels are still being made. Try again in a minute.');
     if (posts.some((p) => p.status === 'uploading')) blockers.push('A video is uploading to YouTube right now. Wait until it finishes, then delete.');
     return {
@@ -63,17 +66,18 @@ export class CampaignDeleteService {
   async remove(channelId: string, campaignId: string) {
     const p = await this.preview(channelId, campaignId);
     if (p.blockers.length) throw new ConflictException(p.blockers[0]);
-    const campId = new Types.ObjectId(campaignId);
+    const fam = (await campaignFamily(this.campaigns, campaignId, { channelId }))!;
+    const ids = fam.ids;
     const now = new Date();
-    const reels = await this.reels.find({ campaignId: campId }).select('_id momentIds').lean();
+    const reels = await this.reels.find({ campaignId: { $in: ids } }).select('_id momentIds campaignId').lean();
     const reelIds = reels.map((r) => r._id);
 
     // Posts that never reached a platform are cancelled; posts that did are left exactly as they are.
-    await this.posts.updateMany({ campaignId: campId, status: { $in: ['queued', 'blocked'] } }, { $set: { status: 'cancelled', cancelRequested: true, error: null } });
+    await this.posts.updateMany({ campaignId: { $in: ids }, status: { $in: ['queued', 'blocked'] } }, { $set: { status: 'cancelled', cancelRequested: true, error: null } });
 
     // Hide first (so nothing shows it any more), then clean up behind it.
-    await this.reels.updateMany({ campaignId: campId }, { $set: { deletedAt: now } });
-    await this.campaigns.updateOne({ _id: campId }, { $set: { deletedAt: now } });
+    await this.reels.updateMany({ campaignId: { $in: ids } }, { $set: { deletedAt: now } });
+    await this.campaigns.updateMany({ _id: { $in: ids } }, { $set: { deletedAt: now } });
 
     // Free the footage these reels used, so it can be used again by future campaigns.
     const momentIds = reels.flatMap((r) => r.momentIds ?? []);
@@ -83,19 +87,19 @@ export class CampaignDeleteService {
     }
 
     // Files: everything, except a published reel's cover and thumbnails (small; kept for the Performance views).
-    const liveReels = new Set((await this.posts.find({ campaignId: campId, status: { $in: ON_PLATFORM } }).select('reelId').lean()).map((x) => String(x.reelId)));
+    const liveReels = new Set((await this.posts.find({ campaignId: { $in: ids }, status: { $in: ON_PLATFORM } }).select('reelId').lean()).map((x) => String(x.reelId)));
     let purged = 0;
     for (const r of reels) {
-      const prefix = `${channelId}/${campaignId}/${r._id}/`;
+      const prefix = `${channelId}/${r.campaignId}/${r._id}/`;
       try {
         purged += liveReels.has(String(r._id)) ? await this.storage.removePrefixExcept(BUCKETS.reels, prefix, /(\/cover\.jpg|\/thumbs\/[^/]+)$/) : await this.storage.removePrefix(BUCKETS.reels, prefix);
       } catch (err) {
         this.logger.warn(`Delete ${campaignId}: could not purge ${prefix}: ${(err as Error).message}`);
       }
     }
-    await this.chats.deleteOne({ campaignId: campId });
+    await this.chats.deleteMany({ campaignId: { $in: ids } });
 
-    this.logger.log(`Campaign ${campaignId} deleted from the app: ${reels.length} reels hidden, ${liveReels.size} kept on platforms, ${purged} files removed`);
+    this.logger.log(`Campaign ${campaignId}${fam.child ? ' (+ explore part)' : ''} deleted from the app: ${reels.length} reels hidden, ${liveReels.size} kept on platforms, ${purged} files removed`);
     return { ok: true, reelsHidden: reels.length, stillOnPlatforms: p.livePosts.length, filesRemoved: purged };
   }
 }

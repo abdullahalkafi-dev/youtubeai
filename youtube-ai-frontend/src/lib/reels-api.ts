@@ -7,6 +7,7 @@ import type {
   CampaignChatMessage,
   CampaignPerformance,
   DailyOverview,
+  DailyPreview,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -111,6 +112,7 @@ export const reelsApi = {
   daily: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily`),
   setDaily: (channelId: string, enabled: boolean) =>
     request<DailyOverview>(`/channels/${channelId}/daily`, { method: 'PATCH', body: JSON.stringify({ enabled }) }),
+  dailyPreview: (channelId: string) => request<DailyPreview>(`/channels/${channelId}/daily/preview`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
   runDailyNow: (channelId: string) => request<DailyOverview>(`/channels/${channelId}/daily/run`, { method: 'POST', signal: AbortSignal.timeout(180000) }),
 
   // ---- raw video uploads ("From my new video") ----

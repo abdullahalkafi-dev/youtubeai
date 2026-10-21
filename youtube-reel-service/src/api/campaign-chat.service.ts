@@ -2,6 +2,7 @@ import { BadRequestException, Injectable, Logger, NotFoundException } from '@nes
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { AiService } from '../ai/ai.service';
+import { campaignFamily } from '../common/campaign-family';
 import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
 import { ReelCampaignChat, ReelCampaignChatDocument } from '../db/schemas/reel-campaign-chat.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
@@ -86,11 +87,14 @@ export class CampaignChatService {
 
   /** Compact, factual snapshot of the campaign for the model (no ids, no internals). */
   async buildContext(channelId: string, campaignId: string): Promise<string> {
+    // a daily campaign's explore part is part of the same campaign for the client
+    const fam = await campaignFamily(this.campaigns, campaignId);
+    const ids = fam?.ids ?? [new Types.ObjectId(campaignId)];
     const [c, reels, perf, posts] = await Promise.all([
-      this.campaigns.findById(campaignId).select('name brief status settings research stats createdAt finishedAt').lean(),
-      this.reels.find({ campaignId }).select('index status shape concept hookText durationSec themes entityNames scores packaging.title rejectReason').sort({ index: 1 }).lean(),
+      this.campaigns.findById(fam?.root._id ?? campaignId).select('name brief status settings research stats createdAt finishedAt').lean(),
+      this.reels.find({ campaignId: { $in: ids } }).select('index status shape concept hookText durationSec themes entityNames scores packaging.title rejectReason').sort({ index: 1 }).lean(),
       this.analytics.campaignPerformance(channelId, campaignId),
-      this.posts.find({ campaignId }).select('reelId platform status publishedAt latestMetrics requestedPrivacy').lean(),
+      this.posts.find({ campaignId: { $in: ids } }).select('reelId platform status publishedAt latestMetrics requestedPrivacy').lean(),
     ]);
     if (!c) return 'Campaign not found.';
     const day = (d?: Date | null) => (d ? new Date(d).toISOString().slice(0, 10) : '?');

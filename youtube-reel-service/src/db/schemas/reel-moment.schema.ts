@@ -41,6 +41,8 @@ export class ReelMoment {
   @Prop({ type: [String], default: [] }) entityNames: string[];
   @Prop({ type: [String], default: [], index: true }) entitySlugs: string[];
   @Prop({ type: [String], default: [] }) themes: string[];
+  /** The channel content pillar this moment belongs to (PillarService). */
+  @Prop({ index: true }) pillar?: string;
 
   @Prop({ type: String, enum: ['unused', 'used', 'retired'], default: 'unused', index: true })
   status: 'unused' | 'used' | 'retired';
