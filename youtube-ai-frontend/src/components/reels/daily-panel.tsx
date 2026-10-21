@@ -101,7 +101,8 @@ export function DailyPanel({ channelId }: { channelId: string }) {
     )
 
   const today = data.days.find((d) => d.date === data.today)
-  const canRunNow = !today || today.status === 'skipped' || today.status === 'failed'
+  // also when the day started but its campaign failed or was deleted (nothing is being made)
+  const canRunNow = !today || today.status === 'skipped' || today.status === 'failed' || (today.status === 'started' && (today.deleted || today.campaignStatus === 'failed'))
   const next = new Date(data.nextRunAt)
   const chart = [...data.days]
     .filter((d) => d.campaignId)

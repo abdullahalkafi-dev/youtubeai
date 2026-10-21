@@ -93,7 +93,13 @@ export class DailyService {
     const cid = new Types.ObjectId(channelId);
     const existing = await this.runs.findOne({ channelId: cid, date });
     if (existing) {
-      const retryable = existing.status === 'failed' || (trigger === 'manual' && existing.status === 'skipped');
+      // "Run today now" also works when the day started but its main campaign has since failed or was deleted (nothing is being made).
+      let mainGone = false;
+      if (trigger === 'manual' && existing.status === 'started' && existing.campaignId) {
+        const main = await this.campaigns.findById(existing.campaignId).setOptions({ withDeleted: true }).select('status deletedAt').lean();
+        mainGone = !main || !!main.deletedAt || main.status === 'failed';
+      }
+      const retryable = existing.status === 'failed' || (trigger === 'manual' && existing.status === 'skipped') || mainGone;
       if (!retryable || existing.attempts >= 3) {
         if (trigger === 'manual') throw new ConflictException(existing.status === 'started' || existing.status === 'running' ? "Today's daily campaign has already started." : "Today's daily campaign can't be run again.");
         return existing;
@@ -106,7 +112,7 @@ export class DailyService {
         throw err;
       }));
     if (!run) return null;
-    if (existing) await this.runs.updateOne({ _id: run._id }, { $set: { status: 'running', trigger, reason: null }, $inc: { attempts: 1 } });
+    if (existing) await this.runs.updateOne({ _id: run._id }, { $set: { status: 'running', trigger, reason: null, fallbacks: [], fallbackCount: 0, rescueExhausted: false }, $inc: { attempts: 1 } });
 
     const skip = async (reason: string, extra: Record<string, unknown> = {}) => {
       await this.runs.updateOne({ _id: run._id }, { $set: { status: 'skipped', reason, ...extra } });
