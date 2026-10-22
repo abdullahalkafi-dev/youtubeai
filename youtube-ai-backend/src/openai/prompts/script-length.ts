@@ -51,12 +51,92 @@ const BANNED_MARKERS: Array<{ name: string; test: RegExp }> = [
   { name: 'verification references', test: LEAKED_REFERENCE_LINE },
 ];
 
-/** The spoken script only: between SCRIPT_START / SCRIPT_END when present, otherwise the whole text. */
+/** H1/H2 headings that start the NON-script part of a reply (footage, sources, notes, packaging). */
+const NON_SCRIPT_HEADING = /^#{1,2}\s+(?!\**\s*\d+[.)])(?!.*SCRIPT TITLE).*(?:footage|sources?|verified|references?|production|notes?|how to use|thumbnails?|seo|description|tags|🎬|📺|🔗)/i;
+
+/**
+ * Where the spoken script ends: the SCRIPT_END marker, or, when the model forgot it, the first
+ * heading that clearly starts another part of the reply. -1 means "to the end of the text".
+ */
+function scriptEndIndex(content: string, start: number): number {
+  const end = content.indexOf('<!-- SCRIPT_END -->', start);
+  if (end !== -1) return end;
+  let offset = 0;
+  for (const raw of content.slice(start).split('\n')) {
+    if (offset > 0 && NON_SCRIPT_HEADING.test(raw.trim())) return start + offset;
+    offset += raw.length + 1;
+  }
+  return -1;
+}
+
+/** The spoken script only: between SCRIPT_START and its end, otherwise the whole text. */
 function scriptScope(content: string): string {
   const start = content.indexOf('<!-- SCRIPT_START -->');
   if (start === -1) return content;
-  const end = content.indexOf('<!-- SCRIPT_END -->', start);
+  const end = scriptEndIndex(content, start);
   return content.slice(start, end === -1 ? undefined : end);
+}
+
+/** Adds the missing SCRIPT_END marker so footage, sources and notes never end up inside the script. */
+export function closeScriptMarkers(content: string): string {
+  const start = content.indexOf('<!-- SCRIPT_START -->');
+  if (start === -1 || content.indexOf('<!-- SCRIPT_END -->', start) !== -1) return content;
+  const end = scriptEndIndex(content, start);
+  if (end === -1) return content.trimEnd() + '\n<!-- SCRIPT_END -->\n';
+  return content.slice(0, end).trimEnd() + '\n<!-- SCRIPT_END -->\n\n' + content.slice(end);
+}
+
+const CONJUNCTION_BREAK = /\s+(?=(?:and|but|because|so|that|which|then|or|until|while|when|if|before|after)\s)/i;
+
+/** Splits one over-long spoken line into breathable pieces of at most `max` words. */
+function splitSpokenLine(text: string, max: number): string[] {
+  const words = (s: string) => s.split(/\s+/).filter(Boolean).length;
+  if (words(text) <= max) return [text];
+  let pieces = text.split(/(?<=[,;:—–.?!])\s+/).filter(Boolean);
+  pieces = pieces.flatMap((piece) => (words(piece) > max ? piece.split(CONJUNCTION_BREAK) : [piece]));
+  pieces = pieces.flatMap((piece) => {
+    if (words(piece) <= max) return [piece];
+    const w = piece.split(/\s+/);
+    const out: string[] = [];
+    const chunks = Math.ceil(w.length / max);
+    const size = Math.ceil(w.length / chunks);
+    for (let i = 0; i < w.length; i += size) out.push(w.slice(i, i + size).join(' '));
+    return out;
+  });
+  // Join tiny neighbours back together when they still fit in one breath.
+  const merged: string[] = [];
+  for (const piece of pieces) {
+    const last = merged[merged.length - 1];
+    if (last !== undefined && (words(last) < 3 || words(piece) < 3) && words(last) + words(piece) <= max) {
+      merged[merged.length - 1] = last + ' ' + piece;
+    } else {
+      merged.push(piece);
+    }
+  }
+  return merged;
+}
+
+/**
+ * Splits spoken rail lines ("> ...") longer than `max` words into several rails. Only touches the
+ * script scope; cues, headings, links and text that is not a rail are left alone. Idempotent.
+ */
+export function splitLongRails(content: string, max: number = SCRIPT_MAX_LINE_WORDS): string {
+  const start = content.indexOf('<!-- SCRIPT_START -->');
+  const scopeStart = start === -1 ? 0 : start;
+  const end = start === -1 ? -1 : scriptEndIndex(content, start);
+  const scopeEnd = end === -1 ? content.length : end;
+
+  const out = content
+    .slice(scopeStart, scopeEnd)
+    .split('\n')
+    .flatMap((raw) => {
+      const m = raw.match(/^(\s*>\s?)(.*)$/);
+      if (!m) return [raw];
+      const text = m[2].trim();
+      if (!text || /https?:|\]\(/.test(text)) return [raw];
+      return splitSpokenLine(text, max).map((piece) => `> ${piece}`);
+    });
+  return content.slice(0, scopeStart) + out.join('\n') + content.slice(scopeEnd);
 }
 
 function countWords(line: string): number {
@@ -137,7 +217,7 @@ export function checkScriptShape(
  */
 export function sanitizeSpokenScript(content: string): { content: string; removed: string[] } {
   const start = content.indexOf('<!-- SCRIPT_START -->');
-  const end = start === -1 ? -1 : content.indexOf('<!-- SCRIPT_END -->', start);
+  const end = start === -1 ? -1 : scriptEndIndex(content, start);
   const scopeStart = start === -1 ? 0 : start;
   const scopeEnd = start === -1 ? content.length : end === -1 ? content.length : end;
 

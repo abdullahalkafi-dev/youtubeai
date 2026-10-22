@@ -59,7 +59,12 @@ import {
   OPENAI_NO_CREDITS_CODE,
   OPENAI_NO_CREDITS_MESSAGE,
 } from '../common/errors/openai-credits';
-import { analyzeSpokenScript, sanitizeSpokenScript } from '../openai/prompts/script-length';
+import {
+  analyzeSpokenScript,
+  closeScriptMarkers,
+  sanitizeSpokenScript,
+  splitLongRails,
+} from '../openai/prompts/script-length';
 import { TrendsService } from '../trends/trends.service';
 import { ReelContextService } from './reel-context.service';
 import { FootageIntentService } from './footage-intent.service';
@@ -695,7 +700,10 @@ export class ChatService {
    */
   private cleanSavedScript(content: string, threadId: string | Types.ObjectId): string {
     if (!content.includes('<!-- SCRIPT_START -->')) return content;
-    const { content: cleaned, removed } = sanitizeSpokenScript(content);
+    // Close the script first so the footage block, sources and notes that follow it can never be
+    // measured or shown as spoken lines; then clean it and break any line too long for one breath.
+    const { content: sanitized, removed } = sanitizeSpokenScript(closeScriptMarkers(content));
+    const cleaned = splitLongRails(sanitized);
     if (removed.length) {
       this.logger.warn(`Thread ${threadId}: removed ${removed.length} non-spoken script line(s): ${removed.join('; ').slice(0, 300)}`);
     }
