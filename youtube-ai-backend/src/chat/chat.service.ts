@@ -2723,8 +2723,11 @@ Hard rules:
       }
 
       // Aspect ratio auto-detection
+      // "short"/"shorts" alone is not a format request ("find an old short video").
       if (
-        /\b(?:reel|reels|short|shorts|tiktok|9:16|vertical)\b/i.test(promptText)
+        /\b(?:reels?|tiktok|9:16|vertical|portrait|shorts?\s+(?:thumbnail|cover|image|format)|(?:for|as)\s+(?:a\s+)?(?:youtube\s+)?shorts?)\b/i.test(
+          promptText,
+        )
       ) {
         result.aspectRatio = '9:16';
       } else if (
@@ -2943,8 +2946,18 @@ Hard rules:
       (dto.selectedHostImage === 'none' ||
         parsedDirectives.excludeHost === true);
 
+    // The card sends a ratio only when the client picked one; otherwise the client's last chat
+    // message ("make it a reel") decides, and 16:9 is the default.
+    const lastUserText = [...(thread.messages || [])]
+      .reverse()
+      .find((m: any) => m.role === 'user')?.content;
     const resolvedAspectRatio: '16:9' | '9:16' =
-      dto.aspectRatio || parsedDirectives.aspectRatio || '16:9';
+      dto.aspectRatio ||
+      parsedDirectives.aspectRatio ||
+      (lastUserText
+        ? this.parseClientThumbnailDirectives(lastUserText).aspectRatio
+        : undefined) ||
+      '16:9';
 
     const effectiveCustomHostUrl =
       dto.customHostUrl ||
@@ -3318,6 +3331,7 @@ Hard rules:
 
     // Context resolution from parent thumbnail metadata
     let matchedImg: any = null;
+    let matchedMessageId: string | undefined;
     let resolvedAspectRatio: '16:9' | '9:16' | undefined =
       dto.aspectRatio || parsedDirectives.aspectRatio;
     if (thread.messages) {
@@ -3331,6 +3345,7 @@ Hard rules:
         );
         if (found) {
           matchedImg = found;
+          matchedMessageId = (msg as any)._id?.toString();
           if (!resolvedAspectRatio && found.aspectRatio) {
             resolvedAspectRatio = found.aspectRatio;
           }
@@ -3421,6 +3436,41 @@ Hard rules:
       resolvedAspectRatio = compiledDecision.overlayActions.aspectRatio;
     }
     const finalAspectRatio: '16:9' | '9:16' = resolvedAspectRatio || '16:9';
+
+    // A different shape cannot be edited from the old picture (the model crops faces and
+    // misplaces the headline), so rebuild the same concept at the new ratio from the photos.
+    const baseRatio: '16:9' | '9:16' = matchedImg?.aspectRatio === '9:16' ? '9:16' : '16:9';
+    if (
+      matchedImg &&
+      matchedMessageId &&
+      finalAspectRatio !== baseRatio &&
+      (matchedImg.textOverlay || matchedImg.visualDescription)
+    ) {
+      this.logger.log(
+        `[Thumbnail Edit] ratio ${baseRatio} -> ${finalAspectRatio}: rebuilding the concept instead of editing the old picture`,
+      );
+      const validLogo = ['top-left', 'top-right', 'none'].includes(matchedImg.logoPosition)
+        ? matchedImg.logoPosition
+        : undefined;
+      const rebuilt: any = await this.runThumbnailGeneration(threadId, {
+        text: matchedImg.textOverlay || '',
+        visual: matchedImg.visualDescription || dto.prompt,
+        colors: '',
+        conceptTitle: matchedImg.conceptTitle,
+        messageId: matchedMessageId,
+        aspectRatio: finalAspectRatio,
+        selectedHostImage: matchedImg.selectedHostImage,
+        logoPosition: validLogo,
+        excludeHost: matchedImg.selectedHostImage === 'none' ? true : undefined,
+        customLayoutInstructions: dto.prompt,
+      });
+      if (rebuilt?.needsPhoto?.length) {
+        throw new BadRequestException(
+          rebuilt.message || 'A real photo is needed to rebuild this thumbnail at the new size.',
+        );
+      }
+      return rebuilt;
+    }
 
     // Prioritize clean un-composited background so OpenAI operates on clean scene pixels
     const baseImageToSend = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;

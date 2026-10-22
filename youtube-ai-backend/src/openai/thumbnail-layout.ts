@@ -33,14 +33,14 @@ export function layoutZones(options: {
         : 'right';
   const logo: Box | undefined = logoSide
     ? vertical
-      ? { x: logoSide === 'left' ? 0 : 78, y: 0, w: 22, h: 13 }
+      ? { x: logoSide === 'left' ? 0 : 65, y: 0, w: 35, h: 15 }
       : { x: logoSide === 'left' ? 0 : 85, y: 0, w: 15, h: 27 }
     : undefined;
   // The host photo is always composited bottom-right.
   const host: Box | undefined = options.excludeHost
     ? undefined
     : vertical
-      ? { x: 55, y: 74, w: 45, h: 26 }
+      ? { x: 50, y: 74, w: 50, h: 26 }
       : { x: 70, y: 55, w: 30, h: 45 };
 
   if (vertical) {
@@ -48,7 +48,7 @@ export function layoutZones(options: {
     return {
       logo,
       host,
-      headline: { x: 5, y: logo ? 15 : 5, w: 90, h: 25 },
+      headline: { x: 5, y: logo ? 17 : 5, w: 90, h: 25 },
       subjectSide: 'left',
     };
   }

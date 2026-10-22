@@ -373,7 +373,7 @@ class ApiClient {
       omitPeople?: string[]
     },
   ) {
-    return this.post<{ imageUrl: string; revisedPrompt: string; inProgress?: boolean; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[] } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
+    return this.post<{ imageUrl: string; revisedPrompt: string; inProgress?: boolean; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[]; aspectRatio?: '16:9' | '9:16' } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
   }
 
   async recomposeOverlay(

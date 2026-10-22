@@ -78,7 +78,9 @@ export function ThumbnailCard({
   // Set of concept indexes currently generating — a SET (not a single index)
   // so parallel auto-generation can render both skeletons at once.
   const [generatingIdxs, setGeneratingIdxs] = useState<Set<number>>(new Set())
-  const [selectedAspectRatio, setSelectedAspectRatio] = useState<'16:9' | '9:16'>('16:9')
+  // 'auto' sends no ratio, so the client's chat words ("make it a reel") decide; 16:9 is the default.
+  const [aspectChoice, setAspectChoice] = useState<'auto' | '16:9' | '9:16'>('auto')
+  const selectedAspectRatio: '16:9' | '9:16' = aspectChoice === '9:16' ? '9:16' : '16:9'
   const [generatedImages, setGeneratedImages] = useState<
     Record<number, { url: string; cleanBackgroundUrl?: string; selectedHostImage?: string; logoPosition?: 'top-left' | 'top-right' | 'none'; aspectRatio?: '16:9' | '9:16' }>
   >({})
@@ -143,7 +145,8 @@ export function ThumbnailCard({
     }
 
     const conceptTitle = `Concept ${idx + 1}`
-    const targetAspectRatio = options?.aspectRatio || selectedAspectRatio
+    const requestedAspectRatio = options?.aspectRatio || (aspectChoice === 'auto' ? undefined : aspectChoice)
+    const targetAspectRatio = requestedAspectRatio || '16:9'
     const hostImg = options?.selectedHostImage === 'none' ? 'none' : (options?.selectedHostImage || 'default')
     const excludeHost = hostImg === 'none'
 
@@ -154,7 +157,7 @@ export function ThumbnailCard({
       setGeneratingIdxs((prev) => new Set(prev).add(idx))
       if (!options?.silent) {
         onStartGenerate?.(conceptTitle)
-        toast.info(`Generating ${targetAspectRatio} thumbnail for ${conceptTitle}...`)
+        toast.info(`Generating ${requestedAspectRatio || 'thumbnail'} for ${conceptTitle}...`)
       }
 
       const result = await api.generateThumbnailImage(activeThreadId, {
@@ -166,7 +169,7 @@ export function ThumbnailCard({
         selectedHostImage: hostImg,
         customHostUrl: options?.customHostUrl,
         logoPosition: options?.logoPosition || 'top-right',
-        aspectRatio: targetAspectRatio,
+        ...(requestedAspectRatio ? { aspectRatio: requestedAspectRatio } : {}),
         excludeHost,
         referenceImageUrls: options?.referenceImageUrls,
         messageId,
@@ -192,7 +195,8 @@ export function ThumbnailCard({
             url: result.imageUrl,
             cleanBackgroundUrl: (result as any).cleanBackgroundUrl,
             selectedHostImage: hostImg,
-            aspectRatio: targetAspectRatio,
+            // The ratio the server actually used (chat words may have chosen it).
+            aspectRatio: result.image?.aspectRatio || targetAspectRatio,
             logoPosition: options?.logoPosition || 'top-right',
           },
         }))
@@ -309,9 +313,20 @@ export function ThumbnailCard({
         <div className="flex items-center bg-gray-200 dark:bg-gray-800 p-0.5 rounded-lg border border-gray-300 dark:border-gray-700 shrink-0 self-start sm:self-auto">
           <button
             type="button"
-            onClick={() => setSelectedAspectRatio('16:9')}
+            onClick={() => setAspectChoice('auto')}
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
-              selectedAspectRatio === '16:9'
+              aspectChoice === 'auto'
+                ? 'bg-white dark:bg-gray-700 text-violet-600 dark:text-violet-300 shadow-sm'
+                : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+            }`}
+          >
+            Auto
+          </button>
+          <button
+            type="button"
+            onClick={() => setAspectChoice('16:9')}
+            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
+              aspectChoice === '16:9'
                 ? 'bg-white dark:bg-gray-700 text-violet-600 dark:text-violet-300 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
@@ -321,9 +336,9 @@ export function ThumbnailCard({
           </button>
           <button
             type="button"
-            onClick={() => setSelectedAspectRatio('9:16')}
+            onClick={() => setAspectChoice('9:16')}
             className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition ${
-              selectedAspectRatio === '9:16'
+              aspectChoice === '9:16'
                 ? 'bg-white dark:bg-gray-700 text-violet-600 dark:text-violet-300 shadow-sm'
                 : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
             }`}
