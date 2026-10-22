@@ -1,0 +1,42 @@
+// Jest Snapshot v1, https://jestjs.io/docs/snapshot-testing
+
+exports[`thumbnail prompt profiles Safe: the prompt sent for a real person is unchanged 1`] = `
+"Create a high-impact, cinematic 16:9 cinematic YouTube thumbnail photograph.
+
+STYLE & LIGHTING:
+High-Dynamic-Range (HDR) cinematic studio photography, 85mm portrait lens, sharp micro-contrast, natural skin pores, bright punchy key lighting, luminous rim highlights, rich midtones. Clear vibrant exposure — ZERO murky crushed blacks, ZERO dark voids, ZERO plastic skin smoothing. Realistic photo style, NOT 3D render, NOT cartoon.
+
+SCENE STAGING & COMPOSITION:
+Diddy large on the right, serious guarded expression, dark doorway silhouette
+
+SUBJECT IDENTITY & PHYSICAL DEMOGRAPHICS:
+- Sean "Diddy" Combs MUST be accurately depicted as: African-American man in his mid-50s, closely cropped short buzzcut or shaved head, trimmed mustache and goatee, tailored dark suit or detention uniform.
+- NEGATIVE CONSTRAINTS: NO long hair, NO dreadlocks, NO face tattoos.
+
+BACKGROUND:
+- Use only the setting the scene describes; keep it rich but uncluttered. Do NOT add courtrooms, gavels, scales of justice, sheriffs, evidence props or spectators unless the scene asks for them.
+- Main faces are commanding close-up/bust shots (40–60% of canvas height) with clearly visible emotion.
+- Do not invent extra people. Draw only the people the scene names.
+
+LAYOUT (strict):
+- HEADLINE: render exactly "FAME CAN’T OPEN THAT DOOR" (same words, same spelling, nothing added or removed) as bold, colorful, high-contrast 2D lettering placed ONLY inside the area 3%–58% from the left, 5%–55% from the top. Make it large and readable on a phone.
+- MAIN SUBJECT: place the main face on the right side, clear of the headline area.
+- RESERVED CORNER (85%–100% from the left, 0%–27% from the top): plain, low-detail background only. NO text, NO letters, NO faces, NO graphics here.
+- RESERVED CORNER (70%–100% from the left, 55%–100% from the top): plain, low-detail background only. NO text, NO letters, NO faces, NO people here.
+
+HEADLINE TYPOGRAPHY:
+- Ultra-bold, colorful, high-contrast lettering: crisp WHITE plus a vivid accent color (yellow, or red when the scene calls for it) on the most important words, with a thick dark outline and drop shadow for mobile readability.
+- Spell every word exactly as given. Never shorten, paraphrase or add words.
+COLOR PALETTE: Deep navy, white lettering."
+`;
+
+exports[`thumbnail prompt profiles standard edit rules (headline fix, image edit, Safe) are unchanged 1`] = `
+"Fix ONLY the headline lettering.
+IMPORTANT RULES:
+1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.
+2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.
+3. TYPOGRAPHY STYLE: If adding or changing text, render strictly the exact requested wording in bold UPPERCASE — Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600) — with heavy black drop-shadow and thick sharp outline.
+4. LIGHTING: Bright HDR studio exposure with rich midtones and luminous highlights. ZERO murky crushed blacks, ZERO dark voids.
+5. HOST ANCHOR ZONE: Do NOT paint, draw, or synthesize any channel host portrait or corner cutout sticker directly into the scene. Keep the lower corner clean — low-detail, mid-lit environmental background only, NO faces, NO heads, NO text — so the host sticker can be composited separately in post-processing.
+6. REFERENCE INTEGRATION: Reference Image 1 depicts the main story subject. Naturally blend this person directly into the scene at the defense table / courtroom setting with authentic ambient lighting, matching HDR studio highlights, and realistic perspective. This reference is NOT the host cutout."
+`;
