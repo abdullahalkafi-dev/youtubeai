@@ -56,6 +56,8 @@ RULES:
 - A topic-recommendation ask ("what should I post next", "what video should I do next") is ALWAYS "general", even when it mentions packaging.
 - Asking for a title together with a thumbnail = "package", never "thumbnail" or "seo".
 - A pasted script plus "make me a thumbnail/title/SEO for this" = "package" (the user wants the bundle for that specific video).
+- Asking to WRITE a script for a live stream, a live show, a long show or a video ("write up a 30 minute live", "script for my live today") = "script", even when the user also asks for clips or video to show.
+- "footage" (boolean, any category): true whenever the user ALSO wants real video clips, news clips or b-roll ("and give me video for this", "plus clips I can show", "local news for it"). A script ask with clips is {"intent":"script","footage":true}. A clips-only ask is intent "footage".
 
 "mode" (only when intent is "package", otherwise null):
 - "audit": the message refers to an EXISTING or already-uploaded video (a YouTube link, "this video", "my X video", "the one I posted", "repackage", "fix my packaging", "why isn't this working").
@@ -65,7 +67,7 @@ RULES:
 "confidence": 0.0 to 1.0 — how certain you are of the category.
 
 Return ONLY this JSON shape:
-{"intent":"package","mode":"new","confidence":0.92}`;
+{"intent":"package","mode":"new","footage":false,"confidence":0.92}`;
 
 @Injectable()
 export class IntentClassifierService {
@@ -125,11 +127,12 @@ export class IntentClassifierService {
         const confidence = this.clamp01(Number(parsed.confidence));
         const mode: PackageMode | undefined =
           intent === 'package' && parsed.mode === 'audit' ? 'audit' : 'new';
-        // Footage is a retrieval ask, not a skill: the chat answers as general and the
-        // footage pack is loaded for it. It must never trigger AI image generation.
-        const isFootage = intent === 'footage';
+        // Footage is a retrieval ask, not a skill: a clips-only ask answers as general, and a
+        // script (or any other skill) with clips keeps its skill. Either way the footage pack is
+        // loaded and no AI image is generated for it.
+        const isFootage = intent === 'footage' || parsed.footage === true;
         const result: IntentClassification = {
-          intent: isFootage ? 'general' : intent,
+          intent: intent === 'footage' ? 'general' : intent,
           confidence: Number.isFinite(confidence) ? confidence : 0.7,
           source: 'llm',
           ...(intent === 'package' ? { mode } : {}),

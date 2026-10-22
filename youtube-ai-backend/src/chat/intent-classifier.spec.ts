@@ -169,4 +169,24 @@ describe('IntentClassifierService', () => {
     expect(result.intent).toBe('general');
     expect(result.footage).toBe(true);
   });
+
+  it('keeps the script skill when the client also wants clips', async () => {
+    const svc = makeClassifier(() =>
+      JSON.stringify({ intent: 'script', footage: true, confidence: 0.9 }),
+    );
+    const result = await svc.classify({
+      message: 'write up a 30 minute live and give me video for this that I could show',
+    });
+    expect(result.intent).toBe('script');
+    expect(result.footage).toBe(true);
+  });
+
+  it('does not flag footage for a plain script ask', async () => {
+    const svc = makeClassifier(() =>
+      JSON.stringify({ intent: 'script', footage: false, confidence: 0.92 }),
+    );
+    const result = await svc.classify({ message: 'write me a script about the transfer' });
+    expect(result.intent).toBe('script');
+    expect(result.footage).toBeUndefined();
+  });
 });
