@@ -137,6 +137,55 @@ describe('legacy thumbnails never invent real people', () => {
     expect(call.customLayoutInstructions).toContain('Do not show Matthew Hightower');
   });
 
+  it('Bold: checks the likeness and retries once when the face drifted', async () => {
+    const service = chatService([
+      { name: 'Sean Combs', role: 'Subject', imageUrl: 'https://p/diddy.jpg', photoStatus: 'verified' },
+    ]);
+    service.openaiService.isBoldV2Enabled = jest.fn().mockReturnValue(true);
+    service.openaiService.generateThumbnailImage.mockResolvedValue({ imageUrl: 'https://img/1.png', revisedPrompt: 'p' });
+    service.openaiService.reviewThumbnailLikeness = jest
+      .fn()
+      .mockResolvedValueOnce({ ok: false, issue: 'different person' })
+      .mockResolvedValueOnce({ ok: true });
+    service.threadModel.updateOne = jest.fn().mockResolvedValue({});
+    const result = await service.generateThumbnailImage('t', {
+      text: 'HE KNEW', visual: 'Sean Combs, eyes wet', colors: '', conceptTitle: 'Concept 2', messageId: '64b7f0c2a1b2c3d4e5f60718',
+    });
+    expect(service.openaiService.generateThumbnailImage).toHaveBeenCalledTimes(2);
+    expect(service.openaiService.generateThumbnailImage.mock.calls[1][0].customLayoutInstructions).toContain('IDENTITY');
+    expect(result.image.reviewIssues).toEqual([]);
+  });
+
+  it('Bold: keeps the image and tells the client when the face still does not match', async () => {
+    const service = chatService([
+      { name: 'Sean Combs', role: 'Subject', imageUrl: 'https://p/diddy.jpg', photoStatus: 'verified' },
+    ]);
+    service.openaiService.isBoldV2Enabled = jest.fn().mockReturnValue(true);
+    service.openaiService.generateThumbnailImage.mockResolvedValue({ imageUrl: 'https://img/1.png', revisedPrompt: 'p' });
+    service.openaiService.reviewThumbnailLikeness = jest.fn().mockResolvedValue({ ok: false, issue: 'x' });
+    service.threadModel.updateOne = jest.fn().mockResolvedValue({});
+    const result = await service.generateThumbnailImage('t', {
+      text: 'HE KNEW', visual: 'Sean Combs', colors: '', conceptTitle: 'Concept 2', messageId: '64b7f0c2a1b2c3d4e5f60718',
+    });
+    expect(service.openaiService.generateThumbnailImage).toHaveBeenCalledTimes(2);
+    expect(result.image.reviewIssues[0]).toMatch(/may not match the photo/);
+  });
+
+  it('Safe (Concept 1) never runs the likeness check or a retry', async () => {
+    const service = chatService([
+      { name: 'Sean Combs', role: 'Subject', imageUrl: 'https://p/diddy.jpg', photoStatus: 'verified' },
+    ]);
+    service.openaiService.isBoldV2Enabled = jest.fn().mockReturnValue(true);
+    service.openaiService.reviewThumbnailLikeness = jest.fn();
+    service.openaiService.generateThumbnailImage.mockResolvedValue({ imageUrl: 'https://img/1.png', revisedPrompt: 'p' });
+    service.threadModel.updateOne = jest.fn().mockResolvedValue({});
+    await service.generateThumbnailImage('t', {
+      text: 'WHO CAN I TRUST?', visual: 'Sean Combs', colors: '', conceptTitle: 'Concept 1', messageId: '64b7f0c2a1b2c3d4e5f60718',
+    });
+    expect(service.openaiService.reviewThumbnailLikeness).not.toHaveBeenCalled();
+    expect(service.openaiService.generateThumbnailImage).toHaveBeenCalledTimes(1);
+  });
+
   it('skips a duplicate auto request while the same concept is already generating', async () => {
     const service = chatService([]);
     let release: (v: any) => void = () => undefined;

@@ -62,4 +62,44 @@ describe('thumbnail prompt profiles', () => {
     );
     expect(edit.mock.calls[0][0].prompt).toMatchSnapshot();
   });
+
+  it('Bold: identity-only profile, no fixed Safe rules, no duplicated wording', async () => {
+    const { ai } = setup();
+    const spy = jest.spyOn(ai, 'editImageWithReference').mockResolvedValue({ imageUrl: 'u', revisedPrompt: 'p' });
+    await ai.generateThumbnailImage({ ...base, variant: 'bold' });
+    const [, prompt, options] = (spy.mock.calls as any[][])[0];
+    expect(options.profile).toBe('bold');
+    expect(prompt).toContain('maximum-impact');
+    expect(prompt).not.toMatch(/YouTube YouTube/);
+    expect(prompt).not.toMatch(/cinematic 16:9 cinematic/);
+  });
+
+  it('Bold with THUMBNAIL_BOLD_V2=off falls back to the standard edit rules', async () => {
+    const { ai } = setup({ THUMBNAIL_BOLD_V2: 'off' });
+    const spy = jest.spyOn(ai, 'editImageWithReference').mockResolvedValue({ imageUrl: 'u', revisedPrompt: 'p' });
+    await ai.generateThumbnailImage({ ...base, variant: 'bold' });
+    expect((spy.mock.calls as any[][])[0][2].profile).toBe('standard');
+  });
+
+  it('Safe never uses the bold profile', async () => {
+    const { ai } = setup();
+    const spy = jest.spyOn(ai, 'editImageWithReference').mockResolvedValue({ imageUrl: 'u', revisedPrompt: 'p' });
+    await ai.generateThumbnailImage({ ...base, variant: 'safe' });
+    expect((spy.mock.calls as any[][])[0][2].profile).toBe('standard');
+  });
+
+  it('the bold edit rules let the scene own style and use the photo for identity only', async () => {
+    const { ai, edit } = setup();
+    await ai.editImageWithReference(
+      'https://meccaaudio.com/api/assets/minio/system/subjects/diddy.jpg',
+      'Scene description',
+      { mode: 'thumbnail', aspectRatio: '16:9', profile: 'bold', referenceImageUrls: ['https://meccaaudio.com/api/assets/minio/system/subjects/b.jpg'] },
+    );
+    const prompt: string = edit.mock.calls[0][0].prompt;
+    expect(prompt).toContain('IDENTITY ONLY');
+    expect(prompt).toContain('HOST ANCHOR ZONE');
+    expect(prompt).not.toContain('Line 1 crisp WHITE');
+    expect(prompt).not.toContain('15% clearance');
+    expect(prompt).not.toContain('defense table');
+  });
 });

@@ -3012,7 +3012,9 @@ Hard rules:
       },
     );
 
-    const result = await this.openaiService.generateThumbnailImage({
+    // Concept 2 is the bold, higher-CTR thumbnail; concept 1 keeps today's look.
+    const variant: 'safe' | 'bold' = /^concept\s*2\b/i.test(dto.conceptTitle || '') ? 'bold' : 'safe';
+    const thumbnailParams = {
       concept: { text: dto.text, description: dto.visual, colors: dto.colors },
       videoTitle: videoContextTitle,
       showType: resolvedShowType,
@@ -3032,13 +3034,47 @@ Hard rules:
       aspectRatio: resolvedAspectRatio,
       storyContext,
       referenceImageUrls,
-      // Concept 2 is the bold, higher-CTR thumbnail; concept 1 keeps today's look.
-      variant: /^concept\s*2\b/i.test(dto.conceptTitle || '') ? 'bold' : 'safe',
-    });
+      variant,
+    };
+    const result = await this.openaiService.generateThumbnailImage(thumbnailParams);
+
+    // Bold lets the model change the expression, so confirm it is still the same person:
+    // one retry with stronger identity wording, then keep the image and say so.
+    let likenessNote: string | undefined;
+    if (variant === 'bold' && referenceImageUrls?.length && this.openaiService.isBoldV2Enabled()) {
+      let likeness = await this.openaiService.reviewThumbnailLikeness({
+        imageUrl: result.imageUrl,
+        referenceUrl: referenceImageUrls[0],
+      });
+      if (!likeness.ok) {
+        this.logger.warn(`[Thumbnail] Bold likeness check failed (${likeness.issue}); retrying once`);
+        try {
+          const retried = await this.openaiService.generateThumbnailImage({
+            ...thumbnailParams,
+            customLayoutInstructions: [
+              thumbnailParams.customLayoutInstructions,
+              'IDENTITY: the main face must match the reference photo exactly (same face shape, nose, eyes, jawline, age, skin tone, hair and facial hair) even though the expression is different',
+            ]
+              .filter(Boolean)
+              .join('. '),
+          });
+          likeness = await this.openaiService.reviewThumbnailLikeness({
+            imageUrl: retried.imageUrl,
+            referenceUrl: referenceImageUrls[0],
+          });
+          Object.assign(result, retried);
+        } catch (retryErr: any) {
+          this.logger.warn(`[Thumbnail] Likeness retry failed: ${retryErr.message}`);
+        }
+        if (!likeness.ok) {
+          likenessNote = 'The face may not match the photo closely. Compare it with the original before using it.';
+        }
+      }
+    }
 
     // The AI renders the headline: check spelling and that it is clear of the logo and
     // host photo. One automatic fix edits the same image; remaining issues are shown.
-    let reviewIssues: string[] = [];
+    let reviewIssues: string[] = likenessNote ? [likenessNote] : [];
     if (dto.text?.trim()) {
       const check = await this.openaiService.reviewThumbnailText({
         imageUrl: result.imageUrl,
@@ -3070,6 +3106,10 @@ Hard rules:
               logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
               aspectRatio: resolvedAspectRatio,
               storyContext,
+              // A Bold headline fix must not re-style the image with the standard rules.
+              ...(variant === 'bold' && this.openaiService.isBoldV2Enabled()
+                ? { profile: 'bold' as const }
+                : {}),
             },
           );
           const recheck = await this.openaiService.reviewThumbnailText({
@@ -3079,10 +3119,10 @@ Hard rules:
             excludeHost: excludeHost === true,
           });
           Object.assign(result, fixed);
-          reviewIssues = recheck.issues;
+          reviewIssues = [...(likenessNote ? [likenessNote] : []), ...recheck.issues];
         } catch (fixErr: any) {
           this.logger.warn(`[Thumbnail] Headline fix failed: ${fixErr.message}`);
-          reviewIssues = check.issues;
+          reviewIssues = [...(likenessNote ? [likenessNote] : []), ...check.issues];
         }
       }
     }

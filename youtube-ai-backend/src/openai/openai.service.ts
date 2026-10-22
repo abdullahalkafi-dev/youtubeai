@@ -1235,6 +1235,57 @@ export class OpenAIService {
   /**
    * Generate a thumbnail image using OpenAI Image Engine with reference images, exact face & logo compositing.
    */
+  /** Bold v2 switch: set THUMBNAIL_BOLD_V2=off to restore the previous Bold behavior. */
+  isBoldV2Enabled(): boolean {
+    return (
+      String(this.configService.get<string>('THUMBNAIL_BOLD_V2', 'on')).toLowerCase() !==
+      'off'
+    );
+  }
+
+  /**
+   * Vision check that the main face in a generated thumbnail is the person in the reference
+   * photo (expression, pose and lighting may differ). Returns ok=true when the check itself is
+   * unavailable, so a review outage never blocks delivery.
+   */
+  async reviewThumbnailLikeness(params: {
+    imageUrl: string;
+    referenceUrl: string;
+  }): Promise<{ ok: boolean; issue?: string }> {
+    try {
+      const toSmall = async (url: string) => {
+        const raw = await this.composerService.fetchBufferFromUrl(url);
+        const small = await require('sharp')(raw)
+          .resize({ width: 768, height: 768, fit: 'inside' })
+          .jpeg()
+          .toBuffer();
+        return 'data:image/jpeg;base64,' + small.toString('base64');
+      };
+      const result = await this.chat({
+        messages: [
+          {
+            role: 'user',
+            content:
+              'Image 1 is a reference photo of a real person. Image 2 is a YouTube thumbnail. Is the largest face in image 2 clearly the same person as in image 1? Ignore expression, pose, angle, lighting, clothing and background; compare face shape, nose, eyes, jaw, age, skin tone, hair and facial hair.',
+          },
+        ],
+        systemPromptOverride:
+          'Return JSON only: {"samePerson":boolean,"reason":string}. Say samePerson=false only when the face clearly looks like a different person.',
+        imageUrls: [await toSmall(params.referenceUrl), await toSmall(params.imageUrl)],
+        temperature: 0,
+        maxCompletionTokens: 200,
+      } as any);
+      const text = String(result.content || '');
+      const verdict = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      return verdict.samePerson === false
+        ? { ok: false, issue: String(verdict.reason || 'Face may not match the photo').slice(0, 200) }
+        : { ok: true };
+    } catch (err: any) {
+      this.logger.warn(`[Thumbnail Likeness] unavailable: ${err.message}`);
+      return { ok: true };
+    }
+  }
+
   /**
    * Vision check of a finished thumbnail: is the AI-rendered headline spelled exactly,
    * and is it clear of the logo and host photo? Returns ok=true when the check
@@ -1433,7 +1484,7 @@ export class OpenAIService {
     });
 
     const styleBlock = bold
-      ? `Maximum-impact ${targetRatioLabel} YouTube thumbnail photograph: hyper-saturated punchy colors, very strong contrast, glowing rim light, dramatic but clearly exposed, natural skin pores. Realistic photo style, NOT 3D render, NOT cartoon. Extreme, instantly readable emotion.`
+      ? `Hyper-saturated punchy colors, very strong contrast, glowing rim light, dramatic but clearly exposed, natural skin pores. Realistic photo style, NOT 3D render, NOT cartoon. Extreme, instantly readable emotion.`
       : `High-Dynamic-Range (HDR) cinematic studio photography, 85mm portrait lens, sharp micro-contrast, natural skin pores, bright punchy key lighting, luminous rim highlights, rich midtones. Clear vibrant exposure — ZERO murky crushed blacks, ZERO dark voids, ZERO plastic skin smoothing. Realistic photo style, NOT 3D render, NOT cartoon.`;
     const backgroundBlock = bold
       ? `- Draw exactly what the scene describes. Graphic devices (arrow, split panel, circle, X, ? or !, story objects) appear ONLY if the scene names them; never add one on your own.
@@ -1448,7 +1499,11 @@ export class OpenAIService {
       : `- Ultra-bold, colorful, high-contrast lettering: crisp WHITE plus a vivid accent color (yellow, or red when the scene calls for it) on the most important words, with a thick dark outline and drop shadow for mobile readability.
 - Spell every word exactly as given. Never shorten, paraphrase or add words.`;
 
-    let prompt = `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.
+    let prompt = `${
+      bold
+        ? `Create a maximum-impact ${isVertical ? '9:16 vertical YouTube Shorts' : '16:9 YouTube'} thumbnail photograph.`
+        : `Create a high-impact, cinematic ${targetRatioLabel} thumbnail photograph.`
+    }
 
 STYLE & LIGHTING:
 ${styleBlock}
@@ -1496,6 +1551,8 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors}.` : ''}`;
               logoPosition: params.logoPosition,
               aspectRatio: params.aspectRatio,
               storyContext: params.storyContext,
+              // Bold: the photo supplies the face only, the scene prompt owns style and expression.
+              profile: bold && this.isBoldV2Enabled() ? 'bold' : 'standard',
             },
           );
         } catch (err: any) {
@@ -2077,6 +2134,8 @@ CLIENT EDIT REQUEST:
       logoPosition?: 'top-left' | 'top-right' | 'none';
       aspectRatio?: '16:9' | '9:16';
       storyContext?: string;
+      /** 'bold': the photo gives identity only and the scene prompt owns style (Bold thumbnail). */
+      profile?: 'standard' | 'bold';
     },
   ): Promise<{
     imageUrl: string;
@@ -2210,7 +2269,18 @@ CLIENT EDIT REQUEST:
     if (sanitizedContext) {
       editPrompt += `\nSTORY & CHARACTER CONTEXT: ${sanitizedContext}`;
     }
-    if (options?.mode !== 'scene') {
+    if (options?.mode !== 'scene' && options?.profile === 'bold') {
+      editPrompt += `
+IMPORTANT RULES:
+1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the canvas before generating the new composition.
+2. SAFE MARGINS: keep all lettering at least 5% inside every border so nothing touches or is cut by the edge.
+3. IDENTITY ONLY: the supplied photo(s) show WHO the person is (face shape, age, skin tone, hair, facial hair). Recreate that same person, but do NOT copy the photo's pose, expression, clothing, crop, camera angle or background. Build a brand-new scene exactly as described above, with the expression and pose it asks for.
+4. ${
+        options?.excludeHost
+          ? 'EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene.'
+          : 'HOST ANCHOR ZONE: Do NOT paint, draw, or synthesize any channel host portrait or corner cutout sticker directly into the scene. Keep the lower corner clean (low-detail background only, NO faces, NO heads, NO text) so the host sticker can be composited separately.'
+      }`;
+    } else if (options?.mode !== 'scene') {
       editPrompt += `\nIMPORTANT RULES:\n1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the background canvas before generating the new composition.\n2. SAFE MARGINS: If modifying or placing headline text, keep all letters comfortably within safe margins (at least 15% clearance from ALL borders) so no text touches or gets cut by any border.\n3. TYPOGRAPHY STYLE: If adding or changing text, render strictly the exact requested wording in bold UPPERCASE — Line 1 crisp WHITE (#FFFFFF), Line 2 Electric Golden-YELLOW (#FFE600) — with heavy black drop-shadow and thick sharp outline.\n4. LIGHTING: Bright HDR studio exposure with rich midtones and luminous highlights. ZERO murky crushed blacks, ZERO dark voids.`;
       if (options?.excludeHost) {
         editPrompt += `\n5. EXCLUDE HOST: Do NOT include or paint any channel host portrait or corner sticker in the scene. Cleanly inpaint underlying scene elements.`;
