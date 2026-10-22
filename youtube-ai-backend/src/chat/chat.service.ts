@@ -1905,7 +1905,7 @@ export class ChatService {
       // search subject; treat it like a reference and use the thread's established topic.
       const looksLikeSentence = (t: string | null): boolean =>
         !!t &&
-        (t.trim().split(/\s+/).length > 8 ||
+        (t.trim().split(/\s+/).length > 12 ||
           /^(?:write|give|find|show|make|can you|could you|please|i\s)/i.test(t.trim()));
       const anaphoric =
         !footageIntent?.primaryEntity &&
