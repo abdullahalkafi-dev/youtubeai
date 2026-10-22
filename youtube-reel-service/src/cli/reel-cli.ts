@@ -15,7 +15,8 @@ import { QueueService } from '../queue/queue.service';
 import { DownloaderService } from '../pipeline/downloader.service';
 import { AnalyzerService } from '../pipeline/analyzer.service';
 import { ReelSource } from '../db/schemas/reel-source.schema';
-import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
+import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
+import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ensureDir } from '../pipeline/media';
 
 /**
@@ -27,6 +28,7 @@ import { ensureDir } from '../pipeline/media';
  *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
+ *   node dist/cli/reel-cli.js render:refresh <sinceDate YYYY-MM-DD> [--apply]   (re-render the NOT-posted reels of campaigns created since that date, e.g. after a template change; dry run without --apply)
  *   node dist/cli/reel-cli.js render:local <video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
  */
 async function main() {
@@ -86,6 +88,36 @@ async function main() {
         const model = app.get<Model<ReelCampaignDocument>>(getModelToken(ReelCampaign.name));
         const c = await model.findById(args[0]).lean();
         console.log(JSON.stringify({ status: c?.status, progress: c?.progress, usage: c?.usage, stats: c?.stats, log: (c?.log ?? []).slice(-15) }, null, 2));
+        break;
+      }
+      case 'render:refresh': {
+        // Same effect as "Refresh look" in the app, for several campaigns at once. Only reels still in To-do are re-made:
+        // posted/rejected/failed reels, published videos and finished campaigns' other data are never touched.
+        const since = new Date(`${args[0] ?? ''}T00:00:00Z`);
+        if (Number.isNaN(since.getTime())) throw new Error('Usage: render:refresh <sinceDate YYYY-MM-DD> [--apply]');
+        const apply = args.includes('--apply');
+        const campaigns = app.get<Model<ReelCampaignDocument>>(getModelToken(ReelCampaign.name));
+        const reels = app.get<Model<ReelDocument>>(getModelToken(Reel.name));
+        const queues = app.get(QueueService);
+        const list = await campaigns.find({ createdAt: { $gte: since } }).sort({ createdAt: 1 }).lean();
+        let total = 0;
+        for (const c of list) {
+          const todo = await reels.find({ campaignId: c._id, status: 'todo' }).select('_id').lean();
+          if (!todo.length) continue;
+          if (!TERMINAL_CAMPAIGN_STATUSES.includes(c.status)) {
+            console.log(`skip  ${c.name} (${c.status}: still working)`);
+            continue;
+          }
+          console.log(`${apply ? 'queue' : 'would queue'} ${todo.length} reel(s)  ${c.name}`);
+          total += todo.length;
+          if (!apply) continue;
+          await campaigns.updateOne({ _id: c._id }, { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Refreshing ${todo.length} reels with the latest template` } });
+          for (const r of todo) {
+            await reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+            await queues.render(String(r._id));
+          }
+        }
+        console.log(`${apply ? 'Queued' : 'Dry run:'} ${total} reel(s).${apply ? '' : ' Add --apply to re-render them.'}`);
         break;
       }
       default:
