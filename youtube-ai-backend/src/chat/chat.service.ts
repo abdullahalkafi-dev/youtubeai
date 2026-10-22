@@ -72,6 +72,9 @@ import { FootageIntentService } from './footage-intent.service';
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
 const THREAD_EXPIRY_DAYS = 7;
 
+/** Auto-fired thumbnail generations currently running, keyed thread:message:concept. */
+const THUMBNAIL_IN_FLIGHT = new Map<string, number>();
+
 @Injectable()
 export class ChatService {
   private readonly logger = new Logger(ChatService.name);
@@ -2803,9 +2806,42 @@ Hard rules:
   }
 
   /**
-   * Generate a thumbnail image using video context, default MAE logo, user reference images & custom layout rules.
+   * Generate a thumbnail image. Auto-fired requests are guarded so a double mount, a second
+   * tab or a retry cannot start the same concept twice while the first is still running.
    */
   async generateThumbnailImage(
+    threadId: string,
+    dto: Parameters<ChatService['runThumbnailGeneration']>[1],
+  ) {
+    const key =
+      dto.auto && dto.messageId && dto.conceptTitle
+        ? `${threadId}:${dto.messageId}:${dto.conceptTitle}`
+        : null;
+    if (key) {
+      const until = THUMBNAIL_IN_FLIGHT.get(key);
+      if (until && until > Date.now()) {
+        this.logger.log(`[Thumbnail] ${key} is already generating; skipping the duplicate request`);
+        return {
+          imageUrl: '',
+          revisedPrompt: '',
+          image: null,
+          inProgress: true,
+          message: 'This thumbnail is already being generated.',
+        };
+      }
+      THUMBNAIL_IN_FLIGHT.set(key, Date.now() + 3 * 60 * 1000);
+    }
+    try {
+      return await this.runThumbnailGeneration(threadId, dto);
+    } finally {
+      if (key) THUMBNAIL_IN_FLIGHT.delete(key);
+    }
+  }
+
+  /**
+   * Generate a thumbnail image using video context, default MAE logo, user reference images & custom layout rules.
+   */
+  async runThumbnailGeneration(
     threadId: string,
     dto: {
       text: string;
@@ -2826,6 +2862,8 @@ Hard rules:
       /** Auto-fire path: dedupe against existing images on the message so a
        *  reload/retry never burns a second generation for the same concept. */
       auto?: boolean;
+      /** People the client chose to leave out (no photo): the scene is built without them. */
+      omitPeople?: string[];
     },
   ) {
     const thread = await this.threadModel.findById(threadId);
@@ -2922,12 +2960,15 @@ Hard rules:
     // asked from the client instead of being invented by the image model.
     let referenceImageUrls = dto.referenceImageUrls;
     if (!referenceImageUrls?.length) {
-      const people = await this.subjectReferenceService.resolveSubjects({
-        title: videoContextTitle,
-        concept: `Headline: ${dto.text}. ${dto.visual || ''}`,
-        overrides: await this.photoOverrides(thread.channelId),
-        focus: 'image',
-      });
+      const omitted = new Set((dto.omitPeople || []).map((n) => n.trim().toLowerCase()));
+      const people = (
+        await this.subjectReferenceService.resolveSubjects({
+          title: videoContextTitle,
+          concept: `Headline: ${dto.text}. ${dto.visual || ''}`,
+          overrides: await this.photoOverrides(thread.channelId),
+          focus: 'image',
+        })
+      ).filter((p) => !omitted.has(String(p.name).trim().toLowerCase()));
       const missing = people.filter((p) => p.photoStatus === 'missing');
       if (missing.length) {
         this.logger.log(
@@ -2965,7 +3006,14 @@ Hard rules:
       selectedHostImage: selectedHost,
       customHostUrl: effectiveCustomHostUrl,
       logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
-      customLayoutInstructions: dto.customLayoutInstructions,
+      customLayoutInstructions: [
+        dto.customLayoutInstructions,
+        dto.omitPeople?.length
+          ? `Do not show ${dto.omitPeople.join(' or ')}; carry the same feeling with a symbolic scene (an empty chair, a closed door, a shadow) instead of drawing anyone's face`
+          : '',
+      ]
+        .filter(Boolean)
+        .join('. ') || undefined,
       excludeLogo,
       excludeHost: excludeHost === true,
       aspectRatio: resolvedAspectRatio,

@@ -369,9 +369,11 @@ class ApiClient {
       customHostUrl?: string
       /** Auto-fire path — backend dedupes against existing images on the message. */
       auto?: boolean
+      /** People to leave out (no photo): the scene is built without them. */
+      omitPeople?: string[]
     },
   ) {
-    return this.post<{ imageUrl: string; revisedPrompt: string; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[] } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
+    return this.post<{ imageUrl: string; revisedPrompt: string; inProgress?: boolean; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[] } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
   }
 
   async recomposeOverlay(

@@ -111,6 +111,50 @@ describe('legacy thumbnails never invent real people', () => {
     expect(edit).toHaveBeenCalledTimes(2);
     expect(generate).not.toHaveBeenCalled();
   });
+
+  it('builds the scene without a person the client chose to leave out', async () => {
+    const service = chatService([
+      { name: 'Latrina Ashburne', role: 'Victim', imageUrl: 'https://p/a.jpg', photoStatus: 'verified' },
+      { name: 'Matthew Hightower', role: 'Defendant', photoStatus: 'missing' },
+    ]);
+    service.openaiService.generateThumbnailImage.mockResolvedValue({
+      imageUrl: 'https://img/1.png',
+      revisedPrompt: 'p',
+    });
+    service.messageModel = undefined;
+    service.threadModel.findByIdAndUpdate = jest.fn().mockResolvedValue({});
+    const result = await service
+      .generateThumbnailImage('t', {
+        text: 'HIS PLOT',
+        visual: 'Matthew Hightower large on the left',
+        colors: '',
+        omitPeople: ['Matthew Hightower'],
+      })
+      .catch((e: Error) => ({ error: e.message }));
+    expect(result.needsPhoto).toBeUndefined();
+    const call = service.openaiService.generateThumbnailImage.mock.calls[0]?.[0];
+    expect(call.referenceImageUrls).toEqual(['https://p/a.jpg']);
+    expect(call.customLayoutInstructions).toContain('Do not show Matthew Hightower');
+  });
+
+  it('skips a duplicate auto request while the same concept is already generating', async () => {
+    const service = chatService([]);
+    let release: (v: any) => void = () => undefined;
+    service.runThumbnailGeneration = jest.fn(
+      () => new Promise((resolve) => { release = resolve; }),
+    );
+    const dto = { text: 'A', visual: 'v', colors: '', auto: true, messageId: 'm1', conceptTitle: 'Concept 1' };
+    const first = service.generateThumbnailImage('t', dto);
+    const second = await service.generateThumbnailImage('t', dto);
+    expect(second.inProgress).toBe(true);
+    expect(service.runThumbnailGeneration).toHaveBeenCalledTimes(1);
+    release({ imageUrl: 'x' });
+    await first;
+    // After it finishes the key is free again.
+    service.runThumbnailGeneration = jest.fn().mockResolvedValue({ imageUrl: 'y' });
+    await service.generateThumbnailImage('t', dto);
+    expect(service.runThumbnailGeneration).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('auto-generation follows the client asking for thumbnails', () => {

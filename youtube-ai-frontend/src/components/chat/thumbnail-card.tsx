@@ -59,6 +59,8 @@ function getColorClass(color: string): string {
   return 'bg-violet-500/20 text-violet-300 border-violet-500/30'
 }
 
+type GenerateOutcome = 'made' | 'needsPhoto' | 'inProgress' | 'failed' | 'skipped'
+
 export function ThumbnailCard({
   thumbnails,
   messageId,
@@ -131,11 +133,13 @@ export function ThumbnailCard({
       referenceImageUrls?: string[]
       /** Silent mode for auto-generation: no per-image toasts/gallery hook. */
       silent?: boolean
+      /** People the client chose to leave out because no photo exists. */
+      omitPeople?: string[]
     },
-  ) => {
+  ): Promise<GenerateOutcome> => {
     if (!activeThreadId) {
       if (!options?.silent) toast.error('No active chat thread found')
-      return
+      return 'failed'
     }
 
     const conceptTitle = `Concept ${idx + 1}`
@@ -144,7 +148,7 @@ export function ThumbnailCard({
     const excludeHost = hostImg === 'none'
 
     // Already hydrated with an image (e.g. refetch mid-flight) — never double-burn.
-    if (options?.silent && generatedImages[idx]) return
+    if (options?.silent && generatedImages[idx]) return 'skipped'
 
     try {
       setGeneratingIdxs((prev) => new Set(prev).add(idx))
@@ -167,12 +171,14 @@ export function ThumbnailCard({
         referenceImageUrls: options?.referenceImageUrls,
         messageId,
         ...(options?.silent ? { auto: true } : {}),
+        ...(options?.omitPeople?.length ? { omitPeople: options.omitPeople } : {}),
       })
 
+      if (result.inProgress) return 'inProgress'
       if (result.needsPhoto?.length) {
         setNeedsPhoto((prev) => ({ ...prev, [idx]: result.needsPhoto! }))
         if (!options?.silent) toast.info(result.message || 'A real photo is needed for this thumbnail')
-        return
+        return 'needsPhoto'
       }
       if (result.imageUrl) {
         setNeedsPhoto((prev) => {
@@ -192,13 +198,16 @@ export function ThumbnailCard({
         }))
         await dispatch(selectThread(activeThreadId)).unwrap()
         if (!options?.silent) toast.success(`Pristine Thumbnail ${conceptTitle} generated!`)
+        return 'made'
       } else if (!options?.silent) {
         toast.error('Failed to retrieve generated image URL')
       }
+      return 'failed'
     } catch (error: any) {
       // Silent (auto) failures surface one consolidated toast from the caller.
       if (!options?.silent) toast.error(error.message || 'Failed to generate thumbnail image')
       else console.warn(`Auto thumbnail ${conceptTitle} failed:`, error?.message || error)
+      return 'failed'
     } finally {
       setGeneratingIdxs((prev) => {
         const next = new Set(prev)
@@ -239,12 +248,19 @@ export function ThumbnailCard({
     Promise.allSettled(
       targets.map(({ concept, idx }) => handleGenerateImage(concept, idx, { silent: true })),
     ).then((results) => {
-      const failures = results.filter((r) => r.status === 'rejected').length
+      const outcomes = results.map((r) => (r.status === 'fulfilled' ? r.value : 'failed'))
+      const made = outcomes.filter((o) => o === 'made').length
+      const waiting = outcomes.filter((o) => o === 'needsPhoto').length
+      const failures = outcomes.filter((o) => o === 'failed').length
       if (activeThreadId) dispatch(selectThread(activeThreadId))
       if (failures > 0) {
         toast.error(`${failures} thumbnail${failures > 1 ? 's' : ''} failed — use 1-Click Generate to retry`)
-      } else {
-        toast.success('2 thumbnails generated — pick your winner!')
+      } else if (waiting > 0) {
+        toast.info(
+          `${made ? `${made} thumbnail${made > 1 ? 's' : ''} ready. ` : ''}${waiting} waiting for a photo — upload one or choose "Make it without" on the card.`,
+        )
+      } else if (made === targets.length) {
+        toast.success(made > 1 ? `${made} thumbnails generated — pick your winner!` : 'Thumbnail generated!')
       }
       onFinishGenerate?.()
     })
@@ -407,6 +423,16 @@ export function ThumbnailCard({
                   <p className="text-xs text-amber-800 dark:text-amber-300">
                     No verified public photo found for {needsPhoto[idx].map((p) => p.name).join(' and ')}. Upload a clear photo so the thumbnail shows the real person.
                   </p>
+                  <button
+                    type="button"
+                    disabled={uploadingFor !== null || generatingIdxs.has(idx)}
+                    onClick={() =>
+                      void handleGenerateImage(concept, idx, { omitPeople: needsPhoto[idx].map((p) => p.name) })
+                    }
+                    className="text-xs font-semibold text-amber-900 dark:text-amber-200 underline underline-offset-2 disabled:opacity-50"
+                  >
+                    Make it without {needsPhoto[idx].map((p) => p.name).join(' and ')}
+                  </button>
                   {needsPhoto[idx].map((person) => (
                     <label key={person.name} className="flex items-center gap-2 text-xs font-medium text-amber-900 dark:text-amber-200">
                       <span>Upload photo of {person.name}</span>

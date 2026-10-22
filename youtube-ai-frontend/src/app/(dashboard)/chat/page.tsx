@@ -1213,7 +1213,13 @@ export default function ChatPage() {
                             threadId={activeThread?.id}
                             initialScriptId={msg.metadata?.scriptId}
                             messageImages={msg.metadata?.images}
-                            autoImages={!msg.metadata?.runId && !!(msg.id || msg._id) && (msg.id || msg._id) === freshAutoMessageId}
+                            autoImages={
+                              !msg.metadata?.runId &&
+                              !!(msg.id || msg._id) &&
+                              ((msg.id || msg._id) === freshAutoMessageId ||
+                                // A refresh mid-generation: pick up a recent auto-image reply that is still missing images.
+                                (!!msg.metadata?.autoImages && Date.now() - new Date(msg.createdAt).getTime() < 15 * 60 * 1000))
+                            }
                             runId={msg.metadata?.runId}
                             onStartGenerate={(title, count = 1) => {
                               setGalleryOpen(true)

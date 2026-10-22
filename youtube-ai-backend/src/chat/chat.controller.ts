@@ -233,6 +233,7 @@ export class ChatController {
       customHostUrl?: string;
       customHostImage?: string;
       auto?: boolean;
+      omitPeople?: string[];
     },
   ) {
     return this.chatService.generateThumbnailImage(id, body);
