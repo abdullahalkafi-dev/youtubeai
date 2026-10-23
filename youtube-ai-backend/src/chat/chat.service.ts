@@ -59,6 +59,7 @@ import {
   OPENAI_NO_CREDITS_CODE,
   OPENAI_NO_CREDITS_MESSAGE,
 } from '../common/errors/openai-credits';
+import { YOUTUBE_TITLE_MAX, capChatTitle } from '../openai/prompts/title-rules';
 import {
   analyzeSpokenScript,
   closeScriptMarkers,
@@ -639,8 +640,11 @@ export class ChatService {
 
     // Phase 3: backend-rendered clip list — server-appended so the model cannot
     // drop or invent clip IDs (inserted before the model's Sources section).
-    const finalContent = this.cleanSavedScript(
-      this.appendFootagePackBlock(aiResponse.content, footagePack),
+    const finalContent = this.capSavedTitle(
+      this.cleanSavedScript(
+        this.appendFootagePackBlock(aiResponse.content, footagePack),
+        threadId,
+      ),
       threadId,
     );
 
@@ -695,6 +699,13 @@ export class ChatService {
     });
 
     return assistantMessage;
+  }
+
+  /** YouTube allows 100 characters: trim an over-long title line in a saved chat reply. */
+  private capSavedTitle(content: string, threadId: string | Types.ObjectId): string {
+    const { content: capped, changed } = capChatTitle(content);
+    if (changed) this.logger.log(`Thread ${threadId}: trimmed a chat title over ${YOUTUBE_TITLE_MAX} characters`);
+    return capped;
   }
 
   /**
@@ -1174,7 +1185,7 @@ export class ChatService {
     } finally {
       // Save response atomically — GUARANTEED to execute even on client abort/disconnect
       if (fullContent && fullContent.trim().length > 0) {
-        fullContent = this.cleanSavedScript(fullContent, threadId);
+        fullContent = this.capSavedTitle(this.cleanSavedScript(fullContent, threadId), threadId);
         try {
           const assistantMessage: Message = {
             role: 'assistant',

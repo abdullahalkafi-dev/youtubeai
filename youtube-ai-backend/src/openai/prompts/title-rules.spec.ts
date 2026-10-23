@@ -1,5 +1,6 @@
 import {
   YOUTUBE_TITLE_MAX,
+  capChatTitle,
   TITLE_CLARITY_RULE,
   cleanTitleText,
   extractAnchors,
@@ -79,5 +80,31 @@ describe('the shared rule text', () => {
     expect(TITLE_CLARITY_RULE).toContain('100 characters');
     expect(TITLE_CLARITY_RULE).toMatch(/first ~60 characters/);
     expect(TITLE_CLARITY_RULE).toMatch(/Never use "he", "she"/);
+  });
+});
+
+describe('capChatTitle', () => {
+  const long =
+    'Retired NYPD Detective Charged After Road Rage Shooting of Con Ed Worker on George Washington Bridge — What Happens To Both Families Now';
+
+  it('trims only a title line that is over 100 characters', () => {
+    const reply = `## RESEARCH\n- fact\n\n## Title\n\n**${long}**\n\n## Description\nBody text stays.`;
+    const out = capChatTitle(reply);
+    expect(out.changed).toBe(true);
+    const titleLine = out.content.split('\n').find((l) => l.startsWith('**Retired'))!;
+    expect(titleLength(titleLine.replace(/\*\*/g, ''))).toBeLessThanOrEqual(100);
+    expect(out.content).toContain('## Description\nBody text stays.');
+  });
+
+  it('leaves a short title, replies without a title and the rest of the text alone', () => {
+    const ok = '## Title\nKoran Irvine Killed on George Washington Bridge\n\n## Description\nx';
+    expect(capChatTitle(ok)).toEqual({ content: ok, changed: false });
+    expect(capChatTitle('no title here').changed).toBe(false);
+  });
+
+  it('also works for a ### TITLE heading', () => {
+    const out = capChatTitle(`### TITLE\n${long}\n**Alternates:** B`);
+    expect(out.changed).toBe(true);
+    expect(out.content).toContain('**Alternates:** B');
   });
 });

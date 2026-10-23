@@ -104,3 +104,22 @@ export function titleIsVague(title: string, anchors: Set<string>): boolean {
   if (pronounStart && !sharesAnchor) return true;
   return false;
 }
+
+/**
+ * Chat replies are free text, so the model can write a title over YouTube's limit. After the reply is
+ * saved, trim only the title line under a "## Title" / "### TITLE" heading, and only when it is too long.
+ */
+export function capChatTitle(content: string): { content: string; changed: boolean } {
+  const match = /^(#{2,3}[ \t]+Title[^\n]*\n+)([^\n]+)/im.exec(content || '');
+  if (!match) return { content, changed: false };
+  const line = match[2];
+  const bold = /^\*\*(.*)\*\*$/.exec(line.trim());
+  const inner = (bold ? bold[1] : line).trim();
+  if (titleLength(inner.replace(/\*\*/g, '')) <= YOUTUBE_TITLE_MAX) return { content, changed: false };
+  const fitted = fitTitle(inner);
+  const start = match.index + match[1].length;
+  return {
+    content: content.slice(0, start) + (bold ? `**${fitted}**` : fitted) + content.slice(start + line.length),
+    changed: true,
+  };
+}

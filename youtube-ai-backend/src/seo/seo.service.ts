@@ -28,6 +28,7 @@ import { buildChannelContext } from '../openai/prompts/context';
 import { GenerateSeoDto } from './dto/seo.dto';
 import { DEFAULT_DAILY_BATCH_SIZE, SEO_TRANSCRIPT_MAX_AGE_DAYS } from '../automation/automation.constants';
 import { shouldFetchTranscript } from './transcript-policy';
+import { fitTitle } from '../openai/prompts/title-rules';
 import { RedisService } from '../redis/redis.service';
 
 @Injectable()
@@ -333,12 +334,18 @@ export class SeoService {
         existingSeo,
       });
 
-      const cleanTitle = (result.title || '')
-        .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
-        .replace(/\*\*/g, '')
-        .trim();
+      // The engine already enforced YouTube's 100 characters and asked for one rewrite of a vague title.
+      // Daily automation must never push a generic title to a live video: if it is still vague, keep
+      // the video's current title.
+      let cleanTitle = fitTitle(result.title || '');
+      if (result.titleVague && isBatch && cleanInputTitle) {
+        this.logger.warn(
+          `[TitleCheck] ${dto.videoId}: generated title "${cleanTitle.slice(0, 80)}" is still vague; keeping the current title`,
+        );
+        cleanTitle = fitTitle(cleanInputTitle);
+      }
 
-      const { usage: _usage, ...seoData } = result;
+      const { usage: _usage, titleVague: _titleVague, ...seoData } = result;
       seoData.title = cleanTitle;
 
       // Package unity: ship two thumbnail concepts matching THIS title so the

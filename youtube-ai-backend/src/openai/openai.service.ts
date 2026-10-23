@@ -53,6 +53,15 @@ export interface CacheAlert {
 import { ThumbnailComposerService } from './thumbnail-composer.service';
 import { MinioService } from '../minio/minio.service';
 import { ThumbnailEditDecision } from './dto/thumbnail-edit-compiler.dto';
+import {
+  TITLE_CLARITY_RULE,
+  YOUTUBE_TITLE_MAX,
+  cleanTitleText,
+  extractAnchors,
+  fitTitle,
+  titleIsVague,
+  titleLength,
+} from './prompts/title-rules';
 
 @Injectable()
 export class OpenAIService {
@@ -231,6 +240,8 @@ export class OpenAIService {
     };
   }): Promise<{
     title: string;
+    /** True when the title still does not say what happened after one rewrite. */
+    titleVague?: boolean;
     description: string;
     tags: string[];
     hashtags: string[];
@@ -296,14 +307,46 @@ export class OpenAIService {
         );
       }
 
-      // 1. YouTube Title Compliance (Under 65 chars ideal, hard cap 100, strip quotes/markdown/<>)
-      let cleanTitle = (parsed.title || '')
-        .replace(/^[\*\#\"\']+|[\*\#\"\']+$/g, '')
-        .replace(/\*\*/g, '')
-        .replace(/[<>]/g, '')
-        .trim();
-      if (cleanTitle.length > 100) {
-        cleanTitle = cleanTitle.substring(0, 97).trim() + '...';
+      // 1. YouTube title compliance: the title must say what happened (names, place, plain fact) and
+      //    fit YouTube's 100 characters. One rewrite if not; a clean trim as the last resort, never "...".
+      const titleAnchors = extractAnchors(
+        params.videoTitle,
+        (params.videoDescription || '').slice(0, 800),
+        params.existingSeo?.title,
+      );
+      const titleProblems = (t: string): string[] => {
+        const found: string[] = [];
+        if (titleLength(t) > YOUTUBE_TITLE_MAX)
+          found.push(`it is ${titleLength(t)} characters and YouTube allows at most ${YOUTUBE_TITLE_MAX}`);
+        if (titleIsVague(t, titleAnchors))
+          found.push('it does not say what happened (use the person or case name, the place and the plain fact from the video details)');
+        return found;
+      };
+      let cleanTitle = cleanTitleText(parsed.title || '');
+      const firstProblems = titleProblems(cleanTitle);
+      if (firstProblems.length) {
+        try {
+          const rewritten = await this.chatFast({
+            systemPrompt: `You rewrite YouTube titles for a true-crime commentary channel.\n${TITLE_CLARITY_RULE}\nReturn ONLY the new title text, nothing else.`,
+            userMessage:
+              `Video details:\nTitle: ${params.videoTitle}\n${(params.videoDescription || '').slice(0, 600)}\n\n` +
+              `Current title: "${cleanTitle}"\nProblem: ${firstProblems.join('; ')}.\n` +
+              `Rewrite it so a stranger knows what happened, keep the same hook, and use at most ${YOUTUBE_TITLE_MAX - 3} characters.`,
+            temperature: 0.4,
+            maxCompletionTokens: 120,
+          });
+          const candidate = cleanTitleText(rewritten.split('\n')[0] || '');
+          if (candidate && titleProblems(candidate).length < firstProblems.length) cleanTitle = candidate;
+        } catch (titleErr: any) {
+          this.logger.warn(`[TitleCheck] rewrite unavailable: ${titleErr?.message || titleErr}`);
+        }
+      }
+      cleanTitle = fitTitle(cleanTitle);
+      const titleVague = titleIsVague(cleanTitle, titleAnchors);
+      if (firstProblems.length || titleVague) {
+        this.logger.log(
+          `[TitleCheck] "${cleanTitle.slice(0, 80)}" problems=[${firstProblems.join('; ')}] stillVague=${titleVague}`,
+        );
       }
 
       // 2. YouTube Tags Compliance (500 cumulative chars hard cap; enforce <= 480 chars total with delimiters)
@@ -366,6 +409,7 @@ export class OpenAIService {
 
       return {
         title: cleanTitle,
+        titleVague,
         description: cleanDescription,
         tags: compliantTags,
         hashtags: cleanHashtags,

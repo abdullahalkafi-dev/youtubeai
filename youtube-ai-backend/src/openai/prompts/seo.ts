@@ -1,3 +1,4 @@
+import { TITLE_CLARITY_RULE } from './title-rules';
 /**
  * SEO Generation Prompt Builder — v3.4 (High-Intent Title Angles, Keyword Density & Broad Tags)
  *
@@ -7,7 +8,7 @@
  *   and related series videos.
  */
 
-export const SEO_PROMPT_VERSION = 'v3.8';
+export const SEO_PROMPT_VERSION = 'v3.9';
 
 /**
  * Static system prompt — stable prefix for OpenAI caching.
@@ -27,7 +28,7 @@ STRICT PRIVACY / NEGATIVE BRANDING RULE:
 - NEVER mention, write, or include "Wainsworth", "Wainsworth Hall", or "Hall" in any title, description, tags, hashtags, bio, or content under ANY circumstances. The host and channel brand is exclusively "Unique Mecca Audio" or "Unique".
 
 STRICT TITLE RULES (DATA-DRIVEN REASONING & HIGH CTR):
-- MUST be under 65 characters so it never truncates on mobile screens (YouTube platform limit is 100 chars).
+${TITLE_CLARITY_RULE}
 - DO NOT prepend generic formulaic prefixes like "Brutal Truth:", "Dark Secret:", "Shocking Reality:", "Truth:". They lower CTR and look AI-generated.
 - DO NOT append generic ending suffixes like "Explained", "Breakdown", "Detailed Analysis".
 - SYNTACTIC REASONING OVER STATIC TEMPLATES:
@@ -171,7 +172,7 @@ export function buildSeoPrompt(params: {
     }
     userParts.push('');
     userParts.push(`REGENERATION DIRECTIVES:`);
-    userParts.push(`1. TITLE (100% NEW HOOK): Generate a BRAND NEW title with a completely different story hook or curiosity angle (switch angles: e.g., from Money hook to Scandal/Secret, Curiosity Question, or Hidden Aspect). Keep high-CTR and under 65 chars. DO NOT return the current title.`);
+    userParts.push(`1. TITLE (NEW ANGLE, SAME INCIDENT): Write a BRAND NEW title with a different hook or click angle, but keep the same person or case and say plainly what happened (who, what, where). Vary the angle (money, betrayal, consequence, a question) and never drift away from the incident into a lesson. Follow the TITLE CLARITY rules; the hard limit is 100 characters. DO NOT return the current title.`);
     userParts.push(`2. TAGS (DYNAMIC REFRESH — 50-75% NEW): Retain only core branding ("unique mecca audio") and primary subject entity (3-5 tags max). Dynamically replace 10 to 15 tags with fresh alternative search queries, co-searched topic entities, related legal terms, and misspellings. Do NOT copy the existing tag list.`);
     userParts.push(`3. DESCRIPTION (POLISHED & RESTRUCTURED): Follow the 10-Part blueprint, but re-word and restructure the narrative body with fresh prose, update takeaways, and incorporate any new series links or transcript milestones.`);
   }
@@ -321,7 +322,7 @@ export function buildSeoPrompt(params: {
 
   userParts.push('');
   userParts.push(`SUMMARY EXECUTION CHECKLIST:`);
-  userParts.push(`- Title: Under 65 chars. Must pair Subject Name WITH the specific unique story hook (Money, Sweat Equity, Scandal, etc.). NO generic "What They Didn't Show You".`);
+  userParts.push(`- Title: names the incident first (who, what, where), then the hook (Money, Sweat Equity, Scandal, etc.); as long as the incident needs, at most 100 characters, with the incident inside the first ~60. NO generic "What They Didn't Show You".`);
   userParts.push(`- Description: 10-Part Master Blueprint (Search preview + 3-5 paragraph deep breakdown + Bullet Takeaways + Host Bio + Timestamps + Series + CTAs + Official Social Links + Disclaimer + Trailing Hashtags). Total length 2,500-4,200 chars.`);
   userParts.push(`- Tags: MUST generate 15-20 tags totaling 350-450 chars (do NOT exceed 480 chars, YouTube hard limit is 500 chars), including exact entities + common misspellings + long-tail search queries + host branding ("unique mecca audio", "unique mecca audio nyc"). NEVER include private personal names ("Wainsworth" / "Hall"). NO generic filler.`);
 
