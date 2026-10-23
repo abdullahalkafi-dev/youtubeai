@@ -1,4 +1,5 @@
 import { CREATIVE_CONTRACT, THUMBNAIL_MARKDOWN } from '../studio/studio.prompts';
+import { TITLE_CLARITY_RULE } from '../../openai/prompts/title-rules';
 import { Injectable, Logger } from '@nestjs/common';
 import { ChatSkill, SkillContext } from './skill.interface';
 import { InjectModel } from '@nestjs/mongoose';
@@ -92,8 +93,9 @@ export class SkillRegistry {
 Plan a topic-specific script for 7-9 minutes (about 900-1,150 spoken words) by default; explicit duration wins and scales the word budget. Follow the shared spoken-line contract and wrap only speech in SCRIPT_START/SCRIPT_END delimiters.
 
 ### If SEO intent:
+${TITLE_CLARITY_RULE}
 ## Title
-[title concise and complete]
+[title: the incident first, then the hook]
 ## Description
 [10-part blueprint: hook + 3-5 paragraph breakdown + bullet takeaways + host bio + CTAs + social links + disclaimer + trailing #hashtags]
 ## Tags
@@ -269,7 +271,7 @@ ${generalFormat}`,
     const scriptFormat = `Deliver the requested script/package. Default duration 7-9 minutes (about 900-1,150 spoken words), explicit duration wins and scales the word budget. Plan topic-specific sections (5-6 for the default length); no fixed courtroom or family sections. Use a single emotional center.
 Wrap spoken script in <!-- SCRIPT_START --> / <!-- SCRIPT_END --> with # SCRIPT TITLE: [Topic] then numbered section headings. Follow breathable gray-rail blocks; preserve complete thoughts across short lines. Add relevant jewels and one closing CTA. Keep metadata, sources and community questions outside spoken delimiters.
 For formatting-only edits output only the revised script, preserving facts and story. If a VERIFIED TOPIC FOOTAGE PACK or LOCAL NEWS FOOTAGE PACK is supplied, do NOT re-list clip URLs; the backend appends the verified list automatically. Provide usage notes and cite only real retrieved sources.
-If full packaging is requested include one clear title, description/tags and exactly two thumbnail variants:
+If full packaging is requested include one clear title (it names the incident first, then the hook, at most 100 characters), description/tags and exactly two thumbnail variants:
 ${THUMBNAIL_MARKDOWN}`;
     this.register({
       name: 'Script Writer',
@@ -324,7 +326,7 @@ ${scriptFormat}`,
     const seoFormat = `Format your response in this exact structure:
 
 ## Title
-[Your optimized title here — concise and complete, curious, emotional]
+[Your optimized title: the incident first, then the hook, following the TITLE CLARITY rules]
 
 ## Description
 [10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags]
@@ -339,7 +341,7 @@ ${scriptFormat}`,
       category: 'seo',
       buildSystemPrompt: (channel, ctx) =>
         this.buildBasePrompt(channel, ctx) +
-        `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: concise and complete (never cut meaning to fit a character count), curious, emotional words\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${seoFormat}`,
+        `\n\nYou are an SEO optimizer for this YouTube channel. Generate optimized titles, descriptions, tags, and hashtags.\n\nRules:\n- Titles: follow the TITLE CLARITY rules below (the incident first, then the hook)\n- Descriptions: 10-Part Blueprint (Hook + 3-5 paragraph breakdown + bullet takeaways + Host Bio + CTAs + social links + disclaimer + trailing #hashtags)\n- Tags: 10-15 max, under 30 chars each\n- Hashtags: 3-5 max\n\n${TITLE_CLARITY_RULE}\n\n${seoFormat}`,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
         if (videoId) {
@@ -387,7 +389,7 @@ ${scriptFormat}`,
         () => `Format your response in this exact structure:
 
 ## Title
-[Your optimized title here — concise and complete, curious, emotional]
+[Your optimized title: the incident first, then the hook, following the TITLE CLARITY rules]
 
 ## Description
 [10-part blueprint: Search preview hook + 3-5 paragraph deep breakdown + bullet takeaways + Host Bio + CTAs + official social links + legal disclaimer + trailing #hashtags]
@@ -441,7 +443,7 @@ ${scriptFormat}`,
 [4-8 lines of concrete market evidence: which of YOUR recent winners this package mirrors (cite title + views/CTR from context), which low-CTR pattern it avoids, and any competitor demand proof with view counts. If context lacks evidence for a claim, say what data you would need instead of inventing it.]
 
 ## Title
-[ONE primary title — concise and complete. This title adds specificity to the thumbnail's clear promise. If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
+[ONE primary title that follows the TITLE CLARITY rules: the incident first, then the click. It names the same incident as both thumbnails. If the message is an audit of an existing video, this title must FIX the specific packaging problem you diagnosed in RESEARCH.]
 
 ## Description
 [Write the FULL 10-part blueprint — every element below, in order, nothing skipped:
@@ -470,7 +472,7 @@ ${THUMBNAIL_MARKDOWN}`;
       name: 'Unified Package',
       category: 'package',
       buildSystemPrompt: (channel, ctx) =>
-        this.buildBasePrompt(channel, ctx) + '\n' + CREATIVE_CONTRACT +
+        this.buildBasePrompt(channel, ctx) + '\n' + CREATIVE_CONTRACT + '\n' + TITLE_CLARITY_RULE +
         '\nFor existing videos diagnose the actual supplied metrics and packaging before proposing replacements. For new episodes use relevant channel evidence and avoid already-covered angles. Deliver one coherent package, not a menu. The title and thumbnail express the same clear promise.\n' + packageFormat,
       loadContext: async (channelId, videoId) => {
         const base = await this.loadBaseContext(channelId, videoId);
@@ -543,7 +545,7 @@ ${THUMBNAIL_MARKDOWN}`;
 [How Unique Mecca should approach this topic]
 
 ## Content Strategy
-- **Title idea:** [Suggested title]
+- **Title idea:** [Suggested title: the incident first, then the hook, up to 100 characters]
 - **Show type:** [Which of the 7 show types fits best]
 - **Hook:** [Opening line to grab attention]
 - **Differentiation:** [What makes this take different from competitors]`;

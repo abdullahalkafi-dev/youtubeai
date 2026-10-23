@@ -1,4 +1,5 @@
 import { CREATIVE_CONTRACT, THUMBNAIL_MARKDOWN } from '../../chat/studio/studio.prompts';
+import { TITLE_CLARITY_RULE } from './title-rules';
 /**
  * Chat Message Builder — v1
  *
@@ -221,11 +222,9 @@ Example structure (match this rhythm exactly):
 
 ## TITLE RULES
 
-- Make them curious
-- Use emotional words: Brutal, Dark, Shocking, Reality, Truth, Failed, Too Late
-- Keep titles concise but complete; never cut meaning to fit a character count
+${TITLE_CLARITY_RULE}
 - Include the person's name if trending
-- End with a question or consequence
+- After the incident, add the click: the twist, the stakes or a question
 
 ## THUMBNAIL RULES
 ${CREATIVE_CONTRACT}
