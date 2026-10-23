@@ -1,3 +1,4 @@
+import { YOUTUBE_TITLE_MAX } from '../../openai/prompts/title-rules';
 export type Deliverable =
   | 'script'
   | 'packaging'
@@ -209,7 +210,7 @@ export function normalizePlan(
   return input;
 }
 /** Publication limits enforced by YouTube. Characters, not words. */
-export const YOUTUBE_LIMITS = { title: 100, description: 5000, tags: 500 };
+export const YOUTUBE_LIMITS = { title: YOUTUBE_TITLE_MAX, description: 5000, tags: 500 };
 export function validatePackaging(
   pack: PackagingBrief,
   thumbnails: boolean,
