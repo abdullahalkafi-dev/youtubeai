@@ -19,6 +19,27 @@ export interface IntentClassification {
 /** Auto image generation fires only when the router is this sure about the ask. */
 export const AUTO_IMAGE_MIN_CONFIDENCE = 0.8;
 
+const THUMBNAIL_WORD = /\b(?:thumbnails?|thumbs?|cover\s*arts?)\b/i;
+/** "make / generate / give me ... a thumbnail": an explicit ask, not a passing mention. */
+const EXPLICIT_THUMBNAIL_ASK =
+  /\b(?:make|generate|create|design|redesign|build|give\s+me|show\s+me|need|want)\b[^.?!\n]{0,40}\b(?:thumbnails?|thumbs?)\b/i;
+
+/**
+ * A thumbnail is never a scene picture. The router sometimes reads "generate thumbnail" as `image`
+ * (a general chat answer with nothing rendered), so a message that names a thumbnail is moved to
+ * the thumbnail skill. Every other category is left exactly as the router chose it.
+ */
+export function guardThumbnailIntent(message: string, intent: string): string {
+  return intent === 'image' && THUMBNAIL_WORD.test(message || '') ? 'thumbnail' : intent;
+}
+
+/** Confidence for the regex fallback: an explicit thumbnail ask still earns the auto-image gate. */
+export function fallbackConfidence(message: string, intent: string): number {
+  return (intent === 'thumbnail' || intent === 'package') && EXPLICIT_THUMBNAIL_ASK.test(message || '')
+    ? 0.85
+    : 0.5;
+}
+
 const KNOWN_INTENTS = new Set([
   'general',
   'script',
@@ -49,7 +70,7 @@ CATEGORIES:
 - "trends": trending topics or what is current.
 - "competitor": what other channels are doing, content gaps.
 - "footage": the user wants REAL video clips, news clips, b-roll or footage of a person, event or topic to use in their video ("give me clips of P Diddy for the background", "find footage of the arrest", "local news for this", "b-roll for the script"). Real videos, not generated pictures.
-- "image": the user wants an AI-GENERATED picture or scene image made (not real video).
+- "image": the user wants an AI-GENERATED picture or scene image made (not real video). A THUMBNAIL is never "image": "generate thumbnail", "make the thumbnail", "make me a thumbnail" are always "thumbnail" (or "package" with a title/SEO ask).
 - "general": channel strategy, questions, chit-chat, AND topic recommendation ("what should I post next", "give me a topic suggestion") EVEN IF it mentions thumbnails or a title.
 
 RULES:
@@ -106,55 +127,66 @@ export class IntentClassifierService {
       return { intent: 'thumbnail', confidence: 0.6, source: 'fastpath' };
     }
 
-    try {
-      const llmPromise = this.openaiService.chatFast({
-        systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
-        userMessage:
-          `User message:\n"${message}"\n\n` +
-          (prev
-            ? `Previous assistant message (truncated):\n"${prev.slice(-1500)}"`
-            : 'Previous assistant message: none'),
-        temperature: 0,
-        maxCompletionTokens: 250,
-      });
-      // Swallow late rejection if the timeout race below wins.
-      llmPromise.catch(() => undefined);
+    // One retry when the model gives no usable answer (an empty reply or a timeout), before the regex fallback.
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        const llmPromise = this.openaiService.chatFast({
+          systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
+          userMessage:
+            `User message:
+"${message}"
 
-      const raw = await this.withTimeout(llmPromise, 6000);
-      const parsed = this.parseJsonSafe(raw);
-      const intent = String(parsed?.intent || '').toLowerCase();
-      if (parsed && KNOWN_INTENTS.has(intent)) {
-        const confidence = this.clamp01(Number(parsed.confidence));
-        const mode: PackageMode | undefined =
-          intent === 'package' && parsed.mode === 'audit' ? 'audit' : 'new';
-        // Footage is a retrieval ask, not a skill: a clips-only ask answers as general, and a
-        // script (or any other skill) with clips keeps its skill. Either way the footage pack is
-        // loaded and no AI image is generated for it.
-        const isFootage = intent === 'footage' || parsed.footage === true;
-        const result: IntentClassification = {
-          intent: intent === 'footage' ? 'general' : intent,
-          confidence: Number.isFinite(confidence) ? confidence : 0.7,
-          source: 'llm',
-          ...(intent === 'package' ? { mode } : {}),
-          ...(isFootage ? { footage: true } : {}),
-        };
-        this.logger.log(
-          `[Intent] "${message.slice(0, 80)}" -> ${result.intent}${
-            result.mode ? `/${result.mode}` : ''
-          } (conf ${result.confidence.toFixed(2)})`,
+` +
+            (prev
+              ? `Previous assistant message (truncated):
+"${prev.slice(-1500)}"`
+              : 'Previous assistant message: none'),
+          temperature: 0,
+          maxCompletionTokens: 250,
+        });
+        // Swallow late rejection if the timeout race below wins.
+        llmPromise.catch(() => undefined);
+
+        const raw = await this.withTimeout(llmPromise, 6000);
+        const parsed = this.parseJsonSafe(raw);
+        const intent = String(parsed?.intent || '').toLowerCase();
+        if (parsed && KNOWN_INTENTS.has(intent)) {
+          const confidence = this.clamp01(Number(parsed.confidence));
+          const finalIntent = guardThumbnailIntent(message, intent === 'footage' ? 'general' : intent);
+          const mode: PackageMode | undefined =
+            finalIntent === 'package' && parsed.mode === 'audit' ? 'audit' : 'new';
+          // Footage is a retrieval ask, not a skill: a clips-only ask answers as general, and a
+          // script (or any other skill) with clips keeps its skill. Either way the footage pack is
+          // loaded and no AI image is generated for it.
+          const isFootage = intent === 'footage' || parsed.footage === true;
+          const result: IntentClassification = {
+            intent: finalIntent,
+            confidence: Number.isFinite(confidence) ? confidence : 0.7,
+            source: 'llm',
+            ...(finalIntent === 'package' ? { mode } : {}),
+            ...(isFootage ? { footage: true } : {}),
+          };
+          this.logger.log(
+            `[Intent] "${message.slice(0, 80)}" -> ${result.intent}${
+              result.mode ? `/${result.mode}` : ''
+            } (conf ${result.confidence.toFixed(2)})`,
+          );
+          return result;
+        }
+        this.logger.warn(
+          `[Intent] Unusable LLM routing result (attempt ${attempt}): ${raw?.slice(0, 200)}`,
         );
-        return result;
+      } catch (err: any) {
+        this.logger.warn(
+          `[Intent] LLM routing failed (attempt ${attempt}): ${err?.message || err}`,
+        );
       }
-      this.logger.warn(`[Intent] Unusable LLM routing result: ${raw?.slice(0, 200)}`);
-    } catch (err: any) {
-      this.logger.warn(
-        `[Intent] LLM routing failed, regex fallback: ${err?.message || err}`,
-      );
     }
 
+    const fallbackIntent = this.skillRegistry.classifyIntent(message, prev);
     return {
-      intent: this.skillRegistry.classifyIntent(message, prev),
-      confidence: 0.5,
+      intent: fallbackIntent,
+      confidence: fallbackConfidence(message, fallbackIntent),
       source: 'fallback',
     };
   }

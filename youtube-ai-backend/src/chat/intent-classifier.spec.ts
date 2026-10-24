@@ -189,4 +189,49 @@ describe('IntentClassifierService', () => {
     expect(result.intent).toBe('script');
     expect(result.footage).toBeUndefined();
   });
+  describe('thumbnail asks (client chat, 23 Oct)', () => {
+    it('"generate thumbnail" is never routed as an AI image', async () => {
+      const svc = makeClassifier(() => JSON.stringify({ intent: 'image', confidence: 0.91 }));
+      const result = await svc.classify({
+        message: 'generate thumbnail',
+        previousAssistantMessage: 'Use this uploaded photo in Concept 1.',
+      });
+      expect(result.intent).toBe('thumbnail');
+      expect(result.confidence).toBeCloseTo(0.91);
+    });
+
+    it('a real scene-image ask stays an image', async () => {
+      const svc = makeClassifier(() => JSON.stringify({ intent: 'image', confidence: 0.9 }));
+      const result = await svc.classify({ message: 'make me a cinematic prison hallway picture' });
+      expect(result.intent).toBe('image');
+    });
+
+    it('a thumbnail ask that the router calls general is left to the router', async () => {
+      const svc = makeClassifier(() => JSON.stringify({ intent: 'general', confidence: 0.8 }));
+      const result = await svc.classify({ message: 'what should I post next and what thumbnail style works' });
+      expect(result.intent).toBe('general');
+    });
+
+    it('retries once when the model returns nothing, then uses the answer', async () => {
+      const answers = ['', JSON.stringify({ intent: 'thumbnail', confidence: 0.95 })];
+      const svc = makeClassifier(() => answers.shift() as string);
+      const result = await svc.classify({ message: 'generate me a thumbnail and here is the picture' });
+      expect(result.intent).toBe('thumbnail');
+      expect(result.source).toBe('llm');
+    });
+
+    it('after two empty answers an explicit thumbnail ask keeps enough confidence to auto-generate', async () => {
+      const svc = makeClassifier(() => '');
+      const result = await svc.classify({ message: 'generate me a thumbnail and here is the picture of John Gotti' });
+      expect(result.source).toBe('fallback');
+      expect(result.intent).toBe('thumbnail');
+      expect(result.confidence).toBeGreaterThanOrEqual(0.8);
+    });
+
+    it('a vague fallback stays below the auto-image gate', async () => {
+      const svc = makeClassifier(() => '');
+      const result = await svc.classify({ message: 'thoughts on thumbnails in general?' });
+      expect(result.confidence).toBeLessThan(0.8);
+    });
+  });
 });
