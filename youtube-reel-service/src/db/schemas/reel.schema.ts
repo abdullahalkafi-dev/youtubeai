@@ -126,7 +126,7 @@ export class Reel {
   @Prop() thumbnailChoice?: string;
   @Prop() thumbnailsVersion?: string;
   /** How the render paced the reel: speed/voice and the pauses cut (reel-timeline seconds). */
-  @Prop({ type: Object }) timing?: { speed: number; voice: string; semitones?: number; cuts: Array<[number, number]>; plannedSec: number; fx?: { punch: boolean; join: boolean; whoosh: boolean; bar: boolean } | null; realign?: { ok: boolean; coverage?: number; maxShiftSec?: number; reason?: string } | null; sfx?: { kind: string; tail: number } | null };
+  @Prop({ type: Object }) timing?: { speed: number; voice: string; semitones?: number; cuts: Array<[number, number]>; plannedSec: number; fx?: { punch: boolean; join: boolean; whoosh: boolean; bar: boolean } | null; realign?: { ok: boolean; coverage?: number; maxShiftSec?: number; reason?: string } | null; sfx?: { name: string; tail: number } | null };
   @Prop({ type: Object }) qa?: { loudnessLufs?: number; width?: number; height?: number; warnings: string[] };
 
   @Prop({ default: 0 }) renderAttempts: number;

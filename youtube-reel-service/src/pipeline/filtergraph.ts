@@ -1,6 +1,6 @@
 import type { ReelTemplate } from './template';
 import type { Voice } from './timeline';
-import { sfxChain, type EndSfx } from './sfx';
+import { sfxChain } from './sfx';
 
 export interface RenderClipInput {
   /** Path or URL of the source video. */
@@ -137,7 +137,7 @@ export function renderGraph(input: {
   images?: RenderImageInput[];
   fx?: RenderFx;
   /** Ending sound: a tail is added after the last word and the sound plays in it. */
-  sfx?: (EndSfx & { volume: number }) | null;
+  sfx?: { inputIndex: number; duration: number; tail: number; volume: number } | null;
 }): string {
   const { template: t, clips } = input;
   const { w, h, x, y } = t.window;
@@ -234,7 +234,7 @@ export function renderGraph(input: {
     parts.push(`[ac]${ln},${fmt}${tail > 0 ? `,apad=pad_dur=${n(tail)}` : ''}[avo]`);
     const mix = ['[avo]'];
     if (input.sfx) {
-      parts.push(sfxChain(input.sfx.kind, input.totalDuration + 0.04, input.sfx.volume, 'sfx'));
+      parts.push(sfxChain(input.sfx.inputIndex, input.sfx.duration, input.totalDuration + 0.04, input.sfx.volume, 'sfx'));
       mix.push('[sfx]');
     }
     (whooshes ? flashAt : []).forEach((at, j) => {

@@ -21,7 +21,7 @@ import { TemplateStoreService } from './template-store.service';
 import { VisualsService } from './visuals.service';
 import { ThumbnailService } from './thumbnail.service';
 import { AiService } from '../ai/ai.service';
-import { endSfxFor, EndSfx, pickSfx } from './sfx';
+import { EndSfx, resolveSfxFile, tailFor } from './sfx';
 import { captionsInSilence, ClipSpan, parseSilences, realignWords } from './word-align';
 
 export interface RenderResult {
@@ -130,7 +130,7 @@ export class RendererService {
         pace: this.pace(),
         images,
         fx: this.fx(),
-        sfx: this.endSfx(reel),
+        sfx: await this.endSfx(),
       });
 
       const lowRes = srcs.filter((s) => s.height && s.height < 720).map((s) => `${s.youtubeId} is ${s.height}p`);
@@ -156,7 +156,7 @@ export class RendererService {
               plannedSec: result.timeline.reelDuration,
               fx: result.fx,
               realign: result.realign,
-              sfx: result.sfx,
+              sfx: result.sfx ? { name: result.sfx.name, tail: result.sfx.tail } : null,
             },
             assets: { videoKey: `${prefix}/reel.mp4`, coverKey: `${prefix}/cover.jpg`, srtKey: `${prefix}/captions.srt`, sizeBytes: size },
             qa: {
@@ -191,10 +191,21 @@ export class RendererService {
     };
   }
 
-  /** The ending sound for a reel, chosen from what it is about; null when switched off. */
-  endSfx(reel: { concept?: string; angle?: string; hookText?: string; payoffText?: string; themes?: string[]; packaging?: { title?: string } | null }): EndSfx | null {
+  /** The ending sound (one recorded file for every reel); null when switched off or the file is missing. */
+  async endSfx(): Promise<EndSfx | null> {
     if (!this.cfg.REEL_END_SFX) return null;
-    return endSfxFor(pickSfx(reel.packaging?.title, reel.concept, reel.hookText, reel.payoffText, reel.themes));
+    const file = resolveSfxFile(this.cfg.assetsDir, this.cfg.REEL_END_SFX_FILE);
+    if (!file) {
+      this.logger.warn(`Ending sound "${this.cfg.REEL_END_SFX_FILE}" not found; rendering without it`);
+      return null;
+    }
+    try {
+      const meta = await probeMedia(this.cfg.FFPROBE_BIN, file);
+      return { name: path.basename(file), file, duration: meta.duration, tail: tailFor(meta.duration) };
+    } catch (err: any) {
+      this.logger.warn(`Ending sound unreadable (${err.message}); rendering without it`);
+      return null;
+    }
   }
 
   /** The visual rhythm applied to every reel (env-controlled; whoosh needs the topic-change flash). */
@@ -302,8 +313,9 @@ export class RendererService {
         '-i',
         'canvas.png',
         ...imageInputArgs(images),
+        ...(input.sfx ? ['-i', input.sfx.file] : []),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx, sfx: input.sfx ? { ...input.sfx, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx, sfx: input.sfx ? { inputIndex: clips.length + 1 + images.length, duration: input.sfx.duration, tail: input.sfx.tail, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
         '-map',
         '[vout]',
         '-map',

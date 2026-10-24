@@ -83,9 +83,11 @@ const EnvSchema = z.object({
   REEL_PAUSE_MIN_GAP_MS: int(450),
   // Measure word times on the reel's own audio (one short transcription per render) so cuts, captions and pictures sit on the voice.
   REEL_STT_REALIGN: bool(true),
-  // Ending sound effect (synthesized in the render, nothing licensed): a short tail after the last word plays it.
+  // Ending sound effect: one recorded, license-free file (assets/sfx) plays in a short tail after the last word.
   REEL_END_SFX: bool(true),
-  REEL_END_SFX_VOLUME: str('0.55').transform((v) => parseFloat(v)).pipe(z.number().min(0.1).max(1)),
+  // The sound file: a name inside assets/sfx (or an absolute path). Replace the file or change this to change the sound.
+  REEL_END_SFX_FILE: str('end.wav'),
+  REEL_END_SFX_VOLUME: str('0.7').transform((v) => parseFloat(v)).pipe(z.number().min(0.1).max(1)),
   // Visual rhythm (none of these changes a clip length): punch-in on jump cuts, flash + settle (+ whoosh) at topic changes, progress line.
   REEL_FX_PUNCH: bool(true),
   REEL_FX_JOIN: bool(true),
