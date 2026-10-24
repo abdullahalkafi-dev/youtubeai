@@ -11,6 +11,7 @@ import { ReelDailyRun, ReelDailyRunDocument } from '../db/schemas/reel-daily-run
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
 import { buildDailyTopicUser, DAILY_TOPIC_SYSTEM, DailyTopicResult, DailyTopicSchema } from '../prompts/daily-topic.prompt';
 import { AnalyticsService } from '../publishing/analytics.service';
+import { DEFAULT_SLOTS, freeSlots, lockAt, slot12 } from '../publishing/auto-plan';
 import { LearningService } from '../publishing/learning.service';
 import { QueueService } from '../queue/queue.service';
 import { BrainCandidate, CandidateEvidence, MAX_FALLBACKS, MIN_MAIN_MOMENTS, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
@@ -434,6 +435,15 @@ export class DailyService {
     else if (recentRuns[0]?.status === 'failed') notes.push({ level: 'error', code: 'last-failed', message: `Yesterday's daily run failed: ${recentRuns[0].reason ?? 'unknown reason'}` });
     const failedCamp = await this.campaigns.findOne({ channelId: cid, origin: 'daily', status: 'failed', createdAt: { $gte: new Date(Date.now() - 3 * 86_400_000) } }).select('error').lean();
     if (failedCamp && /credits/i.test(failedCamp.error ?? '')) notes.push({ level: 'error', code: 'credits', message: 'OpenAI credits ran out while a daily campaign was running. Add credits and retry.' });
+    // After the 7 AM lock every posting time of the day should have a reel; say so when it does not.
+    const auto = await this.settings.findOne({ key: `autopublish:${channelId}` }).lean();
+    if (auto?.value?.enabled && !auto.value.pausedReason) {
+      const date = nyDate();
+      const day = await this.campaigns.db.collection('reel_autopublish_days').findOne({ channelId: cid, date });
+      const empty = freeSlots({ date, now: new Date(), slots: auto.value.slots ?? DEFAULT_SLOTS, extraSlots: auto.value.extraSlots ?? [], taken: (day?.items ?? []).map((i: { slot: string }) => i.slot), spacingMin: auto.value.spacingMin ?? 60 });
+      if (Date.now() >= lockAt(date).getTime() && empty.length)
+        notes.push({ level: 'warn', code: 'short-day', message: `${empty.length} of today's posting times (${empty.map(slot12).join(', ')}) still have no reel: there were not enough good finished reels. The stock is used first; more reels are being made.` });
+    }
     return notes.filter((n, i, a) => a.findIndex((x) => x.code === n.code) === i);
   }
 

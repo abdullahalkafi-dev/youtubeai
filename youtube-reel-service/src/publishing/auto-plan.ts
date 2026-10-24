@@ -42,6 +42,14 @@ export const DEFAULT_AUTO_SETTINGS: AutoSettings = {
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const validSlot = (s: string) => HHMM.test(s);
 
+/** "20:00" -> "8:00 PM" (everything the client reads uses the 12-hour clock). */
+export function slot12(hhmm: string): string {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(hhmm).trim());
+  if (!m) return String(hhmm);
+  const h = Number(m[1]);
+  return `${h % 12 === 0 ? 12 : h % 12}:${m[2]} ${h >= 12 ? 'PM' : 'AM'}`;
+}
+
 /**
  * Reads a time the way people write it ("8:00 AM", "9pm", "20:00") and returns "HH:mm" (24-hour, how slots are stored),
  * or null when it is not a time.
