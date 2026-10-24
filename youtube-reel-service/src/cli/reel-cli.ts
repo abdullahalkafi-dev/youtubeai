@@ -59,12 +59,8 @@ async function main() {
         const cat = await app.get(LanesService).catalog(new Types.ObjectId(args[0]));
         const show = (v: any) => `${v.publishedAt?.toISOString().slice(0, 10)} ${String(v.views).padStart(7)} views, ${v.analyzed ? 'analyzed' : 'not analyzed'}, ${v.strongMoments} strong moments: ${v.title}`;
         console.log('videos:', cat.length, '| analyzed:', cat.filter((v) => v.analyzed).length);
-        console.log('FRESH
-' + pickFresh(cat, new Date(), 3).map(show).join('
-'));
-        console.log('BANK
-' + pickBank(cat, new Date(), 3).map(show).join('
-'));
+        console.log('FRESH'); for (const v of pickFresh(cat, new Date(), 3)) console.log('  ' + show(v));
+        console.log('BANK'); for (const v of pickBank(cat, new Date(), 3)) console.log('  ' + show(v));
         break;
       }
       case 'lanes:create': {
