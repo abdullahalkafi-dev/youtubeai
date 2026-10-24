@@ -15,11 +15,15 @@ import { LearningService } from '../publishing/learning.service';
 import { QueueService } from '../queue/queue.service';
 import { BrainCandidate, CandidateEvidence, MAX_FALLBACKS, MIN_MAIN_MOMENTS, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
 import { freeDiskGb } from './media';
+import { LanesService } from './lanes.service';
 import { isBrandEntity, PillarService } from './pillars.service';
 import { matchTrend, SignalsService, TREND_USABLE_HOURS, velocityShareFor } from './signals.service';
 
 export { DAILY_TZ, nyDate };
 export const DAILY_HOUR = 4;
+/** Reels asked of the two topic lanes (the new-video and best-of-old lanes add to these). */
+export const MAIN_TOPIC_REELS = 3;
+export const EXPLORE_TOPIC_REELS = 2;
 
 /** Next 4:00 AM New York (handles daylight-saving changes: NY offsets are whole hours). */
 export function nextDailyRun(from = new Date()): Date {
@@ -63,6 +67,7 @@ export class DailyService {
     private readonly pillars: PillarService,
     private readonly signals: SignalsService,
     private readonly learning: LearningService,
+    private readonly lanes: LanesService,
   ) {}
 
   async isEnabled(channelId: string): Promise<boolean> {
@@ -129,7 +134,10 @@ export class DailyService {
     try {
       const decision = await this.decide(cid, date);
       if (!decision.main) return skip('Not enough matching footage for any topic today', { candidates: decision.candidates, degraded: decision.degraded });
-      const { main, explore, mainReels, exploreReels } = decision;
+      // The topic lanes are capped (the footage-first lanes below add to them): about three reels on the main topic and two on a second one.
+      const { main, explore } = decision;
+      const mainReels = Math.min(decision.mainReels, MAIN_TOPIC_REELS);
+      const exploreReels = Math.min(decision.exploreReels, EXPLORE_TOPIC_REELS);
       const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
       const make = (t: ScoredCandidate, reels: number, track: 'main' | 'explore', parent?: Types.ObjectId) =>
@@ -170,7 +178,12 @@ export class DailyService {
           },
         },
       );
-      this.logger.log(`Daily ${date} for ${channelId}: main "${main.c.name}" (${mainReels} reels, score ${main.score})${explore ? `, explore "${explore.c.name}" (${exploreReels} reels, ${explore.exploreScore})` : ''} → campaign ${campaign._id}`);
+      // Footage-first lanes: the newest videos, and (when the stock is low) the best of the older ones.
+      const lanes = await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => {
+        this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`);
+        return [];
+      });
+      this.logger.log(`Daily ${date} for ${channelId}: main "${main.c.name}" (${mainReels} reels, score ${main.score})${explore ? `, explore "${explore.c.name}" (${exploreReels} reels, ${explore.exploreScore})` : ''} → campaign ${campaign._id}${lanes.length ? `; lanes: ${lanes.map((l) => l.track).join(', ')}` : ''}`);
       return this.runs.findById(run._id).lean();
     } catch (err) {
       await this.runs.updateOne({ _id: run._id }, { $set: { status: 'failed', reason: errMsg(err).slice(0, 300) } });

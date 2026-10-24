@@ -21,6 +21,7 @@ import { ImageGenService } from './ai/image-gen.service';
 import { VisualsService } from './pipeline/visuals.service';
 import { ThumbnailService } from './pipeline/thumbnail.service';
 import { DailyService } from './pipeline/daily.service';
+import { LanesService } from './pipeline/lanes.service';
 import { PillarService } from './pipeline/pillars.service';
 import { SignalsService } from './pipeline/signals.service';
 import { GoogleTokenProvider } from './publishing/google-token.provider';
@@ -53,6 +54,7 @@ const providers = [
   ThumbnailService,
   PillarService,
   SignalsService,
+  LanesService,
   DailyService,
   // publishing (manual, YouTube first)
   PublisherRegistry,

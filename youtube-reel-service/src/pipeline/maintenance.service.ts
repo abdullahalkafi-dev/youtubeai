@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AutoPublishService } from '../publishing/auto-publish.service';
+import { LanesService } from './lanes.service';
 import { LearningService } from '../publishing/learning.service';
 import { DailyService } from './daily.service';
 import { InjectModel } from '@nestjs/mongoose';
@@ -43,6 +44,7 @@ export class MaintenanceService {
     private readonly daily: DailyService,
     private readonly autoPublish: AutoPublishService,
     private readonly learning: LearningService,
+    private readonly lanes: LanesService,
   ) {}
 
   async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'weekly-review') {
@@ -72,6 +74,11 @@ export class MaintenanceService {
       await this.daily.rescue();
     } catch (err) {
       this.logger.warn(`Daily rescue failed: ${errMsg(err)}`);
+    }
+    try {
+      await this.lanes.analyzeNewUploads(); // new uploads become reel material the same day (checked at most every 45 minutes)
+    } catch (err) {
+      this.logger.warn(`New-upload analysis failed: ${errMsg(err)}`);
     }
     const session = await this.session.state();
     // Re-login happened → release blocked sources.

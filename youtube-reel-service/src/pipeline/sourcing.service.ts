@@ -253,6 +253,26 @@ export class SourcingService {
     }));
   }
 
+  /** Footage-first lanes: the sources are exactly the videos chosen for the campaign (its seed videos), in order. */
+  async fromSeeds(campaign: ReelCampaignDocument): Promise<CampaignSourceRef[]> {
+    const catalog = await this.loadCatalog(campaign.channelId);
+    const byId = new Map(catalog.map((v) => [v.youtubeId, v]));
+    const chosen = (campaign.settings.seedVideoIds ?? []).map((yt) => byId.get(yt)).filter((v): v is CatalogItem => !!v);
+    if (!chosen.length) throw new Error('None of the chosen videos is available');
+    const ready = new Set((await this.sources.find({ youtubeId: { $in: chosen.map((c) => c.youtubeId) }, stage: 'ready', minedVersion: MINING_VERSION }).select('youtubeId').lean()).map((s) => s.youtubeId));
+    return chosen.map((c) => ({
+      youtubeId: c.youtubeId,
+      videoId: String(c._id),
+      title: c.title,
+      viewCount: c.viewCount,
+      durationSec: c.durationSec,
+      publishedAt: c.publishedAt,
+      reason: 'Chosen for this lane',
+      fromBank: ready.has(c.youtubeId),
+      status: 'pending' as const,
+    }));
+  }
+
   campaignQueryText(brief: string, research: ResearchResult): string {
     return [
       brief,

@@ -18,6 +18,8 @@ import { ReelSource } from '../db/schemas/reel-source.schema';
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ensureDir } from '../pipeline/media';
+import { LanesService } from '../pipeline/lanes.service';
+import { nyDate } from '../common/time';
 
 /**
  * Operator CLI (run inside the reel-worker container):
@@ -29,6 +31,9 @@ import { ensureDir } from '../pipeline/media';
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
  *   node dist/cli/reel-cli.js render:refresh <sinceDate YYYY-MM-DD> [--apply]   (re-render the NOT-posted reels of campaigns created since that date, e.g. after a template change; dry run without --apply)
+ *   node dist/cli/reel-cli.js lanes:preview <channelId>   (which videos the new-video and best-of-old lanes would use today; creates nothing)
+ *   node dist/cli/reel-cli.js lanes:create <channelId> <userId>   (create today's new-video / best-of-old campaigns now, if they do not exist)
+ *   node dist/cli/reel-cli.js uploads:check   (queue analysis of new uploads now)
  *   node dist/cli/reel-cli.js render:local <video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
  */
 async function main() {
@@ -47,6 +52,28 @@ async function main() {
       case 'cookies:import': {
         const text = fs.readFileSync(path.resolve(args[0]), 'utf8');
         console.log(JSON.stringify(await app.get(YouTubeSessionService).saveCookies(text)));
+        break;
+      }
+      case 'lanes:preview': {
+        const { pickBank, pickFresh } = await import('../pipeline/lanes');
+        const cat = await app.get(LanesService).catalog(new Types.ObjectId(args[0]));
+        const show = (v: any) => `${v.publishedAt?.toISOString().slice(0, 10)} ${String(v.views).padStart(7)} views, ${v.analyzed ? 'analyzed' : 'not analyzed'}, ${v.strongMoments} strong moments: ${v.title}`;
+        console.log('videos:', cat.length, '| analyzed:', cat.filter((v) => v.analyzed).length);
+        console.log('FRESH
+' + pickFresh(cat, new Date(), 3).map(show).join('
+'));
+        console.log('BANK
+' + pickBank(cat, new Date(), 3).map(show).join('
+'));
+        break;
+      }
+      case 'lanes:create': {
+        const made = await app.get(LanesService).createForDay(new Types.ObjectId(args[0]), nyDate(), new Types.ObjectId(args[1]));
+        console.log(JSON.stringify(made));
+        break;
+      }
+      case 'uploads:check': {
+        console.log('queued for analysis:', await app.get(LanesService).analyzeNewUploads(true));
         break;
       }
       case 'session:check': {

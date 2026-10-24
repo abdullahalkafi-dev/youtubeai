@@ -29,6 +29,8 @@ export interface CampaignSettings {
   seedVideoIds: string[]; // youtube ids the user explicitly wants used
   /** origin 'video': the uploaded source this campaign is built from. */
   uploadSourceId?: string;
+  /** Footage-first daily lanes: the videos in seedVideoIds ARE the sources (no web research, no topic search). */
+  lane?: 'fresh' | 'bank';
 }
 
 export interface CandidateLedgerEntry {

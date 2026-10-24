@@ -69,3 +69,35 @@ describe('choosing reels for the empty slots', () => {
     expect(chooseReels({ need: 3, fresh: [], stock: [], useStock: true, plannedEntities: [] })).toEqual([]);
   });
 });
+
+describe('the daily mix', () => {
+  const r = (id: string, score: number, track?: string, entities: string[] = []): PlanReel => ({ id, score, entities, track, createdAt: 0 });
+
+  it('two from the new videos, two from the topic of the day, one explore, whatever the scores', () => {
+    const fresh = [r('f1', 70, 'fresh'), r('f2', 68, 'fresh'), r('f3', 99, 'fresh'), r('m1', 90, 'main'), r('m2', 88, 'main'), r('m3', 87, 'main'), r('e1', 60, 'explore'), r('e2', 59, 'explore')];
+    const out = chooseReels({ need: 5, fresh, stock: [], useStock: true, plannedEntities: [] });
+    const lanes = out.map((x) => x.track);
+    expect(lanes.filter((t) => t === 'fresh')).toHaveLength(2);
+    expect(lanes.filter((t) => t === 'main')).toHaveLength(2);
+    expect(lanes.filter((t) => t === 'explore')).toHaveLength(1);
+    // the best of each lane
+    expect(out.map((x) => x.id).sort()).toEqual(['e1', 'f1', 'f3', 'm1', 'm2'].sort());
+  });
+
+  it('lanes already planned today count against the mix', () => {
+    const fresh = [r('f1', 70, 'fresh'), r('m1', 90, 'main'), r('m2', 88, 'main'), r('m3', 87, 'main')];
+    const out = chooseReels({ need: 2, fresh, stock: [], useStock: true, plannedEntities: [], plannedTracks: ['fresh', 'fresh', 'main'] });
+    expect(out.map((x) => x.id)).toEqual(['m1', 'm2']);
+  });
+
+  it('a lane with nothing in it does not hold a slot: the rest are filled by score, then from the stock', () => {
+    const out = chooseReels({ need: 5, fresh: [r('m1', 90, 'main'), r('m2', 88, 'main')], stock: [r('s1', 95), r('s2', 80), r('s3', 79)], useStock: true, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['m1', 'm2', 's1', 's2', 's3']);
+  });
+
+  it('the person limit still applies inside the mix', () => {
+    const fresh = [r('f1', 90, 'fresh', ['diddy']), r('f2', 89, 'fresh', ['diddy']), r('f3', 88, 'fresh', ['diddy'])];
+    const out = chooseReels({ need: 3, fresh, stock: [], useStock: true, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['f1', 'f2', 'f3']); // relaxed by one only because nothing else exists
+  });
+});

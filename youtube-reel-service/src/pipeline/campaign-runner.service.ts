@@ -11,6 +11,11 @@ import { ComposerService } from './composer.service';
 import { ResearchService } from './research.service';
 import { SourcingService } from './sourcing.service';
 
+/** A footage-first campaign has no web research: just its brief, so the director sees what the reels are for. */
+export function laneResearch(brief: string): ResearchResult {
+  return { topicSummary: brief, primaryEntities: [], angles: [], hookPatterns: [], externalExamples: [], audienceQuestions: [], catalogKeywords: [], avoid: [] };
+}
+
 /** Worker-side handlers for the campaign steps: research → source → (prepare) → compose. */
 @Injectable()
 export class CampaignRunnerService {
@@ -36,9 +41,11 @@ export class CampaignRunnerService {
   }
 
   private async stepResearch(campaignId: string) {
-    const c = await this.orchestrator.transition(campaignId, ['queued', 'researching'], 'researching', 'Researching what is working online right now');
+    const lane = (await this.campaigns.findById(campaignId).select('settings.lane').lean())?.settings?.lane;
+    const c = await this.orchestrator.transition(campaignId, ['queued', 'researching'], 'researching', lane ? 'Using the chosen videos (no topic search)' : 'Researching what is working online right now');
     if (!c) return;
-    const research = await this.research.research(c);
+    // Footage-first lanes start from the videos themselves: nothing to research on the web.
+    const research = lane ? laneResearch(c.brief) : await this.research.research(c);
     await this.campaigns.updateOne({ _id: c._id }, { $set: { research } });
     const moved = await this.orchestrator.transition(campaignId, ['researching'], 'sourcing', 'Finding the best source videos in the catalog');
     if (moved) await this.queues.campaign('source', campaignId);
@@ -47,7 +54,12 @@ export class CampaignRunnerService {
   private async stepSource(campaignId: string) {
     const c = await this.campaigns.findOne({ _id: campaignId, status: 'sourcing' });
     if (!c) return;
-    const refs = c.origin === 'video' && c.settings.uploadSourceId ? await this.uploadRefs(c.settings.uploadSourceId) : await this.sourcing.select(c, c.research as ResearchResult);
+    const refs =
+      c.origin === 'video' && c.settings.uploadSourceId
+        ? await this.uploadRefs(c.settings.uploadSourceId)
+        : c.settings.lane
+          ? await this.sourcing.fromSeeds(c)
+          : await this.sourcing.select(c, c.research as ResearchResult);
     await this.campaigns.updateOne({ _id: c._id }, { $set: { sources: refs } });
     const reused = refs.filter((r) => r.fromBank).length;
     const moved = await this.orchestrator.transition(

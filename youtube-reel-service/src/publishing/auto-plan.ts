@@ -98,6 +98,8 @@ export function pickSlots(input: { date: string; now: Date; count: number; slots
 /** From this New York time the day is locked: whatever is still empty is filled from the stock of finished reels. */
 export const LOCK_TIME = '07:00';
 export const lockAt = (date: string) => nyToUtc(date, LOCK_TIME);
+/** The daily mix the client asked for: up to 2 reels from the newest videos, 2 from the topic of the day, 1 from a second topic; the rest by score. */
+export const DAILY_MIX: Array<[string, number]> = [['fresh', 2], ['main', 2], ['explore', 1]];
 /** No more than this many reels about the same person in one day (the channel's own name is not a person). */
 export const MAX_PER_PERSON = 2;
 
@@ -120,6 +122,8 @@ export interface PlanReel {
   /** People in the reel (slugs). */
   entities: string[];
   createdAt?: number;
+  /** The lane the reel came from (fresh, main, explore, bank, best); stock reels have none. */
+  track?: string;
 }
 
 /**
@@ -135,6 +139,9 @@ export function chooseReels(input: {
   plannedEntities: string[][];
   ignore?: (slug: string) => boolean;
   maxPerPerson?: number;
+  /** Lanes already used today (their reels count against the mix). */
+  plannedTracks?: string[];
+  mix?: Array<[string, number]>;
 }): Array<PlanReel & { source: 'fresh' | 'stock' }> {
   const ignore = input.ignore ?? (() => false);
   const people = (r: { entities: string[] }) => [...new Set(r.entities.filter((e) => !ignore(e)))];
@@ -147,13 +154,28 @@ export function chooseReels(input: {
   const count = new Map<string, number>();
   for (const e of input.plannedEntities.flatMap((x) => [...new Set(x.filter((y) => !ignore(y)))])) count.set(e, (count.get(e) ?? 0) + 1);
   const base = input.maxPerPerson ?? MAX_PER_PERSON;
+  const allowed = (r: PlanReel, cap: number) => !people(r).some((e) => (count.get(e) ?? 0) >= cap);
+  const take = (r: PlanReel & { source: 'fresh' | 'stock' }) => {
+    picked.push(r);
+    for (const e of people(r)) count.set(e, (count.get(e) ?? 0) + 1);
+  };
+  // The mix first: the best reels of each lane up to its share (counting lanes already planned today).
+  const usedTracks = new Map<string, number>();
+  for (const t of input.plannedTracks ?? []) usedTracks.set(t, (usedTracks.get(t) ?? 0) + 1);
+  for (const [lane, share] of input.mix ?? DAILY_MIX) {
+    for (const r of pool) {
+      if (picked.length >= input.need || (usedTracks.get(lane) ?? 0) >= share) break;
+      if (r.source !== 'fresh' || r.track !== lane || picked.includes(r) || !allowed(r, base)) continue;
+      take(r);
+      usedTracks.set(lane, (usedTracks.get(lane) ?? 0) + 1);
+    }
+  }
   for (const cap of [base, base + 1]) {
     for (const r of pool) {
       if (picked.length >= input.need) break;
       if (picked.includes(r)) continue;
-      if (people(r).some((e) => (count.get(e) ?? 0) >= cap)) continue;
-      picked.push(r);
-      for (const e of people(r)) count.set(e, (count.get(e) ?? 0) + 1);
+      if (!allowed(r, cap)) continue;
+      take(r);
     }
   }
   return picked;

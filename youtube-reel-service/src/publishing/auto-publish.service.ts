@@ -259,7 +259,7 @@ export class AutoPublishService {
             }
             continue;
           }
-          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId });
+          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined });
         }
         return good;
       };
@@ -268,7 +268,7 @@ export class AutoPublishService {
       // The stock is only used after the lock, and only for as many slots as are still empty after today's own reels.
       const stock = !beforeLock && fresh.length < empty.length ? await candidates({ campaignId: { $nin: ids } }, 60, 'stock', empty.length * 2) : [];
       const brandSlug = (slug: string) => /mecca|^unique$/.test(slug);
-      const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), ignore: brandSlug });
+      const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), plannedTracks: (existing?.items ?? []).map((i) => i.track), ignore: brandSlug });
 
       if (!picks.length) {
         if (!existing?.items?.length) {
