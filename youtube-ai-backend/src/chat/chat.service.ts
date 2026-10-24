@@ -1552,18 +1552,22 @@ export class ChatService {
 
     // Resolve skill from user-provided content only (not PDF extracted text)
     // If no user text provided (pure file upload), default to 'general' skill
-    const resolvedSkill = content?.trim()
-      ? (
-          await this.intentClassifier.classify({
-            message: content,
-            previousAssistantMessage:
-              updatedThread.messages
-                .slice(0, -1)
-                .reverse()
-                .find((m) => m.role === 'assistant')?.content,
-          })
-        ).intent
-      : 'general';
+    const uploadIntent = content?.trim()
+      ? await this.intentClassifier.classify({
+          message: content,
+          previousAssistantMessage:
+            updatedThread.messages
+              .slice(0, -1)
+              .reverse()
+              .find((m) => m.role === 'assistant')?.content,
+        })
+      : null;
+    const resolvedSkill = uploadIntent ? uploadIntent.intent : 'general';
+    // Same rule as a normal message: a confident package/thumbnail ask (or the client's own
+    // "thumbnail" / "package" words) makes the two images automatically.
+    const autoImages = uploadIntent
+      ? shouldAutoGenerateImages(uploadIntent.intent, uploadIntent.confidence, content || '')
+      : false;
 
     // Get AI response with RAG context
     const skill = this.skillRegistry.get(resolvedSkill);
@@ -1620,7 +1624,12 @@ export class ChatService {
     const assistantMsg: Message = {
       role: 'assistant',
       content: aiResponse.content,
-      metadata: { category: resolvedSkill },
+      metadata: {
+        category: resolvedSkill,
+        ...(autoImages && aiResponse.content.includes('THUMBNAILS_START')
+          ? { autoImages: true }
+          : {}),
+      },
       createdAt: new Date(),
     };
 
@@ -4175,6 +4184,22 @@ Hard rules:
     }
     return { success: true };
   }
+}
+
+/**
+ * Auto-generate the thumbnail images for a reply: a confident package/thumbnail routing, or the
+ * client's own words asking for thumbnails / a package. One rule for every way a message arrives.
+ */
+export function shouldAutoGenerateImages(
+  intent: string,
+  confidence: number,
+  content: string,
+): boolean {
+  return (
+    ((intent === 'package' || intent === 'thumbnail') &&
+      confidence >= AUTO_IMAGE_MIN_CONFIDENCE) ||
+    explicitlyAsksForThumbnails(content)
+  );
 }
 
 /** True when the client's own words ask for thumbnails or a full package. */
