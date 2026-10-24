@@ -45,10 +45,10 @@ services:
       - ./youtube-reel-service/.env.prod
     volumes:
       - reel_work:/work
-    # Hard budget so rendering can never starve the main app (box: 4 vCPU / 16 GB). Two renders run in parallel;
+    # Hard budget so rendering can never starve the main app (box: 4 vCPU / 16 GB). Two renders run in parallel (one ffmpeg can peak at ~2.2 GB, so 4g was not enough and got renders OOM-killed);
     # every ffmpeg runs under `nice`, so the main app still wins the CPU whenever it needs it.
-    mem_limit: 4g
-    memswap_limit: 4g
+    mem_limit: 6g
+    memswap_limit: 6g
     cpus: 3.0
     pids_limit: 512
     stop_grace_period: 30s
