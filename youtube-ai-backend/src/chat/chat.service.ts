@@ -70,6 +70,7 @@ import { TrendsService } from '../trends/trends.service';
 import { ReelContextService } from './reel-context.service';
 import { FootageIntentService } from './footage-intent.service';
 import { matchUploadedPhoto, recentChatUploads } from './thumbnail-uploads';
+import { cleanRewordText, rewordPrompt } from './thumbnail-reword';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
 const THREAD_EXPIRY_DAYS = 7;
@@ -3751,6 +3752,141 @@ Hard rules:
       $set: { updatedAt: new Date() },
     });
 
+    return { imageUrl: result.imageUrl, image: imageObj };
+  }
+
+  /**
+   * Change only the headline of a finished thumbnail. The picture is edited once with an
+   * instruction to keep everything else; the result is read back to confirm the spelling, with
+   * one automatic fix. The original image stays in the chat, the new one is added next to it.
+   */
+  async rewordThumbnail(
+    threadId: string,
+    dto: {
+      baseImageUrl: string;
+      text: string;
+      aspectRatio?: '16:9' | '9:16';
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    const cleaned = cleanRewordText(dto.text);
+    if ('error' in cleaned) throw new BadRequestException(cleaned.error);
+    const newText = cleaned.text;
+
+    let matchedImg: any = null;
+    const cleanBase = (dto.baseImageUrl || '').split('?')[0];
+    for (const msg of (thread.messages || []).slice().reverse()) {
+      const found = (msg as any).metadata?.images?.find(
+        (img: any) =>
+          (img.url && img.url.split('?')[0] === cleanBase) ||
+          (img.cleanBackgroundUrl && img.cleanBackgroundUrl.split('?')[0] === cleanBase),
+      );
+      if (found) {
+        matchedImg = found;
+        break;
+      }
+    }
+
+    // Same look as the picture being reworded: ratio, host and logo are kept.
+    const aspectRatio: '16:9' | '9:16' =
+      dto.aspectRatio || (matchedImg?.aspectRatio === '9:16' ? '9:16' : '16:9');
+    const selectedHost: string =
+      dto.selectedHostImage || matchedImg?.selectedHostImage || 'default';
+    const excludeHost = selectedHost === 'none';
+    const logoPosition: 'top-left' | 'top-right' | 'none' =
+      dto.logoPosition ||
+      (['top-left', 'top-right', 'none'].includes(matchedImg?.logoPosition)
+        ? matchedImg.logoPosition
+        : 'top-right');
+    const excludeLogo = logoPosition === 'none';
+    const base = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+    const zones = layoutZones({ aspectRatio, logoPosition, excludeLogo, excludeHost });
+    const editOptions = {
+      referenceImageUrls: [] as string[],
+      mode: 'thumbnail' as const,
+      selectedHostImage: selectedHost,
+      customHostUrl: dto.customHostUrl,
+      excludeHost,
+      excludeLogo,
+      logoPosition,
+      aspectRatio,
+    };
+
+    let result = await this.openaiService.editImageWithReference(
+      base,
+      rewordPrompt({
+        oldText: matchedImg?.textOverlay,
+        newText,
+        zoneRules: zonePrompt(zones, newText),
+      }),
+      editOptions,
+    );
+
+    let reviewIssues: string[] = [];
+    const check = await this.openaiService.reviewThumbnailText({
+      imageUrl: result.imageUrl,
+      headline: newText,
+      excludeLogo,
+      excludeHost,
+    });
+    if (!check.ok) {
+      try {
+        const fixed = await this.openaiService.editImageWithReference(
+          result.cleanBackgroundUrl || result.imageUrl,
+          'Fix ONLY the headline lettering. Problems: ' +
+            check.issues.join('; ') +
+            '. Keep the people, faces, expressions, setting, colors and composition exactly the same.\n' +
+            zonePrompt(zones, newText),
+          editOptions,
+        );
+        const recheck = await this.openaiService.reviewThumbnailText({
+          imageUrl: fixed.imageUrl,
+          headline: newText,
+          excludeLogo,
+          excludeHost,
+        });
+        result = fixed;
+        reviewIssues = recheck.issues;
+      } catch (fixErr: any) {
+        this.logger.warn(`[Thumbnail Reword] Headline fix failed: ${fixErr.message}`);
+        reviewIssues = check.issues;
+      }
+    }
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: result.imageUrl,
+      cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: matchedImg?.conceptTitle
+        ? `${matchedImg.conceptTitle} (reworded)`
+        : 'Reworded',
+      textOverlay: newText,
+      visualDescription: matchedImg?.visualDescription || '',
+      selectedHostImage: selectedHost,
+      logoPosition,
+      aspectRatio,
+      mode: 'thumbnail',
+      reviewIssues,
+      rewordedFrom: matchedImg?.id,
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: {
+        messages: {
+          role: 'assistant',
+          content: `Reworded thumbnail: ${newText}`,
+          metadata: { category: 'image', images: [imageObj] },
+          createdAt: new Date(),
+        } as Message,
+      },
+      $set: { updatedAt: new Date() },
+    });
     return { imageUrl: result.imageUrl, image: imageObj };
   }
 

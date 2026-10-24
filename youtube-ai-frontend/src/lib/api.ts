@@ -376,6 +376,20 @@ class ApiClient {
     return this.post<{ imageUrl: string; revisedPrompt: string; inProgress?: boolean; needsPhoto?: { name: string; role: string }[]; message?: string; image?: { reviewIssues?: string[]; aspectRatio?: '16:9' | '9:16' } | null }>(`/api/threads/${threadId}/generate-thumbnail-image`, data)
   }
 
+  async rewordThumbnail(
+    threadId: string,
+    data: {
+      baseImageUrl: string
+      text: string
+      aspectRatio?: '16:9' | '9:16'
+      selectedHostImage?: string
+      customHostUrl?: string
+      logoPosition?: 'top-left' | 'top-right' | 'none'
+    },
+  ) {
+    return this.post<{ imageUrl: string; image?: { reviewIssues?: string[] } }>(`/api/threads/${threadId}/reword-thumbnail`, data)
+  }
+
   async recomposeOverlay(
     threadId: string,
     data: {

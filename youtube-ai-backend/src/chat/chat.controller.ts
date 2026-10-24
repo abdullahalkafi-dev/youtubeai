@@ -304,6 +304,22 @@ export class ChatController {
     return this.chatService.generateImageDirect(id, body);
   }
 
+  @Post('threads/:id/reword-thumbnail')
+  rewordThumbnail(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      baseImageUrl: string;
+      text: string;
+      aspectRatio?: '16:9' | '9:16';
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+    },
+  ) {
+    return this.chatService.rewordThumbnail(id, body);
+  }
+
   @Post('threads/:id/recompose-overlay')
   recomposeOverlay(
     @Param('id') id: string,

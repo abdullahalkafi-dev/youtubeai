@@ -248,6 +248,8 @@ export default function ChatPage() {
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
   const [isHostCutoutModalOpen, setIsHostCutoutModalOpen] = useState(false)
   const [isRecomposing, setIsRecomposing] = useState(false)
+  const [rewordText, setRewordText] = useState('')
+  const [isRewording, setIsRewording] = useState(false)
   // Set only for a legacy reply that just streamed in this session (never on historical mount).
   const [freshAutoMessageId, setFreshAutoMessageId] = useState<string | null>(null)
   const [iteratingImage, setIteratingImage] = useState<{
@@ -575,6 +577,39 @@ export default function ChatPage() {
       toast.error(err.message || 'Instant recomposition failed', { id: toastId })
     } finally {
       setIsRecomposing(false)
+    }
+  }
+
+  // Change only the words on a finished thumbnail; the photo and scene stay.
+  const handleReword = async () => {
+    if (!iteratingImage || !activeThreadId || isRewording) return
+    const words = rewordText.trim()
+    if (!words) {
+      toast.error('Type the new words for the thumbnail first.')
+      return
+    }
+    const toastId = toast.loading('Rewording the thumbnail. The photo stays the same...')
+    setIsRewording(true)
+    try {
+      const res = await api.rewordThumbnail(activeThreadId, {
+        baseImageUrl: iteratingImage.cleanUrl || iteratingImage.url,
+        text: words,
+        aspectRatio: iteratingImage.aspectRatio,
+        selectedHostImage: iteratingImage.selectedHostImage,
+        customHostUrl: iteratingImage.customHostUrl,
+        logoPosition: iteratingImage.logoPosition,
+      })
+      dispatch(selectThread(activeThreadId))
+      if (channelId) dispatch(fetchThreads(channelId))
+      const issues = res?.image?.reviewIssues || []
+      if (issues.length) toast.warning(`New thumbnail ready, but check it: ${issues[0]}`, { id: toastId })
+      else toast.success('New thumbnail ready. The old one is still in the chat.', { id: toastId })
+      setRewordText('')
+      setIteratingImage(null)
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not reword the thumbnail', { id: toastId })
+    } finally {
+      setIsRewording(false)
     }
   }
 
@@ -1495,6 +1530,34 @@ export default function ChatPage() {
                       className="px-2 py-1 rounded-md bg-pink-100 dark:bg-pink-500/20 text-pink-700 dark:text-pink-300 border border-pink-300 dark:border-pink-500/40 hover:bg-pink-200 transition font-medium flex items-center gap-1 disabled:opacity-50"
                     >
                       <span>📐 Switch to {iteratingImage.aspectRatio === '9:16' ? '16:9 Video' : '9:16 Reel'}</span>
+                    </button>
+                  </div>
+
+                  {/* Reword: new words, same photo */}
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-pink-200/50 dark:border-pink-500/20 text-[10px]">
+                    <input
+                      type="text"
+                      value={rewordText}
+                      onChange={(e) => setRewordText(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault()
+                          handleReword()
+                        }
+                      }}
+                      maxLength={60}
+                      disabled={isRewording}
+                      placeholder={iteratingImage.textOverlay ? `New words (now: ${iteratingImage.textOverlay})` : 'New words for the thumbnail'}
+                      className="flex-1 min-w-0 px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-pink-200 dark:border-pink-500/30 text-gray-800 dark:text-gray-100 text-[11px] focus:outline-none focus:ring-1 focus:ring-pink-400 disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleReword}
+                      disabled={isRewording || isRecomposing || !rewordText.trim()}
+                      className="px-2.5 py-1 rounded-md bg-pink-600 hover:bg-pink-700 text-white font-medium transition shadow-sm whitespace-nowrap disabled:opacity-50"
+                      title="Change only the words. The photo and scene stay the same."
+                    >
+                      {isRewording ? 'Rewording...' : '✏️ Reword (same photo)'}
                     </button>
                   </div>
                 </div>
