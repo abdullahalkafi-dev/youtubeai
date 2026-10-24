@@ -27,6 +27,7 @@ import { nyDate } from '../common/time';
  *   node dist/cli/reel-cli.js cookies:import <cookies.txt>
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
+ *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
  *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
@@ -141,6 +142,26 @@ async function main() {
           }
         }
         console.log(`${apply ? 'Queued' : 'Dry run:'} ${total} reel(s).${apply ? '' : ' Add --apply to re-render them.'}`);
+        break;
+      }
+      case 'render:retry-failed': {
+        // Re-queues reels whose render failed (for example killed for memory) since a date. Reels that were cancelled are left alone.
+        const since = new Date(`${args[0] ?? ''}T00:00:00Z`);
+        if (Number.isNaN(since.getTime())) throw new Error('Usage: render:retry-failed <sinceDate YYYY-MM-DD> [--apply]');
+        const apply = args.includes('--apply');
+        const reels = app.get<Model<ReelDocument>>(getModelToken(Reel.name));
+        const campaigns = app.get<Model<ReelCampaignDocument>>(getModelToken(ReelCampaign.name));
+        const queues = app.get(QueueService);
+        const failed = await reels.find({ status: 'failed', error: { $ne: 'Campaign cancelled' }, updatedAt: { $gte: since } }).select('_id campaignId').lean();
+        console.log(`${apply ? 'Queueing' : 'Would queue'} ${failed.length} failed reel(s).`);
+        if (!apply) break;
+        for (const campaignId of new Set(failed.map((r) => String(r.campaignId)))) {
+          await campaigns.updateOne({ _id: campaignId }, { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': 'Retrying failed renders' } });
+        }
+        for (const r of failed) {
+          await reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+          await queues.render(String(r._id));
+        }
         break;
       }
       default:
