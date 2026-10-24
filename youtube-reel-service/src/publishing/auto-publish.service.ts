@@ -2,8 +2,8 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { errMsg } from '../common/errors';
-import { ReelAutoDay, ReelAutoDayDocument } from '../db/schemas/reel-autopublish.schema';
-import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
+import { AutoDayItem, ReelAutoDay, ReelAutoDayDocument } from '../db/schemas/reel-autopublish.schema';
+import { ReelCampaign, ReelCampaignDocument, ReelTrack, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { MAX_FALLBACKS } from '../pipeline/daily-brain';
 import { ReelDailyRun, ReelDailyRunDocument } from '../db/schemas/reel-daily-run.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
@@ -12,7 +12,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
-import { assignRotation, AutoSettings, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, gateReason, nyToUtc, parseSlot, pickSlots, validSlot } from './auto-plan';
+import { assignRotation, AutoSettings, chooseReels, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, freeSlots, gateReason, lockAt, nyToUtc, parseSlot, PlanReel, validSlot } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
@@ -179,8 +179,12 @@ export class AutoPublishService {
   // ------------------------------------------------------------------ planning
 
   /**
-   * Plans today's posts once, as soon as the day's campaigns (main + explore) are finished. Safe to call often: it does nothing when
-   * the switch is off, when there is nothing to plan yet, or when today is already planned.
+   * Fills today's posting slots. Safe to call often (every 10 minutes): it does nothing when the switch is off, when no slot is empty,
+   * or when there is nothing to add. The day is built in two steps:
+   *  - before 7:00 AM New York: only reels made today, and only once today's campaigns are finished (a top-up may still be coming);
+   *  - from 7:00 AM: whatever slots are still empty are filled from the stock of finished, unposted reels of earlier days, so the day
+   *    always has its five posts. Later calls add reels that finish late to slots that are still empty.
+   * A person appears in at most two posts a day (see chooseReels).
    */
   async plan(channelId: string, now = new Date()) {
     const s = await this.settings(channelId);
@@ -188,85 +192,128 @@ export class AutoPublishService {
     if (s.pausedReason) return { status: 'paused' as const, reason: s.pausedReason };
     const cid = new Types.ObjectId(channelId);
     const date = nyDate(now);
-    if (await this.days.exists({ channelId: cid, date })) return { status: 'already-planned' as const };
+    const beforeLock = now.getTime() < lockAt(date).getTime();
+
+    // Cheap exit first: no empty slot left today means nothing to do.
+    const existing = await this.days.findOne({ channelId: cid, date }).lean();
+    const taken = (existing?.items ?? []).map((i) => i.slot);
+    const empty = freeSlots({ date, now, slots: s.slots, extraSlots: s.extraSlots, taken, spacingMin: s.spacingMin });
+    if (!empty.length) return { status: 'already-planned' as const };
 
     const run = await this.runs.findOne({ channelId: cid, date, status: 'started' }).lean();
     if (!run?.campaignId) return { status: 'no-run' as const };
-    const ids = [run.campaignId, run.exploreCampaignId].filter(Boolean) as Types.ObjectId[];
-    const camps = await this.campaigns.find({ _id: { $in: ids } }).select('status track').lean();
-    if (camps.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status))) return { status: 'still-making' as const };
+    const camps = await this.campaigns
+      .find({ $or: [{ _id: { $in: [run.campaignId, run.exploreCampaignId].filter(Boolean) } }, { channelId: cid, origin: 'daily', dailyDate: date }] })
+      .select('status track')
+      .lean();
+    const ids = camps.map((c) => c._id as Types.ObjectId);
+    const stillMaking = camps.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status));
     // a failed main topic is about to be replaced by the next-best one (see DailyService.rescue): wait for it instead of planning a half day
     const mainCamp = camps.find((c) => String(c._id) === String(run.campaignId));
-    if (mainCamp?.status === 'failed' && !run.rescueExhausted && (run.fallbackCount ?? 0) < MAX_FALLBACKS) return { status: 'still-making' as const };
-    const trackOf = new Map(camps.map((c) => [String(c._id), (c.track ?? 'main') as 'main' | 'explore']));
+    const replacementComing = mainCamp?.status === 'failed' && !run.rescueExhausted && (run.fallbackCount ?? 0) < MAX_FALLBACKS;
+    if (beforeLock && (stillMaking || replacementComing)) return { status: 'still-making' as const };
 
     const publisher = this.registry.get('youtube');
     const account = publisher ? await publisher.getAccountStatus(channelId).catch(() => null) : null;
     if (!account || account.state !== 'ok') return { status: 'youtube-not-connected' as const };
 
-    // claim the day (a second worker or a repeated tick finds it and stops)
-    try {
-      await this.days.create({ channelId: cid, date, status: 'planning', mode: 'rotation' });
-    } catch (err: any) {
-      if (err?.code === 11000) return { status: 'already-planned' as const };
-      throw err;
+    // claim the day for this pass (a second worker or a repeated tick finds it claimed and stops)
+    const staleBefore = new Date(now.getTime() - 10 * 60_000);
+    if (!existing) {
+      try {
+        await this.days.create({ channelId: cid, date, status: 'planning', mode: 'rotation', fillingAt: now });
+      } catch (err: any) {
+        if (err?.code === 11000) return { status: 'already-planned' as const };
+        throw err;
+      }
+    } else {
+      const claimed = await this.days.updateOne({ _id: existing._id, $or: [{ fillingAt: null }, { fillingAt: { $exists: false } }, { fillingAt: { $lt: staleBefore } }] }, { $set: { fillingAt: now } });
+      if (!claimed.modifiedCount) return { status: 'already-planned' as const };
     }
 
     try {
-      const reels = await this.reels.find({ campaignId: { $in: ids }, status: 'todo' }).select('campaignId scores.overall critique.verdict packaging.title concept').lean();
-      const held: Array<{ reelId: Types.ObjectId; title: string; reason: string }> = [];
-      const good: Array<{ r: (typeof reels)[number]; score: number }> = [];
-      for (const r of reels) {
-        const title = r.packaging?.title || r.concept || 'Reel';
-        const pre = await this.publish.preflight(channelId, String(r._id), 'youtube', { privacy: s.privacy, scheduleAt: null }).catch((e) => ({ canPublish: false, issues: [{ level: 'error', message: errMsg(e) }] }));
-        const errors = (pre.issues as Array<{ level: string; message: string }>).filter((i) => i.level === 'error').map((i) => i.message);
-        const reason = gateReason({ score: r.scores?.overall ?? null, verdict: r.critique?.verdict ?? null, preflightErrors: errors, hasActivePost: false, minScore: s.minScore });
-        if (reason) held.push({ reelId: r._id, title, reason });
-        else good.push({ r, score: r.scores?.overall ?? 0 });
-      }
-      good.sort((a, b) => b.score - a.score);
-      const wanted = good.slice(0, s.maxPerDay);
-      for (const g of good.slice(s.maxPerDay)) held.push({ reelId: g.r._id, title: g.r.packaging?.title || g.r.concept || 'Reel', reason: `more than ${s.maxPerDay} a day` });
+      const trackOf = new Map(camps.map((c) => [String(c._id), (c.track ?? 'main') as ReelTrack]));
+      const plannedIds = new Set((existing?.items ?? []).map((i) => String(i.reelId)));
+      const plannedReels = plannedIds.size ? await this.reels.find({ _id: { $in: [...plannedIds].map((x) => new Types.ObjectId(x)) } }).select('entitySlugs').lean() : [];
+      const held: Array<{ reelId: Types.ObjectId; title: string; reason: string }> = [...(existing?.held ?? [])];
+      const heldIds = new Set(held.map((h) => String(h.reelId)));
 
-      const slots = pickSlots({ date, now, count: wanted.length, slots: s.slots, extraSlots: s.extraSlots, spacingMin: s.spacingMin });
-      if (!wanted.length || !slots.length) {
-        const reason = !wanted.length ? 'No reel passed the checks today' : 'No publishing slots are left today';
-        await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'skipped', reason, held } });
-        return { status: 'skipped' as const, reason };
+      const candidates = async (filter: Record<string, unknown>, limit: number, source: 'fresh' | 'stock', want: number) => {
+        const rows = await this.reels
+          .find({ channelId: cid, status: 'todo', _id: { $nin: [...plannedIds].map((x) => new Types.ObjectId(x)) }, ...filter })
+          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs createdAt')
+          .sort({ 'scores.overall': -1, createdAt: -1 })
+          .limit(limit)
+          .lean();
+        const good: Array<PlanReel & { title: string; campaignId: Types.ObjectId }> = [];
+        for (const r of rows) {
+          if (good.length >= want) break;
+          const title = r.packaging?.title || r.concept || 'Reel';
+          const pre = await this.publish.preflight(channelId, String(r._id), 'youtube', { privacy: s.privacy, scheduleAt: null }).catch((e) => ({ canPublish: false, issues: [{ level: 'error', message: errMsg(e) }] }));
+          const errors = (pre.issues as Array<{ level: string; message: string }>).filter((i) => i.level === 'error').map((i) => i.message);
+          const reason = gateReason({ score: r.scores?.overall ?? null, verdict: r.critique?.verdict ?? null, preflightErrors: errors, hasActivePost: false, minScore: s.minScore });
+          if (reason) {
+            if (source === 'fresh' && !heldIds.has(String(r._id))) {
+              held.push({ reelId: r._id, title, reason });
+              heldIds.add(String(r._id));
+            }
+            continue;
+          }
+          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId });
+        }
+        return good;
+      };
+
+      const fresh = await candidates({ campaignId: { $in: ids } }, 40, 'fresh', empty.length);
+      // The stock is only used after the lock, and only for as many slots as are still empty after today's own reels.
+      const stock = !beforeLock && fresh.length < empty.length ? await candidates({ campaignId: { $nin: ids } }, 60, 'stock', empty.length * 2) : [];
+      const brandSlug = (slug: string) => /mecca|^unique$/.test(slug);
+      const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), ignore: brandSlug });
+
+      if (!picks.length) {
+        if (!existing?.items?.length) {
+          const reason = beforeLock ? 'No reel passed the checks yet' : 'No reel passed the checks today';
+          await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'skipped', reason, held, fillingAt: null } });
+          return { status: 'skipped' as const, reason };
+        }
+        await this.days.updateOne({ channelId: cid, date }, { $set: { held, fillingAt: null } });
+        return { status: 'nothing-to-add' as const };
       }
+
       // The strongest reels are kept when there are fewer slots than reels. Until the slots have shown enough, the order is random (a fair
       // test of every slot); afterwards slots are chosen by Thompson sampling, with an exploration floor so no slot is ever dropped.
       const obs = rankObservations(await this.slotPosts(channelId));
-      const useBandit = banditReady(obs, slots);
+      const useBandit = banditReady(obs, empty);
       const mode: 'rotation' | 'bandit' = useBandit ? 'bandit' : 'rotation';
-      const top = wanted.slice(0, slots.length);
-      const assigned = useBandit ? assignBandit(top, slots, posteriors(obs, slots), `${channelId}:${date}`) : assignRotation(top, slots, `${channelId}:${date}`);
+      const seed = `${channelId}:${date}:${taken.length}`;
+      const assigned = useBandit ? assignBandit(picks, empty, posteriors(obs, empty), seed) : assignRotation(picks, empty, seed);
       const owner = await this.channels.findOne({ _id: cid }).select('userId').lean();
       if (!owner?.userId) throw new Error('Channel owner not found');
-      const items = [];
+      const meta = new Map([...fresh, ...stock].map((x) => [x.id, x]));
+      const items: AutoDayItem[] = [];
       for (const { item, slot } of assigned) {
-        const title = item.r.packaging?.title || item.r.concept || 'Reel';
+        const info = meta.get(item.id)!;
+        const track: ReelTrack = item.source === 'stock' ? 'stock' : (trackOf.get(String(info.campaignId)) ?? 'main');
         try {
-          const post = await this.publish.createAutoPost(channelId, String(owner.userId), String(item.r._id), {
-            runAt: nyToUtc(date, slot),
-            slot,
-            planDate: date,
-            mode,
-            privacy: s.privacy,
-            track: trackOf.get(String(item.r.campaignId)) ?? 'main',
-            score: item.score,
-          });
-          items.push({ reelId: item.r._id, postId: new Types.ObjectId(post.id), slot, runAt: nyToUtc(date, slot), score: item.score, track: trackOf.get(String(item.r.campaignId)) ?? 'main', title });
+          const post = await this.publish.createAutoPost(channelId, String(owner.userId), item.id, { runAt: nyToUtc(date, slot), slot, planDate: date, mode, privacy: s.privacy, track, score: item.score });
+          items.push({ reelId: new Types.ObjectId(item.id), postId: new Types.ObjectId(post.id), slot, runAt: nyToUtc(date, slot), score: item.score, track, title: info.title });
         } catch (err) {
-          held.push({ reelId: item.r._id, title, reason: errMsg(err) });
+          if (!heldIds.has(item.id)) held.push({ reelId: new Types.ObjectId(item.id), title: info.title, reason: errMsg(err) });
         }
       }
-      for (const g of wanted.slice(slots.length)) held.push({ reelId: g.r._id, title: g.r.packaging?.title || g.r.concept || 'Reel', reason: 'no publishing slot left today' });
-      await this.days.updateOne({ channelId: cid, date }, { $set: { status: 'planned', items, held, mode } });
-      this.logger.log(`Auto-publish ${date} for ${channelId}: ${items.length} posts planned (${items.map((i) => i.slot).join(', ')}), ${held.length} held back`);
-      return { status: 'planned' as const, planned: items.length, held: held.length, mode };
+      await this.days.updateOne(
+        { channelId: cid, date },
+        { $set: { status: 'planned', mode, held, fillingAt: null }, $unset: { reason: '' }, ...(items.length ? { $push: { items: { $each: items } } } : {}) },
+      );
+      const fromStock = items.filter((i) => i.track === 'stock').length;
+      this.logger.log(
+        `Auto-publish ${date} for ${channelId}: ${items.length} post(s) added (${items.map((i) => i.slot).join(', ')}), ${fromStock} from the stock, ${empty.length - items.length} slot(s) still empty`,
+      );
+      return { status: 'planned' as const, planned: items.length, fromStock, held: held.length, mode };
     } catch (err) {
-      await this.days.deleteOne({ channelId: cid, date, status: 'planning' }); // let the next tick try again
+      // release the claim; a day that was only just created is removed so the next tick starts clean
+      if (!existing) await this.days.deleteOne({ channelId: cid, date, status: 'planning' });
+      else await this.days.updateOne({ _id: existing._id }, { $set: { fillingAt: null } });
       throw err;
     }
   }

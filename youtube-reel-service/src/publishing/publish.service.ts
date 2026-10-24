@@ -1,3 +1,4 @@
+import type { ReelTrack } from '../db/schemas/reel-campaign.schema';
 import { BadRequestException, ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ThumbnailService } from '../pipeline/thumbnail.service';
 import { InjectModel } from '@nestjs/mongoose';
@@ -179,7 +180,7 @@ export class PublishService {
     channelId: string,
     ownerUserId: string,
     reelId: string,
-    o: { runAt: Date; slot: string; planDate: string; mode: 'rotation' | 'bandit'; privacy: 'public' | 'unlisted'; track: 'main' | 'explore'; score: number | null },
+    o: { runAt: Date; slot: string; planDate: string; mode: 'rotation' | 'bandit'; privacy: 'public' | 'unlisted'; track: ReelTrack; score: number | null },
   ) {
     const pre = await this.preflight(channelId, reelId, 'youtube', { privacy: o.privacy, scheduleAt: null });
     if (!pre.canPublish) throw new BadRequestException({ message: 'The reel cannot be published yet', issues: pre.issues.filter((i) => i.level === 'error') });

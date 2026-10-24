@@ -1,5 +1,6 @@
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
+import type { ReelTrack } from './reel-campaign.schema';
 
 export interface AutoDayItem {
   reelId: Types.ObjectId;
@@ -7,7 +8,7 @@ export interface AutoDayItem {
   slot: string;
   runAt: Date;
   score: number | null;
-  track: 'main' | 'explore';
+  track: ReelTrack;
   title: string;
 }
 
@@ -23,6 +24,8 @@ export class ReelAutoDay {
   @Prop() reason?: string;
   /** rotation = random slot order (fair test of each slot); bandit = learned preference with an exploration floor. */
   @Prop({ type: String, enum: ['rotation', 'bandit'], default: 'rotation' }) mode: 'rotation' | 'bandit';
+  /** Set while a planning pass is running (a second worker or tick leaves the day alone); stale after 10 minutes. */
+  @Prop({ type: Date, default: null }) fillingAt?: Date | null;
   @Prop({ type: [Object], default: [] }) items: AutoDayItem[];
   @Prop({ type: [Object], default: [] }) held: Array<{ reelId: Types.ObjectId; title: string; reason: string }>;
 }

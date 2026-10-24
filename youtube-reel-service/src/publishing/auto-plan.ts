@@ -95,6 +95,70 @@ export function pickSlots(input: { date: string; now: Date; count: number; slots
   return chosen.sort();
 }
 
+/** From this New York time the day is locked: whatever is still empty is filled from the stock of finished reels. */
+export const LOCK_TIME = '07:00';
+export const lockAt = (date: string) => nyToUtc(date, LOCK_TIME);
+/** No more than this many reels about the same person in one day (the channel's own name is not a person). */
+export const MAX_PER_PERSON = 2;
+
+/** Slots that are still free today: in the future (with the lead time), not taken, and far enough from every taken or chosen slot. */
+export function freeSlots(input: { date: string; now: Date; slots: string[]; extraSlots: string[]; taken: string[]; spacingMin: number; leadMin?: number }): string[] {
+  const earliest = input.now.getTime() + (input.leadMin ?? MIN_LEAD_MIN) * 60_000;
+  const at = (s: string) => nyToUtc(input.date, s).getTime();
+  const near = new Set(input.taken.filter(validSlot));
+  const out: string[] = [];
+  for (const s of [...new Set([...input.slots.filter(validSlot).sort(), ...input.extraSlots.filter(validSlot).sort()])]) {
+    if (near.has(s) || at(s) < earliest) continue;
+    if ([...near, ...out].every((c) => Math.abs(at(s) - at(c)) >= input.spacingMin * 60_000)) out.push(s);
+  }
+  return out.sort();
+}
+
+export interface PlanReel {
+  id: string;
+  score: number;
+  /** People in the reel (slugs). */
+  entities: string[];
+  createdAt?: number;
+}
+
+/**
+ * Which reels fill the empty slots. Today's own reels come first (best score first); the stock of earlier finished reels only
+ * when `useStock` (after the 7 AM lock). A person may appear in at most `maxPerPerson` reels a day; if that leaves slots empty,
+ * the limit is relaxed by one rather than posting fewer than the day needs.
+ */
+export function chooseReels(input: {
+  need: number;
+  fresh: PlanReel[];
+  stock: PlanReel[];
+  useStock: boolean;
+  plannedEntities: string[][];
+  ignore?: (slug: string) => boolean;
+  maxPerPerson?: number;
+}): Array<PlanReel & { source: 'fresh' | 'stock' }> {
+  const ignore = input.ignore ?? (() => false);
+  const people = (r: { entities: string[] }) => [...new Set(r.entities.filter((e) => !ignore(e)))];
+  const byScore = (a: PlanReel, b: PlanReel) => b.score - a.score || (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  const pool: Array<PlanReel & { source: 'fresh' | 'stock' }> = [
+    ...[...input.fresh].sort(byScore).map((r) => ({ ...r, source: 'fresh' as const })),
+    ...(input.useStock ? [...input.stock].sort(byScore).map((r) => ({ ...r, source: 'stock' as const })) : []),
+  ];
+  const picked: Array<PlanReel & { source: 'fresh' | 'stock' }> = [];
+  const count = new Map<string, number>();
+  for (const e of input.plannedEntities.flatMap((x) => [...new Set(x.filter((y) => !ignore(y)))])) count.set(e, (count.get(e) ?? 0) + 1);
+  const base = input.maxPerPerson ?? MAX_PER_PERSON;
+  for (const cap of [base, base + 1]) {
+    for (const r of pool) {
+      if (picked.length >= input.need) break;
+      if (picked.includes(r)) continue;
+      if (people(r).some((e) => (count.get(e) ?? 0) >= cap)) continue;
+      picked.push(r);
+      for (const e of people(r)) count.set(e, (count.get(e) ?? 0) + 1);
+    }
+  }
+  return picked;
+}
+
 /** Small deterministic generator, so a day's plan can be reproduced from its date. */
 export function seededRandom(seed: string): () => number {
   let h = 1779033703 ^ seed.length;

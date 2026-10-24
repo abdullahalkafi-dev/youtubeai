@@ -1,3 +1,4 @@
+import type { ReelTrack } from './reel-campaign.schema';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
 import { NormalizedMetrics, PLATFORMS, POST_STATUSES, PlatformId, PostMetadata, PostStatus, Privacy } from '../../publishing/types';
@@ -18,7 +19,7 @@ export class ReelPost {
   /** api: a person pressed Publish; manual: a link recorded by hand; auto: the Daily auto-publish (only while its switch is on). */
   @Prop({ type: String, enum: ['api', 'manual', 'auto'], default: 'api' }) source: 'api' | 'manual' | 'auto';
   /** Auto posts: when the upload is planned to start, in which New York slot, and how the slot was chosen. Kept for learning which times work. */
-  @Prop({ type: Object }) autoPlan?: { slot: string; runAt: Date; planDate: string; mode: 'rotation' | 'bandit'; track: 'main' | 'explore'; score: number | null; movedByClient?: boolean };
+  @Prop({ type: Object }) autoPlan?: { slot: string; runAt: Date; planDate: string; mode: 'rotation' | 'bandit'; track: ReelTrack; score: number | null; movedByClient?: boolean };
   @Prop({ type: String, enum: POST_STATUSES, default: 'queued', index: true }) status: PostStatus;
 
   @Prop({ type: Object }) metadata: PostMetadata;

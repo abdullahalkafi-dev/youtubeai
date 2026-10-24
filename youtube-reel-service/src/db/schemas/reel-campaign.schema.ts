@@ -17,6 +17,9 @@ export const CAMPAIGN_STATUSES = [
 export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 export const TERMINAL_CAMPAIGN_STATUSES: CampaignStatus[] = ['completed', 'partial', 'failed', 'cancelled'];
 
+/** Where a campaign's reels come from: the topic of the day (main), a second topic (explore), the last 30 days of uploads (fresh), the best older footage (best), or the strongest unused footage whatever the topic (bank). 'stock' on a post means a reel from an earlier day. */
+export type ReelTrack = 'main' | 'explore' | 'fresh' | 'best' | 'bank' | 'stock';
+
 export interface CampaignSettings {
   targetReels: number;
   minSec: number;
@@ -68,7 +71,7 @@ export class ReelCampaign {
   @Prop({ index: true }) dailyDate?: string;
   /** A hidden child of a daily campaign (its 'explore' part): shown inside the parent's card and details page, never on its own. */
   @Prop({ type: MongooseSchema.Types.ObjectId, default: null, index: true }) parentCampaignId?: Types.ObjectId | null;
-  @Prop({ type: String, enum: ['main', 'explore'], default: 'main' }) track?: 'main' | 'explore';
+  @Prop({ type: String, enum: ['main', 'explore', 'fresh', 'best', 'bank'], default: 'main' }) track?: ReelTrack;
   /** On the parent: its hidden explore child. */
   @Prop({ type: MongooseSchema.Types.ObjectId, default: null }) exploreCampaignId?: Types.ObjectId | null;
   @Prop({ type: String, enum: CAMPAIGN_STATUSES, default: 'queued', index: true }) status: CampaignStatus;
