@@ -20,7 +20,7 @@ import {
   REVISION_SYSTEM,
   RevisionSchema,
 } from '../prompts/director.prompt';
-import { buildCriticUser, CRITIC_SYSTEM, CriticReview, CriticSchema, overallScore, passesBar } from '../prompts/critic.prompt';
+import { buildCriticUser, CRITIC_SYSTEM, CriticReview, CriticSchema, overallScore, passesBar, worthSecondLook } from '../prompts/critic.prompt';
 import { buildPackagingUser, PACKAGING_SYSTEM, PackagingResult, PackagingSchema } from '../prompts/packaging.prompt';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
@@ -236,7 +236,14 @@ export class ComposerService {
       // ---- critic, then one revision pass for fixable ideas ----
       await this.critique(campaign, cands.filter((c) => c.asm.ok), usage);
       const material = this.materialText(materials, momentRefs, keyByYt, used);
-      const toRevise = cands.filter((c) => !c.asm.ok || c.review?.verdict === 'revise' || (c.review && c.review.verdict === 'keep' && !passesBar(c.review, this.keepBar(campaign))));
+      const toRevise = cands.filter(
+        (c) =>
+          !c.asm.ok ||
+          c.review?.verdict === 'revise' ||
+          (c.review && c.review.verdict === 'keep' && !passesBar(c.review, this.keepBar(campaign))) ||
+          // a strong, safe idea the critic dropped gets one more try (see worthSecondLook)
+          (!c.revised && c.review && worthSecondLook(c.review, this.keepBar(campaign))),
+      );
       if (toRevise.length) {
         await this.orchestrator.log(campaignId, 'info', `Round ${rounds}: revising ${toRevise.length} reels`);
         try {

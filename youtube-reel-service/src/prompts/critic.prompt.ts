@@ -61,6 +61,15 @@ export function passesBar(r: CriticReview, minOverall = 70): boolean {
   return overallScore(r) >= minOverall && weakest >= 6 && r.safety >= 7;
 }
 
+/**
+ * An idea the critic marked "drop" although its score is above the bar and it is safe: the critic judges as a cold scroller and
+ * often says "generic" about a passage that has a clear lesson (measured: 7 of 19 dropped ideas scored 66-72). Such an idea gets ONE
+ * revision pass (a sharper hook or a different cut) before it is thrown away. Unsafe or low-scoring ideas are never given one.
+ */
+export function worthSecondLook(r: CriticReview, minOverall = 70): boolean {
+  return r.verdict === 'drop' && overallScore(r) >= minOverall && r.safety >= 7 && Math.min(r.hook, r.clarity, r.flow, r.payoff, r.ending, r.retention) >= 4;
+}
+
 export function buildCriticUser(brief: string, reels: string[]): string {
   return [`CAMPAIGN BRIEF: "${brief}"`, '', ...reels].join('\n');
 }
