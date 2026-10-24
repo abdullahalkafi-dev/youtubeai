@@ -205,7 +205,8 @@ export class AiService {
       model: this.cfg.OPENAI_STT_MODEL,
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
-      prompt: prompt.slice(0, 800),
+      // An empty hint is left out entirely: a hint that repeats the expected text makes Whisper drop words.
+      ...(prompt ? { prompt: prompt.slice(0, 800) } : {}),
     } as any));
     await usage?.({ sttSeconds: Math.round(res.duration ?? 0), calls: 1 });
     return {

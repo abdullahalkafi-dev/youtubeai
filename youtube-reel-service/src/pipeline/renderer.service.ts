@@ -240,7 +240,7 @@ export class RendererService {
           ['-hide_banner', '-nostats', '-y', ...clipInputArgs(input.clips), '-filter_complex', plannedAudioGraph(input.clips), '-map', '[aout]', '-c:a', 'aac', '-b:a', '48k', audio],
           { cwd: dir, timeoutMs: 10 * 60_000, lowPriority: true },
         );
-        const heard = await this.ai.transcribe(audio, input.words.map((w) => w.w).join(' '));
+        const heard = await this.ai.transcribe(audio, ''); // no hint: with the expected text as a hint Whisper drops words (measured: 37% matched vs ~98%)
         const res = realignWords(input.words, (heard.words ?? []).map((w: any) => ({ word: w.word, start: w.start, end: w.end })), spans);
         if (res.ok) {
           plannedWords = res.words;
