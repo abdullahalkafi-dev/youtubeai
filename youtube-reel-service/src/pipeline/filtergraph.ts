@@ -1,5 +1,6 @@
 import type { ReelTemplate } from './template';
 import type { Voice } from './timeline';
+import { sfxChain, type EndSfx } from './sfx';
 
 export interface RenderClipInput {
   /** Path or URL of the source video. */
@@ -99,6 +100,15 @@ export function loudnessMeasureGraph(clips: RenderClipInput[], pace: { speed: nu
   return parts.join(';');
 }
 
+/** The planned reel audio on its own (clips back to back, no cuts, no speed-up), mono 16 kHz, for measuring word times. */
+export function plannedAudioGraph(clips: RenderClipInput[]): string {
+  const parts = clips.map((c, i) => audioChain(i, c.duration));
+  const concatIn = clips.map((_, i) => `[a${i}]`).join('');
+  parts.push(`${concatIn}concat=n=${clips.length}:v=0:a=1[ac]`);
+  parts.push('[ac]aresample=16000,aformat=sample_fmts=fltp:channel_layouts=mono[aout]');
+  return parts.join(';');
+}
+
 /** Input args for still images (one per AI image beat), looped for their on-screen time. */
 export function imageInputArgs(images: RenderImageInput[]): string[] {
   return images.flatMap((im) => ['-loop', '1', '-framerate', '30', '-t', n(im.end - im.start + 0.05), '-i', im.file]);
@@ -126,11 +136,15 @@ export function renderGraph(input: {
   /** AI images; their inputs follow the canvas input. */
   images?: RenderImageInput[];
   fx?: RenderFx;
+  /** Ending sound: a tail is added after the last word and the sound plays in it. */
+  sfx?: (EndSfx & { volume: number }) | null;
 }): string {
   const { template: t, clips } = input;
   const { w, h, x, y } = t.window;
   const speed = input.speed && input.speed > 0 ? input.speed : 1;
   const fx = input.fx ?? NO_FX;
+  const tail = input.sfx ? input.sfx.tail : 0;
+  const dur = input.totalDuration + tail;
   const starts = segmentStarts(clips, speed);
   const even = (v: number) => Math.round(v / 2) * 2;
   const parts: string[] = [];
@@ -164,8 +178,14 @@ export function renderGraph(input: {
     parts.push(`[vc0]setpts=PTS/${speed.toFixed(4)},fps=30[vc]`);
     parts.push(`[ac0]${paceAudio(speed, input.voice ?? 'natural', input.semitones ?? 0).replace(/,$/, '')}[ac]`);
   }
-  parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(input.totalDuration + 0.5)}[bg]`);
-  parts.push(`[bg][vc]overlay=x=${x}:y=${y}:shortest=1[b1]`);
+  // The last picture holds while the ending sound plays.
+  let video = 'vc';
+  if (tail > 0) {
+    parts.push(`[vc]tpad=stop_mode=clone:stop_duration=${n(tail)}[vct]`);
+    video = 'vct';
+  }
+  parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(dur + 0.5)}[bg]`);
+  parts.push(`[bg][${video}]overlay=x=${x}:y=${y}:shortest=1[b1]`);
 
   // AI pictures: each input is a window-sized card overlay (card.ts: dimmed backdrop + shadow + border + rounded picture),
   // faded in/out, under the canvas and captions so the host's video stays visible around the card.
@@ -188,14 +208,14 @@ export function renderGraph(input: {
     const a = Math.max(0, at - FX.FLASH_IN);
     const b = at + FX.FLASH_OUT;
     parts.push(
-      `color=c=white:s=${w}x${h}:r=30:d=${n(input.totalDuration + 0.5)},format=yuva420p,fade=t=in:st=${n(a)}:d=${n(FX.FLASH_IN)}:alpha=1,fade=t=out:st=${n(at)}:d=${n(FX.FLASH_OUT)}:alpha=1[fl${j}]`,
+      `color=c=white:s=${w}x${h}:r=30:d=${n(dur + 0.5)},format=yuva420p,fade=t=in:st=${n(a)}:d=${n(FX.FLASH_IN)}:alpha=1,fade=t=out:st=${n(at)}:d=${n(FX.FLASH_OUT)}:alpha=1[fl${j}]`,
     );
     parts.push(`[${cur}][fl${j}]overlay=x=${x}:y=${y}:shortest=1:enable='between(t,${n(a)},${n(b)})'[bf${j}]`);
     cur = `bf${j}`;
   });
   if (fx.bar) {
-    parts.push(`color=c=0xFFD400:s=${w}x${FX.BAR_HEIGHT}:r=30:d=${n(input.totalDuration + 0.5)}[bar]`);
-    parts.push(`[${cur}][bar]overlay=x='-w+W*t/${n(input.totalDuration)}':y=${y + h - FX.BAR_HEIGHT}:shortest=1[bbar]`);
+    parts.push(`color=c=0xFFD400:s=${w}x${FX.BAR_HEIGHT}:r=30:d=${n(dur + 0.5)}[bar]`);
+    parts.push(`[${cur}][bar]overlay=x='-w+W*${tail > 0 ? `min(t,${n(input.totalDuration)})` : 't'}/${n(input.totalDuration)}':y=${y + h - FX.BAR_HEIGHT}:shortest=1[bbar]`);
     cur = 'bbar';
   }
 
@@ -206,22 +226,27 @@ export function renderGraph(input: {
       `:measured_LRA=${input.measured.input_lra}:measured_thresh=${input.measured.input_thresh}:offset=${input.measured.target_offset}:linear=true`
     : `loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}`;
   // Explicit format after loudnorm: older ffmpeg (Debian 5.1) cannot negotiate the layout on its own.
-  const tail = `aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo`;
-  if (fx.whoosh && flashAt.length) {
+  const fmt = `aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo`;
+  const whooshes = fx.whoosh && flashAt.length > 0;
+  if (whooshes || input.sfx) {
     // Synthetic whoosh (filtered noise, no licensed audio) at each flash, mixed AFTER loudnorm so the voice level and the
-    // measured loudness are untouched; the limiter only guards the sum.
-    parts.push(`[ac]${ln},${tail}[avo]`);
+    // measured loudness are untouched; the limiter only guards the sum. The ending sound joins the same mix.
+    parts.push(`[ac]${ln},${fmt}${tail > 0 ? `,apad=pad_dur=${n(tail)}` : ''}[avo]`);
     const mix = ['[avo]'];
-    flashAt.forEach((at, j) => {
+    if (input.sfx) {
+      parts.push(sfxChain(input.sfx.kind, input.totalDuration + 0.04, input.sfx.volume, 'sfx'));
+      mix.push('[sfx]');
+    }
+    (whooshes ? flashAt : []).forEach((at, j) => {
       const ms = Math.max(0, Math.round((at - 0.3) * 1000));
       parts.push(
         `anoisesrc=d=0.5:c=pink:a=0.6:r=48000,highpass=f=500,lowpass=f=7000,afade=t=in:d=0.28,afade=t=out:st=0.28:d=0.22,volume=${FX.WHOOSH_VOLUME},adelay=${ms}|${ms},aformat=sample_fmts=fltp:channel_layouts=stereo[wh${j}]`,
       );
       mix.push(`[wh${j}]`);
     });
-    parts.push(`${mix.join('')}amix=inputs=${mix.length}:normalize=0:duration=first,alimiter=limit=0.84:level=disabled:latency=1,${tail}[aout]`);
+    parts.push(`${mix.join('')}amix=inputs=${mix.length}:normalize=0:duration=first,alimiter=limit=0.84:level=disabled:latency=1,${fmt}[aout]`);
   } else {
-    parts.push(`[ac]${ln},${tail}[aout]`);
+    parts.push(`[ac]${ln},${fmt}[aout]`);
   }
   return parts.join(';');
 }

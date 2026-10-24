@@ -26,6 +26,11 @@ export interface PaceOptions {
   keep: number;
   /** Upper bound on ffmpeg inputs (clips + cuts). */
   maxSegments: number;
+  /**
+   * Also cut dead air before the first and after the last word of a clip. Only for word times that were
+   * measured on the audio itself; stored source-video times are too loose to cut at the edges.
+   */
+  edgeCuts?: boolean;
 }
 
 export const NO_PACE: PaceOptions = { speed: 1, voice: 'natural', semitones: 0, minGap: 0, keep: 0, maxSegments: 1000 };
@@ -74,6 +79,16 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
       const ce = b.s - pace.keep;
       if (ce - cs >= 0.1) candidates.push([cs, ce]);
     }
+    if (pace.edgeCuts) {
+      for (const span of spans) {
+        const inside = sorted.filter((w) => w.s >= span.from - 1e-6 && w.s < span.to);
+        if (!inside.length) continue;
+        const first = inside[0];
+        const last = inside[inside.length - 1];
+        if (first.s - span.from > pace.minGap) candidates.push([span.from, first.s - pace.keep]);
+        if (span.to - last.e > pace.minGap) candidates.push([last.e + pace.keep, span.to]);
+      }
+    }
   }
   // Keep the longest pauses when there are too many to cut.
   const budget = Math.max(0, pace.maxSegments - clips.length);
@@ -102,10 +117,13 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
     };
     for (const [a, b] of planned) {
       if (a < s.from || b > s.to) continue;
-      if (a > cursor) {
+      if (a > cursor + 1e-6) {
         const dq = frames(a - cursor, 'round'); // a pause is >= 0.1 s, so cursor + dq stays inside it
         segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf() });
         cuts.push([r3(cursor + dq), r3(b)]);
+      } else if (b > cursor) {
+        // dead air right at the start of the clip: nothing before it to keep
+        cuts.push([r3(cursor), r3(b)]);
       }
       cursor = b;
     }

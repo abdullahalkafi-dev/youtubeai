@@ -81,6 +81,11 @@ const EnvSchema = z.object({
   REEL_VOICE: z.enum(['energetic', 'chipmunk', 'natural']).default('natural'),
   REEL_TRIM_PAUSES: bool(true),
   REEL_PAUSE_MIN_GAP_MS: int(450),
+  // Measure word times on the reel's own audio (one short transcription per render) so cuts, captions and pictures sit on the voice.
+  REEL_STT_REALIGN: bool(true),
+  // Ending sound effect (synthesized in the render, nothing licensed): a short tail after the last word plays it.
+  REEL_END_SFX: bool(true),
+  REEL_END_SFX_VOLUME: str('0.55').transform((v) => parseFloat(v)).pipe(z.number().min(0.1).max(1)),
   // Visual rhythm (none of these changes a clip length): punch-in on jump cuts, flash + settle (+ whoosh) at topic changes, progress line.
   REEL_FX_PUNCH: bool(true),
   REEL_FX_JOIN: bool(true),

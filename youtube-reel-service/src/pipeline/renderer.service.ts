@@ -12,7 +12,7 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { buildAss, buildSrt } from './captions';
-import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, RenderClipInput, RenderFx, RenderImageInput, renderGraph } from './filtergraph';
+import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, plannedAudioGraph, RenderClipInput, RenderFx, RenderImageInput, renderGraph } from './filtergraph';
 import { cardGraph } from './card';
 import { buildTimeline, mapWords, NO_PACE, PaceOptions, Timeline } from './timeline';
 import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
@@ -20,6 +20,9 @@ import { ReelTemplate } from './template';
 import { TemplateStoreService } from './template-store.service';
 import { VisualsService } from './visuals.service';
 import { ThumbnailService } from './thumbnail.service';
+import { AiService } from '../ai/ai.service';
+import { endSfxFor, EndSfx, pickSfx } from './sfx';
+import { captionsInSilence, ClipSpan, parseSilences, realignWords } from './word-align';
 
 export interface RenderResult {
   file: string;
@@ -32,6 +35,8 @@ export interface RenderResult {
   warnings: string[];
   timeline: Timeline;
   fx: RenderFx | null;
+  realign: { ok: boolean; coverage?: number; maxShiftSec?: number; reason?: string } | null;
+  sfx: EndSfx | null;
 }
 
 @Injectable()
@@ -49,6 +54,7 @@ export class RendererService {
     private readonly queues: QueueService,
     private readonly visuals: VisualsService,
     private readonly thumbnails: ThumbnailService,
+    @Inject(AiService) private readonly ai: AiService | null = null,
   ) {}
 
   async render(reelId: string): Promise<'done' | 'deferred' | 'skipped'> {
@@ -124,6 +130,7 @@ export class RendererService {
         pace: this.pace(),
         images,
         fx: this.fx(),
+        sfx: this.endSfx(reel),
       });
 
       const lowRes = srcs.filter((s) => s.height && s.height < 720).map((s) => `${s.youtubeId} is ${s.height}p`);
@@ -148,6 +155,8 @@ export class RendererService {
               cuts: result.timeline.cuts,
               plannedSec: result.timeline.reelDuration,
               fx: result.fx,
+              realign: result.realign,
+              sfx: result.sfx,
             },
             assets: { videoKey: `${prefix}/reel.mp4`, coverKey: `${prefix}/cover.jpg`, srtKey: `${prefix}/captions.srt`, sizeBytes: size },
             qa: {
@@ -182,6 +191,12 @@ export class RendererService {
     };
   }
 
+  /** The ending sound for a reel, chosen from what it is about; null when switched off. */
+  endSfx(reel: { concept?: string; angle?: string; hookText?: string; payoffText?: string; themes?: string[]; packaging?: { title?: string } | null }): EndSfx | null {
+    if (!this.cfg.REEL_END_SFX) return null;
+    return endSfxFor(pickSfx(reel.packaging?.title, reel.concept, reel.hookText, reel.payoffText, reel.themes));
+  }
+
   /** The visual rhythm applied to every reel (env-controlled; whoosh needs the topic-change flash). */
   fx(): RenderFx {
     return { punch: this.cfg.REEL_FX_PUNCH, join: this.cfg.REEL_FX_JOIN, whoosh: this.cfg.REEL_FX_JOIN && this.cfg.REEL_FX_WHOOSH, bar: this.cfg.REEL_FX_BAR };
@@ -201,13 +216,56 @@ export class RendererService {
     /** AI images, timed on the planned reel timeline. */
     images?: RenderImageInput[];
     fx?: RenderFx;
+    /** Ending sound (adds a short tail after the last word). */
+    sfx?: EndSfx | null;
   }): Promise<RenderResult> {
     const { dir, template } = input;
-    const tl = buildTimeline(input.clips, input.words, input.pace ?? NO_PACE);
+
+    // Word times measured on this reel's own audio. If anything goes wrong the stored times are used, as before.
+    let plannedWords = input.words;
+    let plannedImages = input.images ?? [];
+    let realign: RenderResult['realign'] = null;
+    let basePace = input.pace ?? NO_PACE;
+    if (this.ai && this.cfg.REEL_STT_REALIGN && input.words.length) {
+      try {
+        const spans: ClipSpan[] = [];
+        let at = 0;
+        for (const c of input.clips) {
+          spans.push({ from: at, to: at + c.duration });
+          at += c.duration;
+        }
+        const audio = path.join(dir, 'planned.m4a');
+        await run(
+          this.cfg.FFMPEG_BIN,
+          ['-hide_banner', '-nostats', '-y', ...clipInputArgs(input.clips), '-filter_complex', plannedAudioGraph(input.clips), '-map', '[aout]', '-c:a', 'aac', '-b:a', '48k', audio],
+          { cwd: dir, timeoutMs: 10 * 60_000, lowPriority: true },
+        );
+        const heard = await this.ai.transcribe(audio, input.words.map((w) => w.w).join(' '));
+        const res = realignWords(input.words, (heard.words ?? []).map((w: any) => ({ word: w.word, start: w.start, end: w.end })), spans);
+        if (res.ok) {
+          plannedWords = res.words;
+          plannedImages = plannedImages.map((im) => {
+            const start = res.correct(im.start);
+            return { ...im, start, end: Math.max(start + 0.4, res.correct(im.end)) };
+          });
+          basePace = { ...basePace, edgeCuts: true };
+          realign = { ok: true, coverage: Math.round(res.coverage * 100) / 100, maxShiftSec: res.maxShift };
+          this.logger.log(`Realigned ${plannedWords.length} words on the reel audio (matched ${Math.round(res.coverage * 100)}%, largest move ${res.maxShift}s)`);
+        } else {
+          realign = { ok: false, reason: res.reason };
+          this.logger.warn(`Word times kept as stored: ${res.reason}`);
+        }
+      } catch (err: any) {
+        realign = { ok: false, reason: String(err?.message || err).slice(0, 160) };
+        this.logger.warn(`Word times kept as stored: ${realign.reason}`);
+      }
+    }
+
+    const tl = buildTimeline(input.clips, plannedWords, basePace);
     const clips = tl.segments;
     const total = tl.duration;
-    const words = mapWords(input.words, tl);
-    const images = (input.images ?? [])
+    const words = mapWords(plannedWords, tl);
+    const images = plannedImages
       .map((im) => ({ file: im.file, start: tl.map(im.start), end: tl.map(im.end) }))
       .filter((im) => im.end - im.start >= 0.3 && im.start < total);
 
@@ -245,7 +303,7 @@ export class RendererService {
         'canvas.png',
         ...imageInputArgs(images),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx, sfx: input.sfx ? { ...input.sfx, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
         '-map',
         '[vout]',
         '-map',
@@ -286,19 +344,26 @@ export class RendererService {
     const meta = await probeMedia(this.cfg.FFPROBE_BIN, out);
     const qaRun = await run(
       this.cfg.FFMPEG_BIN,
-      ['-hide_banner', '-nostats', '-i', out, '-vf', 'blackdetect=d=0.5:pix_th=0.08', '-af', 'ebur128', '-f', 'null', '-'],
+      ['-hide_banner', '-nostats', '-i', out, '-vf', 'blackdetect=d=0.5:pix_th=0.08', '-af', 'ebur128,silencedetect=n=-35dB:d=0.3', '-f', 'null', '-'],
       { cwd: dir, timeoutMs: 10 * 60_000, lowPriority: true },
     );
     const qa = parseQa(qaRun.stderr);
     const problems: string[] = [];
     if (meta.width !== template.width || meta.height !== template.height) problems.push(`wrong size ${meta.width}x${meta.height}`);
     if (!meta.hasAudio) problems.push('no audio track');
-    if (Math.abs(meta.duration - total) > 1.0) problems.push(`duration ${meta.duration.toFixed(1)}s, expected ${total.toFixed(1)}s`);
+    const expectedTotal = total + (input.sfx ? input.sfx.tail : 0);
+    if (Math.abs(meta.duration - expectedTotal) > 1.0) problems.push(`duration ${meta.duration.toFixed(1)}s, expected ${expectedTotal.toFixed(1)}s`);
     if (problems.length) throw new Error(`Render QA failed: ${problems.join('; ')}`);
 
     const warnings: string[] = [];
     if (qa.lufs !== null && Math.abs(qa.lufs - LOUDNESS.I) > 2) warnings.push(`loudness ${qa.lufs} LUFS (target ${LOUDNESS.I})`);
     if (qa.blackSegments > 0) warnings.push(`${qa.blackSegments} black segment(s) detected`);
+    // Timing check on the finished file: captions must not start inside real silence, and no long dead air may remain.
+    const silences = parseSilences(qaRun.stderr);
+    const drift = captionsInSilence(words, silences);
+    if (drift.count > 0) warnings.push(`captions start in silence for ${drift.count} word(s), up to ${drift.worst}s early`);
+    const deadAir = silences.filter(([a, b]) => b - a > 0.6 && a > 0.2 && b < total - 0.2);
+    if (deadAir.length) warnings.push(`${deadAir.length} pause(s) over 0.6s remain (longest ${Math.max(...deadAir.map(([a, b]) => b - a)).toFixed(1)}s)`);
 
     const cover = path.join(dir, 'cover.jpg');
     await run(this.cfg.FFMPEG_BIN, ['-hide_banner', '-y', '-ss', Math.min(1.2, total / 2).toFixed(2), '-i', out, '-frames:v', '1', '-q:v', '3', cover], {
@@ -308,6 +373,6 @@ export class RendererService {
     const srt = path.join(dir, 'captions.srt');
     fs.writeFileSync(srt, buildSrt(words));
 
-    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings, timeline: tl, fx: input.fx ?? null };
+    return { file: out, cover, srt, duration: meta.duration, width: meta.width, height: meta.height, lufs: qa.lufs, warnings, timeline: tl, fx: input.fx ?? null, realign, sfx: input.sfx ?? null };
   }
 }
