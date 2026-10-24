@@ -191,33 +191,37 @@ Visual Concept: "${visualConcept || ''}"`;
 
     const canonical = this.normalizeName(subjectName);
 
-    // 0. Verified cache only. Old unverified web entries are searched again.
+    // 0. Verified cache only. Old unverified web entries are searched again. "John Gotti Sr." also
+    // finds the photo stored as "John Gotti" (the person without the suffix is the senior).
+    const variants = nameVariants(subjectName);
     try {
-      const cached: any = await this.subjectRefModel.findOne({
-        $or: [
-          { canonicalName: canonical },
-          { displayName: new RegExp(`^${subjectName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
-        ],
-      });
+      for (const variant of variants) {
+        const cached: any = await this.subjectRefModel.findOne({
+          $or: [
+            { canonicalName: this.normalizeName(variant) },
+            { displayName: new RegExp(`^${variant.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+          ],
+        });
 
-      if (
-        cached &&
-        cached.imageUrl &&
-        (cached.verified === true ||
-          cached.source === 'wikipedia' ||
-          cached.source === 'manual')
-      ) {
-        this.logger.log(
-          `[Subject Cache HIT] Using verified photo for "${subjectName}": ${cached.imageUrl}`,
-        );
-        this.subjectRefModel
-          .updateOne({ _id: cached._id }, { $inc: { searchCount: 1 } })
-          .catch(() => {});
-        return {
-          imageUrl: cached.imageUrl,
-          source: cached.source || 'Stored Database',
-          sourcePageUrl: cached.sourcePageUrl,
-        };
+        if (
+          cached &&
+          cached.imageUrl &&
+          (cached.verified === true ||
+            cached.source === 'wikipedia' ||
+            cached.source === 'manual')
+        ) {
+          this.logger.log(
+            `[Subject Cache HIT] Using verified photo for "${subjectName}": ${cached.imageUrl}`,
+          );
+          this.subjectRefModel
+            .updateOne({ _id: cached._id }, { $inc: { searchCount: 1 } })
+            .catch(() => {});
+          return {
+            imageUrl: cached.imageUrl,
+            source: cached.source || 'Stored Database',
+            sourcePageUrl: cached.sourcePageUrl,
+          };
+        }
       }
     } catch (e: any) {
       this.logger.warn(`Subject cache lookup failed: ${e.message}`);
@@ -225,8 +229,14 @@ Visual Concept: "${visualConcept || ''}"`;
 
     // 1. Wikipedia: a stable, widely recognized portrait.
     let found: (Candidate & { verifiedBy: string }) | null = null;
-    const wiki = await this.searchWikipediaImage(subjectName);
-    if (wiki) found = { ...wiki, verifiedBy: 'wikipedia' };
+    for (const variant of variants) {
+      const wiki = await this.searchWikipediaImage(variant);
+      // The suffix-free page must be the same person, not the junior ("John Gotti Jr.").
+      if (wiki && (variant === subjectName || !/\bjr\b/i.test(wiki.source))) {
+        found = { ...wiki, verifiedBy: 'wikipedia' };
+        break;
+      }
+    }
 
     // 2. Web candidates: the most widely published, case-related photo, verified.
     if (!found) {
@@ -543,6 +553,16 @@ Output ONLY valid JSON: {"candidates":[{"imageUrl":"https://...","pageUrl":"http
       return null;
     }
   }
+}
+
+/**
+ * Names to look up for one person: the name as written, then (for "Sr." / "Senior") the same name
+ * without the suffix, because that is how the senior is usually listed. "Jr." is never stripped.
+ */
+export function nameVariants(name: string): string[] {
+  const base = String(name || '').replace(/\s+/g, ' ').trim();
+  const stripped = base.replace(/[,\s]+(?:sr\.?|senior)$/i, '').trim();
+  return stripped && stripped.toLowerCase() !== base.toLowerCase() ? [base, stripped] : [base];
 }
 
 /** A client upload matches when its name shares a distinctive word with the subject's name. */

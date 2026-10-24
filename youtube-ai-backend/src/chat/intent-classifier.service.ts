@@ -133,13 +133,9 @@ export class IntentClassifierService {
         const llmPromise = this.openaiService.chatFast({
           systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
           userMessage:
-            `User message:
-"${message}"
-
-` +
+            `User message:\n"${message}"\n\n` +
             (prev
-              ? `Previous assistant message (truncated):
-"${prev.slice(-1500)}"`
+              ? `Previous assistant message (truncated):\n"${prev.slice(-1500)}"`
               : 'Previous assistant message: none'),
           temperature: 0,
           maxCompletionTokens: 250,

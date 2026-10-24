@@ -69,6 +69,7 @@ import {
 import { TrendsService } from '../trends/trends.service';
 import { ReelContextService } from './reel-context.service';
 import { FootageIntentService } from './footage-intent.service';
+import { matchUploadedPhoto, recentChatUploads } from './thumbnail-uploads';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
 const THREAD_EXPIRY_DAYS = 7;
@@ -2994,6 +2995,7 @@ Hard rules:
     let referenceImageUrls = dto.referenceImageUrls;
     if (!referenceImageUrls?.length) {
       const omitted = new Set((dto.omitPeople || []).map((n) => n.trim().toLowerCase()));
+      const chatUploads = recentChatUploads(thread.messages as any[]);
       const people = (
         await this.subjectReferenceService.resolveSubjects({
           title: videoContextTitle,
@@ -3001,7 +3003,21 @@ Hard rules:
           overrides: await this.photoOverrides(thread.channelId),
           focus: 'image',
         })
-      ).filter((p) => !omitted.has(String(p.name).trim().toLowerCase()));
+      )
+        .filter((p) => !omitted.has(String(p.name).trim().toLowerCase()))
+        // A person with no verified photo uses the photo the client sent in this chat for that name.
+        .map((p) => {
+          if (p.photoStatus !== 'missing') return p;
+          const upload = matchUploadedPhoto(p.name, chatUploads);
+          if (!upload) return p;
+          this.logger.log(`[Thumbnail] Using the client's chat photo for "${p.name}"`);
+          return {
+            ...p,
+            imageUrl: upload.url,
+            source: 'Chat upload',
+            photoStatus: 'client_upload' as const,
+          };
+        });
       const missing = people.filter((p) => p.photoStatus === 'missing');
       if (missing.length) {
         this.logger.log(

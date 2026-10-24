@@ -115,4 +115,24 @@ describe('real-person photo resolution', () => {
     expect(matchOverride('Duane "Keefe D" Davis', [{ name: 'Keefe D Davis', url: 'u' }])?.url).toBe('u');
     expect(matchOverride('Matthew Hightower', [{ name: 'Latrina Ashburne', url: 'u' }])).toBeUndefined();
   });
+  it('finds the photo stored as "John Gotti" when asked for "John Gotti Sr."', async () => {
+    model.findOne.mockImplementation(async (q: any) =>
+      q.$or.some((c: any) => c.canonicalName === 'john gotti')
+        ? { imageUrl: 'https://stored/gotti.jpg', source: 'wikipedia', verified: true }
+        : null,
+    );
+    const found = await service.searchSubjectPublicImage('John Gotti Sr.');
+    expect(found?.imageUrl).toBe('https://stored/gotti.jpg');
+    expect(ai.chatWithSearch).not.toHaveBeenCalled();
+  });
+
+  it('never gives the junior the stored photo of the senior', async () => {
+    model.findOne.mockImplementation(async (q: any) =>
+      q.$or.some((c: any) => c.canonicalName === 'john gotti')
+        ? { imageUrl: 'https://stored/gotti.jpg', source: 'wikipedia', verified: true }
+        : null,
+    );
+    (retrieveSource as jest.Mock).mockResolvedValue({ text: '' });
+    expect(await service.searchSubjectPublicImage('John Gotti Jr.')).toBeNull();
+  });
 });
