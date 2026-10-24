@@ -10,6 +10,7 @@ import { cn } from '@/lib/utils'
 import type { ReelServiceStatus } from '@/types/reel'
 import { LogViewer } from '@/components/developer/log-viewer'
 import { SystemOverview, type Sample } from '@/components/developer/system-overview'
+import { fmtNYTimeSec } from '@/lib/time'
 
 type Tab = 'overview' | 'main' | 'reels'
 const HISTORY = 120 // samples (× 3 s = 6 min)
@@ -46,7 +47,7 @@ export default function DeveloperPage() {
         setSys(s)
         setStale(false)
         setHistory((h) => {
-          const next = [...h, { t: new Date(s.at).toLocaleTimeString(), cpu: s.cpu ?? 0, mem: (s.memory.used / s.memory.total) * 100 }]
+          const next = [...h, { t: fmtNYTimeSec(s.at), cpu: s.cpu ?? 0, mem: (s.memory.used / s.memory.total) * 100 }]
           return next.length > HISTORY ? next.slice(next.length - HISTORY) : next
         })
       } catch {

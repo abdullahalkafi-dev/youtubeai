@@ -5,6 +5,7 @@ import { X, History, RotateCcw, Clock, User, Check, AlertCircle, Loader2 } from 
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import type { ScriptVersionItem } from '@/types/script'
+import { fmtNYDateTime } from '@/lib/time'
 
 interface VersionHistoryModalProps {
   isOpen: boolean
@@ -185,7 +186,7 @@ export function VersionHistoryModal({
                       Version {selectedVersion.versionNumber} Preview
                     </h3>
                     <p className="text-xs text-zinc-500">
-                      {selectedVersion.estimatedDurationMinutes} min read · {selectedVersion.wordCount} words · Created {new Date(selectedVersion.createdAt).toLocaleString()}
+                      {selectedVersion.estimatedDurationMinutes} min read · {selectedVersion.wordCount} words · Created {fmtNYDateTime(selectedVersion.createdAt)}
                     </p>
                   </div>
 

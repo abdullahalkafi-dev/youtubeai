@@ -7,6 +7,7 @@ import { errorMessage, reelMediaUrl, reelsApi } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
 import type { Reel } from '@/types/reel'
 import type { PostMetadata, PreflightResponse, Privacy, PublishIssue, ReelPost } from '@/types/publishing'
+import { fmtNYDateTime } from '@/lib/time'
 
 const CATEGORIES: Array<[string, string]> = [
   ['22', 'People & Blogs'],
@@ -147,7 +148,7 @@ export function PublishModal({
   }
 
   const titleLen = meta?.title.length ?? 0
-  const whenLabel = effective?.scheduleAt ? new Date(effective.scheduleAt).toLocaleString() : ''
+  const whenLabel = effective?.scheduleAt ? fmtNYDateTime(effective.scheduleAt) : ''
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>

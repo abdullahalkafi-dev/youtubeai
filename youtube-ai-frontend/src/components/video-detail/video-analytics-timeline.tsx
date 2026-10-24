@@ -27,6 +27,7 @@ import {
   CheckCircle2,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { fmtNYTimeSec } from '@/lib/time'
 
 interface VideoAnalyticsTimelineProps {
   videoId: string
@@ -92,7 +93,7 @@ export function VideoAnalyticsTimeline({ videoId, publishedAt }: VideoAnalyticsT
     try {
       const date = new Date(isoString)
       if (isNaN(date.getTime())) return ''
-      return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      return fmtNYTimeSec(date)
     } catch {
       return ''
     }

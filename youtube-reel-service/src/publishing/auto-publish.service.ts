@@ -12,7 +12,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
-import { assignRotation, AutoSettings, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, gateReason, nyToUtc, pickSlots, validSlot } from './auto-plan';
+import { assignRotation, AutoSettings, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, gateReason, nyToUtc, parseSlot, pickSlots, validSlot } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
@@ -71,11 +71,11 @@ export class AutoPublishService {
     const next: AutoSettings = { ...cur };
     if (patch.privacy) next.privacy = patch.privacy;
     if (patch.slots) {
-      const ok = [...new Set(patch.slots)].filter(validSlot).sort();
-      if (!ok.length) throw new BadRequestException('Give at least one valid time (HH:mm, New York time)');
+      const ok = [...new Set(patch.slots.map((x) => parseSlot(x) ?? x))].filter(validSlot).sort();
+      if (!ok.length) throw new BadRequestException('Give at least one valid time, like 8:00 AM (New York time)');
       next.slots = ok;
     }
-    if (patch.extraSlots) next.extraSlots = [...new Set(patch.extraSlots)].filter(validSlot).sort();
+    if (patch.extraSlots) next.extraSlots = [...new Set(patch.extraSlots.map((x) => parseSlot(x) ?? x))].filter(validSlot).sort();
     if (patch.minScore !== undefined) next.minScore = Math.max(0, Math.min(100, Math.round(patch.minScore)));
     if (patch.maxPerDay !== undefined) next.maxPerDay = Math.max(1, Math.min(10, Math.round(patch.maxPerDay)));
     if (patch.resume) {

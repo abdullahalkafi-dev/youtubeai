@@ -7,6 +7,7 @@ import { errorMessage, reelsApi } from '@/lib/reels-api'
 import type { Reel } from '@/types/reel'
 import type { PlatformId, ReelPost } from '@/types/publishing'
 import { compact, PLATFORM_LABEL, PostStatusBadge, timeAgo } from './reel-ui'
+import { fmtNYDateTime } from '@/lib/time'
 
 const ACTIVE = ['queued', 'uploading', 'processing', 'blocked']
 const PLATFORM_CHOICES: PlatformId[] = ['youtube', 'instagram', 'facebook', 'x', 'linkedin']
@@ -136,7 +137,7 @@ export function PostsPanel({
                 <span className="text-xs font-bold text-zinc-800 dark:text-zinc-100">{PLATFORM_LABEL[p.platform]}</span>
                 <PostStatusBadge status={p.status} />
                 {p.source === 'manual' && <span className="text-[10px] text-zinc-400">added manually</span>}
-                {p.privacy && p.source === 'api' && <span className="text-[10px] text-zinc-400">{p.scheduleAt ? `scheduled ${new Date(p.scheduleAt).toLocaleString()}` : p.privacy}</span>}
+                {p.privacy && p.source === 'api' && <span className="text-[10px] text-zinc-400">{p.scheduleAt ? `scheduled ${fmtNYDateTime(p.scheduleAt)}` : p.privacy}</span>}
                 <span className="ml-auto text-[10px] text-zinc-400">{timeAgo(p.publishedAt ?? p.createdAt)}</span>
               </div>
 
@@ -148,7 +149,7 @@ export function PostsPanel({
               {p.error && p.status !== 'published' && (
                 <p className="text-[11px] text-red-500">
                   {p.error}
-                  {p.status === 'blocked' && p.blockedUntil ? ` (resumes ${new Date(p.blockedUntil).toLocaleString()})` : ''}
+                  {p.status === 'blocked' && p.blockedUntil ? ` (resumes ${fmtNYDateTime(p.blockedUntil)})` : ''}
                 </p>
               )}
               {p.warnings.map((w, i) => (

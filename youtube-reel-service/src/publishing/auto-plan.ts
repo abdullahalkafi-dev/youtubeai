@@ -4,10 +4,10 @@
  */
 
 export const AUTO_TZ = 'America/New_York';
-/** The client's list: 8 am, 12 pm, 5 pm, 8 pm, 9 pm (New York). */
-export const DEFAULT_SLOTS = ['08:00', '12:00', '17:00', '20:00', '21:00'];
-/** Added on 6-7 reel days. */
-export const DEFAULT_EXTRA_SLOTS = ['10:00', '15:00'];
+/** The client's list (2026-10-24): 8 AM and 9 AM, then 8 PM, 9 PM and 10 PM (New York). Stored as 24-hour "HH:mm". */
+export const DEFAULT_SLOTS = ['08:00', '09:00', '20:00', '21:00', '22:00'];
+/** No extra slots: the day is five posts. */
+export const DEFAULT_EXTRA_SLOTS: string[] = [];
 /** A slot must be at least this far in the future when the plan is made (time to cancel or move it). */
 export const MIN_LEAD_MIN = 20;
 /** The upload starts this long before the slot so the video is public at the slot time. */
@@ -32,8 +32,8 @@ export const DEFAULT_AUTO_SETTINGS: AutoSettings = {
   privacy: 'public',
   slots: DEFAULT_SLOTS,
   extraSlots: DEFAULT_EXTRA_SLOTS,
-  minScore: 75,
-  maxPerDay: 7,
+  minScore: 65,
+  maxPerDay: 5,
   spacingMin: 60,
   pausedReason: null,
   pausedAt: null,
@@ -41,6 +41,23 @@ export const DEFAULT_AUTO_SETTINGS: AutoSettings = {
 
 const HHMM = /^([01]\d|2[0-3]):([0-5]\d)$/;
 export const validSlot = (s: string) => HHMM.test(s);
+
+/**
+ * Reads a time the way people write it ("8:00 AM", "9pm", "20:00") and returns "HH:mm" (24-hour, how slots are stored),
+ * or null when it is not a time.
+ */
+export function parseSlot(text: string): string | null {
+  const m = /^\s*(\d{1,2})(?::(\d{2}))?\s*([ap])?\.?m?\.?\s*$/i.exec(String(text ?? ''));
+  if (!m) return null;
+  let h = Number(m[1]);
+  const min = m[2] ? Number(m[2]) : 0;
+  if (min > 59) return null;
+  if (m[3]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (m[3].toLowerCase() === 'p' ? 12 : 0);
+  } else if (h > 23) return null;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
 
 /** New York offset (minutes behind UTC, e.g. 240 in summer) at a UTC instant. */
 function nyOffsetMin(utcMs: number): number {

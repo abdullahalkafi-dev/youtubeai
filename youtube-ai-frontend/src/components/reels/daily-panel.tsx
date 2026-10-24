@@ -128,7 +128,7 @@ export function DailyPanel({ channelId }: { channelId: string }) {
           <p className="text-[11px] mt-2 text-zinc-600 dark:text-zinc-300">
             {data.enabled ? (
               <>
-                Next run: <b>{next.toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}</b> your time
+                Next run: <b>{next.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'short', hour: 'numeric', minute: '2-digit', hour12: true })}</b> New York time
               </>
             ) : (
               <span className="text-zinc-500">Paused — turn it on to get new reels every morning.</span>
@@ -210,7 +210,7 @@ export function DailyPanel({ channelId }: { channelId: string }) {
       {/* Days */}
       {data.days.length === 0 ? (
         <div className="p-8 rounded-2xl border border-dashed border-zinc-300 dark:border-zinc-800 text-center text-xs text-zinc-500">
-          No daily campaigns yet. The first one runs {data.enabled ? `at ${next.toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })}` : 'once you turn it on'}.
+          No daily campaigns yet. The first one runs {data.enabled ? `at ${next.toLocaleString('en-US', { timeZone: 'America/New_York', weekday: 'long', hour: 'numeric', minute: '2-digit', hour12: true })} New York time` : 'once you turn it on'}.
         </div>
       ) : (
         <div className="space-y-2">

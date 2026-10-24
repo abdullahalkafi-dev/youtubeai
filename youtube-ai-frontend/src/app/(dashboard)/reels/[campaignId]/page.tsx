@@ -17,6 +17,7 @@ import { CampaignChat } from '@/components/reels/campaign-chat'
 import { LinkVideoCard } from '@/components/reels/link-video-card'
 import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
 import { CampaignStatusBadge, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
+import { fmtNYTimeSec } from '@/lib/time'
 
 const STAGES: Array<{ id: string; label: string }> = [
   { id: 'researching', label: 'Research' },
@@ -388,7 +389,7 @@ export default function CampaignPage() {
         <ul className="space-y-1 max-h-64 overflow-y-auto font-mono">
           {[...c.log].reverse().map((l, i) => (
             <li key={i} className={cn('text-[11px]', l.level === 'error' ? 'text-red-500' : l.level === 'warn' ? 'text-amber-500' : 'text-zinc-500')}>
-              <span className="text-zinc-400">{new Date(l.at).toLocaleTimeString()}</span> {l.msg}
+              <span className="text-zinc-400">{fmtNYTimeSec(l.at)}</span> {l.msg}
             </li>
           ))}
         </ul>

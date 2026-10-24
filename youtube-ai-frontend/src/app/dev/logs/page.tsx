@@ -46,6 +46,7 @@ import type {
   LogQueryParams,
   TopErrorEndpoint,
 } from '@/types/dev-log'
+import { fmtNYTime, fmtNYTimeSec, fmtNYDateTime } from '@/lib/time'
 
 // Date preset options aligned with 3d success / 7d error policy
 const DATE_PRESETS = [
@@ -461,7 +462,7 @@ export default function DevLogsPage() {
     try {
       const d = new Date(isoString)
       if (isNaN(d.getTime())) return '-'
-      return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+      return fmtNYTimeSec(d)
     } catch {
       return '-'
     }
@@ -473,13 +474,7 @@ export default function DevLogsPage() {
     try {
       const d = new Date(isoString)
       if (isNaN(d.getTime())) return '-'
-      return d.toLocaleString([], {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
+      return fmtNYDateTime(d)
     } catch {
       return '-'
     }

@@ -28,6 +28,7 @@ import { toast } from 'sonner';
 import { showApiErrorToast } from '@/lib/error-handler';
 import { cn } from '@/lib/utils';
 import Link from 'next/link';
+import { fmtNYTime, fmtNYTimeSec, fmtNYDateTime } from '@/lib/time'
 
 interface CommentStats {
   dailyCommentCap: number;
@@ -298,7 +299,7 @@ export function CommentAutomationTab() {
                         <span>
                           Last checked:{' '}
                           {video.autoReplyLastRanAt
-                            ? new Date(video.autoReplyLastRanAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                            ? fmtNYTime(video.autoReplyLastRanAt)
                             : 'Pending first check'}
                         </span>
                       </div>
@@ -370,7 +371,7 @@ export function CommentAutomationTab() {
               {batches.map((batch) => {
                 const batchId = batch._id || batch.id;
                 const isExpanded = expandedBatchId === batchId;
-                const dateFormatted = new Date(batch.createdAt || batch.startedAt).toLocaleString();
+                const dateFormatted = fmtNYDateTime(batch.createdAt || batch.startedAt);
 
                 return (
                   <div

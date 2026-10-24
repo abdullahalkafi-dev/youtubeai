@@ -1,4 +1,4 @@
-import { assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, evaluateGuardrails, gateReason, GuardPost, nyToUtc, pickSlots, seededRandom } from './auto-plan';
+import { assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, evaluateGuardrails, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
 
 describe('New York slot times', () => {
   it('converts wall-clock time to UTC with daylight saving', () => {
@@ -14,12 +14,26 @@ describe('slot choice', () => {
   const base = { date: '2026-10-22', slots: DEFAULT_SLOTS, extraSlots: DEFAULT_EXTRA_SLOTS, spacingMin: 60 };
   const at = (hhmm: string) => nyToUtc('2026-10-22', hhmm);
 
-  it('uses the five client slots for five reels', () => {
-    expect(pickSlots({ ...base, now: at('05:10'), count: 5 })).toEqual(['08:00', '12:00', '17:00', '20:00', '21:00']);
+  it('uses the five client slots: 8 AM, 9 AM, 8 PM, 9 PM, 10 PM', () => {
+    expect(DEFAULT_SLOTS).toEqual(['08:00', '09:00', '20:00', '21:00', '22:00']);
+    expect(pickSlots({ ...base, now: at('05:10'), count: 5 })).toEqual(['08:00', '09:00', '20:00', '21:00', '22:00']);
   });
 
-  it('adds the extra slots on 6-7 reel days, in time order', () => {
-    expect(pickSlots({ ...base, now: at('05:10'), count: 7 })).toEqual(['08:00', '10:00', '12:00', '15:00', '17:00', '20:00', '21:00']);
+  it('never invents extra slots: a sixth reel waits for another day', () => {
+    expect(DEFAULT_EXTRA_SLOTS).toEqual([]);
+    expect(pickSlots({ ...base, now: at('05:10'), count: 7 })).toEqual(['08:00', '09:00', '20:00', '21:00', '22:00']);
+  });
+
+  it('reads times the way people write them', () => {
+    expect(parseSlot('8:00 AM')).toBe('08:00');
+    expect(parseSlot('9pm')).toBe('21:00');
+    expect(parseSlot('10 PM')).toBe('22:00');
+    expect(parseSlot('12:00 AM')).toBe('00:00');
+    expect(parseSlot('12 pm')).toBe('12:00');
+    expect(parseSlot('20:00')).toBe('20:00');
+    expect(parseSlot('13 pm')).toBeNull();
+    expect(parseSlot('25:00')).toBeNull();
+    expect(parseSlot('soon')).toBeNull();
   });
 
   it('never picks a slot that is closer than the lead time, so the client can still cancel or move it', () => {
@@ -28,12 +42,14 @@ describe('slot choice', () => {
   });
 
   it('late in the day it returns fewer slots than reels instead of inventing times', () => {
-    expect(pickSlots({ ...base, now: at('19:00'), count: 5 })).toEqual(['20:00', '21:00']);
-    expect(pickSlots({ ...base, now: at('22:30'), count: 5 })).toEqual([]);
+    expect(pickSlots({ ...base, now: at('19:00'), count: 5 })).toEqual(['20:00', '21:00', '22:00']);
+    expect(pickSlots({ ...base, now: at('20:50'), count: 5 })).toEqual(['22:00']);
+    expect(pickSlots({ ...base, now: at('22:00'), count: 5 })).toEqual([]);
   });
 
   it('keeps the spacing between uploads', () => {
     const s = pickSlots({ ...base, now: at('05:00'), count: 7, spacingMin: 90 });
+    expect(s).toEqual(['08:00', '20:00', '22:00']);
     for (let i = 1; i < s.length; i++) expect(nyToUtc(base.date, s[i]).getTime() - nyToUtc(base.date, s[i - 1]).getTime()).toBeGreaterThanOrEqual(90 * 60_000);
   });
 

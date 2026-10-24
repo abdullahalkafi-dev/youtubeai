@@ -7,6 +7,7 @@ import { errorMessage, reelsApi } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
 import type { AutoPublishItem, AutoPublishOverview } from '@/types/publishing'
 import { compact } from './reel-ui'
+import { fmtNYTime, nyInputToDate, parseSlotList, slot12, slotList12, toNYInput } from '@/lib/time'
 
 const STATUS: Record<AutoPublishItem['status'], { label: string; cls: string }> = {
   queued: { label: 'Waiting for its time', cls: 'bg-sky-500/10 text-sky-700 dark:text-sky-400' },
@@ -20,14 +21,8 @@ const STATUS: Record<AutoPublishItem['status'], { label: string; cls: string }> 
   removed: { label: 'Removed on YouTube', cls: 'bg-red-500/10 text-red-600 dark:text-red-400' },
 }
 
-const nyTime = (iso: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour: 'numeric', minute: '2-digit' })
-const localTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-/** value for <input type="datetime-local"> in the viewer's own time zone */
-const toLocalInput = (iso: string) => {
-  const d = new Date(iso)
-  d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-  return d.toISOString().slice(0, 16)
-}
+const nyTime = (iso: string) => fmtNYTime(iso)
+const localTime = (iso: string) => new Date(iso).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit', hour12: true })
 
 /** Auto-publish: the day's good reels go to YouTube by themselves at times the AI chooses; every one can still be moved, published now or cancelled. */
 export function AutoPublishPanel({ channelId }: { channelId: string }) {
@@ -42,7 +37,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
 
   const apply = useCallback((d: AutoPublishOverview) => {
     setData(d)
-    setSlots(d.settings.slots.join(', '))
+    setSlots(slotList12(d.settings.slots))
     setMinScore(d.settings.minScore)
     setMaxPerDay(d.settings.maxPerDay)
   }, [])
@@ -80,7 +75,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
   const toggle = () => {
     if (!data) return
     if (!data.settings.enabled) {
-      const slotsText = data.settings.slots.join(', ')
+      const slotsText = slotList12(data.settings.slots)
       if (
         !confirm(
           `Turn on Auto-publish?\n\nEach morning, after the daily reels are made, the good ones (score ${data.settings.minScore}+) are posted to YouTube as ${data.settings.privacy.toUpperCase()} videos by themselves, at these New York times: ${slotsText}.\n\n` +
@@ -98,10 +93,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
       'save',
       () =>
         reelsApi.setAutoPublish(channelId, {
-          slots: slots
-            .split(/[,\s]+/)
-            .map((s) => s.trim())
-            .filter(Boolean),
+          slots: parseSlotList(slots),
           minScore,
           maxPerDay,
         }),
@@ -109,10 +101,10 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
     )
 
   const move = (it: AutoPublishItem) => {
-    const v = prompt(`New time for “${it.title}” (your local time, YYYY-MM-DD HH:mm)`, toLocalInput(it.runAt).replace('T', ' '))
+    const v = prompt(`New time for “${it.title}” (New York time, like 2026-10-25 8:00 PM)`, toNYInput(it.runAt).replace('T', ' '))
     if (!v) return
-    const d = new Date(v.replace(' ', 'T'))
-    if (Number.isNaN(d.getTime())) return toast.error('That time is not valid')
+    const d = nyInputToDate(v)
+    if (!d || Number.isNaN(d.getTime())) return toast.error('That time is not valid. Use a format like 2026-10-25 8:00 PM')
     void run(`move-${it.postId}`, () => reelsApi.autoPublishMove(channelId, it.postId, d.toISOString()), 'Moved')
   }
 
@@ -136,7 +128,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
           </h3>
           <p className="text-[11px] text-zinc-500 mt-1">
             {settings.enabled
-              ? `On — good reels (score ${settings.minScore}+) go out as ${settings.privacy} videos at ${settings.slots.join(', ')} New York time, in a changing order so we learn which times work. You can still cancel, move or publish any of them yourself until its upload starts.`
+              ? `On — good reels (score ${settings.minScore}+) go out as ${settings.privacy} videos at ${slotList12(settings.slots)} New York time, in a changing order so we learn which times work. You can still cancel, move or publish any of them yourself until its upload starts.`
               : 'Off — nothing is posted unless you publish it yourself. Turn it on and the day’s good reels go out by themselves at the times below.'}
           </p>
         </div>
@@ -172,8 +164,8 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
       {open && (
         <div className="grid sm:grid-cols-3 gap-3 p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50">
           <label className="text-[11px] text-zinc-500 sm:col-span-3">
-            Times (New York, comma separated)
-            <input value={slots} onChange={(e) => setSlots(e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100" placeholder="08:00, 12:00, 17:00, 20:00, 21:00" />
+            Times (New York time, like 8:00 AM, 9:00 PM)
+            <input value={slots} onChange={(e) => setSlots(e.target.value)} className="mt-1 w-full px-2 py-1.5 rounded-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-700 text-xs text-zinc-900 dark:text-zinc-100" placeholder="8:00 AM, 9:00 AM, 8:00 PM, 9:00 PM, 10:00 PM" />
           </label>
           <label className="text-[11px] text-zinc-500">
             Minimum reel score (0–100)
@@ -246,7 +238,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
           </p>
           {data.slotReport.slots.map((s) => (
             <div key={s.slot} className="flex items-center gap-2 text-[11px]">
-              <span className="w-12 tabular-nums text-zinc-700 dark:text-zinc-200">{s.slot}</span>
+              <span className="w-16 tabular-nums text-zinc-700 dark:text-zinc-200">{slot12(s.slot)}</span>
               <div className="flex-1 h-1.5 rounded-full bg-zinc-200 dark:bg-zinc-700 overflow-hidden">
                 <div className="h-full bg-amber-500 rounded-full" style={{ width: `${Math.round(s.score * 100)}%` }} />
               </div>
@@ -266,7 +258,7 @@ export function AutoPublishPanel({ channelId }: { channelId: string }) {
               .map((d) => (
                 <div key={d.date} className="text-zinc-600 dark:text-zinc-300">
                   <span className="font-medium">{d.date}</span>:{' '}
-                  {d.items.map((i) => `${i.slot} ${i.status === 'published' || i.status === 'processing' ? `${compact(i.views ?? 0)} views` : STATUS[i.status].label.toLowerCase()}`).join(' · ')}
+                  {d.items.map((i) => `${slot12(i.slot)} ${i.status === 'published' || i.status === 'processing' ? `${compact(i.views ?? 0)} views` : STATUS[i.status].label.toLowerCase()}`).join(' · ')}
                 </div>
               ))}
           </div>

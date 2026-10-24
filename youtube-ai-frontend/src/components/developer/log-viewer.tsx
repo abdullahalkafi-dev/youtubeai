@@ -27,7 +27,7 @@ const toLines = (raw: OpsLogLine[]): Line[] => raw.map((l) => ({ ...l, n: seq++,
 const fmtTs = (ts: string | null) => {
   if (!ts) return ''
   const d = new Date(ts)
-  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString([], { hour12: false }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
+  return Number.isNaN(d.getTime()) ? '' : d.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: true }) + '.' + String(d.getMilliseconds()).padStart(3, '0')
 }
 
 const LogRow = memo(function LogRow({ line, search, wrap }: { line: Line; search: RegExp | null; wrap: boolean }) {

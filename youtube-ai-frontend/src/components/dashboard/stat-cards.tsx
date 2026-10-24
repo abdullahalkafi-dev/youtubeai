@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { formatNumber } from '@/lib/utils'
 import type { VideoStats } from '@/types/video'
+import { fmtNYDateTime } from '@/lib/time'
 
 export function StatCards() {
   const channelId = useAppSelector(s => s.auth.activeChannelId)
@@ -49,12 +50,7 @@ export function StatCards() {
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1.5">
           <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
           YouTube performance data synced{' '}
-          {new Date(channel.performanceSync.lastRunAt).toLocaleString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-          })}
+          {fmtNYDateTime(channel.performanceSync.lastRunAt)}
           {' · '}CTR window: last {channel.performanceSync.windowDays || 7} days
           {typeof channel.performanceSync.videosUpdated === 'number' &&
             ` · ${formatNumber(channel.performanceSync.videosUpdated)} videos`}
