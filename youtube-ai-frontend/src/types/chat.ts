@@ -54,6 +54,10 @@ export interface Message {
     }
     generatedScript?: string
     scriptId?: string
+    /** Library id of the saved bullet script of a two-script message. */
+    bulletScriptId?: string
+    /** True when the message carries both the full script and the bullet script. */
+    dualScript?: boolean
     thumbnailConcept?: string
     images?: ChatImage[]
     sources?: ChatSource[]

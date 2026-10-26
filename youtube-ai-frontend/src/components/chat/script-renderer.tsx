@@ -112,6 +112,8 @@ function groupPreviewBlocks(body: string): PreviewBlock[] {
 
 interface ScriptRendererProps {
   content: string
+  /** 'bullet' = the bullet script of a two-script message (saved and edited on its own). */
+  variant?: 'bullet'
   threadId?: string
   messageId?: string
   initialScriptId?: string
@@ -119,14 +121,21 @@ interface ScriptRendererProps {
   videoTitle?: string
 }
 
+/** Title a bullet script is saved under: the episode title plus "Bullets", once. */
+export function bulletScriptTitle(title: string): string {
+  return /bullets?/i.test(title) ? title : `${title} — Bullets`
+}
+
 export function ScriptRenderer({
   content,
+  variant,
   threadId,
   messageId,
   initialScriptId,
   threadTitle,
   videoTitle,
 }: ScriptRendererProps) {
+  const isBullet = variant === 'bullet'
   const dispatch = useAppDispatch()
   const channelId = useAppSelector((state) => state.auth.activeChannelId) || ''
 
@@ -164,7 +173,9 @@ export function ScriptRenderer({
   // Extract a clean topic title from the content, explicit AI contract line, or video/thread title
   const baseTitle = videoTitle || threadTitle?.replace(/^Script:\s*/i, '') || ''
   const derivedTitle = extractScriptTitle(effectiveContent, baseTitle, videoTitle)
-  const scriptTitle = savedScript?.title || derivedTitle
+  const scriptTitle = savedScript?.title || (isBullet ? bulletScriptTitle(derivedTitle) : derivedTitle)
+  // Bullet scripts are prompts to freestyle from, so count bullets instead of reading time.
+  const bulletCount = isBullet ? (effectiveContent.match(/^\**[A-H]\.\s+\S/gm) || []).length : 0
   const isAlreadySaved = Boolean(savedScript || (initialScriptId && !scriptNotFound))
   const currentSavedVersion = savedScript?.currentVersion || 1
 
@@ -190,12 +201,17 @@ export function ScriptRenderer({
         estimatedDurationMinutes: stats.estimatedDurationMinutes,
         source: 'ai_chat',
         formatType: 'teleprompter_beat',
+        ...(isBullet ? { variant: 'bullet' as const } : {}),
       })
       setSavedScript(script)
       if (messageId) {
-        dispatch(updateMessageScriptId({ messageId, scriptId: script.id || (script as any)._id }))
+        dispatch(updateMessageScriptId({
+          messageId,
+          scriptId: script.id || (script as any)._id,
+          ...(isBullet ? { variant: 'bullet' as const } : {}),
+        }))
       }
-      toast.success('Script saved to your Library!')
+      toast.success(isBullet ? 'Bullet script saved to your Library!' : 'Script saved to your Library!')
     } catch (err: any) {
       toast.error(`Failed to save script: ${err.message}`)
     } finally {
@@ -282,7 +298,9 @@ export function ScriptRenderer({
               {scriptTitle}
             </h4>
             <p className="text-[10px] text-zinc-500">
-              {stats.estimatedDurationMinutes} min read · {stats.wordCount} words
+              {isBullet
+                ? `Bullet script · ${bulletCount} bullets · ${stats.wordCount} words`
+                : `${stats.estimatedDurationMinutes} min read · ${stats.wordCount} words`}
             </p>
           </div>
         </div>

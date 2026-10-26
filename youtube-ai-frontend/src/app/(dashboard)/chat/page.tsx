@@ -751,11 +751,12 @@ export default function ChatPage() {
         streamPrompt,
         selectedSkill || undefined,
         (chunk) => { fullContent += chunk; dispatch(appendStreamChunk(chunk)) },
-        (messageId, usage, updatedTitle, streamCategory, autoImages, runId) => {
+        (messageId, usage, updatedTitle, streamCategory, autoImages, runId, finalContent) => {
           streamCompleted = true
           // Only a legacy reply that just streamed in this session may auto-generate its two images.
           if (autoImages && !runId && messageId) setFreshAutoMessageId(messageId)
-          dispatch(finalizeStreamedMessage({ content: fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle, autoImages, runId }))
+          // A two-script reply sends its saved text, so the two script cards sit together right away.
+          dispatch(finalizeStreamedMessage({ content: finalContent || fullContent, messageId, category: streamCategory || currentSkill, title: updatedTitle, autoImages, runId }))
           if (runId) dispatch(selectThread(threadId))
           if (channelId) {
             dispatch(fetchThreads(channelId))
@@ -1247,6 +1248,7 @@ export default function ChatPage() {
                             messageId={msg.id || msg._id}
                             threadId={activeThread?.id}
                             initialScriptId={msg.metadata?.scriptId}
+                            initialBulletScriptId={msg.metadata?.bulletScriptId}
                             messageImages={msg.metadata?.images}
                             autoImages={
                               !msg.metadata?.runId &&

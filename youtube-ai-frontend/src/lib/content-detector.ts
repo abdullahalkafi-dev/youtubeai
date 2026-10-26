@@ -44,7 +44,7 @@ export type ContentBlock =
   | { type: 'scene'; sceneConcepts: SceneConcept[]; raw?: string }
   | { type: 'seo'; seo: SeoContent; raw?: string }
   | { type: 'ideas'; ideaScore: IdeaScore; raw?: string }
-  | { type: 'script'; scriptContent: string; raw?: string }
+  | { type: 'script'; scriptContent: string; raw?: string; variant?: 'bullet' }
   | { type: 'trends'; trends: TrendItem[]; raw?: string }
   | { type: 'outline'; content: string; raw?: string }
 
@@ -65,7 +65,7 @@ export interface ParsedContent {
 
 export function stripScriptDelimiters(text: string): string {
   if (!text) return ''
-  return text.replace(/<!--\s*SCRIPT_(?:START|END)\s*-->|<<<\/?SCRIPT_(?:START|END)>>>/gi, '').trim()
+  return text.replace(/<!--\s*(?:BULLET_)?SCRIPT_(?:START|END)\s*-->|<<<\/?SCRIPT_(?:START|END)>>>/gi, '').trim()
 }
 
 export function stripThumbnailDelimiters(text: string): string {
@@ -406,10 +406,29 @@ interface ExtractedSection {
   start: number
   end: number
   data: any
+  /** Set on the second script of a two-script message. */
+  variant?: 'bullet'
 }
 
 export function parseCompositeBlocks(textContent: string, category: string): ContentBlock[] {
   const sections: ExtractedSection[] = []
+
+  // 0. Bullet script (the second script of a two-script message): its own delimiters, so it never
+  //    collides with the full script's SCRIPT_START/END handling below.
+  const BULLET_DELIMITER_REGEX = /<!--\s*BULLET_SCRIPT_START\s*-->([\s\S]*?)(?:<!--\s*BULLET_SCRIPT_END\s*-->|$)/i
+  const bulletMatch = BULLET_DELIMITER_REGEX.exec(textContent)
+  if (bulletMatch && bulletMatch.index !== undefined) {
+    const bulletScript = stripScriptDelimiters(bulletMatch[1] || '')
+    if (bulletScript.length > 50) {
+      sections.push({
+        type: 'script',
+        variant: 'bullet',
+        start: bulletMatch.index,
+        end: bulletMatch.index + bulletMatch[0].length,
+        data: bulletScript,
+      })
+    }
+  }
 
   // 1. Script section (Primary: deterministic delimiters <!-- SCRIPT_START --> ... <!-- SCRIPT_END -->)
   const SCRIPT_DELIMITER_REGEX = /(?:<!--\s*SCRIPT_START\s*-->|<<<SCRIPT_START>>>)([\s\S]*?)(?:<!--\s*SCRIPT_END\s*-->|<<<SCRIPT_END>>>|$)/i
@@ -641,7 +660,12 @@ export function parseCompositeBlocks(textContent: string, category: string): Con
     } else if (sec.type === 'seo') {
       blocks.push({ type: 'seo', seo: sec.data, raw: textContent.slice(sec.start, sec.end) })
     } else if (sec.type === 'script') {
-      blocks.push({ type: 'script', scriptContent: stripScriptDelimiters(sec.data), raw: textContent.slice(sec.start, sec.end) })
+      blocks.push({
+        type: 'script',
+        scriptContent: stripScriptDelimiters(sec.data),
+        raw: textContent.slice(sec.start, sec.end),
+        ...(sec.variant ? { variant: sec.variant } : {}),
+      })
     }
 
     cursor = sec.end
@@ -693,13 +717,14 @@ export function detectAndParse(content: any, category: string): ParsedContent {
   // If multiple blocks exist, return composite document
   if (blocks.length > 1) {
     // Check if it's the classic modular_package (markdown preamble + script + markdown postamble)
-    const scriptBlock = blocks.find(b => b.type === 'script')
+    const scriptBlock = blocks.find(b => b.type === 'script' && b.variant !== 'bullet')
+    const hasBulletScript = blocks.some(b => b.type === 'script' && b.variant === 'bullet')
     const hasThumb = blocks.some(b => b.type === 'thumbnail')
     const hasSeo = blocks.some(b => b.type === 'seo')
     const hasScene = blocks.some(b => b.type === 'scene')
 
     // If it's strictly a 3-part script package without interactive cards, preserve legacy modular_package
-    if (scriptBlock && !hasThumb && !hasSeo && !hasScene && blocks.length <= 3) {
+    if (scriptBlock && !hasBulletScript && !hasThumb && !hasSeo && !hasScene && blocks.length <= 3) {
       const preambleBlock = blocks.find((b, idx) => idx === 0 && b.type === 'markdown')
       const postambleBlock = blocks.find((b, idx) => idx > 0 && b.type === 'markdown')
       return {

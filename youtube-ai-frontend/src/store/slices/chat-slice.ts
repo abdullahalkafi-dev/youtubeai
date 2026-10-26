@@ -180,14 +180,16 @@ const chatSlice = createSlice({
         state.threads[idx].title = title
       }
     },
-    updateMessageScriptId(state, action: PayloadAction<{ messageId: string; scriptId: string }>) {
+    updateMessageScriptId(state, action: PayloadAction<{ messageId: string; scriptId: string; variant?: 'bullet' }>) {
       if (state.activeThread?.messages) {
         const msg = state.activeThread.messages.find(
           (m) => m.id === action.payload.messageId || m._id === action.payload.messageId
         )
         if (msg) {
           if (!msg.metadata) msg.metadata = {}
-          msg.metadata.scriptId = action.payload.scriptId
+          // A two-script message keeps one saved-script id per script.
+          if (action.payload.variant === 'bullet') msg.metadata.bulletScriptId = action.payload.scriptId
+          else msg.metadata.scriptId = action.payload.scriptId
         }
       }
     },

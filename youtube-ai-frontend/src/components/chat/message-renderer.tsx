@@ -23,6 +23,8 @@ interface MessageRendererProps {
   messageId?: string
   threadId?: string
   initialScriptId?: string
+  /** Saved-script id of the bullet script in a two-script message. */
+  initialBulletScriptId?: string
   messageImages?: any[]
   /** From message metadata — fires parallel auto-generation of 2 thumbnails. */
   autoImages?: boolean
@@ -74,6 +76,7 @@ export function MessageRenderer({
   messageId,
   threadId,
   initialScriptId,
+  initialBulletScriptId,
   messageImages,
   autoImages,
   runId,
@@ -91,7 +94,7 @@ export function MessageRenderer({
     const rawContent = typeof content === 'string' ? content : ''
     const cleanStreamingContent = collapseDuplicateYouTubeCards(
       rawContent
-        .replace(/<!--\s*SCRIPT_(?:START|END)?\s*-->?/gi, '')
+        .replace(/<!--\s*(?:BULLET_)?SCRIPT_(?:START|END)?\s*-->?/gi, '')
         .replace(/<<<\/?SCRIPT_(?:START|END)?>>>?/gi, '')
         .replace(/<[^>]*$/g, ''),
     )
@@ -162,9 +165,10 @@ export function MessageRenderer({
                   <ScriptRenderer
                     key={idx}
                     content={block.scriptContent}
+                    variant={block.variant}
                     threadId={threadId}
                     messageId={messageId}
-                    initialScriptId={initialScriptId}
+                    initialScriptId={block.variant === 'bullet' ? initialBulletScriptId : initialScriptId}
                     threadTitle={threadTitle}
                     videoTitle={effectiveTopic}
                   />

@@ -531,6 +531,8 @@ class ApiClient {
       category?: string,
       autoImages?: boolean,
       runId?: string,
+      /** The saved message text, sent when it differs in order from what streamed (two-script messages). */
+      finalContent?: string,
     ) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
@@ -585,7 +587,7 @@ class ApiClient {
               } else if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {
-                onDone(data.messageId, data.usage, data.title, data.category, data.autoImages)
+                onDone(data.messageId, data.usage, data.title, data.category, data.autoImages, undefined, data.finalContent)
                 streamDone = true
                 break
               } else if (data.type === 'error') {
@@ -1050,7 +1052,7 @@ class ApiClient {
 
   // ==================== Scripts ====================
 
-  async createScript(channelId: string, data: Partial<ScriptItem>): Promise<ScriptItem> {
+  async createScript(channelId: string, data: Partial<ScriptItem> & { variant?: 'bullet' }): Promise<ScriptItem> {
     return this.post<ScriptItem>(`/api/channels/${channelId}/scripts`, data)
   }
 
