@@ -92,6 +92,11 @@ export function formatMemoryCard(card: MemoryCard): string {
   ];
   if (card.innerLine) lines.push(`What he told himself: "${card.innerLine}"`);
   if (card.mirror) lines.push(`How it rhymes with this story: ${card.mirror}`);
+  const last = card.beats.length;
+  const from = Math.max(1, last - 2);
+  lines.push(
+    `THE ACT AND THE COST are beats ${from}-${last}. They are the point of this memory, so say them plainly in the same flat voice. A point 2 that ends before beat ${last} ("${card.beats[last - 1].slice(0, 110)}") fails the brief.`,
+  );
   lines.push(
     'RULE: point 2 retells this memory in his flat first-person past tense with EVERY beat above, in order, including what he did and what it cost him, then breaks it against this story through the mindset. Do not stop early, skip the act, or replace it with a milder memory. The changed man judges it afterward; the old self is not cleaned up.',
   );

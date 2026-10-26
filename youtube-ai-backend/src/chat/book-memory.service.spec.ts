@@ -151,6 +151,8 @@ describe('memory card', () => {
     expect(block).toMatch(/What he told himself: "If they want some shit/);
     expect(block).toMatch(/EVERY beat above, in order, including what he did and what it cost him/);
     expect(block).toMatch(/Do not stop early, skip the act/);
+    expect(block).toMatch(/THE ACT AND THE COST are beats 3-5/);
+    expect(block).toMatch(/ends before beat 5 \("Officers stunned him and he woke in the hole\."\) fails the brief/);
   });
 
   it('recall puts the card ahead of the passages, and survives a failing card step', async () => {
