@@ -45,6 +45,11 @@ export class CreateScriptDto {
   @IsIn(['teleprompter_beat', 'standard_markdown', 'raw_text'])
   @IsOptional()
   formatType?: string;
+
+  /** 'bullet' = the bullet script of a two-script message; linked to the message as bulletScriptId. */
+  @IsIn(['bullet'])
+  @IsOptional()
+  variant?: string;
 }
 
 export class SaveScriptDto {

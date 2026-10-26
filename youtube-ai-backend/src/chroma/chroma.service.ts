@@ -10,6 +10,8 @@ const COLLECTIONS = [
   'trending_topics',
   'channel_analytics',
   'client_book',
+  // The real book, chunked by chapter/scene (client_book keeps the short hand-written summaries).
+  'client_book_full',
 ] as const;
 
 export type CollectionName = (typeof COLLECTIONS)[number];

@@ -184,9 +184,11 @@ export class ScriptsService {
       const messageOid = Types.ObjectId.isValid(dto.messageId) ? new Types.ObjectId(dto.messageId) : null;
       if (messageOid) {
         try {
+          // A two-script message links each script under its own key.
+          const linkKey = dto.variant === 'bullet' ? 'bulletScriptId' : 'scriptId';
           await this.threadModel.updateOne(
             { _id: new Types.ObjectId(dto.threadId), 'messages._id': messageOid },
-            { $set: { 'messages.$.metadata.scriptId': script._id.toString() } },
+            { $set: { [`messages.$.metadata.${linkKey}`]: script._id.toString() } },
           );
         } catch (err: any) {
           this.logger.warn(`Failed to link scriptId to thread message: ${err.message}`);
@@ -486,6 +488,13 @@ export class ScriptsService {
           { 'messages.metadata.scriptId': scriptId },
           { $unset: { 'messages.$[elem].metadata.scriptId': '' } },
           { arrayFilters: [{ 'elem.metadata.scriptId': scriptId }] },
+        )
+        .catch(() => {}),
+      this.threadModel
+        .updateMany(
+          { 'messages.metadata.bulletScriptId': scriptId },
+          { $unset: { 'messages.$[elem].metadata.bulletScriptId': '' } },
+          { arrayFilters: [{ 'elem.metadata.bulletScriptId': scriptId }] },
         )
         .catch(() => {}),
       this.chromaService.delete('scripts', scriptId).catch(() => {}),

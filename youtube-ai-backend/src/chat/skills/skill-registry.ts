@@ -29,6 +29,7 @@ import {
   GOLD_SPOKEN_EXAMPLES,
 } from '../../openai/prompts/script-cadence';
 import { SCRIPT_LENGTH_CONTRACT } from '../../openai/prompts/script-length';
+import { withUniquePersona } from '../../openai/prompts/unique-persona';
 
 @Injectable()
 export class SkillRegistry {
@@ -287,7 +288,7 @@ IMPORTANT RULES:
 - Keep reported facts and Unique's analysis clearly separate through wording ("reportedly", "the court found", "that's my analysis") — never as printed labels or sub-headings in the script
 - State the legal status of any case (Arrested, Charged, Indicted, Convicted, Sentenced, etc.) in one spoken line, never as an on-screen header
 - Use "allegedly" and "reportedly" for unconfirmed claims
-- Write for teleprompter like an OG on the couch — NOT a documentary narrator. ${SPOKEN_LINE_CONTRACT} Use [BEAT] before reveals/pivots and [PAUSE] after punch lines/questions/jewels (between breath blocks). About 3-4 cues per section (one after each 4-6 line block). Never put CTAs inside ### **JEWEL**.
+- Write for teleprompter like a reformed outlaw talking straight to the streets — NOT a documentary narrator. ${SPOKEN_LINE_CONTRACT} Use [BEAT] before reveals/pivots and [PAUSE] after punch lines/questions/jewels (between breath blocks). About 3-4 cues per section (one after each 4-6 line block). Never put CTAs inside ### **JEWEL**.
 - Every section ends with ### **JEWEL** (Principle -> Consequence -> Direct Question ending in '?') followed by [PAUSE]
 - Place engagement CTAs (comment prompts) as short spoken rails BEFORE ### **JEWEL**. Never after ### **JEWEL**.
 - For global viewers, explain American legal terms in street language when they appear
@@ -795,7 +796,17 @@ ${imageFormat}`,
     });
   }
 
+  /** Skills that write in Unique's own voice; they get the persona appended LAST so it wins. */
+  private static readonly PERSONA_SKILLS = new Set(['general', 'script', 'outline']);
+
   register(skill: ChatSkill) {
+    if (SkillRegistry.PERSONA_SKILLS.has(skill.category)) {
+      const build = skill.buildSystemPrompt;
+      skill = {
+        ...skill,
+        buildSystemPrompt: (channel, ctx) => withUniquePersona(build(channel, ctx)),
+      };
+    }
     this.skills.set(skill.category, skill);
     this.logger.log(`Registered skill: ${skill.name} (${skill.category})`);
   }

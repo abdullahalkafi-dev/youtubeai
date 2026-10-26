@@ -68,6 +68,25 @@ import {
 } from '../openai/prompts/script-length';
 import { TrendsService } from '../trends/trends.service';
 import { ReelContextService } from './reel-context.service';
+import {
+  mayReplaceSystemPrompt,
+  shouldSkipPerformanceLookup,
+} from './script-guards';
+import { BookMemoryService, recentBookChunkIds } from './book-memory.service';
+import { extractRecentTwists } from './twist';
+import {
+  BULLET_SCRIPT_INSTRUCTION,
+  BULLET_SCRIPT_START,
+  buildTwistBrief,
+  personaEnabled,
+} from '../openai/prompts/unique-persona';
+import {
+  DUAL_FORMAT_NOTE,
+  extractBulletBlock,
+  insertBulletBlock,
+  isFullScript,
+  wantsDualScript,
+} from './dual-script';
 import { FootageIntentService } from './footage-intent.service';
 import { matchUploadedPhoto, recentChatUploads } from './thumbnail-uploads';
 import { cleanRewordText, rewordPrompt } from './thumbnail-reword';
@@ -112,6 +131,8 @@ export class ChatService {
     private readonly configService: ConfigService,
     @InjectModel('CreatorPreferences')
     private readonly creatorPreferencesModel: Model<any>,
+    @Optional()
+    private readonly bookMemory?: BookMemoryService,
   ) {
     this.modelName = this.configService.get<string>(
       'OPENAI_MODEL',
@@ -368,7 +389,10 @@ export class ChatService {
     );
 
     // RAG context
-    const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
+    const ragContext = await this.buildRagContext(dto.content, resolvedSkill, {
+      topicHint: updatedThread.title,
+      messages: updatedThread.messages,
+    });
 
     // On-demand performance lookup (Analytics + local catalog) when asked about views / this video
     let performanceLookup = '';
@@ -377,7 +401,10 @@ export class ChatService {
     let lookupReferenceUrl: string | undefined;
     try {
       const q = cleanUserPrompt || dto.content;
-      const uid = channel?.userId?.toString();
+      // A pasted script can mention "views" or "the video"; never look up an unrelated video for it.
+      const uid = shouldSkipPerformanceLookup(resolvedSkill, q)
+        ? undefined
+        : channel?.userId?.toString();
       const cid = updatedThread.channelId.toString();
       if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
         analysisMode = 'diagnosis';
@@ -430,7 +457,9 @@ export class ChatService {
 
     // The package skill owns its system prompt — autopsy/diagnosis prompt
     // swaps must never hijack a packaging ask (metrics stay via performanceLookup).
-    if (resolvedSkill === 'package') {
+    // Script skills own theirs too: words inside a pasted script ("retention", "the video")
+    // must never turn a script request into a video autopsy.
+    if (!mayReplaceSystemPrompt(resolvedSkill)) {
       analysisMode = undefined;
     }
 
@@ -745,6 +774,7 @@ export class ChatService {
     category?: string;
     autoImages?: boolean;
     code?: string;
+    finalContent?: string;
   }> {
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
@@ -839,7 +869,12 @@ export class ChatService {
     );
 
     // RAG context
-    const ragContext = await this.buildRagContext(dto.content, resolvedSkill);
+    const ragSink: { bookChunkIds?: string[] } = {};
+    const ragContext = await this.buildRagContext(dto.content, resolvedSkill, {
+      topicHint: updatedThread.title,
+      messages: updatedThread.messages,
+      sink: ragSink,
+    });
 
     // On-demand performance lookup for stream path
     let performanceLookup = '';
@@ -848,7 +883,10 @@ export class ChatService {
     let lookupReferenceUrl: string | undefined;
     try {
       const q = dto.content;
-      const uid = channel?.userId?.toString();
+      // A pasted script can mention "views" or "the video"; never look up an unrelated video for it.
+      const uid = shouldSkipPerformanceLookup(resolvedSkill, q)
+        ? undefined
+        : channel?.userId?.toString();
       const cid = updatedThread.channelId.toString();
       if (uid && PerformanceContextService.isChannelDiagnosisQuery(q)) {
         analysisMode = 'diagnosis';
@@ -903,7 +941,9 @@ export class ChatService {
 
     // The package skill owns its system prompt — autopsy/diagnosis prompt
     // swaps must never hijack a packaging ask (metrics stay via performanceLookup).
-    if (resolvedSkill === 'package') {
+    // Script skills own theirs too: words inside a pasted script ("retention", "the video")
+    // must never turn a script request into a video autopsy.
+    if (!mayReplaceSystemPrompt(resolvedSkill)) {
       analysisMode = undefined;
     }
 
@@ -1037,6 +1077,22 @@ export class ChatService {
     }
 
     const conversationHistory = contextMessages.slice(0, -1);
+
+    // The Unique twist (point 2) is a fixed slot with dynamic content: hand the writer a fresh
+    // shape to lean toward and the earlier twists in this chat so it does not repeat itself.
+    if (resolvedSkill === 'script' && personaEnabled()) {
+      dynamicContext +=
+        '\n\n' + buildTwistBrief(extractRecentTwists(updatedThread.messages));
+    }
+
+    // A fresh script request also gets the bullet version (written after the full script).
+    const dualWanted = wantsDualScript({
+      skill: resolvedSkill,
+      userContent: cleanUserPrompt || dto.content,
+    });
+    if (dualWanted) dynamicContext += '\n\n' + DUAL_FORMAT_NOTE;
+    let bulletAttempted = false;
+    let bulletBlock: string | null = null;
 
     // Stream
     let fullContent = '';
@@ -1177,12 +1233,54 @@ export class ChatService {
         }
       }
 
+      // Second script: the bullet version of the same episode, in the same message. It runs only
+      // for a fresh script request that produced a real full script; any failure leaves the full
+      // script exactly as it would have been (the bullet script is purely additive).
+      if (dualWanted && isFullScript(fullContent)) {
+        bulletAttempted = true;
+        const out: { block: string | null; usage?: TokenUsage } = { block: null };
+        yield { type: 'chunk', content: '\n\n' };
+        try {
+          for await (const piece of this.streamBulletScript({
+            systemPrompt,
+            conversationHistory,
+            firstTurn: `${dynamicContext}\n\n${dto.content}`,
+            fullScript: fullContent,
+            threadId: threadId.toString(),
+            out,
+          })) {
+            yield { type: 'chunk', content: piece };
+          }
+        } catch (error: any) {
+          this.logger.warn(
+            `Thread ${threadId}: bullet script failed (${error?.message || error}); keeping the full script only`,
+          );
+        }
+        bulletBlock = out.block;
+        if (out.usage) {
+          finalUsage = {
+            promptTokens: (finalUsage?.promptTokens || 0) + out.usage.promptTokens,
+            completionTokens: (finalUsage?.completionTokens || 0) + out.usage.completionTokens,
+            cachedTokens: (finalUsage?.cachedTokens || 0) + out.usage.cachedTokens,
+            cacheHitRate: out.usage.cacheHitRate,
+          };
+        }
+        if (!bulletBlock) {
+          this.logger.warn(`Thread ${threadId}: bullet script was not usable; saving the full script only`);
+        }
+      }
+
       // Phase 3: backend clip list — server-appended (model can't drop/invent IDs),
       // streamed as a final chunk so the live view updates before 'done'.
       const packBlock = this.buildFootagePackBlock(footagePack);
       if (packBlock) {
         fullContent = this.insertFootagePackBlock(fullContent, packBlock);
         yield { type: 'chunk', content: packBlock };
+      }
+      // Inserted after the footage block so no heading match can ever land inside it, and placed
+      // right after the full script so the two script cards sit together.
+      if (bulletBlock) {
+        fullContent = insertBulletBlock(fullContent, bulletBlock);
       }
     } finally {
       // Save response atomically — GUARANTEED to execute even on client abort/disconnect
@@ -1201,6 +1299,10 @@ export class ChatService {
                 ? { autoImages: true }
                 : {}),
               ...(sources.length > 0 ? { sources } : {}),
+              // Both scripts live in this one message (the client saves each independently).
+              ...(fullContent.includes(BULLET_SCRIPT_START) ? { dualScript: true } : {}),
+              // Book moments used, so the next script in this chat can pick different ones.
+              ...(ragSink.bookChunkIds?.length ? { bookChunkIds: ragSink.bookChunkIds } : {}),
             },
             createdAt: new Date(),
           };
@@ -1296,8 +1398,47 @@ export class ChatService {
         title: savedThread.title,
         category: resolvedSkill,
         ...(emitAutoImages ? { autoImages: true } : {}),
+        // The live view streamed the bullet script after the full script's footage and notes; send the
+        // saved order so the two script cards sit together exactly as they will after a reload.
+        ...(bulletAttempted ? { finalContent: fullContent } : {}),
       };
     }
+  }
+
+  /**
+   * Writes the bullet version of a finished full script. Same system prompt and same first turn as
+   * the full script (so the long prefix is a cache hit), then the full script as the assistant turn,
+   * then the bullet instruction. Yields the raw text as it is written; the checked block and token
+   * usage come back through `params.out`.
+   */
+  private async *streamBulletScript(params: {
+    systemPrompt: string;
+    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
+    firstTurn: string;
+    fullScript: string;
+    threadId: string;
+    out: { block: string | null; usage?: TokenUsage };
+  }): AsyncGenerator<string> {
+    let raw = '';
+    for await (const chunk of this.openaiService.chatStream({
+      messages: [{ role: 'user', content: BULLET_SCRIPT_INSTRUCTION }],
+      conversationHistory: [
+        ...params.conversationHistory,
+        { role: 'user', content: params.firstTurn },
+        { role: 'assistant', content: params.fullScript },
+      ],
+      threadId: params.threadId,
+      systemPromptOverride: params.systemPrompt,
+      temperature: 0.7,
+      maxCompletionTokens: 9000,
+    })) {
+      if (chunk.chunk) {
+        raw += chunk.chunk;
+        yield chunk.chunk;
+      }
+      if (chunk.usage) params.out.usage = chunk.usage;
+    }
+    params.out.block = extractBulletBlock(raw);
   }
 
   async archiveThread(id: string, reason: string) {
@@ -1737,6 +1878,14 @@ export class ChatService {
   private async buildRagContext(
     content: string,
     resolvedSkill: string,
+    opts: {
+      /** Thread title / topic, so a short follow-up ("make it harder") still recalls the right moments. */
+      topicHint?: string;
+      /** Earlier messages of the thread, used to avoid repeating the same book moments. */
+      messages?: Array<{ role: string; metadata?: any }>;
+      /** Receives the book chunk ids used, to be remembered on the saved message. */
+      sink?: { bookChunkIds?: string[] };
+    } = {},
   ): Promise<string> {
     let ragContext = '';
     try {
@@ -1756,8 +1905,35 @@ export class ChatService {
           allResults.map((r) => `- ${r.text.substring(0, 200)}`).join('\n');
       }
 
+      // Script and outline requests recall the moments of his own life that mirror the story
+      // (the full book, matched by situation). If that yields nothing, or it is switched off,
+      // the original short-summary lookup below runs exactly as before.
+      let recalledBook = false;
+      if (
+        (resolvedSkill === 'script' || resolvedSkill === 'outline') &&
+        this.bookMemory &&
+        BookMemoryService.enabled()
+      ) {
+        try {
+          const request = content
+            .replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '')
+            .trim();
+          const recall = await this.bookMemory.recall(request, {
+            topicHint: opts.topicHint,
+            avoidIds: recentBookChunkIds(opts.messages || []),
+          });
+          if (recall.block) {
+            ragContext += '\n\n' + recall.block;
+            if (opts.sink) opts.sink.bookChunkIds = recall.ids;
+            recalledBook = true;
+          }
+        } catch {
+          /* fall back to the short summaries below */
+        }
+      }
+
       // Search client book for script/general — adds authentic voice and story references
-      if (resolvedSkill === 'script' || resolvedSkill === 'general') {
+      if (!recalledBook && (resolvedSkill === 'script' || resolvedSkill === 'general' || resolvedSkill === 'outline')) {
         try {
           const bookResults = await this.chromaService.query(
             'client_book',

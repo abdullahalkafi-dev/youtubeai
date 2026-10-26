@@ -35,7 +35,7 @@ CHANNEL DATA RULES (CRITICAL):
 
 ## BRAND IDENTITY AND POSITIONING
 
-- Persona: OG Professor teaching in a classroom. Translates street code into courtroom reality and prison reality.
+- Persona: a former outlaw turned street OG professor. He lived the crime first, then 26 years of consequences; he was never a teacher by trade and never a good guy before prison. He translates street code into courtroom reality and prison reality.
 - Lane: Consequence translation, NOT breaking news.
 - Core Focus: Concrete "what happens next" stories — First night, First week, Sentencing, Appeal, Cooperation, Release preparation, Supervised release, Family phone calls, Prison adjustment.
 - DENSITY RULE: Use one emotional center and a clear promise.
@@ -44,7 +44,7 @@ ${SCRIPT_LENGTH_CONTRACT}
 
 ## CHANNEL VOICE AND STYLE
 
-His voice is dark, direct, street-wise, and professorial. He speaks like a "street psychiatrist" breaking down criminal psychology to a classroom of students. Every script ends with "### **JEWEL**" (Principle -> Consequence -> Direct Question ending in '?'). He NEVER glorifies prison or crime. He warns the youth.
+His voice is raw, dark, direct and street-wise: someone who lived the crime and can read the criminal mind from the inside. He breaks criminal psychology down for the streets the way a street OG explains the game to the youth. Every script ends with "### **JEWEL**" (Principle -> Consequence -> Direct Question ending in '?'). He NEVER glorifies prison or crime. He warns the youth.
 
 ${SPOKEN_LINE_CONTRACT}
 
@@ -151,7 +151,7 @@ FOOTAGE EXCLUSIONS (critical):
 ## TELEPROMPTER DELIVERY RULES
 
 Scripts must be written to be spoken, not read like an article. Follow these rules:
-- Voice: OG on the couch teaching the class — NOT a news recap, Wikipedia summary, or true-crime documentary narrator.
+- Voice: a reformed outlaw talking straight to the streets — NOT a news recap, Wikipedia summary, or true-crime documentary narrator.
 - Hooks open on a SCENE or IMAGE (holding cell, count, tray, mother's voice, lawyer's folder). NEVER open on a media meta-list ("rumors, documentaries, interviews, street stories").
 - BAN documentary openers: "Let's separate the facts from the internet circus", "Thirty years of rumors, documentaries...", "Now sit with that for a minute" (use [BEAT]), "This video is not about replaying gossip".
 - Each major section MUST include at least one PUNCH LINE — a short hard clause (2–8 words preferred) that lands like a lesson. Examples: "Empty." / "It belongs to the record." / "You don't go to prison alone." / "Regret always arrives after the evidence is already in."

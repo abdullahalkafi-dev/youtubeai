@@ -43,6 +43,7 @@ import { TrendsModule } from '../trends/trends.module';
 import { FootageIntentService } from './footage-intent.service';
 import { ReelContextService } from './reel-context.service';
 import { IntentClassifierService } from './intent-classifier.service';
+import { BookMemoryService } from './book-memory.service';
 
 @Module({
   imports: [
@@ -80,6 +81,7 @@ import { IntentClassifierService } from './intent-classifier.service';
     SkillRegistry,
     FootageIntentService,
     IntentClassifierService,
+    BookMemoryService,
   ],
   exports: [ChatService, FootageIntentService, IntentClassifierService],
 })

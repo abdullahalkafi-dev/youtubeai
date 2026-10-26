@@ -27,6 +27,13 @@ export class Message {
       tags: string[];
     };
     generatedScript?: string;
+    /** Library id of the saved full script / saved bullet script (set when the client saves them). */
+    scriptId?: string;
+    bulletScriptId?: string;
+    /** True when this reply carries both the full script and the bullet script. */
+    dualScript?: boolean;
+    /** Book memory chunks used for this reply, so the next script can pick different moments. */
+    bookChunkIds?: string[];
     images?: Array<{
       id: string;
       url: string;

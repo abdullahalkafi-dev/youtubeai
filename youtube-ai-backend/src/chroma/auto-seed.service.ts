@@ -1,6 +1,8 @@
 import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { ChromaService } from './chroma.service';
+import { BOOK_COLLECTION, BOOK_SOURCE, chunkBook } from './book-chunker';
+import { loadBookText } from './book-source';
 
 const BOOK_PASSAGES = [
   // === SYNOPSIS / THEMES ===
@@ -209,7 +211,53 @@ export class AutoSeedService implements OnApplicationBootstrap {
       return;
     }
 
-    // Step 2: Check if ChromaDB collection is already seeded
+    // Step 2: the short hand-written summaries (unchanged), then the full book memory.
+    await this.seedSummaryPassages();
+    await this.ingestFullBook();
+  }
+
+  /**
+   * The real book as chunked memory (client_book_full). Idempotent: chunk ids are deterministic,
+   * so a matching count means it is already in; a different count (new book text or chunker) clears
+   * this source and writes it again. Never throws: a failure only means the old summaries are used.
+   */
+  async ingestFullBook(): Promise<void> {
+    try {
+      const text = loadBookText();
+      if (!text) {
+        this.logger.warn('📖 Full book text not found on disk; skipping client_book_full ingest.');
+        return;
+      }
+      const chunks = chunkBook(text);
+      const { count } = await this.chromaService.getStats(BOOK_COLLECTION);
+      if (count === chunks.length) {
+        this.logger.log(`📖 "${BOOK_COLLECTION}" already holds the full book (${count} chunks).`);
+        return;
+      }
+      if (count > 0) {
+        this.logger.log(`📖 "${BOOK_COLLECTION}" has ${count} chunks but the book has ${chunks.length}; re-ingesting.`);
+        await this.chromaService.deleteByMetadata(BOOK_COLLECTION, { source: BOOK_SOURCE });
+      }
+      this.logger.log(`📖 Ingesting ${chunks.length} book chunks into "${BOOK_COLLECTION}"...`);
+      const BATCH = 20;
+      for (let i = 0; i < chunks.length; i += BATCH) {
+        const batch = chunks.slice(i, i + BATCH);
+        await this.chromaService.upsertBatch(
+          BOOK_COLLECTION,
+          batch.map((c) => c.id),
+          batch.map((c) => c.text),
+          batch.map((c) => c.metadata),
+        );
+      }
+      const after = await this.chromaService.getStats(BOOK_COLLECTION);
+      this.logger.log(`✅ Book memory ready: ${after.count}/${chunks.length} chunks in "${BOOK_COLLECTION}".`);
+    } catch (err: any) {
+      this.logger.warn(`⚠️ Full book ingest failed (summaries still available): ${err?.message || err}`);
+    }
+  }
+
+  private async seedSummaryPassages() {
+    // Check if ChromaDB collection is already seeded
     try {
       const existing = await this.chromaService.query('client_book', 'trust', 1);
       if (existing && existing.length > 0) {
