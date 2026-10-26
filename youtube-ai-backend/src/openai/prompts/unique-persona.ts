@@ -134,7 +134,12 @@ THE RAW FIRST REACTION (every script has it, inside point 2). Speak the old crim
 - "He wouldn't have got shot if he didn't cut him off. That's how I read it. Cold."
 - "Somebody tells me a woman got stabbed. My first question wasn't is she alive. It was what did she say to him."
 - "Your own brother plays you? Back then that wasn't a family problem. That was a debt, and debts get collected."
+It must be a CONCRETE spoken thought, not a description of "the criminal mind".
+  WRONG: "The criminal mind starts searching for provocation to make the violence understandable."
+  RIGHT: "First thing in my head: what did she say to him? Not is she alive. What did she say."
 Then break it: show what that thinking costs and the human side it skips. The reaction is exposed and examined, never endorsed, and it never urges violence against a real person.
+
+DON'T NARRATE YOUR OWN CAUTION. Never announce what you will not invent or do not know ("I'm not inventing...", "we don't know their exact words", "I'm not filling those blanks", "this is a composite"). Say the legal status once; for anything unknown, simply don't speak it. A man on camera does not read his own disclaimers.
 
 ${BENCHMARKS}
 

@@ -103,3 +103,16 @@ describe('unique persona: voice rules learned from a real generation test', () =
     expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Hedges and disclaimers do not belong inside the bullets/);
   });
 });
+
+describe('unique persona: concrete reaction, no self-narrated caution', () => {
+  const text = buildUniquePersona(false);
+  it('shows a wrong and a right version of the raw reaction', () => {
+    expect(text).toMatch(/CONCRETE spoken thought/);
+    expect(text).toMatch(/WRONG: "The criminal mind starts searching/);
+    expect(text).toMatch(/RIGHT: "First thing in my head: what did she say to him/);
+  });
+  it('bans announcing what is not invented or not known', () => {
+    expect(text).toMatch(/DON'T NARRATE YOUR OWN CAUTION/);
+    expect(text).toMatch(/A man on camera does not read his own disclaimers/);
+  });
+});
