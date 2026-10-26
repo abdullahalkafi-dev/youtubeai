@@ -134,6 +134,25 @@ describe('unique persona v4: the OG speaks from inside, not as a commentator', (
     expect(text).toMatch(/do not turn the victim into an innocent civilian/);
   });
 
+  it('never cleans up the old self: the memory includes what he did and what it cost', () => {
+    expect(text).toMatch(/NEVER CUT THE SCENE OFF BEFORE HE ACTS/);
+    expect(text).toMatch(/stops at "the officer broke it up" has been cleaned up/);
+    expect(buildTwistBrief([])).toMatch(/including what he did, and what it cost/);
+  });
+
+  it('caps the pet words the model leans on', () => {
+    expect(text).toMatch(/"calculation\/calculate" and "recognition\/recognize" may each appear at most three times/);
+  });
+
+  it('makes the supplied memory card the core of point 2', () => {
+    expect(text).toMatch(/"MEMORY TO BUILD POINT 2 ON" block is supplied, that memory IS the core of point 2/);
+  });
+
+  it('keeps the closing order-lines from repeating one opening word', () => {
+    expect(text).toMatch(/Never start two of these lines with the same word/);
+    expect(text).toMatch(/not "Catch", not "Watch"/);
+  });
+
   it('twist brief points at the moment his own thinking is on the page and keeps caveats silent', () => {
     const brief = buildTwistBrief([]);
     expect(brief).toMatch(/his OWN thinking is on the page/);

@@ -72,7 +72,7 @@ import {
   mayReplaceSystemPrompt,
   shouldSkipPerformanceLookup,
 } from './script-guards';
-import { BookMemoryService, recentBookChunkIds } from './book-memory.service';
+import { BookMemoryService, recentBookChunkIds, topicAwareRequest } from './book-memory.service';
 import { extractRecentTwists } from './twist';
 import {
   BULLET_SCRIPT_INSTRUCTION,
@@ -1885,7 +1885,7 @@ export class ChatService {
       /** Thread title / topic, so a short follow-up ("make it harder") still recalls the right moments. */
       topicHint?: string;
       /** Earlier messages of the thread, used to avoid repeating the same book moments. */
-      messages?: Array<{ role: string; metadata?: any }>;
+      messages?: Array<{ role: string; content?: string; metadata?: any }>;
       /** Receives the book chunk ids used, to be remembered on the saved message. */
       sink?: { bookChunkIds?: string[] };
     } = {},
@@ -1921,7 +1921,7 @@ export class ChatService {
           const request = content
             .replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '')
             .trim();
-          const recall = await this.bookMemory.recall(request, {
+          const recall = await this.bookMemory.recall(topicAwareRequest(request, opts.messages), {
             topicHint: opts.topicHint,
             avoidIds: recentBookChunkIds(opts.messages || []),
           });

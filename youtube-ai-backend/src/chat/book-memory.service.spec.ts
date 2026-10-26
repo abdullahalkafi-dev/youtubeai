@@ -2,9 +2,12 @@ import {
   BookMemoryService,
   continuationsFor,
   formatBookBlock,
+  formatMemoryCard,
+  parseMemoryCard,
   parseSituation,
   pickBookChunks,
   recentBookChunkIds,
+  topicAwareRequest,
 } from './book-memory.service';
 import { ChromaQueryResult } from '../chroma/chroma.service';
 
@@ -116,7 +119,78 @@ describe('formatBookBlock', () => {
     const block = formatBookBlock([chunk('a', 0.5, 15)], undefined, { a: 'the rest of the scene' });
     expect(block).toMatch(/his own MIND is on the page/);
     expect(block).toMatch(/a drug spot is a drug spot/);
+    expect(block).toMatch(/never stop the memory at the point where an officer or a bystander breaks it up/);
     expect(block).toContain('(the scene continues:) the rest of the scene');
+  });
+});
+
+describe('memory card', () => {
+  const good =
+    '{"pick":2,"title":"Four men, a mop wringer","beats":["He walked onto block B and four inmates asked for his shoes.","He thought he would make each one know it.","He took a mop wringer to his cell and waited.","He broke the leader\'s jaw and another man\'s nose.","Officers stunned him and he woke in the hole."],"inner_line":"If they want some shit, I\'ll give them some shit.","mirror":"A new arrival gets tested the first day."}';
+
+  it('reads the model JSON, keeping every beat in order', () => {
+    const card = parseMemoryCard('```json\n' + good + '\n```', 4)!;
+    expect(card.title).toBe('Four men, a mop wringer');
+    expect(card.beats).toHaveLength(5);
+    expect(card.beats[3]).toMatch(/jaw/);
+    expect(card.innerLine).toMatch(/give them some shit/);
+  });
+
+  it('rejects unusable output: bad pick, too few beats, not JSON', () => {
+    expect(parseMemoryCard(good, 1)).toBeNull(); // pick 2 is outside 1 passage
+    expect(parseMemoryCard('{"pick":1,"beats":["one beat only here"]}', 4)).toBeNull();
+    expect(parseMemoryCard('nope', 4)).toBeNull();
+    expect(parseMemoryCard('', 4)).toBeNull();
+  });
+
+  it('formats a block that forces every beat, the act and its cost', () => {
+    const block = formatMemoryCard(parseMemoryCard(good, 4)!);
+    expect(block).toMatch(/MEMORY TO BUILD POINT 2 ON/);
+    expect(block).toContain('1. He walked onto block B');
+    expect(block).toContain('5. Officers stunned him');
+    expect(block).toMatch(/What he told himself: "If they want some shit/);
+    expect(block).toMatch(/EVERY beat above, in order, including what he did and what it cost him/);
+    expect(block).toMatch(/Do not stop early, skip the act/);
+  });
+
+  it('recall puts the card ahead of the passages, and survives a failing card step', async () => {
+    const chroma = { query: jest.fn().mockResolvedValue([chunk('a', 0.5, 18), chunk('b', 0.6, 25)]) };
+    const situation = '{"queries":["A new arrival is tested over his shoes on the block."],"themes":["violence"],"dynamics":"x"}';
+    const openai = { chatFast: jest.fn().mockResolvedValueOnce(situation).mockResolvedValueOnce(good) };
+    const r = await new BookMemoryService(chroma as any, openai as any).recall('script about a prison transfer');
+    expect(r.block.indexOf('MEMORY TO BUILD POINT 2 ON')).toBeLessThan(r.block.indexOf('FROM UNIQUE'));
+    expect(openai.chatFast).toHaveBeenCalledTimes(2);
+
+    const failing = { chatFast: jest.fn().mockResolvedValueOnce(situation).mockRejectedValueOnce(new Error('boom')) };
+    const r2 = await new BookMemoryService(chroma as any, failing as any).recall('script about a prison transfer');
+    expect(r2.block).toContain('FROM UNIQUE');
+    expect(r2.block).not.toContain('MEMORY TO BUILD POINT 2 ON');
+  });
+});
+
+describe('topicAwareRequest', () => {
+  const topic = 'Today: Diddy at Allenwood. '.padEnd(400, 'x');
+  const history = [
+    { role: 'user', content: 'which topic video should i make today' },
+    { role: 'assistant', content: topic },
+    { role: 'user', content: 'now give me script for this video' },
+  ];
+
+  it('borrows the subject from the last assistant message for a short follow-up', () => {
+    const out = topicAwareRequest('now give me script for this video', history);
+    expect(out).toContain('now give me script for this video');
+    expect(out).toContain('Diddy at Allenwood');
+    expect(out.length).toBeLessThan(1900);
+  });
+
+  it('leaves a request that already says what it is about untouched', () => {
+    const long = 'Write a script about a woman stabbed in the face by her boyfriend. '.repeat(6);
+    expect(topicAwareRequest(long, history)).toBe(long.trim());
+  });
+
+  it('falls back to the plain request when there is nothing to borrow', () => {
+    expect(topicAwareRequest('script please', [])).toBe('script please');
+    expect(topicAwareRequest('script please', [{ role: 'assistant', content: 'ok' }])).toBe('script please');
   });
 });
 
