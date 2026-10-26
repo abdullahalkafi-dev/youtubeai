@@ -19,7 +19,7 @@ export interface BookRecall {
   fellBack: boolean;
 }
 
-const SITUATION_TIMEOUT_MS = 12000;
+const SITUATION_TIMEOUT_MS = 20000;
 const KNOWN_THEMES = [
   'betrayal',
   'police-informant',
@@ -189,7 +189,9 @@ export class BookMemoryService {
         (topicHint ? `Conversation topic: ${topicHint}\n\n` : '') +
         `Script request:\n${request.slice(0, 1500)}`,
       temperature: 0,
-      maxCompletionTokens: 400,
+      // Generous on purpose: the small model spends part of this budget on hidden reasoning and an
+      // empty reply is what a tight limit produces.
+      maxCompletionTokens: 3000,
     });
     llm.catch(() => undefined);
     const raw = await Promise.race<string>([
