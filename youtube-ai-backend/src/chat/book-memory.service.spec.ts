@@ -1,5 +1,6 @@
 import {
   BookMemoryService,
+  continuationsFor,
   formatBookBlock,
   parseSituation,
   pickBookChunks,
@@ -62,6 +63,38 @@ describe('pickBookChunks', () => {
   it('handles empty results', () => {
     expect(pickBookChunks([[], []], [], [], 5)).toEqual([]);
   });
+
+  it('prefers the passage where his own mind is on the page when distances are close', () => {
+    const quiet = { ...chunk('quiet', 0.5, 1), text: 'He planned a quiet evening at his grandmother house.' };
+    const mind = { ...chunk('mind', 0.52, 2), text: '"I know I am off on some foul shit," he thought to himself.' };
+    const picked = pickBookChunks([[quiet, mind]], [], [], 1);
+    expect(picked[0].id).toBe('mind');
+  });
+});
+
+describe('continuationsFor', () => {
+  const book = (id: string, chapter: number, text: string) => ({ id, text, metadata: { chapter } as any });
+  const all = [
+    book('c1-1', 1, 'one'),
+    book('c1-2', 1, 'two'),
+    book('c1-3', 1, 'three'),
+    book('c2-1', 2, 'other chapter'),
+  ];
+
+  it('brings the next passages of the same chapter so the scene arrives whole', () => {
+    const out = continuationsFor([chunk('c1-1', 0.5, 1)], all);
+    expect(out['c1-1']).toBe('two\nthree');
+  });
+
+  it('never crosses into the next chapter and ignores unknown ids', () => {
+    const out = continuationsFor([chunk('c1-3', 0.5, 1), chunk('nope', 0.5, 1)], all);
+    expect(out).toEqual({});
+  });
+
+  it('only continues the top picks', () => {
+    const out = continuationsFor([chunk('c1-1', 0.5, 1), chunk('c1-2', 0.5, 1), chunk('c1-3', 0.5, 1)], all, 1, 1);
+    expect(Object.keys(out)).toEqual(['c1-1']);
+  });
 });
 
 describe('formatBookBlock', () => {
@@ -77,6 +110,13 @@ describe('formatBookBlock', () => {
 
   it('is empty when there is nothing to use', () => {
     expect(formatBookBlock([])).toBe('');
+  });
+
+  it('asks for the moment where his mind shows, keeps the people true, and shows the continued scene', () => {
+    const block = formatBookBlock([chunk('a', 0.5, 15)], undefined, { a: 'the rest of the scene' });
+    expect(block).toMatch(/his own MIND is on the page/);
+    expect(block).toMatch(/a drug spot is a drug spot/);
+    expect(block).toContain('(the scene continues:) the rest of the scene');
   });
 });
 

@@ -104,6 +104,66 @@ describe('unique persona: voice rules learned from a real generation test', () =
   });
 });
 
+describe('unique persona v4: the OG speaks from inside, not as a commentator', () => {
+  const text = buildUniquePersona(false);
+
+  it('puts every point through the four inside beats, not only point 2', () => {
+    expect(text).toMatch(/EVERY POINT IS SPOKEN FROM INSIDE/);
+    for (const beat of ['THE OLD MIND', 'THE CROWD', 'THE COST', 'THE ORDER']) expect(text).toContain(beat);
+  });
+
+  it('bans commentator phrases and caps the "That\'s" openers and "X ain\'t Y" jewels', () => {
+    expect(text).toMatch(/NEVER THE COMMENTATOR/);
+    expect(text).toMatch(/"my read", "my analysis", "the mechanism"/);
+    expect(text).toMatch(/No more than two sentences in the whole script may begin with "That's"/);
+    expect(text).toMatch(/no more than two may be shaped "X ain't Y"/);
+  });
+
+  it('goes inside the seat at least twice and treats prison as home field without claiming private facts', () => {
+    expect(text).toMatch(/GO INSIDE THE SEAT/);
+    expect(text).toMatch(/Tesla-trunk level of detail/);
+    expect(text).toMatch(/PRISON IS HIS HOME FIELD/);
+    expect(text).toMatch(/commissary/);
+    expect(text).toMatch(/never claim what a named real person did, said or felt there/);
+  });
+
+  it('keeps earlier-chat caveats silent and the book scenes true to the page', () => {
+    expect(text).toMatch(/EARLIER MESSAGES IN THE CHAT/);
+    expect(text).toMatch(/Never speak them out loud as disclaimers/);
+    expect(text).toMatch(/THE BOOK STAYS TRUE/);
+    expect(text).toMatch(/do not turn the victim into an innocent civilian/);
+  });
+
+  it('twist brief points at the moment his own thinking is on the page and keeps caveats silent', () => {
+    const brief = buildTwistBrief([]);
+    expect(brief).toMatch(/his OWN thinking is on the page/);
+    expect(brief).toMatch(/silent fact-safety rule/);
+  });
+});
+
+describe('unique persona v4: bullets built on the client\'s own models', () => {
+  it('requires claim headings, a concrete detail with a doorway, and a three-line jewel', () => {
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/CLAIM about THIS story's real situation/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toContain('Millions in the bank, but no freedom.');
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/doorway to the next thing he will talk about/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/BAD \(abstract/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/GOOD \(a claim/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/JEWEL has exactly three "> " lines/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/never the letters "RSA"/);
+  });
+
+  it('its own GOOD example obeys its own rules (one sentence per line, at most 20 words)', () => {
+    const good = BULLET_SCRIPT_INSTRUCTION.match(/GOOD \(a claim[^"]*"([^"]*)"/)!;
+    const lines = good[1].split(' / > ').slice(1).map((l) => l.replace(/^> /, ''));
+    expect(lines).toHaveLength(2);
+    for (const l of lines) {
+      expect(l.split(/\s+/).length).toBeLessThanOrEqual(20);
+      expect(l).not.toContain(';');
+      expect((l.match(/[.!?]/g) || []).length).toBe(1);
+    }
+  });
+});
+
 describe('unique persona: concrete reaction, no self-narrated caution', () => {
   const text = buildUniquePersona(false);
   it('shows a wrong and a right version of the raw reaction', () => {
