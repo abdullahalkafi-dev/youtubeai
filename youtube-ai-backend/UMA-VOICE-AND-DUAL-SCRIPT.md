@@ -18,7 +18,7 @@ production and was not touched). Single channel: every switch below is one globa
   is cut into ~420 chapter/scene chunks and ingested into Chroma `client_book_full` on boot. Idempotent: a matching
   chunk count means nothing is rewritten; a different count clears that source and re-ingests. `client_book`
   (the 23 hand-written summaries) is untouched and remains the fallback.
-- `src/chat/book-memory.service.ts` — turns the request into the human situation (small fast-model call, 3.5 s
+- `src/chat/book-memory.service.ts` — turns the request into the human situation (small fast-model call, ~5 s, 12 s
   timeout), searches the book with several scene queries, picks 5 chunks (max 2 per chapter, avoiding the ones used
   by the last scripts of the thread) and formats the "FROM UNIQUE'S OWN LIFE" block. Never throws.
 - `src/chat/twist.ts` — reads earlier point-2 twists from the thread so the next one does not repeat them.

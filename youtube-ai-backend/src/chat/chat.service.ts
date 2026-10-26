@@ -861,6 +861,15 @@ export class ChatService {
       },
     });
 
+    // RAG context starts now and runs alongside the channel/skill context loading: the book recall
+    // makes one small model call (about 5 s) that should not add to the wait.
+    const ragSink: { bookChunkIds?: string[] } = {};
+    const ragPromise = this.buildRagContext(dto.content, resolvedSkill, {
+      topicHint: updatedThread.title,
+      messages: updatedThread.messages,
+      sink: ragSink,
+    }).catch(() => '');
+
     const channel = await channelPromise;
     const skill = this.skillRegistry.get(resolvedSkill);
     const skillContext = await skill.loadContext(
@@ -868,13 +877,7 @@ export class ChatService {
       updatedThread.videoId || undefined,
     );
 
-    // RAG context
-    const ragSink: { bookChunkIds?: string[] } = {};
-    const ragContext = await this.buildRagContext(dto.content, resolvedSkill, {
-      topicHint: updatedThread.title,
-      messages: updatedThread.messages,
-      sink: ragSink,
-    });
+    const ragContext = await ragPromise;
 
     // On-demand performance lookup for stream path
     let performanceLookup = '';

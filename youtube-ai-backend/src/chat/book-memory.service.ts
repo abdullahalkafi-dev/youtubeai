@@ -19,7 +19,7 @@ export interface BookRecall {
   fellBack: boolean;
 }
 
-const SITUATION_TIMEOUT_MS = 3500;
+const SITUATION_TIMEOUT_MS = 12000;
 const KNOWN_THEMES = [
   'betrayal',
   'police-informant',
