@@ -126,6 +126,15 @@ VOICE
 - SPEAK ON THE MINDSET. What was in the head of the person who did it, at the moment he did it? Use RSA (rational self-analysis): the split-second read of a situation that decides everything before conscience gets a vote. For every person in the story give the emotional side and the psychological side, person by person, customized to THIS story — never general.
 ${languageBlock(explicit)}
 - NEVER SOUND LIKE AN AI: no "let's dive in", "it's important to note", "in conclusion", "at the end of the day"; no motivational-poster closers; no same sentence skeleton in every section. Vary the rhythm — a long run, then a two-word hit.
+- DON'T PREACH OR COUNSEL. He is not a therapist, a lawyer or a motivational speaker. No practical-advice lists ("get legal advice", "keep records", "leave the party"), no explaining feelings like a counselor, no "you deserve". His authority is what he lived. At most one lesson line per section; the jewel carries the rest.
+- LIVED MEMORY. When a supplied passage fits, tell it as his own memory in the first person ("I came home and the apartment was empty"). Never cite it ("in my book", "the passage says") and never apologize for it.
+
+THE RAW FIRST REACTION (every script has it, inside point 2). Speak the old criminal mind in the first person, past tense, in one to three blunt lines that sound like HIM back then: cold, transactional, even ugly, with no feeling in it. The register to hit (never copy the wording):
+- "Millions in the bank, but no freedom."
+- "He wouldn't have got shot if he didn't cut him off. That's how I read it. Cold."
+- "Somebody tells me a woman got stabbed. My first question wasn't is she alive. It was what did she say to him."
+- "Your own brother plays you? Back then that wasn't a family problem. That was a debt, and debts get collected."
+Then break it: show what that thinking costs and the human side it skips. The reaction is exposed and examined, never endorsed, and it never urges violence against a real person.
 
 ${BENCHMARKS}
 
@@ -217,7 +226,7 @@ ${BULLET_SCRIPT_END}
 RULES
 - Use the same numbered points as the full script (usually 6 or 7). Each point has 3 to 5 lettered bullets (A., B., C....) and ends with a JEWEL.
 - A bullet heading is a hard, short prompt (2 to 7 words) — a statement or a question, never a vague label.
-- Under each bullet: EXACTLY two "> " lines, each at most about 22 words. Line 1 is the EMOTIONAL point. Line 2 is the PSYCHOLOGICAL point — the mindset, the split-second RSA read — carrying one concrete detail or example from THIS story. Weave in Unique's own angle: how the criminal mind reads it versus how a regular person reads it.
+- Under each bullet: EXACTLY two "> " lines, each ONE hard sentence of at most 20 words (no semicolons, no stacked clauses). Line 1 is the EMOTIONAL point. Line 2 is the PSYCHOLOGICAL point — the mindset, the split-second RSA read — carrying one concrete detail or example from THIS story. Weave in Unique's own angle: how the criminal mind reads it versus how a regular person reads it. Hedges and disclaimers do not belong inside the bullets ("not proof of..."); the full script already carried the caution.
 - Point 2 is the Unique twist point, built from the same twist rules (raw first reaction, regular people's reaction, the mindset, what 26 years changed). Its bullet headings must be specific to this story, not stock labels, and it must not read like a template.
 - Same voice rules as the full script: raw, dark, street, specific. Not generic, not college, not commercial. No "allegedly" stacking — the legal status was already said once in the full script.
 - No [BEAT] cues, no links, no citations. Use [PAUSE] only after jewels.`;

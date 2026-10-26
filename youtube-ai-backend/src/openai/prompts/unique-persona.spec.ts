@@ -82,3 +82,24 @@ describe('unique persona', () => {
     expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Point 2 is the Unique twist point/);
   });
 });
+
+describe('unique persona: voice rules learned from a real generation test', () => {
+  const text = buildUniquePersona(false);
+
+  it('requires the raw first reaction to be spoken, not described, and never endorsed', () => {
+    expect(text).toMatch(/THE RAW FIRST REACTION/);
+    expect(text).toMatch(/first person, past tense/);
+    expect(text).toMatch(/never endorsed, and it never urges violence against a real person/);
+  });
+
+  it('forbids counselor-style advice and citing the book', () => {
+    expect(text).toMatch(/DON'T PREACH OR COUNSEL/);
+    expect(text).toMatch(/No practical-advice lists/);
+    expect(text).toMatch(/Never cite it \("in my book"/);
+  });
+
+  it('keeps bullet explanations to one hard sentence per line', () => {
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/ONE hard sentence of at most 20 words/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Hedges and disclaimers do not belong inside the bullets/);
+  });
+});
