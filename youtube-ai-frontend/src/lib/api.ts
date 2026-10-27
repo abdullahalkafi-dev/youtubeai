@@ -536,6 +536,8 @@ class ApiClient {
     ) => void,
     onError: (error: string) => void,
     signal?: AbortSignal,
+    /** Progress notes the server sends before the first words arrive (e.g. "Checking the latest facts…"). */
+    onStatus?: (status: string) => void,
   ): Promise<void> {
     const token = this.getToken()
     const response = await fetch(`${this.baseUrl}/api/threads/${threadId}/messages/stream`, {
@@ -584,6 +586,8 @@ class ApiClient {
                 streamDone = true
                 await reader.cancel()
                 break
+              } else if (data.type === 'status' && data.content) {
+                onStatus?.(data.content)
               } else if (data.type === 'chunk' && data.content) {
                 onChunk(data.content)
               } else if (data.type === 'done') {

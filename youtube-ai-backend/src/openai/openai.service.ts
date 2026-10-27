@@ -532,6 +532,11 @@ export class OpenAIService {
   async chatWithSearch(params: {
     userMessage: string;
     systemPrompt: string;
+    /**
+     * Per-request context. Sent at the front of the last user message so the system prompt and the
+     * history stay byte-identical between requests and can be served from the prompt cache.
+     */
+    dynamicContext?: string;
     conversationHistory?: Array<{
       role: 'user' | 'assistant';
       content: string;
@@ -563,7 +568,14 @@ export class OpenAIService {
     inputItems.push({
       type: 'message',
       role: 'user',
-      content: [{ type: 'input_text', text: params.userMessage }],
+      content: [
+        {
+          type: 'input_text',
+          text: params.dynamicContext
+            ? `${params.dynamicContext}\n\n${params.userMessage}`
+            : params.userMessage,
+        },
+      ],
     });
 
     this.logger.log('Executing chat with web search...');
@@ -590,13 +602,7 @@ export class OpenAIService {
       sources = this.parseSourcesFromText(content);
     }
 
-    // Build usage from response
-    const usage: TokenUsage = {
-      promptTokens: (response as any).usage?.input_tokens || 0,
-      completionTokens: (response as any).usage?.output_tokens || 0,
-      cachedTokens: 0,
-      cacheHitRate: 0,
-    };
+    const usage = this.responsesUsage((response as any).usage);
 
     this.logCachePerformance('chat_with_search', usage);
 
@@ -610,6 +616,8 @@ export class OpenAIService {
   async *chatWithSearchStream(params: {
     userMessage: string;
     systemPrompt: string;
+    /** Per-request context, sent in the last user message (see chatWithSearch). */
+    dynamicContext?: string;
     conversationHistory?: Array<{
       role: 'user' | 'assistant';
       content: string;
@@ -643,7 +651,14 @@ export class OpenAIService {
     inputItems.push({
       type: 'message',
       role: 'user',
-      content: [{ type: 'input_text', text: params.userMessage }],
+      content: [
+        {
+          type: 'input_text',
+          text: params.dynamicContext
+            ? `${params.dynamicContext}\n\n${params.userMessage}`
+            : params.userMessage,
+        },
+      ],
     });
 
     this.logger.log('Executing streaming chat with web search...');
@@ -681,12 +696,7 @@ export class OpenAIService {
         yield { chunk: '', sources };
       }
 
-      const usage: TokenUsage = {
-        promptTokens: finalResponse.usage?.input_tokens || 0,
-        completionTokens: finalResponse.usage?.output_tokens || 0,
-        cachedTokens: 0,
-        cacheHitRate: 0,
-      };
+      const usage = this.responsesUsage(finalResponse.usage);
       this.logCachePerformance('chat_with_search_stream', usage);
       yield { chunk: '', usage };
     }
@@ -2682,6 +2692,22 @@ PRIORITY INSTRUCTIONS:
     return {
       promptTokens,
       completionTokens,
+      cachedTokens,
+      cacheHitRate:
+        promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : 0,
+    };
+  }
+
+  /**
+   * Token usage from a Responses API result (input_tokens / input_tokens_details.cached_tokens),
+   * so web-search calls report the real cache hit rate instead of a hardcoded zero.
+   */
+  private responsesUsage(usage: any): TokenUsage {
+    const promptTokens = usage?.input_tokens || 0;
+    const cachedTokens = usage?.input_tokens_details?.cached_tokens || 0;
+    return {
+      promptTokens,
+      completionTokens: usage?.output_tokens || 0,
       cachedTokens,
       cacheHitRate:
         promptTokens > 0 ? Math.round((cachedTokens / promptTokens) * 100) : 0,

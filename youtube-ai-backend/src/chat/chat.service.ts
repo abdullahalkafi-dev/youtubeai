@@ -621,12 +621,8 @@ export class ChatService {
       );
       const searchResult = await this.openaiService.chatWithSearch({
         userMessage: dto.content,
-        systemPrompt:
-          systemPrompt +
-          '\n\n' +
-          this.buildResearchProtocol() +
-          '\n\n' +
-          dynamicContext,
+        systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol(),
+        dynamicContext,
         conversationHistory: contextMessages.slice(0, -1),
       });
       aiResponse = { content: searchResult.content, usage: searchResult.usage };
@@ -877,6 +873,9 @@ export class ChatService {
       updatedThread.videoId || undefined,
     );
 
+    if (resolvedSkill === 'script' && personaEnabled() && BookMemoryService.enabled()) {
+      yield { type: 'status', content: 'Pulling a real memory from the book…' };
+    }
     const ragContext = await ragPromise;
 
     // On-demand performance lookup for stream path
@@ -1127,15 +1126,14 @@ export class ChatService {
         this.logger.log(
           `Thread ${threadId}: Research detected in stream, using web search`,
         );
+        yield { type: 'status', content: 'Checking the latest facts on the web…' };
         try {
           for await (const chunk of this.openaiService.chatWithSearchStream({
             userMessage: dto.content,
-            systemPrompt:
-              systemPrompt +
-              '\n\n' +
-              this.buildResearchProtocol() +
-              '\n\n' +
-              dynamicContext,
+            // The per-request context rides in the last user message so the system prompt and the
+            // history stay identical between requests and the prompt cache can serve them.
+            systemPrompt: systemPrompt + '\n\n' + this.buildResearchProtocol(),
+            dynamicContext,
             conversationHistory,
           })) {
             if (chunk.chunk) {

@@ -31,7 +31,7 @@ import { VoiceWaveform } from '@/components/chat/voice-waveform'
 import { HostCutoutModal } from '@/components/chat/host-cutout-modal'
 import type { ThreadCategory, ChatImage } from '@/types/chat'
 
-function PreStreamLoader({ category, initialElapsed = 0 }: { category?: ThreadCategory | string; initialElapsed?: number }) {
+function PreStreamLoader({ category, initialElapsed = 0, statusNote }: { category?: ThreadCategory | string; initialElapsed?: number; statusNote?: string }) {
   const [elapsed, setElapsed] = useState(initialElapsed)
 
   useEffect(() => {
@@ -43,6 +43,8 @@ function PreStreamLoader({ category, initialElapsed = 0 }: { category?: ThreadCa
   }, [initialElapsed])
 
   const getStatusText = () => {
+    // A live note from the server (what it is doing right now) beats the generic per-skill line.
+    if (statusNote) return statusNote
     switch (category) {
       case 'script':
         return 'Writing full teleprompter script…'
@@ -235,6 +237,7 @@ export default function ChatPage() {
   const urlScriptId = searchParams.get('scriptId')
   const [activeScriptContext, setActiveScriptContext] = useState<{ id: string; title: string; wordCount: number; content: string } | null>(null)
   const [drawerOpen, setDrawerOpen] = useState(false)
+  const [streamStatus, setStreamStatus] = useState('')
   const [input, setInput] = useState('')
   const [galleryOpen, setGalleryOpen] = useState(false)
   const [generatingConceptText, setGeneratingConceptText] = useState<string | null>(null)
@@ -774,6 +777,7 @@ export default function ChatPage() {
           }
         },
         abortControllerRef.current.signal,
+        (status) => { if (streamThreadId === activeThreadId) setStreamStatus(status) },
       )
     } catch (err: any) {
       if (streamThreadId === activeThreadId) {
@@ -784,6 +788,7 @@ export default function ChatPage() {
         dispatch(clearStreaming())
       }
     } finally {
+      setStreamStatus('')
       // Safety: if stream ended without done event, clean up stuck UI
       if (!streamCompleted && streamThreadId === activeThreadId) {
         dispatch(clearStreaming())
@@ -1351,6 +1356,7 @@ export default function ChatPage() {
             {((sending && !streamingContent) || isThreadGenerating) && (
               <PreStreamLoader
                 category={activeThread?.generatingSkill || currentSkill}
+                statusNote={sending ? streamStatus : ''}
                 initialElapsed={
                   isThreadGenerating && activeThread?.generationStartedAt
                     ? Math.max(0, Math.floor((Date.now() - new Date(activeThread.generationStartedAt).getTime()) / 1000))
