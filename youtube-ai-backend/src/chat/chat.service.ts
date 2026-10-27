@@ -1096,10 +1096,24 @@ export class ChatService {
     if (dualWanted) dynamicContext += '\n\n' + DUAL_FORMAT_NOTE;
     let bulletAttempted = false;
     let bulletBlock: string | null = null;
+    // The full script finished streaming / the clip list is in / the whole tail is in place. They let
+    // the save step finish the tail when the client leaves in the middle of it.
+    let scriptStreamed = false;
+    let packInserted = false;
+    let tailDone = false;
 
     // Stream
     let fullContent = '';
     let finalUsage: TokenUsage | undefined;
+    const addUsage = (usage?: TokenUsage) => {
+      if (!usage) return;
+      finalUsage = {
+        promptTokens: (finalUsage?.promptTokens || 0) + usage.promptTokens,
+        completionTokens: (finalUsage?.completionTokens || 0) + usage.completionTokens,
+        cachedTokens: (finalUsage?.cachedTokens || 0) + usage.cachedTokens,
+        cacheHitRate: usage.cacheHitRate,
+      };
+    };
     let sources: any[] = [];
     let savedThread: any = null;
 
@@ -1238,6 +1252,7 @@ export class ChatService {
       // Second script: the bullet version of the same episode, in the same message. It runs only
       // for a fresh script request that produced a real full script; any failure leaves the full
       // script exactly as it would have been (the bullet script is purely additive).
+      scriptStreamed = true;
       if (dualWanted && isFullScript(fullContent)) {
         bulletAttempted = true;
         const out: { block: string | null; usage?: TokenUsage } = { block: null };
@@ -1259,14 +1274,7 @@ export class ChatService {
           );
         }
         bulletBlock = out.block;
-        if (out.usage) {
-          finalUsage = {
-            promptTokens: (finalUsage?.promptTokens || 0) + out.usage.promptTokens,
-            completionTokens: (finalUsage?.completionTokens || 0) + out.usage.completionTokens,
-            cachedTokens: (finalUsage?.cachedTokens || 0) + out.usage.cachedTokens,
-            cacheHitRate: out.usage.cacheHitRate,
-          };
-        }
+        addUsage(out.usage);
         if (!bulletBlock) {
           this.logger.warn(`Thread ${threadId}: bullet script was not usable; saving the full script only`);
         }
@@ -1277,14 +1285,56 @@ export class ChatService {
       const packBlock = this.buildFootagePackBlock(footagePack);
       if (packBlock) {
         fullContent = this.insertFootagePackBlock(fullContent, packBlock);
+        packInserted = true;
         yield { type: 'chunk', content: packBlock };
       }
+      packInserted = true;
       // Inserted after the footage block so no heading match can ever land inside it, and placed
       // right after the full script so the two script cards sit together.
       if (bulletBlock) {
         fullContent = insertBulletBlock(fullContent, bulletBlock);
       }
+      tailDone = true;
     } finally {
+      // The client left (opened another chat, closed the tab, lost the connection) after the full
+      // script was done but before the rest was written. Nobody is listening any more, but the second
+      // script is part of the answer, so finish it here instead of saving half a reply. The chat's
+      // recovery polling shows it when the client comes back.
+      if (dualWanted && scriptStreamed && !tailDone && isFullScript(fullContent)) {
+        if (!bulletBlock) {
+          const out: { block: string | null; usage?: TokenUsage } = { block: null };
+          try {
+            for await (const _piece of this.streamBulletScript({
+              systemPrompt,
+              conversationHistory,
+              firstTurn: `${dynamicContext}\n\n${dto.content}`,
+              fullScript: fullContent,
+              threadId: threadId.toString(),
+              out,
+            })) {
+              // nobody is listening: the checked block comes back through `out`
+            }
+            bulletBlock = out.block;
+            addUsage(out.usage);
+          } catch (error: any) {
+            this.logger.warn(
+              `Thread ${threadId}: bullet script failed after the client left (${error?.message || error}); keeping the full script only`,
+            );
+          }
+          this.logger.log(
+            `Thread ${threadId}: client left during the bullet script; finished it on the server (${bulletBlock ? 'saved' : 'not usable'})`,
+          );
+        }
+        if (!packInserted) {
+          const packBlock = this.buildFootagePackBlock(footagePack);
+          if (packBlock) fullContent = this.insertFootagePackBlock(fullContent, packBlock);
+          packInserted = true;
+        }
+        if (bulletBlock && !fullContent.includes(BULLET_SCRIPT_START)) {
+          fullContent = insertBulletBlock(fullContent, bulletBlock);
+        }
+        tailDone = true;
+      }
       // Save response atomically — GUARANTEED to execute even on client abort/disconnect
       if (fullContent && fullContent.trim().length > 0) {
         fullContent = this.capSavedTitle(this.cleanSavedScript(fullContent, threadId), threadId);
