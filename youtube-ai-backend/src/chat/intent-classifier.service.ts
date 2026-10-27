@@ -15,6 +15,11 @@ export interface IntentClassification {
   source: 'llm' | 'fastpath' | 'fallback';
   /** The client wants real video clips / footage; the reply stays a normal chat answer (skill general). */
   footage?: boolean;
+  /**
+   * Script asks only: true = a NEW script written from an idea, topic or pasted notes; false = an
+   * existing script rewritten, shortened, converted or formatted. Undefined when the model did not say.
+   */
+  freshScript?: boolean;
 }
 
 /** Auto image generation fires only when the router is this sure about the ask. */
@@ -101,6 +106,8 @@ RULES:
 - Asking to WRITE a script for a live stream, a live show, a long show or a video ("write up a 30 minute live", "script for my live today") = "script", even when the user also asks for clips or video to show.
 - "footage" (boolean, any category): true whenever the user ALSO wants real video clips, news clips or b-roll ("and give me video for this", "plus clips I can show", "local news for it"). A script ask with clips is {"intent":"script","footage":true}. A clips-only ask is intent "footage".
 
+"fresh_script" (only when intent is "script", otherwise null): true when the user wants a NEW script written from an idea, a topic, a story, or pasted notes or news ("write me a script on this", "now give me a script for this video", "write me a story in bullets on X", a pasted article plus "write a script"). false when the user wants an EXISTING script worked on: rewritten, shortened, lengthened, fixed, reformatted, converted into breathable blocks, put into the teleprompter, or edited in any way ("rewrite this 7 to 8 minutes", "write this up in the teleprompter", "make it harder").
+
 "mode" (only when intent is "package", otherwise null):
 - "audit": the message refers to an EXISTING or already-uploaded video (a YouTube link, "this video", "my X video", "the one I posted", "repackage", "fix my packaging", "why isn't this working").
 - "new": the message describes a video that does NOT exist yet (a new topic, a pasted new script, "the video I'm getting ready to put in").
@@ -109,7 +116,7 @@ RULES:
 "confidence": 0.0 to 1.0 — how certain you are of the category.
 
 Return ONLY this JSON shape:
-{"intent":"package","mode":"new","footage":false,"confidence":0.92}`;
+{"intent":"package","mode":"new","footage":false,"fresh_script":null,"confidence":0.92}`;
 
 @Injectable()
 export class IntentClassifierService {
@@ -185,6 +192,9 @@ export class IntentClassifierService {
             source: 'llm',
             ...(finalIntent === 'package' ? { mode } : {}),
             ...(isFootage ? { footage: true } : {}),
+            ...(finalIntent === 'script' && typeof parsed.fresh_script === 'boolean'
+              ? { freshScript: parsed.fresh_script }
+              : {}),
           };
           this.logger.log(
             `[Intent] "${message.slice(0, 80)}" -> ${result.intent}${

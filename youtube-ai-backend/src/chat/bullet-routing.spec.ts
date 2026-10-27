@@ -43,3 +43,23 @@ describe('the client\'s long dictated asks still get both scripts', () => {
     expect(wantsDualScript({ skill: 'script', userContent: pasted, enabled: true })).toBe(false);
   });
 });
+
+describe('the intent router decides fresh script vs edit (freshScript)', () => {
+  const pasted = 'here is the news\n' + '> a pasted line about the transfer that runs on and on\n'.repeat(40);
+
+  it('a new script from pasted notes gets both scripts when the router says so', () => {
+    expect(wantsDualScript({ skill: 'script', userContent: pasted, enabled: true })).toBe(false); // no router answer: plain rules
+    expect(wantsDualScript({ skill: 'script', userContent: pasted, enabled: true, freshScript: true })).toBe(true);
+  });
+
+  it('an edit or conversion stays one script when the router says so, whatever the wording', () => {
+    expect(wantsDualScript({ skill: 'script', userContent: 'write this up for the teleprompter', enabled: true, freshScript: false })).toBe(false);
+    expect(wantsDualScript({ skill: 'script', userContent: 'write me a script on Diddy', enabled: true, freshScript: false })).toBe(false);
+  });
+
+  it('never fires for another skill or when switched off, even if the router says fresh', () => {
+    expect(wantsDualScript({ skill: 'general', userContent: 'x', enabled: true, freshScript: true })).toBe(false);
+    expect(wantsDualScript({ skill: 'script', userContent: 'x', enabled: false, freshScript: true })).toBe(false);
+    expect(wantsDualScript({ skill: 'script', userContent: '   ', enabled: true, freshScript: true })).toBe(false);
+  });
+});

@@ -1091,6 +1091,7 @@ export class ChatService {
     const dualWanted = wantsDualScript({
       skill: resolvedSkill,
       userContent: cleanUserPrompt || dto.content,
+      freshScript: intentResult.freshScript,
     });
     if (dualWanted) dynamicContext += '\n\n' + DUAL_FORMAT_NOTE;
     let bulletAttempted = false;

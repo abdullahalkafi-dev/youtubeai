@@ -17,6 +17,7 @@ interface ClassifierHost {
     confidence: number;
     source: string;
     footage?: boolean;
+    freshScript?: boolean;
   }>;
 }
 
@@ -233,5 +234,21 @@ describe('IntentClassifierService', () => {
       const result = await svc.classify({ message: 'thoughts on thumbnails in general?' });
       expect(result.confidence).toBeLessThan(0.8);
     });
+  });
+});
+
+describe('fresh_script routing field', () => {
+  it('passes the router answer through for a script ask', async () => {
+    const fresh = makeClassifier(() => JSON.stringify({ intent: 'script', fresh_script: true, confidence: 0.9 }));
+    expect((await fresh.classify({ message: 'now give me a script for this video' })).freshScript).toBe(true);
+    const edit = makeClassifier(() => JSON.stringify({ intent: 'script', fresh_script: false, confidence: 0.9 }));
+    expect((await edit.classify({ message: 'rewrite this in breathable blocks' })).freshScript).toBe(false);
+  });
+
+  it('leaves it undefined when the model gave none, or for other skills', async () => {
+    const none = makeClassifier(() => JSON.stringify({ intent: 'script', confidence: 0.9 }));
+    expect((await none.classify({ message: 'write me a script' })).freshScript).toBeUndefined();
+    const other = makeClassifier(() => JSON.stringify({ intent: 'seo', fresh_script: true, confidence: 0.9 }));
+    expect((await other.classify({ message: 'seo for this' })).freshScript).toBeUndefined();
   });
 });

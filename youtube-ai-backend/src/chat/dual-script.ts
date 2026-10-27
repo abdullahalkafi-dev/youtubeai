@@ -20,22 +20,24 @@ const REVISION_START =
 
 /**
  * Decided BEFORE writing: should this request produce two scripts?
- * Only a fresh script request: not an edit of an existing script, not a pasted script.
+ * Only a fresh script request: not an edit of an existing script.
+ *
+ * The intent router reads the message (`freshScript`): a new script from an idea, a topic or pasted
+ * notes is true, an existing script being rewritten, converted or put in the teleprompter is false,
+ * and that answer decides. Only when the router gave none (its call failed) do the plain rules apply:
+ * not pasted material and not starting with an editing verb.
  */
 export function wantsDualScript(params: {
   skill: string | undefined;
   userContent: string;
   enabled?: boolean;
+  freshScript?: boolean;
 }): boolean {
   const enabled = params.enabled ?? dualScriptEnabled();
   const content = (params.userContent || '').trim();
-  return (
-    enabled &&
-    params.skill === 'script' &&
-    content.length > 0 &&
-    !isPastedMaterial(content) &&
-    !REVISION_START.test(content)
-  );
+  if (!enabled || params.skill !== 'script' || content.length === 0) return false;
+  if (typeof params.freshScript === 'boolean') return params.freshScript;
+  return !isPastedMaterial(content) && !REVISION_START.test(content);
 }
 
 /** Decided AFTER writing: is the reply a real full script (not a question or a snippet)? */
