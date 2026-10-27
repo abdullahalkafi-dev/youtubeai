@@ -11,7 +11,7 @@ describe('script guards', () => {
   // talks about "the video", "retention" and "why".
   const pastedScript =
     'rewrite this 7 to 8 minutes and keep the story moving. ' +
-    'In this video, why does the audience keep watching? The retention drops when the street code wins. '.repeat(
+    'In this video, why does the audience keep watching? The retention drops when the street code wins.\n'.repeat(
       30,
     );
 
@@ -46,6 +46,8 @@ describe('script guards', () => {
     expect(isScriptSkill('seo')).toBe(false);
     expect(isScriptSkill(undefined)).toBe(false);
     expect(isPastedMaterial('short')).toBe(false);
-    expect(isPastedMaterial('x'.repeat(1300))).toBe(true);
+    expect(isPastedMaterial(('x'.repeat(60) + '\n').repeat(25))).toBe(true);
+    // The client dictates long asks as one paragraph: that is a request, not pasted material.
+    expect(isPastedMaterial('write me a story in bullets on Puff Daddy '.repeat(40))).toBe(false);
   });
 });

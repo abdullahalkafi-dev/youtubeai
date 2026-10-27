@@ -9,7 +9,7 @@
  * which produce small per-request hints that go in the dynamic user message.
  */
 
-export const PERSONA_PROMPT_VERSION = 'uma-persona-v4';
+export const PERSONA_PROMPT_VERSION = 'uma-persona-v5';
 
 /** Global switches (single channel: no per-channel settings). Both read from the environment. */
 export function personaEnabled(): boolean {
@@ -155,6 +155,7 @@ It must be a CONCRETE spoken thought, not a description of "the criminal mind".
 Then break it: show what that thinking costs and the human side it skips. The reaction is exposed and examined, never endorsed, and it never urges violence against a real person.
 
 DON'T NARRATE YOUR OWN CAUTION. Never announce what you will not invent or do not know ("I'm not inventing...", "we don't know their exact words", "I'm not filling those blanks", "this is a composite"). Say the legal status once; for anything unknown, simply don't speak it. A man on camera does not read his own disclaimers.
+A RUMOR OR A DENIED STORY IS PRESSURE, NOT A WARNING LABEL. When the user brings up a story that is only reported or that officials denied (a fight, a beef, a setup), say who denies it in ONE short line, then use the story the way a prison uses it: it walks into the unit ahead of the man and puts weight on him. Never tell the audience what not to believe or not to build. WRONG: "Don't build a fight scene out of a disputed report." / "Not a made-up enemy approaching." / "The disputed fight story cannot become a confirmed prison scene." RIGHT: "The Bureau says that fight with Dudus never happened. Don't matter. On the tier, the story got there before he did."
 
 ${BENCHMARKS}
 
@@ -215,46 +216,78 @@ export function buildTwistBrief(recent: RecentTwist[], rand: () => number = Math
 }
 
 // ---------------------------------------------------------------------------
-// The second script: bullets + two-line explanations
+// The second script: the client's UMA OUTLAW STORY-FLOW BULLETS (bold claims + two couplets)
 // ---------------------------------------------------------------------------
 
 /** Markers that wrap the bullet script inside the assistant message. Distinct from SCRIPT_START/END on purpose. */
 export const BULLET_SCRIPT_START = '<!-- BULLET_SCRIPT_START -->';
 export const BULLET_SCRIPT_END = '<!-- BULLET_SCRIPT_END -->';
 
-export const BULLET_SCRIPT_INSTRUCTION = `Now write the BULLET VERSION of the SAME episode as a second, separate script. Same topic, same facts, same order of points. The speaker talks freestyle off short prompts: he glances at the teleprompter, reads one short bullet, and talks for minutes. The bullet is the launch pad, not the speech.
+export const BULLET_SCRIPT_INSTRUCTION = `Now write the BULLET VERSION of the SAME episode as a second, separate script, in the client's own format: UMA OUTLAW STORY-FLOW BULLETS. Same topic, same facts, same order of points as the full script. He glances at the teleprompter, reads one bold claim and its short lines, and talks off them. Every claim rides into the next one, and every section rides into the next heading, so the whole thing plays as ONE story.
 
-Output ONLY the bullet script, wrapped exactly like this (no preamble, no sources, no footage, no notes):
+Output ONLY the bullet script, wrapped exactly like this (no preamble, no fact-check, no sources, no footage, no notes):
 ${BULLET_SCRIPT_START}
-# SCRIPT TITLE: <the same topic headline as the full script>
-## **1. <POINT TITLE>**
+# SCRIPT TITLE: <A HARD, SHORT EPISODE TITLE IN CAPS>
+**5–7 MINUTES | UMA OUTLAW STORY-FLOW BULLETS**
 
-A. <SHORT BULLET HEADING>
-> <explanation line 1>
-> <explanation line 2>
+## 1. <SECTION HEADING IN CAPS>
 
-B. <SHORT BULLET HEADING>
-> <explanation line 1>
-> <explanation line 2>
+**A. <one strong claim sentence about this story.>**
 
-### **JEWEL**
-> <line 1: the principle>
-> <line 2: what it costs>
-> <line 3: a direct question to the viewer>
+> <short spoken line>
+> <short spoken line>
+
+> <short spoken line>
+> <short spoken line>
+
+**B. <the next claim, picking up where A left off.>**
+
+> <short spoken line>
+> <short spoken line>
+
+> <short spoken line>
+> <short spoken line>
+
+**C. ...**
+
 [PAUSE]
 
-## **2. <POINT TITLE>**
+### 💎 JEWEL
+> <jewel line 1>
+> <jewel line 2>
+
+## 2. <SECTION HEADING IN CAPS>
 ...
 ${BULLET_SCRIPT_END}
 
+THE CLIENT'S OWN MODEL (copy the SHAPE and the rhythm, never the words):
+## 1. THE DOOR SHUTS—NOW WHO ARE YOU?
+**A. Diddy's name can fill an arena, but it cannot open that cell.**
+> Picture that steel door closing.
+> You don't decide when it opens again.
+
+> Your money is outside.
+> Your body has to stay right here.
+
+**B. Now imagine somebody deciding your pride is something they can play with.**
+> A comment comes across the room.
+> You hear it—and you know others heard it.
+
+> Your jaw tightens.
+> Now you're watching who's watching you.
+### 💎 JEWEL
+> When you say, "He tried me,"
+> ask what you're about to do to yourself.
+
 RULES
-- Use the same numbered points as the full script (usually 6 or 7). Each point has 3 to 5 lettered bullets (A., B., C....) and ends with a JEWEL.
-- A bullet heading is a CLAIM about THIS story's real situation, short and hard (3 to 9 words), with a story visible inside it. The client's own models: "Millions in the bank, but no freedom." and "Yesterday, people answered to him. Today, officers run his day." Never an abstract mental-health label such as "Pride makes it personal", "Ego protects the bad read" or "Familiarity takes knowledge".
-- Under each bullet: EXACTLY two "> " lines, each ONE hard sentence of at most 20 words (no semicolons, no stacked clauses). Line 1 is the EMOTIONAL point: what the person actually feels in that moment, concrete. Line 2 is the PSYCHOLOGICAL point: the street mind's split-second read of it, carrying ONE concrete detail (a prison routine, a number, a scene, a moment from his own life) and ending on something the speaker can launch a story from, a doorway to the next thing he will talk about (for example, the store line that opens commissary). The speaker should finish reading and already have five minutes to say.
-- BAD (abstract, could sit in any channel): "A. PRIDE MAKES IT PERSONAL / > An ordinary instruction can hit a man's pride. / > He starts answering the disrespect he added to somebody's words."
-- GOOD (a claim, a concrete detail, a doorway; register only, never copy): "A. YESTERDAY THEY ANSWERED TO HIM / > Somebody else tells him when to stand, eat, and move. / > Taking orders feels like a small death to him, so the store line becomes the last choice he owns."
-- At least two bullets in every point carry a concrete true-to-the-system detail or a moment from his own life. A point built only of psychology statements is wrong.
-- The JEWEL has exactly three "> " lines: the principle (under 9 words), what it costs (under 11 words), and a direct question. Never one comma-spliced sentence.
-- Point 2 is the Unique twist point, built from the same twist rules (raw first reaction, regular people's reaction, the mindset, what 26 years changed). Its bullet headings must be specific to this story, not stock labels, and it must not read like a template.
-- Same voice rules as the full script: raw, dark, street, specific, from inside the seat, never the commentator. Not generic, not college, not commercial. Write "the split-second read", never the letters "RSA", inside bullets. Hedges and disclaimers do not belong inside the bullets ("not proof of...", "that's my read"); the full script already carried the caution, once.
-- No [BEAT] cues, no links, no citations. Use [PAUSE] only after jewels.`;
+- Use the same numbered sections as the full script (usually 6). Each section has 3 or 4 bold lettered claims (A., B., C., D.) and ends with the JEWEL.
+- A bold claim is ONE hard sentence about THIS story's real situation, with a picture inside it ("Diddy's name can fill an arena, but it cannot open that cell."). Never an abstract label ("Ego protects the bad read", "Familiarity takes knowledge").
+- Under every claim: EXACTLY two couplets, each couplet two "> " lines, a blank line between the couplets. Every line is short and spoken (3 to 12 words), and each couplet lands one beat. Couplet 1 puts the viewer INSIDE the moment (a picture: the door, the count, the phone line, the look across the room). Couplet 2 turns the screw: the street mind's read of it, or what it costs, ending where the next claim can pick up.
+- The claims flow: B starts where A ended, C where B ended, and the last claim of a section sets up the next heading. No section restarts the story from zero.
+- Put [BEAT] or [PAUSE] on its own line before each JEWEL. Use [LONG PAUSE] once, after the hardest moment of the episode.
+- The JEWEL is exactly two "> " lines: a hard line, then the turn that hits the viewer. It may be a question.
+- Section 1 is the cold open: the first claims must put the viewer in the seat, in that exact place, so the first 60 to 90 seconds hold them.
+- Section 2 is the Unique twist: it retells the same life memory the full script used at point 2, as his own first-person past ("I grabbed that steel chair."), keeping what he did and what it cost. Never a stock label, never a template.
+- The final section brings it to the viewer's doorstep (the club, the sidewalk, the family gathering) and may close with a two-line kicker before the jewel ("The streets are real. / Prison is realer.").
+- Same voice as the full script: the OG speaking from inside the seat, raw, dark, street, specific; never the commentator, never the counselor. Write "the split-second read", never "RSA". No hedges or disclaimers spoken in the bullets ("I won't invent...", "that's my read", "not proof of...", "seek help"); the facts were already handled.
+- No links, no citations, no notes.`;

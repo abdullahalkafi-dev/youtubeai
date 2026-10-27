@@ -85,6 +85,13 @@ export function insertBulletBlock(content: string, block: string): string {
   return `${closed.slice(0, at)}\n\n${block}${closed.slice(at)}`;
 }
 
-/** The note added to the first request so the full script stays in the standard format. */
-export const DUAL_FORMAT_NOTE =
-  'FORMAT NOTE: this request produces TWO scripts. Write ONLY the full spoken script now, in the standard spoken format (rails and breath blocks), even if the request mentions bullets. The bullet version is generated separately right after this one.';
+/**
+ * The note added to the first request so the full script stays in the standard format. A bullet ask
+ * once came back as a marker-less half-bullet answer, which also blocked the bullet card, so the
+ * note names the markers and says what happens to "bullets".
+ */
+export const DUAL_FORMAT_NOTE = [
+  'FORMAT NOTE: this request produces TWO scripts in one message: the full spoken script now, then the bullet script in the client\'s UMA OUTLAW STORY-FLOW BULLETS format, which the system writes automatically right after.',
+  '- Write ONLY the full spoken script now, in the standard spoken format (rails and breath blocks), starting with <!-- SCRIPT_START --> and ending with <!-- SCRIPT_END -->. This holds EVEN IF the user asked for "bullets", "Outlaw bullets" or "bullet form": his bullets come as the second script, so never answer with bullets here and never explain this to him.',
+  '- Nothing before <!-- SCRIPT_START --> except at most one short line. No "Research check", "Fact check" or legal-status paragraph on top: if a fact needs a note, put ONE short "Fact-check (not spoken):" line after <!-- SCRIPT_END -->.',
+].join('\n');

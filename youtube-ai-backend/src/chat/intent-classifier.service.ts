@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { OpenAIService } from '../openai/openai.service';
 import { SkillRegistry } from './skills/skill-registry';
+import { isPastedMaterial } from './script-guards';
 
 export type PackageMode = 'audit' | 'new';
 
@@ -31,6 +32,25 @@ const EXPLICIT_THUMBNAIL_ASK =
  */
 export function guardThumbnailIntent(message: string, intent: string): string {
   return intent === 'image' && THUMBNAIL_WORD.test(message || '') ? 'thumbnail' : intent;
+}
+
+/** "in bullets", "bullet form", "Outlaw bullets": the client's name for his bullet script. */
+const BULLET_WORD = /\b(?:outlaw\s+)?bullets?\b/i;
+/**
+ * ...asked for as a story to tell (a story, a sample, a script, "write this"), not a passing mention:
+ * "give me five comment questions in bullets" stays where the router put it.
+ */
+const WRITE_ASK = /\b(?:story|stories|sample|script|episode|video)\b|\bwrite\s+(?:this|it|that)\b/i;
+
+/**
+ * When the client asks for a story, sample or script "in bullets" he wants his bullet script, which
+ * only the script skill writes (with its full twin). The router has sent such asks to `outline` or
+ * `general`, which skip the persona's script rules and the second card. Only those two are moved.
+ */
+export function guardBulletIntent(message: string, intent: string): string {
+  const text = message || '';
+  if (intent !== 'outline' && intent !== 'general') return intent;
+  return BULLET_WORD.test(text) && WRITE_ASK.test(text) && !isPastedMaterial(text) ? 'script' : intent;
 }
 
 /** Confidence for the regex fallback: an explicit thumbnail ask still earns the auto-image gate. */
@@ -77,6 +97,7 @@ RULES:
 - A topic-recommendation ask ("what should I post next", "what video should I do next") is ALWAYS "general", even when it mentions packaging.
 - Asking for a title together with a thumbnail = "package", never "thumbnail" or "seo".
 - A pasted script plus "make me a thumbnail/title/SEO for this" = "package" (the user wants the bundle for that specific video).
+- Asking for a story, sample or script "in bullets", "in bullet form" or as "Outlaw bullets" = "script", never "outline".
 - Asking to WRITE a script for a live stream, a live show, a long show or a video ("write up a 30 minute live", "script for my live today") = "script", even when the user also asks for clips or video to show.
 - "footage" (boolean, any category): true whenever the user ALSO wants real video clips, news clips or b-roll ("and give me video for this", "plus clips I can show", "local news for it"). A script ask with clips is {"intent":"script","footage":true}. A clips-only ask is intent "footage".
 
@@ -148,7 +169,10 @@ export class IntentClassifierService {
         const intent = String(parsed?.intent || '').toLowerCase();
         if (parsed && KNOWN_INTENTS.has(intent)) {
           const confidence = this.clamp01(Number(parsed.confidence));
-          const finalIntent = guardThumbnailIntent(message, intent === 'footage' ? 'general' : intent);
+          const finalIntent = guardBulletIntent(
+            message,
+            guardThumbnailIntent(message, intent === 'footage' ? 'general' : intent),
+          );
           const mode: PackageMode | undefined =
             finalIntent === 'package' && parsed.mode === 'audit' ? 'audit' : 'new';
           // Footage is a retrieval ask, not a skill: a clips-only ask answers as general, and a
@@ -179,7 +203,7 @@ export class IntentClassifierService {
       }
     }
 
-    const fallbackIntent = this.skillRegistry.classifyIntent(message, prev);
+    const fallbackIntent = guardBulletIntent(message, this.skillRegistry.classifyIntent(message, prev));
     return {
       intent: fallbackIntent,
       confidence: fallbackConfidence(message, fallbackIntent),

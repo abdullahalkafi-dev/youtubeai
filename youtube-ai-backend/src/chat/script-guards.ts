@@ -9,15 +9,24 @@
 /** Skills whose system prompt must never be replaced by an analysis prompt. */
 const SCRIPT_SKILLS = new Set(['script', 'outline']);
 
-/** Beyond this length a message is pasted material (a script, an article), not a short ask. */
+/** Beyond this length a message may be pasted material (a script, an article), not a short ask. */
 export const PASTED_MATERIAL_MIN_CHARS = 1200;
+
+/**
+ * Pasted material is also laid out in lines. The client dictates long requests as ONE paragraph
+ * (1,300 to 2,500 characters with no line breaks), while every pasted script or article in the
+ * threads has dozens of line breaks; length alone mistook his dictated asks for pasted scripts.
+ */
+export const PASTED_MATERIAL_MIN_LINES = 15;
 
 export function isScriptSkill(skill: string | undefined): boolean {
   return !!skill && SCRIPT_SKILLS.has(skill);
 }
 
 export function isPastedMaterial(content: string | undefined): boolean {
-  return (content || '').length >= PASTED_MATERIAL_MIN_CHARS;
+  const text = content || '';
+  if (text.length < PASTED_MATERIAL_MIN_CHARS) return false;
+  return (text.match(/\n/g) || []).length >= PASTED_MATERIAL_MIN_LINES;
 }
 
 /**

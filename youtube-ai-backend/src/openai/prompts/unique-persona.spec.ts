@@ -74,12 +74,12 @@ describe('unique persona', () => {
     expect(picks.map((p) => p.label)).not.toContain('The cold math');
   });
 
-  it('bullet instruction uses its own markers and the two-line rule', () => {
+  it('bullet instruction uses its own markers and the couplet rule', () => {
     expect(BULLET_SCRIPT_START).not.toBe('<!-- SCRIPT_START -->');
     expect(BULLET_SCRIPT_INSTRUCTION).toContain(BULLET_SCRIPT_START);
     expect(BULLET_SCRIPT_INSTRUCTION).toContain(BULLET_SCRIPT_END);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/EXACTLY two "> " lines/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Point 2 is the Unique twist point/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/EXACTLY two couplets, each couplet two "> " lines/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Section 2 is the Unique twist/);
   });
 });
 
@@ -98,9 +98,9 @@ describe('unique persona: voice rules learned from a real generation test', () =
     expect(text).toMatch(/Never cite it \("in my book"/);
   });
 
-  it('keeps bullet explanations to one hard sentence per line', () => {
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/ONE hard sentence of at most 20 words/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Hedges and disclaimers do not belong inside the bullets/);
+  it('keeps bullet lines short and spoken, with no hedges', () => {
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Every line is short and spoken \(3 to 12 words\)/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/No hedges or disclaimers spoken in the bullets/);
   });
 });
 
@@ -160,26 +160,32 @@ describe('unique persona v4: the OG speaks from inside, not as a commentator', (
   });
 });
 
-describe('unique persona v4: bullets built on the client\'s own models', () => {
-  it('requires claim headings, a concrete detail with a doorway, and a three-line jewel', () => {
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/CLAIM about THIS story's real situation/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toContain('Millions in the bank, but no freedom.');
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/doorway to the next thing he will talk about/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/BAD \(abstract/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/GOOD \(a claim/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/JEWEL has exactly three "> " lines/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/never the letters "RSA"/);
+describe('bullets in the client\'s UMA OUTLAW STORY-FLOW format', () => {
+  it('names the client format, the runtime line, bold claims and a two-line jewel', () => {
+    expect(BULLET_SCRIPT_INSTRUCTION).toContain('UMA OUTLAW STORY-FLOW BULLETS');
+    expect(BULLET_SCRIPT_INSTRUCTION).toContain('**5–7 MINUTES | UMA OUTLAW STORY-FLOW BULLETS**');
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/A bold claim is ONE hard sentence about THIS story's real situation/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/The JEWEL is exactly two "> " lines/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/never "RSA"/);
   });
 
-  it('its own GOOD example obeys its own rules (one sentence per line, at most 20 words)', () => {
-    const good = BULLET_SCRIPT_INSTRUCTION.match(/GOOD \(a claim[^"]*"([^"]*)"/)!;
-    const lines = good[1].split(' / > ').slice(1).map((l) => l.replace(/^> /, ''));
-    expect(lines).toHaveLength(2);
-    for (const l of lines) {
-      expect(l.split(/\s+/).length).toBeLessThanOrEqual(20);
-      expect(l).not.toContain(';');
-      expect((l.match(/[.!?]/g) || []).length).toBe(1);
+  it('makes the claims ride into each other and the cold open hold the first 60 to 90 seconds', () => {
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/B starts where A ended/);
+    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/first 60 to 90 seconds hold them/);
+  });
+
+  it('its own model obeys its own shape: bold claims, two-line couplets, a two-line jewel', () => {
+    const model = BULLET_SCRIPT_INSTRUCTION.split("THE CLIENT'S OWN MODEL")[1].split('RULES')[0];
+    const claims = model.match(/^\*\*[A-D]\. .+\*\*$/gm) || [];
+    expect(claims).toHaveLength(2);
+    const couplets = model.split(/\n\s*\n/).filter((b) => /^> /.test(b.trim()) && !/JEWEL/.test(b));
+    for (const c of couplets) {
+      const lines = c.trim().split('\n').filter((l) => l.startsWith('> '));
+      expect(lines.length).toBeGreaterThanOrEqual(2);
+      for (const l of lines) expect(l.slice(2).split(/\s+/).length).toBeLessThanOrEqual(12);
     }
+    const jewel = model.split('### 💎 JEWEL')[1].trim().split('\n').filter((l) => l.startsWith('> '));
+    expect(jewel).toHaveLength(2);
   });
 });
 
@@ -189,6 +195,11 @@ describe('unique persona: concrete reaction, no self-narrated caution', () => {
     expect(text).toMatch(/CONCRETE spoken thought/);
     expect(text).toMatch(/WRONG: "The criminal mind starts searching/);
     expect(text).toMatch(/RIGHT: "First thing in my head: what did she say to him/);
+  });
+  it('turns a denied rumor into pressure instead of a spoken warning', () => {
+    expect(text).toMatch(/A RUMOR OR A DENIED STORY IS PRESSURE, NOT A WARNING LABEL/);
+    expect(text).toMatch(/WRONG: "Don't build a fight scene out of a disputed report\."/);
+    expect(text).toMatch(/the story got there before he did/);
   });
   it('bans announcing what is not invented or not known', () => {
     expect(text).toMatch(/DON'T NARRATE YOUR OWN CAUTION/);
