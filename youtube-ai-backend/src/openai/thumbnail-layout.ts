@@ -68,12 +68,27 @@ export function layoutZones(options: {
 const describe = (box: Box) =>
   `${box.x}%–${box.x + box.w}% from the left, ${box.y}%–${box.y + box.h}% from the top`;
 
+/** Lines of a headline: real line breaks, or the " / " the concept writer puts between them. */
+export function headlineLines(headline: string): string[] {
+  return headline
+    .split(/\n|\s+\/\s+/)
+    .map((l) => l.trim())
+    .filter(Boolean);
+}
+
+function headlineRule(headline: string, area: string): string {
+  const lines = headlineLines(headline);
+  if (lines.length < 2)
+    return `- HEADLINE: render exactly "${headline}" (same words, same spelling, nothing added or removed) as bold, colorful, high-contrast 2D lettering placed ONLY inside the area ${area}. Make it large and readable on a phone.`;
+  return `- HEADLINE: render exactly these ${lines.length} stacked lines, top to bottom, each on its own line, as bold, high-contrast 2D lettering placed ONLY inside the area ${area}: ${lines.map((l) => `"${l}"`).join(' then ')}. Same words, same spelling, nothing added or removed, no slashes between lines. The first lines are white; the LAST line is the hook, in a vivid yellow or red accent color. Keep every line large and readable on a phone.`;
+}
+
 /** Plain prompt text describing the zones for an image model. */
 export function zonePrompt(zones: ThumbnailZones, headline?: string): string {
   const lines: string[] = [];
   if (headline)
     lines.push(
-      `- HEADLINE: render exactly "${headline}" (same words, same spelling, nothing added or removed) as bold, colorful, high-contrast 2D lettering placed ONLY inside the area ${describe(zones.headline)}. Make it large and readable on a phone.`,
+      headlineRule(headline, describe(zones.headline)),
     );
   lines.push(
     `- MAIN SUBJECT: place the main face on the ${zones.subjectSide} side, clear of the headline area.`,

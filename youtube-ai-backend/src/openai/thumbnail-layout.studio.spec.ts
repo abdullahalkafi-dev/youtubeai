@@ -26,6 +26,13 @@ describe('thumbnail layout zones', () => {
     expect(text.match(/RESERVED CORNER/g)).toHaveLength(2);
     expect(text).not.toMatch(/courtroom|gavel/i);
   });
+  it('asks for a three-line headline as stacked lines with the hook line in the accent color', () => {
+    const text = zonePrompt(layoutZones({ logoPosition: 'top-right' }), 'RETIRED NYPD COP / SHOOTS WORKER ON GW BRIDGE / WHAT PRISON DOES TO COPS');
+    expect(text).toContain('3 stacked lines');
+    expect(text).toContain('"RETIRED NYPD COP" then "SHOOTS WORKER ON GW BRIDGE" then "WHAT PRISON DOES TO COPS"');
+    expect(text).toMatch(/LAST line is the hook/);
+    expect(text).not.toContain(' / ');
+  });
 });
 
 describe('scene text helpers', () => {

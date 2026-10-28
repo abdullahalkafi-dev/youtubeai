@@ -2,8 +2,8 @@
  * "Reword" a finished thumbnail: only the headline changes, the people, scene and layout stay.
  */
 
-export const REWORD_MAX_CHARS = 60;
-export const REWORD_MAX_WORDS = 9;
+export const REWORD_MAX_CHARS = 90;
+export const REWORD_MAX_WORDS = 14;
 
 /** The headline the client typed, cleaned for the picture; null when it cannot be used. */
 export function cleanRewordText(raw: string): { text: string } | { error: string } {

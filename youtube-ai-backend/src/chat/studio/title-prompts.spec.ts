@@ -43,7 +43,7 @@ describe('title and thumbnail wording is shared everywhere it matters', () => {
   it('the Bold block no longer bans naming the incident', () => {
     expect(CREATIVE_CONTRACT).not.toMatch(/no topic labels/);
     expect(CREATIVE_CONTRACT).not.toMatch(/adding something the title does not say/);
-    expect(CREATIVE_CONTRACT).toMatch(/the incident in 2-5 punchy words/);
+    expect(CREATIVE_CONTRACT).toMatch(/three short lines, about 8-12 words in all/);
     expect(CREATIVE_CONTRACT).toMatch(/host photo is fixed/);
   });
 

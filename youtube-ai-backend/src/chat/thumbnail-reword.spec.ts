@@ -9,10 +9,10 @@ describe('cleanRewordText', () => {
   });
   it('refuses empty, too long and too many words', () => {
     expect(cleanRewordText('   ')).toHaveProperty('error');
-    expect(cleanRewordText('A'.repeat(61))).toHaveProperty('error');
-    expect(cleanRewordText('ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN')).toHaveProperty('error');
-    expect(cleanRewordText('ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE')).toEqual({
-      text: 'ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE',
+    expect(cleanRewordText('A'.repeat(91))).toHaveProperty('error');
+    expect(cleanRewordText('ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE THIRTEEN FOURTEEN FIFTEEN')).toHaveProperty('error');
+    expect(cleanRewordText('ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE')).toEqual({
+      text: 'ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE',
     });
   });
 });
