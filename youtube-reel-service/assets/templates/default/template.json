@@ -5,23 +5,23 @@
   "canvas": "canvas.png",
   "window": {
     "x": 0,
-    "y": 560,
+    "y": 480,
     "w": 1080,
-    "h": 760
+    "h": 890
   },
   "focusX": 0.5,
   "focusY": 0.4,
   "headline": {
     "enabled": true,
     "font": "Anton",
-    "size": 124,
-    "minSize": 84,
+    "size": 116,
+    "minSize": 80,
     "color": "#FFFFFF",
     "accentColor": "#FFD400",
     "outlineColor": "#000000",
     "outline": 4,
     "centerX": 540,
-    "top": 250,
+    "top": 215,
     "maxWidth": 960,
     "maxLines": 2,
     "uppercase": true,
@@ -37,7 +37,7 @@
     "outline": 6,
     "shadow": 2,
     "centerX": 540,
-    "centerY": 1235,
+    "centerY": 1270,
     "maxWordsPerChunk": 3,
     "maxCharsPerChunk": 18,
     "uppercase": true
