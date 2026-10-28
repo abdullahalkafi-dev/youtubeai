@@ -23,6 +23,9 @@ describe('bullet script prompt (the client\'s breathable story-flow directives)'
     expect(prompt).toMatch(/exactly THREE bullets, labeled 1A, 1B, 1C/);
     expect(prompt).toMatch(/Each bullet is TWO breath blocks/);
     expect(prompt).toMatch(/450 to 650 written words/);
+    expect(prompt).toMatch(/If the CLIENT REQUEST asks for something else/);
+    expect(prompt).toMatch(/EVERY LINE IS 4 TO 9 WORDS/);
+    expect(prompt).toMatch(/at most five times in the whole card/);
   });
 
   it('makes every block one thought wrapped over two lines, with the comma doing the hand-over', () => {

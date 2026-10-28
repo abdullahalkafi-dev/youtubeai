@@ -1,5 +1,7 @@
 import {
   bulletShape,
+  dropAfterFinalJewel,
+  fixSubjectVerbCommas,
   extractBulletBlock,
   insertBulletBlock,
   isFullScript,
@@ -163,5 +165,48 @@ describe('the client\'s story-flow layout (label inside the first rail line, one
   it('shows stop-start lines as a low continued share', () => {
     const stopStart = raw.replace(/,\n/g, '.\n');
     expect(bulletShape(stopStart).continuedShare).toBe(0);
+  });
+});
+
+describe('the card ends with its last jewel', () => {
+  const card = [
+    '## 6. THE LAST ONE.',
+    '',
+    '> **6A.** You walk out the door,',
+    '> and the story walks out with you.',
+    '',
+    '[PAUSE]',
+    '',
+    '### 💎 JEWEL',
+    '> Control is not love.',
+    '> What will you do differently today?',
+  ].join('\n');
+
+  it('cuts the questions and notes the writer copied from the source after the jewel', () => {
+    const withTail = card + '\n\n### 10 COMMUNITY QUESTIONS\n\n> 1. Should assault charges change bail?\n> 2. Is forced entry ever romance?\n';
+    expect(dropAfterFinalJewel(withTail)).toBe(card);
+  });
+
+  it('keeps an earlier jewel and a card that has nothing after it', () => {
+    expect(dropAfterFinalJewel(card)).toBe(card);
+    const two = '### 💎 JEWEL\n> one\n> two\n\n## 2. NEXT\n> x\n\n' + card;
+    expect(dropAfterFinalJewel(two)).toBe(two);
+    expect(dropAfterFinalJewel('no jewel here')).toBe('no jewel here');
+  });
+});
+
+describe('a comma never splits a subject from its verb', () => {
+  it('drops the comma when an -ing subject is followed by its verb on the next line', () => {
+    const before = "> Calling violence a rough moment,\n> doesn't make the person facing it safer.";
+    expect(fixSubjectVerbCommas(before)).toBe("> Calling violence a rough moment\n> doesn't make the person facing it safer.");
+    const labeled = "> **3A.** Knowing what lost years feel like,\n> doesn't excuse dismissing somebody.";
+    expect(fixSubjectVerbCommas(labeled)).toBe("> **3A.** Knowing what lost years feel like\n> doesn't excuse dismissing somebody.");
+  });
+
+  it('keeps the comma everywhere else', () => {
+    const fine = '> Knowing what I know now,\n> I would have walked away.';
+    expect(fixSubjectVerbCommas(fine)).toBe(fine);
+    const handoff = '> You walk in,\n> and everybody knows your face.';
+    expect(fixSubjectVerbCommas(handoff)).toBe(handoff);
   });
 });

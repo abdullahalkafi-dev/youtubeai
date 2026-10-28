@@ -70,10 +70,53 @@ export function extractBulletBlock(raw: string): string | null {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
+  body = fixSubjectVerbCommas(dropAfterFinalJewel(body));
+
   const shape = bulletShape(body);
   if (shape.bullets < 6 || shape.railLines < 12 || shape.sections < 3) return null;
 
   return `${BULLET_SCRIPT_START}\n${body}\n${BULLET_SCRIPT_END}`;
+}
+
+/**
+ * The card ends with its last JEWEL. The writer sees the whole full script, so it sometimes copies what
+ * follows the script (the 10 questions, notes) onto the end: cut everything after the final jewel lines.
+ */
+export function dropAfterFinalJewel(body: string): string {
+  const lines = body.split('\n');
+  let jewel = -1;
+  lines.forEach((l, i) => {
+    if (/^###\s*(?:💎\s*)?\**\s*JEWEL/i.test(l.trim())) jewel = i;
+  });
+  if (jewel === -1) return body;
+  let end = jewel + 1;
+  let sawLine = false;
+  for (; end < lines.length; end++) {
+    const t = lines[end].trim();
+    if (/^>\s?\S/.test(t)) sawLine = true;
+    else if (t === '' && !sawLine) continue;
+    else break;
+  }
+  return lines.slice(0, end).join('\n').trimEnd();
+}
+
+const VERB_START =
+  /^(?:doesn't|don't|isn't|aren't|wasn't|won't|can't|couldn't|wouldn't|shouldn't|makes|make|is|was|are|were|does|did|has|have|had|gives|keeps|means|leaves|lets|turns|puts|brings)\b/i;
+
+/**
+ * A comma that splits a subject from its verb ("Calling violence a bad argument, / makes the boundary
+ * easier to dismiss.") tells him to pause where the thought has not turned yet. When a line that opens
+ * with an -ing subject ends in a comma and the next line starts with the verb, the comma is dropped and
+ * the line break stays.
+ */
+export function fixSubjectVerbCommas(body: string): string {
+  const lines = body.split('\n');
+  for (let i = 0; i + 1 < lines.length; i++) {
+    const a = lines[i].match(/^(>\s*(?:\*\*\d*[A-H]\.\*\*\s*)?)(\p{Lu}[\p{L}']*ing\b.*),\s*$/u);
+    const b = lines[i + 1].match(/^>\s*(.*)$/);
+    if (a && b && VERB_START.test(b[1].trim())) lines[i] = `${a[1]}${a[2]}`;
+  }
+  return lines.join('\n');
 }
 
 /** A bullet label opens a rail line ("> **1A.** ...") or, in the older layout, stands alone ("**A. claim**"). */
