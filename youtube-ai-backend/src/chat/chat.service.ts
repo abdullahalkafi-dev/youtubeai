@@ -75,13 +75,19 @@ import {
 import { BookMemoryService, recentBookChunkIds, topicAwareRequest } from './book-memory.service';
 import { extractRecentTwists } from './twist';
 import {
-  BULLET_SCRIPT_INSTRUCTION,
+  BULLET_SCRIPT_SYSTEM_PROMPT,
+  buildBulletScriptRequest,
+  extractFactNote,
+  scriptForBullets,
+} from '../openai/prompts/bullet-script';
+import {
   BULLET_SCRIPT_START,
   buildTwistBrief,
   personaEnabled,
 } from '../openai/prompts/unique-persona';
 import {
   DUAL_FORMAT_NOTE,
+  bulletShape,
   extractBulletBlock,
   insertBulletBlock,
   isFullScript,
@@ -1259,10 +1265,8 @@ export class ChatService {
         yield { type: 'chunk', content: '\n\n' };
         try {
           for await (const piece of this.streamBulletScript({
-            systemPrompt,
-            conversationHistory,
-            firstTurn: `${dynamicContext}\n\n${dto.content}`,
-            fullScript: fullContent,
+            clientRequest: cleanUserPrompt || dto.content,
+            reply: fullContent,
             threadId: threadId.toString(),
             out,
           })) {
@@ -1305,10 +1309,8 @@ export class ChatService {
           const out: { block: string | null; usage?: TokenUsage } = { block: null };
           try {
             for await (const _piece of this.streamBulletScript({
-              systemPrompt,
-              conversationHistory,
-              firstTurn: `${dynamicContext}\n\n${dto.content}`,
-              fullScript: fullContent,
+              clientRequest: cleanUserPrompt || dto.content,
+              reply: fullContent,
               threadId: threadId.toString(),
               out,
             })) {
@@ -1458,29 +1460,33 @@ export class ChatService {
   }
 
   /**
-   * Writes the bullet version of a finished full script. Same system prompt and same first turn as
-   * the full script (so the long prefix is a cache hit), then the full script as the assistant turn,
-   * then the bullet instruction. Yields the raw text as it is written; the checked block and token
-   * usage come back through `params.out`.
+   * Writes the bullet version of a finished full script. It is its own small call: the bullet writer's
+   * own system prompt (the client's story-flow directives) and one message holding his request, the
+   * verified facts and the finished script, so the chat history and the full script's line rules
+   * (short stop-start lines) cannot leak into the bullets. Yields the raw text as it is written; the
+   * checked block and token usage come back through `params.out`.
    */
   private async *streamBulletScript(params: {
-    systemPrompt: string;
-    conversationHistory: Array<{ role: 'user' | 'assistant'; content: string }>;
-    firstTurn: string;
-    fullScript: string;
+    clientRequest: string;
+    /** The whole reply so far: the full script plus the fact-check note after it. */
+    reply: string;
     threadId: string;
     out: { block: string | null; usage?: TokenUsage };
   }): AsyncGenerator<string> {
     let raw = '';
     for await (const chunk of this.openaiService.chatStream({
-      messages: [{ role: 'user', content: BULLET_SCRIPT_INSTRUCTION }],
-      conversationHistory: [
-        ...params.conversationHistory,
-        { role: 'user', content: params.firstTurn },
-        { role: 'assistant', content: params.fullScript },
+      messages: [
+        {
+          role: 'user',
+          content: buildBulletScriptRequest({
+            clientRequest: params.clientRequest,
+            fullScript: scriptForBullets(params.reply),
+            facts: extractFactNote(params.reply),
+          }),
+        },
       ],
       threadId: params.threadId,
-      systemPromptOverride: params.systemPrompt,
+      systemPromptOverride: BULLET_SCRIPT_SYSTEM_PROMPT,
       temperature: 0.7,
       maxCompletionTokens: 9000,
     })) {
@@ -1491,6 +1497,12 @@ export class ChatService {
       if (chunk.usage) params.out.usage = chunk.usage;
     }
     params.out.block = extractBulletBlock(raw);
+    if (params.out.block) {
+      const shape = bulletShape(params.out.block);
+      this.logger.log(
+        `Thread ${params.threadId}: bullet card ${shape.words} words, ${shape.bullets} bullets in ${shape.sections} sections, ${Math.round(shape.continuedShare * 100)}% of lines carry the thought on`,
+      );
+    }
   }
 
   async archiveThread(id: string, reason: string) {

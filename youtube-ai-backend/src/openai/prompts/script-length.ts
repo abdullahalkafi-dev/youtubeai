@@ -31,7 +31,7 @@ export const SCRIPT_LENGTH_CONTRACT = `SCRIPT LENGTH & CLEAN STRUCTURE (CRITICAL
 - DEFAULT LENGTH: ${DEFAULT_SCRIPT_MINUTES.min}-${DEFAULT_SCRIPT_MINUTES.max} minutes, about ${Math.round(DEFAULT_BUDGET.min / 50) * 50}-${Math.round(DEFAULT_BUDGET.max / 50) * 50} spoken words. If the user names a duration or range ("15 minutes", "5 to 6 min"), that wins: scale everything to it.
 - WORD BUDGET: ${SCRIPT_WORDS_PER_MINUTE} spoken words per minute. Count only spoken lines (not cues, headers, sources). Examples: 5 min = 650, 8 min = 1,040, 12 min = 1,560, 15 min = 1,950. Never exceed the budget by more than 10%. A script that runs long is a failed script; land slightly under.
 - SECTIONS: the default length uses 5-6 sections of about 150-200 spoken words each. A longer video adds sections (about one per 1.5-2 minutes); sections do not get longer.
-- LINES: 3-7 words per line, never more than ${SCRIPT_MAX_LINE_WORDS}. One idea per line. End a long thought on a new line instead of chaining clauses with commas or "and".
+- LINES: 3-7 words per line, never more than ${SCRIPT_MAX_LINE_WORDS}. The client reads these lines aloud on camera, so every line tells him whether to stop or keep going: end a line with a COMMA when the thought continues on the next line, and with a period, question mark or dash only where he truly stops or turns. Break a long thought at its natural breath (after a clause, before "and" or "but"), never in the middle of a phrase, and put the comma at that break.
 - BLOCKS: 4-6 short lines per breath block, then a cue ([BEAT] or [PAUSE]) on its own line.
 - JEWEL: 3 short lines (Principle, Consequence, Direct Question ending in '?'), then [PAUSE].
 - CLEAN SPOKEN TEXT ONLY: numbered section header, breath blocks, cues, jewel. NOTHING else inside the script. No "ON-SCREEN LEGAL STATUS" header. No sub-labels such as "A. REPORTED FACTS" or "B. UNIQUE'S ANALYSIS". No "CURIOSITY RESET" or "APPROXIMATELY 1:30" markers. No "Verification references" or source/link lines. State the legal status in one spoken line instead, and keep facts vs. Unique's analysis clear through the wording itself.`;
@@ -113,7 +113,16 @@ function splitSpokenLine(text: string, max: number): string[] {
       merged.push(piece);
     }
   }
-  return merged;
+  // A cut that fell between words must still tell the reader the thought goes on: every piece but the
+  // last ends in punctuation, with a comma where the cut left none.
+  return merged.map((piece, i) => (i < merged.length - 1 ? carryOn(piece) : piece));
+}
+
+const ENDS_WITH_PUNCTUATION = /[,;:—–.?!…"”'’)]$/;
+
+/** Ends a piece that was cut off mid-thought with a comma so the next line reads as its continuation. */
+function carryOn(piece: string): string {
+  return ENDS_WITH_PUNCTUATION.test(piece.trimEnd()) ? piece : `${piece.trimEnd()},`;
 }
 
 /**
@@ -148,6 +157,8 @@ export interface ScriptShape {
   spokenLines: number;
   longestLineWords: number;
   linesOverLimit: number;
+  /** Spoken lines that end with no punctuation at all: the reader cannot tell whether to stop or go on. */
+  unpunctuatedLines: number;
   sections: number;
   bannedMarkers: string[];
 }
@@ -159,6 +170,7 @@ export function analyzeSpokenScript(content: string): ScriptShape {
   let spokenLines = 0;
   let longest = 0;
   let over = 0;
+  let unpunctuated = 0;
   let sections = 0;
 
   for (const raw of scope.split(/\r?\n/)) {
@@ -178,6 +190,7 @@ export function analyzeSpokenScript(content: string): ScriptShape {
     spokenLines++;
     longest = Math.max(longest, words);
     if (words > SCRIPT_MAX_LINE_WORDS) over++;
+    if (!ENDS_WITH_PUNCTUATION.test(plain.replace(/\*+/g, '').trimEnd())) unpunctuated++;
   }
 
   return {
@@ -185,6 +198,7 @@ export function analyzeSpokenScript(content: string): ScriptShape {
     spokenLines,
     longestLineWords: longest,
     linesOverLimit: over,
+    unpunctuatedLines: unpunctuated,
     sections,
     bannedMarkers: [...banned],
   };
@@ -205,6 +219,9 @@ export function checkScriptShape(
   }
   if (shape.linesOverLimit > Math.max(3, Math.round(shape.spokenLines * 0.05))) {
     issues.push(`${shape.linesOverLimit} lines are longer than ${SCRIPT_MAX_LINE_WORDS} words`);
+  }
+  if (shape.unpunctuatedLines > Math.max(3, Math.round(shape.spokenLines * 0.05))) {
+    issues.push(`${shape.unpunctuatedLines} lines end without a comma, period or other stop`);
   }
   if (shape.bannedMarkers.length) issues.push(`contains ${shape.bannedMarkers.join(', ')}`);
   return { shape, issues };

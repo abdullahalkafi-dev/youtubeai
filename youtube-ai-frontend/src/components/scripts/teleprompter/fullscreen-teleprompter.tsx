@@ -16,7 +16,7 @@ import {
   Sun,
   Moon,
 } from 'lucide-react'
-import { parseScriptSections, calculateTeleprompterStats, isSourceCitationLine } from '@/lib/teleprompter-parser'
+import { parseScriptSections, calculateTeleprompterStats, isSourceCitationLine, splitBulletLabel } from '@/lib/teleprompter-parser'
 
 interface FullscreenTeleprompterProps {
   isOpen: boolean
@@ -240,10 +240,12 @@ function SectionBodyRenderer({
 
         // ── BLOCKQUOTE group — the vertical gray line the client wants ─────
         if (block.type === 'blockquote') {
+          // A freestyle bullet starts with its label ("1A."): badge it and leave a bigger gap before it.
+          const startsBullet = Boolean(splitBulletLabel(block.lines[0] || '').label)
           return (
             <div
               key={key}
-              className={`pl-4 sm:pl-5 border-l-[3px] space-y-1 ${
+              className={`pl-4 sm:pl-5 border-l-[3px] space-y-1 ${startsBullet ? 'mt-8' : ''} ${
                 isDark ? 'border-zinc-600/70' : 'border-zinc-300'
               }`}
             >
@@ -276,7 +278,24 @@ function SectionBodyRenderer({
                         : 'font-semibold text-zinc-900 hover:text-black hover:bg-zinc-100'
                     }`}
                   >
-                    {spokenLine}
+                    {(() => {
+                      const { label, text } = splitBulletLabel(spokenLine)
+                      return (
+                        <>
+                          {label && (
+                            <span
+                              style={{ fontSize: `${Math.max(11, fontSize * 0.5)}px` }}
+                              className={`mr-2 px-1.5 py-0.5 rounded font-mono font-black align-middle ${
+                                isDark ? 'bg-amber-500/20 text-amber-400' : 'bg-amber-100 text-amber-800'
+                              }`}
+                            >
+                              {label}
+                            </span>
+                          )}
+                          {text}
+                        </>
+                      )
+                    })()}
                   </div>
                 )
               })}

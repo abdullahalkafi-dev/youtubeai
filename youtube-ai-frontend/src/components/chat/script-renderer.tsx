@@ -27,6 +27,7 @@ import {
   extractCleanTeleprompterText,
   extractScriptTitle,
   isSourceCitationLine,
+  splitBulletLabel,
 } from '@/lib/teleprompter-parser'
 import { downloadTeleprompterPdf } from '@/components/scripts/export/teleprompter-pdf'
 import { FullscreenTeleprompter } from '@/components/scripts/teleprompter/fullscreen-teleprompter'
@@ -175,7 +176,7 @@ export function ScriptRenderer({
   const derivedTitle = extractScriptTitle(effectiveContent, baseTitle, videoTitle)
   const scriptTitle = savedScript?.title || (isBullet ? bulletScriptTitle(derivedTitle) : derivedTitle)
   // Bullet scripts are prompts to freestyle from, so count bullets instead of reading time.
-  const bulletCount = isBullet ? (effectiveContent.match(/^\**[A-H]\.\s+\S/gm) || []).length : 0
+  const bulletCount = isBullet ? (effectiveContent.match(/^(?:>\s*)?\**\d*[A-H]\.\**\s+\S/gm) || []).length : 0
   const isAlreadySaved = Boolean(savedScript || (initialScriptId && !scriptNotFound))
   const currentSavedVersion = savedScript?.currentVersion || 1
 
@@ -482,11 +483,30 @@ export function ScriptRenderer({
                   }
 
                   if (block.type === 'quote') {
+                    // A freestyle bullet starts with its label ("1A."): show it as a badge and leave a
+                    // bigger gap before it, so each bullet reads as its own runway.
+                    const startsBullet = Boolean(splitBulletLabel(block.lines[0]).label)
                     return (
-                      <div key={bIdx} className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1.5">
-                        {block.lines.map((line, lIdx) => (
-                          <p key={lIdx}>{line}</p>
-                        ))}
+                      <div
+                        key={bIdx}
+                        className={cn(
+                          'pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1.5',
+                          startsBullet && 'mt-5',
+                        )}
+                      >
+                        {block.lines.map((line, lIdx) => {
+                          const { label, text } = splitBulletLabel(line)
+                          return (
+                            <p key={lIdx}>
+                              {label && (
+                                <span className="mr-1.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-black bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                  {label}
+                                </span>
+                              )}
+                              {text}
+                            </p>
+                          )
+                        })}
                       </div>
                     )
                   }

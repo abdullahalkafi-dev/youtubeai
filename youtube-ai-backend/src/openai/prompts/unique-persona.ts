@@ -216,78 +216,9 @@ export function buildTwistBrief(recent: RecentTwist[], rand: () => number = Math
 }
 
 // ---------------------------------------------------------------------------
-// The second script: the client's UMA OUTLAW STORY-FLOW BULLETS (bold claims + two couplets)
+// The second script (its prompt lives in bullet-script.ts): the client's UMA OUTLAW STORY-FLOW BULLETS
 // ---------------------------------------------------------------------------
 
 /** Markers that wrap the bullet script inside the assistant message. Distinct from SCRIPT_START/END on purpose. */
 export const BULLET_SCRIPT_START = '<!-- BULLET_SCRIPT_START -->';
 export const BULLET_SCRIPT_END = '<!-- BULLET_SCRIPT_END -->';
-
-export const BULLET_SCRIPT_INSTRUCTION = `Now write the BULLET VERSION of the SAME episode as a second, separate script, in the client's own format: UMA OUTLAW STORY-FLOW BULLETS. Same topic, same facts, same order of points as the full script. He glances at the teleprompter, reads one bold claim and its short lines, and talks off them. Every claim rides into the next one, and every section rides into the next heading, so the whole thing plays as ONE story.
-
-Output ONLY the bullet script, wrapped exactly like this (no preamble, no fact-check, no sources, no footage, no notes):
-${BULLET_SCRIPT_START}
-# SCRIPT TITLE: <A HARD, SHORT EPISODE TITLE IN CAPS>
-**5–7 MINUTES | UMA OUTLAW STORY-FLOW BULLETS**
-
-## 1. <SECTION HEADING IN CAPS>
-
-**A. <one strong claim sentence about this story.>**
-
-> <short spoken line>
-> <short spoken line>
-
-> <short spoken line>
-> <short spoken line>
-
-**B. <the next claim, picking up where A left off.>**
-
-> <short spoken line>
-> <short spoken line>
-
-> <short spoken line>
-> <short spoken line>
-
-**C. ...**
-
-[PAUSE]
-
-### 💎 JEWEL
-> <jewel line 1>
-> <jewel line 2>
-
-## 2. <SECTION HEADING IN CAPS>
-...
-${BULLET_SCRIPT_END}
-
-THE CLIENT'S OWN MODEL (copy the SHAPE and the rhythm, never the words):
-## 1. THE DOOR SHUTS—NOW WHO ARE YOU?
-**A. Diddy's name can fill an arena, but it cannot open that cell.**
-> Picture that steel door closing.
-> You don't decide when it opens again.
-
-> Your money is outside.
-> Your body has to stay right here.
-
-**B. Now imagine somebody deciding your pride is something they can play with.**
-> A comment comes across the room.
-> You hear it—and you know others heard it.
-
-> Your jaw tightens.
-> Now you're watching who's watching you.
-### 💎 JEWEL
-> When you say, "He tried me,"
-> ask what you're about to do to yourself.
-
-RULES
-- Use the same numbered sections as the full script (usually 6). Each section has 3 or 4 bold lettered claims (A., B., C., D.) and ends with the JEWEL.
-- A bold claim is ONE hard sentence about THIS story's real situation, with a picture inside it ("Diddy's name can fill an arena, but it cannot open that cell."). Never an abstract label ("Ego protects the bad read", "Familiarity takes knowledge").
-- Under every claim: EXACTLY two couplets, each couplet two "> " lines, a blank line between the couplets. Every line is short and spoken (3 to 12 words), and each couplet lands one beat. Couplet 1 puts the viewer INSIDE the moment (a picture: the door, the count, the phone line, the look across the room). Couplet 2 turns the screw: the street mind's read of it, or what it costs, ending where the next claim can pick up.
-- The claims flow: B starts where A ended, C where B ended, and the last claim of a section sets up the next heading. No section restarts the story from zero.
-- Put [BEAT] or [PAUSE] on its own line before each JEWEL. Use [LONG PAUSE] once, after the hardest moment of the episode.
-- The JEWEL is exactly two "> " lines: a hard line, then the turn that hits the viewer. It may be a question.
-- Section 1 is the cold open: the first claims must put the viewer in the seat, in that exact place, so the first 60 to 90 seconds hold them.
-- Section 2 is the Unique twist: it retells the same life memory the full script used at point 2, as his own first-person past ("I grabbed that steel chair."), keeping what he did and what it cost. Never a stock label, never a template.
-- The final section brings it to the viewer's doorstep (the club, the sidewalk, the family gathering) and may close with a two-line kicker before the jewel ("The streets are real. / Prison is realer.").
-- Same voice as the full script: the OG speaking from inside the seat, raw, dark, street, specific; never the commentator, never the counselor. Write "the split-second read", never "RSA". No hedges or disclaimers spoken in the bullets ("I won't invent...", "that's my read", "not proof of...", "seek help"); the facts were already handled.
-- No links, no citations, no notes.`;

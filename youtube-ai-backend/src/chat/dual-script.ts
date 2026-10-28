@@ -70,12 +70,44 @@ export function extractBulletBlock(raw: string): string | null {
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
-  const bullets = (body.match(/^\**[A-H]\.\s+\S/gm) || []).length;
-  const explanations = (body.match(/^>\s?\S/gm) || []).length;
-  const points = (body.match(/^##\s+\S/gm) || []).length;
-  if (bullets < 6 || explanations < 12 || points < 3) return null;
+  const shape = bulletShape(body);
+  if (shape.bullets < 6 || shape.railLines < 12 || shape.sections < 3) return null;
 
   return `${BULLET_SCRIPT_START}\n${body}\n${BULLET_SCRIPT_END}`;
+}
+
+/** A bullet label opens a rail line ("> **1A.** ...") or, in the older layout, stands alone ("**A. claim**"). */
+const BULLET_LABEL = /^(?:>\s*)?\**\d*[A-H]\.\**\s+\S/;
+
+export interface BulletShape {
+  words: number;
+  bullets: number;
+  sections: number;
+  railLines: number;
+  /** Share of rail lines (0 to 1) that end with a comma, dash or colon: the thought goes on to the next line. */
+  continuedShare: number;
+}
+
+/**
+ * Counts what the client reads off a bullet card: words, bullets, sections and how many lines hand the
+ * thought on to the next one. The caller logs it so a card that drifts back to stop-start lines shows up.
+ */
+export function bulletShape(body: string): BulletShape {
+  const lines = body.split('\n').map((l) => l.trim()).filter(Boolean);
+  const rail = lines.filter((l) => /^>\s?\S/.test(l)).map((l) => l.replace(/^>\s*/, '').replace(/\*+/g, ''));
+  const spoken = lines.filter((l) => !/^\[.*\]$/.test(l) && !/^#/.test(l) && !/^<!--/.test(l));
+  const words = spoken
+    .join(' ')
+    .replace(/\*+/g, '')
+    .split(/\s+/)
+    .filter((w) => /[\p{L}\p{N}]/u.test(w)).length;
+  return {
+    words,
+    bullets: lines.filter((l) => BULLET_LABEL.test(l)).length,
+    sections: lines.filter((l) => /^##\s+\S/.test(l)).length,
+    railLines: rail.length,
+    continuedShare: rail.length ? rail.filter((l) => /[,—–:]$/.test(l.trim())).length / rail.length : 0,
+  };
 }
 
 /** Puts the bullet block right after the full script's end marker so the two cards sit together. */

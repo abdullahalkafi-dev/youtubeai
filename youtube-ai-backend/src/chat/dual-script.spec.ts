@@ -1,4 +1,5 @@
 import {
+  bulletShape,
   extractBulletBlock,
   insertBulletBlock,
   isFullScript,
@@ -118,5 +119,49 @@ describe('the existing script cleaners never touch the bullet script', () => {
     const shape = analyzeSpokenScript(out);
     expect(shape.bannedMarkers).toEqual([]);
     expect(shape.spokenWords).toBeLessThan(600);
+  });
+});
+
+describe('the client\'s story-flow layout (label inside the first rail line, one thought wrapped over two lines)', () => {
+  const section = (n: number) =>
+    [
+      `## ${n}. YOU WALK IN, AND EVERYBODY ALREADY KNOWS YOUR FACE.`,
+      '',
+      ...['A', 'B', 'C'].flatMap((l) => [
+        `> **${n}${l}.** You recognize nobody in that room,`,
+        `> so now you have to learn who's who.`,
+        '',
+        `> Your name got there before you,`,
+        `> your understanding of these men didn't.`,
+        '',
+      ]),
+      '[BEAT]',
+      '',
+      '### 💎 JEWEL',
+      '> A welcome can ease the pressure.',
+      '> Trust still needs time.',
+      '',
+    ].join('\n');
+  const raw = `${BULLET_SCRIPT_START}\n# SCRIPT TITLE: TEST\n**5–7 MINUTES WITH FREESTYLE AND PAUSES | UMA OUTLAW STORY-FLOW BULLETS**\n\n${[1, 2, 3].map(section).join('\n')}\n${BULLET_SCRIPT_END}`;
+
+  it('is accepted as a bullet script', () => {
+    const block = extractBulletBlock(raw);
+    expect(block).not.toBeNull();
+    expect(block!.startsWith(BULLET_SCRIPT_START)).toBe(true);
+  });
+
+  it('measures words, bullets, sections and how many lines hand the thought on', () => {
+    const shape = bulletShape(extractBulletBlock(raw)!);
+    expect(shape.bullets).toBe(9);
+    expect(shape.sections).toBe(3);
+    expect(shape.railLines).toBe(3 * (3 * 4 + 2));
+    // half of the 12 bullet lines end in a comma; the jewel lines do not
+    expect(shape.continuedShare).toBeCloseTo(18 / 42, 2);
+    expect(shape.words).toBeGreaterThan(100);
+  });
+
+  it('shows stop-start lines as a low continued share', () => {
+    const stopStart = raw.replace(/,\n/g, '.\n');
+    expect(bulletShape(stopStart).continuedShare).toBe(0);
   });
 });

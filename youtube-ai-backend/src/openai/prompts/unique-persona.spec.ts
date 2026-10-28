@@ -1,7 +1,4 @@
 import {
-  BULLET_SCRIPT_END,
-  BULLET_SCRIPT_INSTRUCTION,
-  BULLET_SCRIPT_START,
   TWIST_SHAPES,
   buildTwistBrief,
   buildUniquePersona,
@@ -73,14 +70,6 @@ describe('unique persona', () => {
     expect(picks).toHaveLength(2);
     expect(picks.map((p) => p.label)).not.toContain('The cold math');
   });
-
-  it('bullet instruction uses its own markers and the couplet rule', () => {
-    expect(BULLET_SCRIPT_START).not.toBe('<!-- SCRIPT_START -->');
-    expect(BULLET_SCRIPT_INSTRUCTION).toContain(BULLET_SCRIPT_START);
-    expect(BULLET_SCRIPT_INSTRUCTION).toContain(BULLET_SCRIPT_END);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/EXACTLY two couplets, each couplet two "> " lines/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Section 2 is the Unique twist/);
-  });
 });
 
 describe('unique persona: voice rules learned from a real generation test', () => {
@@ -96,11 +85,6 @@ describe('unique persona: voice rules learned from a real generation test', () =
     expect(text).toMatch(/DON'T PREACH OR COUNSEL/);
     expect(text).toMatch(/No practical-advice lists/);
     expect(text).toMatch(/Never cite it \("in my book"/);
-  });
-
-  it('keeps bullet lines short and spoken, with no hedges', () => {
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/Every line is short and spoken \(3 to 12 words\)/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/No hedges or disclaimers spoken in the bullets/);
   });
 });
 
@@ -157,35 +141,6 @@ describe('unique persona v4: the OG speaks from inside, not as a commentator', (
     const brief = buildTwistBrief([]);
     expect(brief).toMatch(/his OWN thinking is on the page/);
     expect(brief).toMatch(/silent fact-safety rule/);
-  });
-});
-
-describe('bullets in the client\'s UMA OUTLAW STORY-FLOW format', () => {
-  it('names the client format, the runtime line, bold claims and a two-line jewel', () => {
-    expect(BULLET_SCRIPT_INSTRUCTION).toContain('UMA OUTLAW STORY-FLOW BULLETS');
-    expect(BULLET_SCRIPT_INSTRUCTION).toContain('**5–7 MINUTES | UMA OUTLAW STORY-FLOW BULLETS**');
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/A bold claim is ONE hard sentence about THIS story's real situation/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/The JEWEL is exactly two "> " lines/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/never "RSA"/);
-  });
-
-  it('makes the claims ride into each other and the cold open hold the first 60 to 90 seconds', () => {
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/B starts where A ended/);
-    expect(BULLET_SCRIPT_INSTRUCTION).toMatch(/first 60 to 90 seconds hold them/);
-  });
-
-  it('its own model obeys its own shape: bold claims, two-line couplets, a two-line jewel', () => {
-    const model = BULLET_SCRIPT_INSTRUCTION.split("THE CLIENT'S OWN MODEL")[1].split('RULES')[0];
-    const claims = model.match(/^\*\*[A-D]\. .+\*\*$/gm) || [];
-    expect(claims).toHaveLength(2);
-    const couplets = model.split(/\n\s*\n/).filter((b) => /^> /.test(b.trim()) && !/JEWEL/.test(b));
-    for (const c of couplets) {
-      const lines = c.trim().split('\n').filter((l) => l.startsWith('> '));
-      expect(lines.length).toBeGreaterThanOrEqual(2);
-      for (const l of lines) expect(l.slice(2).split(/\s+/).length).toBeLessThanOrEqual(12);
-    }
-    const jewel = model.split('### 💎 JEWEL')[1].trim().split('\n').filter((l) => l.startsWith('> '));
-    expect(jewel).toHaveLength(2);
   });
 });
 

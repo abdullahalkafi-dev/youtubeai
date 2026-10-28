@@ -248,3 +248,14 @@ export function extractCleanTeleprompterText(content: string): string {
     .join('\n')
     .trim();
 }
+
+/**
+ * A freestyle bullet opens its first rail line with its label ("**1A.** You recognize nobody in that
+ * room,"). The label is navigation, not speech: the views show it as a badge and start a bigger gap
+ * before it so each bullet reads as its own runway. Returns the label (or none) and the spoken text.
+ */
+export function splitBulletLabel(line: string): { label?: string; text: string } {
+  const m = line.match(/^\**(\d+[A-H])\.\**\s*(.*)$/)
+  if (m) return { label: m[1], text: m[2].replace(/\*\*/g, '') }
+  return { text: line.replace(/\*\*/g, '') }
+}

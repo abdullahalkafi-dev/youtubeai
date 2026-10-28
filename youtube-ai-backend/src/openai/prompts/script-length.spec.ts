@@ -143,8 +143,31 @@ describe('splitLongRails', () => {
     const rails = out.split('\n').filter((l) => l.startsWith('> '));
     expect(rails.length).toBeGreaterThan(1);
     for (const rail of rails) expect(rail.replace(/^> /, '').split(/\s+/).length).toBeLessThanOrEqual(8);
-    const words = (t: string) => t.replace(/>/g, ' ').split(/\s+/).filter(Boolean).join(' ');
+    // Same words in the same order; the only change allowed is a comma at a cut.
+    const words = (t: string) => t.replace(/>/g, ' ').replace(/,/g, '').split(/\s+/).filter(Boolean).join(' ');
     expect(words(rails.join(' '))).toBe(words(long));
+  });
+
+  it('never leaves a cut line without punctuation: a comma marks where the thought goes on', () => {
+    const long = '> I carried that same thinking into a life that cost me twenty-six years inside those walls';
+    const rails = splitLongRails(`<!-- SCRIPT_START -->\n${long}\n<!-- SCRIPT_END -->`)
+      .split('\n')
+      .filter((l) => l.startsWith('> '))
+      .map((l) => l.slice(2));
+    expect(rails.length).toBeGreaterThan(1);
+    for (const rail of rails.slice(0, -1)) expect(rail).toMatch(/[,;:—–.?!]$/);
+    expect(rails[rails.length - 1]).not.toMatch(/,$/);
+  });
+
+  it('keeps the punctuation the writer already put at the end of a line', () => {
+    const long = '> He told me to trust him, and I did what I always did when somebody offered me a way out.';
+    const rails = splitLongRails(`<!-- SCRIPT_START -->\n${long}\n<!-- SCRIPT_END -->`)
+      .split('\n')
+      .filter((l) => l.startsWith('> '))
+      .map((l) => l.slice(2));
+    expect(rails[0]).toBe('He told me to trust him,');
+    expect(rails[rails.length - 1]).toMatch(/way out\.$/);
+    expect(rails.join(' ')).not.toMatch(/,,/);
   });
 
   it('is idempotent and leaves short rails, cues, headings, links and text after the script alone', () => {
@@ -166,5 +189,32 @@ describe('splitLongRails', () => {
     expect(out.split('\n').length).toBeGreaterThan(1);
     const outside = '<!-- SCRIPT_START -->\n> ok\n<!-- SCRIPT_END -->\n> one two three four five six seven eight nine ten eleven twelve';
     expect(splitLongRails(outside)).toBe(outside);
+  });
+});
+
+describe('punctuation tells the reader where to stop and where to go on', () => {
+  it('the contract asks for commas at the break instead of banning them', () => {
+    expect(SCRIPT_LENGTH_CONTRACT).toMatch(/end a line with a COMMA when the thought continues on the next line/);
+    expect(SCRIPT_LENGTH_CONTRACT).not.toMatch(/instead of chaining clauses with commas/);
+  });
+
+  it('counts spoken lines that end with no punctuation at all', () => {
+    const script = [
+      '<!-- SCRIPT_START -->',
+      '## **1. COLD OPEN**',
+      '> You walk in,',
+      '> and everybody knows your face.',
+      '> Your name got there first',
+      '> and the room already decided',
+      '> who you are.',
+      '<!-- SCRIPT_END -->',
+    ].join('\n');
+    expect(analyzeSpokenScript(script).unpunctuatedLines).toBe(2);
+  });
+
+  it('flags a script whose lines mostly end with no punctuation', () => {
+    const lines = Array.from({ length: 40 }, (_, i) => `> line number ${i} of the script`);
+    const { issues } = checkScriptShape(['<!-- SCRIPT_START -->', ...lines, '<!-- SCRIPT_END -->'].join('\n'));
+    expect(issues.join(' ')).toMatch(/end without a comma, period or other stop/);
   });
 });
