@@ -23,6 +23,7 @@ import { ReelEntity, ReelEntityDocument } from '../db/schemas/reel-misc.schema';
 import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { QueueService } from '../queue/queue.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
+import { fullVideoLine, withFullVideoLine } from '../publishing/description';
 import { PublishService } from '../publishing/publish.service';
 import { AnalyticsService } from '../publishing/analytics.service';
 import { VisualsService } from '../pipeline/visuals.service';
@@ -227,15 +228,15 @@ export class ReelsApiService {
   async linkVideo(channelId: string, campaignId: string, youtubeId: string) {
     const c = await this.campaigns.findOne({ _id: campaignId, channelId }).select('settings').lean();
     if (!c?.settings?.uploadSourceId) throw new NotFoundException('This campaign is not from an uploaded video');
-    const owned = await this.videos.exists({ channelId: new Types.ObjectId(channelId), youtubeId });
+    const owned = await this.videos.findOne({ channelId: new Types.ObjectId(channelId), youtubeId }).select('title').lean();
     if (!owned) throw new BadRequestException('That video is not on this channel');
     await this.sources.updateOne({ youtubeId: c.settings.uploadSourceId }, { $set: { linkedYoutubeId: youtubeId } });
     const reels = await this.reels.find({ campaignId, status: { $in: ['queued', 'rendering', 'todo', 'failed'] } }).select('clips packaging.description').lean();
     for (const r of reels) {
       const main = [...r.clips].sort((a, b) => b.end - b.start - (a.end - a.start))[0];
-      const line = `Full breakdown: https://youtu.be/${youtubeId}?t=${Math.floor(main?.start ?? 0)}`;
-      const desc = (r.packaging?.description ?? '').replace(/\n\n(Full video on the channel\.|Full breakdown: \S+)\s*$/, '');
-      await this.reels.updateOne({ _id: r._id }, { $set: { 'packaging.description': `${desc}\n\n${line}` } });
+      const line = fullVideoLine(owned.title, `https://youtu.be/${youtubeId}?t=${Math.floor(main?.start ?? 0)}`);
+      const desc = withFullVideoLine(r.packaging?.description ?? '', line);
+      await this.reels.updateOne({ _id: r._id }, { $set: { 'packaging.description': desc } });
     }
     return { ok: true, updated: reels.length };
   }

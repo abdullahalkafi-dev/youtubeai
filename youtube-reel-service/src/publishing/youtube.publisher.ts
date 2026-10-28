@@ -111,6 +111,31 @@ export class YouTubePublisher implements Publisher, OnModuleInit {
   }
 
   /**
+   * The channel's own top-level comment on a video (commentThreads.insert, 50 units). The API cannot pin it.
+   * Returns null on success, or a short reason when YouTube refused it (the upload itself is unaffected).
+   */
+  async postComment(channelId: string, videoId: string, text: string): Promise<string | null> {
+    const body = JSON.stringify({ snippet: { videoId, topLevelComment: { snippet: { textOriginal: text } } } });
+    const call = async (token: string) =>
+      this.fetchFn('https://www.googleapis.com/youtube/v3/commentThreads?part=snippet', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(30_000),
+      });
+    try {
+      let res = await call(await this.tokens.getAccessToken(channelId));
+      if (res.status === 401) res = await call(await this.tokens.getAccessToken(channelId, { forceRefresh: true }));
+      if (res.ok) return null;
+      const err: any = await res.json().catch(() => ({}));
+      const reason = err?.error?.errors?.[0]?.reason ?? err?.error?.status ?? String(res.status);
+      return `${reason}: ${String(err?.error?.message ?? '').slice(0, 160)}`;
+    } catch (e: any) {
+      return e?.message ?? 'network error';
+    }
+  }
+
+  /**
    * Custom thumbnail for an uploaded video (thumbnails.set, 50 units from the shared pool).
    * Returns null on success, or a short reason when YouTube refused it (the upload itself is unaffected).
    */

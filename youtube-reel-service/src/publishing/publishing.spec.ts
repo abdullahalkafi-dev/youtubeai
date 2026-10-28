@@ -291,3 +291,25 @@ describe('YouTubePublisher.collectMetrics (read-only join with the main app\'s s
     expect(gone.get('vid')).toEqual({ removed: true });
   });
 });
+
+describe('YouTubePublisher.postComment', () => {
+  const cid = new Types.ObjectId().toString();
+
+  it('sends a top-level comment on the video and reports success as null', async () => {
+    let seen: any;
+    const p = publisher(() => new Response('{}', { status: 200 }));
+    p.fetchFn = (async (url: any, init: any) => {
+      seen = { url: String(url), body: JSON.parse(init.body), auth: init.headers.Authorization };
+      return new Response('{}', { status: 200 });
+    }) as any;
+    expect(await p.postComment(cid, 'vid1', 'Would you take the plea?\n\nFull video is in the description.')).toBeNull();
+    expect(seen.url).toContain('/youtube/v3/commentThreads?part=snippet');
+    expect(seen.auth).toBe('Bearer tok');
+    expect(seen.body).toEqual({ snippet: { videoId: 'vid1', topLevelComment: { snippet: { textOriginal: 'Would you take the plea?\n\nFull video is in the description.' } } } });
+  });
+
+  it('returns a readable reason when YouTube refuses (the upload is unaffected)', async () => {
+    const p = publisher(() => new Response(JSON.stringify({ error: { message: 'Insufficient Permission', errors: [{ reason: 'insufficientPermissions' }] } }), { status: 403 }));
+    expect(await p.postComment(cid, 'vid1', 'q')).toBe('insufficientPermissions: Insufficient Permission');
+  });
+});

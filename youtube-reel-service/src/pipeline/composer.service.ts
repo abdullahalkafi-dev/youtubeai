@@ -27,6 +27,7 @@ import { QueueService } from '../queue/queue.service';
 import { assemble, Assembled, AssembleRules, Material } from './assembly';
 import { EntityService } from './entity.service';
 import { formatLine } from './transcript';
+import { fullVideoLine, withFullVideoLine } from '../publishing/description';
 
 interface Candidate {
   ref: string;
@@ -363,7 +364,7 @@ export class ComposerService {
           headline: pack?.headline || truncate(c.plan.concept, 34),
           title: pack?.title || truncate(c.plan.concept, 70),
           altTitles: pack?.altTitles ?? [],
-          description: `${(pack?.description || c.plan.concept).trim()}\n\n${link ? `Full breakdown: ${link}` : 'Full video on the channel.'}`,
+          description: withFullVideoLine((pack?.description || c.plan.concept).trim(), fullVideoLine(main.material.title, link)),
           tags: normaliseTags(pack?.tags ?? []),
           hashtags: normaliseHashtags(pack?.hashtags ?? []),
           pinnedComment: pack?.pinnedComment ?? '',

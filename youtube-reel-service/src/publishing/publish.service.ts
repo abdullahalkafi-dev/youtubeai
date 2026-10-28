@@ -18,6 +18,7 @@ import { UPLOAD_LEAD_MS } from './auto-plan';
 import { hasErrors } from './preflight';
 import { msUntilPacificMidnight, PublishQuotaService } from './publish-quota.service';
 import { PublisherRegistry } from './registry';
+import { buildEngagementComment } from './description';
 import { YouTubePublisher } from './youtube.publisher';
 import { ACTIVE_POST_STATUSES, AccountStatus, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
 
@@ -316,7 +317,10 @@ export class PublishService {
         },
       );
       this.logger.log(`Post ${postId}: uploaded as ${outcome.externalId}`);
-      if (post.platform === 'youtube') await this.applyThumbnail(String(post._id), channelId, String(post.reelId), outcome.externalId);
+      if (post.platform === 'youtube') {
+        await this.applyThumbnail(String(post._id), channelId, String(post.reelId), outcome.externalId);
+        await this.applyComment(String(post._id), channelId, String(post.reelId), outcome.externalId);
+      }
       await this.queues.publish(postId, 'verify', VERIFY_DELAYS_MS[0], 0);
     } catch (err) {
       await this.onUploadError(post, err);
@@ -480,6 +484,26 @@ export class PublishService {
     }
     const verifying = await this.posts.find({ status: 'processing', updatedAt: { $lt: cutoff } }).select('_id').lean();
     for (const p of verifying) if (!queued.has(String(p._id))) await this.queues.publish(String(p._id), 'verify');
+  }
+
+  /** Post the reel's engagement question as the channel's first comment. Once per post; failure only adds a warning. */
+  private async applyComment(postId: string, channelId: string, reelId: string, videoId: string) {
+    try {
+      const post = await this.posts.findById(postId).select('commentPosted').lean();
+      if (post?.commentPosted) return;
+      const reel = await this.reels.findById(reelId).select('packaging.pinnedComment').lean();
+      const text = buildEngagementComment(reel?.packaging?.pinnedComment);
+      if (!text) return;
+      const problem = await this.youtube.postComment(channelId, videoId, text);
+      if (problem) {
+        this.logger.warn(`Post ${postId}: first comment not posted (${problem})`);
+        await this.posts.updateOne({ _id: postId }, { $addToSet: { warnings: 'The first comment could not be posted. You can add it in YouTube Studio (the question is saved on the reel).' }, $set: { commentPosted: false } });
+      } else {
+        await this.posts.updateOne({ _id: postId }, { $set: { commentPosted: true }, $inc: { unitsSpent: 50 } });
+      }
+    } catch (err) {
+      this.logger.warn(`Post ${postId}: comment step skipped (${(err as Error).message})`);
+    }
   }
 
   /** Send the reel's chosen thumbnail to YouTube. Failure only adds a warning to the post. */

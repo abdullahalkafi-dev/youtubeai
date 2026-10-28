@@ -45,6 +45,8 @@ export class ReelPost {
   @Prop() blockedUntil?: Date;
   @Prop({ default: 0 }) unitsSpent: number;
   @Prop() thumbnailApplied?: boolean;
+  /** The channel's first comment (the reel's engagement question) was posted. */
+  @Prop() commentPosted?: boolean;
 
   @Prop({ type: Object }) latestMetrics?: NormalizedMetrics & { capturedAt: Date; provisional?: boolean };
   @Prop() nextMetricsAt?: Date;
