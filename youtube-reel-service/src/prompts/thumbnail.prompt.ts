@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { renderChannelProfile } from './channel-profile';
 
-export const THUMBNAIL_VERSION = 'thumb-v1';
+export const THUMBNAIL_VERSION = 'thumb-v2';
 
 export const THUMBNAIL_SYSTEM = `You design click-worthy 9:16 thumbnails for YouTube Shorts on this channel.
 
@@ -14,11 +14,13 @@ the host's real cut-out photo in the bottom-right corner pointing or reacting, a
 Write 2 DIFFERENT variants (different headline angle AND different scene).
 
 headline
-- 2-6 words, UPPERCASE, max 26 characters. Curiosity that the reel actually pays off. No emojis, no quotes.
+- TWO short lines in one string, UPPERCASE, 4-9 words, max 48 characters: line 1 says WHO and WHAT HAPPENED in plain words, line 2 is the HOOK
+  (the host's verdict, the cost, or the open question the reel answers). Example: "LIL DURK DENIED BOND / THE FEDS' REAL PLAN".
+  A stranger must understand the story AND want the answer. The reel must actually pay off the hook. No emojis, no quotes.
 - Name the person when the person is the draw (most-searched form, e.g. "LIL DURK", "DIDDY").
 - Proven patterns: "WHY <NAME> IS CRYING", "<NAME>'S BIGGEST MISTAKE", "THE DAY <NAME> BROKE", "PRISON CHANGED <NAME>",
   "NOBODY TOLD HIM THIS", "THIS IS WHY YOU SNITCH". Never claim something the reel does not say.
-- accent: the 1-2 words in the headline to colour yellow (the name or the emotional word).
+- accent: the words of the HOOK line (line 2) to colour yellow, so the eye lands on the question; the name stays white.
 
 subject: the real person the scene shows, exactly as written in PEOPLE WITH PHOTOS, or null for a scene without a known person.
 scene: what the image model draws. Portrait 9:16. The subject large in the upper-middle, face clearly visible, emotion that fits
