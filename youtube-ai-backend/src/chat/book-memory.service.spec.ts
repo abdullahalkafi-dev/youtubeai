@@ -3,6 +3,8 @@ import {
   continuationsFor,
   formatBookBlock,
   formatMemoryCard,
+  formatNoMemoryBlock,
+  noMemoryFits,
   parseMemoryCard,
   parseSituation,
   pickBookChunks,
@@ -250,5 +252,23 @@ describe('BookMemoryService.recall', () => {
     expect(BookMemoryService.enabled()).toBe(false);
     delete process.env.UMA_BOOK_RECALL;
     expect(BookMemoryService.enabled()).toBe(true);
+  });
+});
+
+describe('a memory only when it fits', () => {
+  it('reads {"pick":0} as: no passage fits, use no memory', () => {
+    expect(noMemoryFits('{"pick":0}')).toBe(true);
+    expect(noMemoryFits('```json\n{"pick": 0}\n```')).toBe(true);
+    expect(noMemoryFits('{"pick":2,"beats":["a","b","c"]}')).toBe(false);
+    expect(noMemoryFits('')).toBe(false);
+    expect(parseMemoryCard('{"pick":0}', 4)).toBeNull();
+  });
+
+  it('the no-memory block keeps point 2 alive but forbids borrowing a life story', () => {
+    const block = formatNoMemoryBlock();
+    expect(block).toMatch(/NO MEMORY FROM HIS BOOK FITS/);
+    expect(block).toMatch(/Do NOT retell/);
+    expect(block).toMatch(/point 2/);
+    expect(block).not.toMatch(/every beat/i);
   });
 });

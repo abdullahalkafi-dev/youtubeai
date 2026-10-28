@@ -87,10 +87,13 @@ import {
 } from '../openai/prompts/unique-persona';
 import {
   DUAL_FORMAT_NOTE,
+  buildRedoNote,
   bulletShape,
   extractBulletBlock,
   insertBulletBlock,
   isFullScript,
+  isScriptRedo,
+  originalScriptRequest,
   wantsDualScript,
 } from './dual-script';
 import { FootageIntentService } from './footage-intent.service';
@@ -854,6 +857,16 @@ export class ChatService {
         ? detectedIntent
         : dto.skill || detectedIntent || 'general';
 
+    // The client rejected the script just written ("this is whack, it's not Unique Mecca Audio"): the
+    // answer is a new script on the same story, not a discussion, so research and footage are skipped
+    // (the facts are already in this chat) and the book is searched with the ORIGINAL request, not his
+    // complaint, which names the very memory he did not want.
+    const redoScript =
+      resolvedSkill === 'script' &&
+      isScriptRedo(intentResult.redoScript, updatedThread.messages.slice(0, -1));
+    const originalRequest = redoScript ? originalScriptRequest(updatedThread.messages) : '';
+    if (redoScript) this.logger.log(`Thread ${threadId}: client rejected the script, writing it again`);
+
     // Mark thread as actively generating with skill and timestamp
     await this.threadModel.findByIdAndUpdate(threadId, {
       $set: {
@@ -870,6 +883,7 @@ export class ChatService {
       topicHint: updatedThread.title,
       messages: updatedThread.messages,
       sink: ragSink,
+      bookRequest: originalRequest || undefined,
     }).catch(() => '');
 
     const channel = await channelPromise;
@@ -1036,8 +1050,9 @@ export class ChatService {
     }
 
     // Footage pack: local market pack preferred; marketless topic pack otherwise.
+    if (redoScript) needsResearch = false;
     const recentThreadText = this.buildRecentThreadText(updatedThread.messages);
-    const footagePack = await this.loadFootagePack(
+    const footagePack = redoScript ? null : await this.loadFootagePack(
       channel,
       dto.content,
       resolvedSkill,
@@ -1097,9 +1112,15 @@ export class ChatService {
     const dualWanted = wantsDualScript({
       skill: resolvedSkill,
       userContent: cleanUserPrompt || dto.content,
-      freshScript: intentResult.freshScript,
+      freshScript: redoScript ? true : intentResult.freshScript,
     });
     if (dualWanted) dynamicContext += '\n\n' + DUAL_FORMAT_NOTE;
+    if (redoScript) dynamicContext += '\n\n' + buildRedoNote(cleanUserPrompt || dto.content);
+    // What the bullet writer reads as the client's request: after a rejection, the story he first asked
+    // for plus his notes on the first version (his complaint alone says nothing about the story).
+    const bulletRequest = redoScript
+      ? `${originalRequest}\n\nHis notes on the first version: ${(cleanUserPrompt || dto.content).slice(0, 700)}`
+      : cleanUserPrompt || dto.content;
     let bulletAttempted = false;
     let bulletBlock: string | null = null;
     // The full script finished streaming / the clip list is in / the whole tail is in place. They let
@@ -1265,7 +1286,7 @@ export class ChatService {
         yield { type: 'chunk', content: '\n\n' };
         try {
           for await (const piece of this.streamBulletScript({
-            clientRequest: cleanUserPrompt || dto.content,
+            clientRequest: bulletRequest,
             reply: fullContent,
             threadId: threadId.toString(),
             out,
@@ -1309,7 +1330,7 @@ export class ChatService {
           const out: { block: string | null; usage?: TokenUsage } = { block: null };
           try {
             for await (const _piece of this.streamBulletScript({
-              clientRequest: cleanUserPrompt || dto.content,
+              clientRequest: bulletRequest,
               reply: fullContent,
               threadId: threadId.toString(),
               out,
@@ -1949,6 +1970,8 @@ export class ChatService {
       messages?: Array<{ role: string; content?: string; metadata?: any }>;
       /** Receives the book chunk ids used, to be remembered on the saved message. */
       sink?: { bookChunkIds?: string[] };
+      /** Searches the book with this request instead of `content` (a rejected script is redone from the request that made it). */
+      bookRequest?: string;
     } = {},
   ): Promise<string> {
     let ragContext = '';
@@ -1979,9 +2002,9 @@ export class ChatService {
         BookMemoryService.enabled()
       ) {
         try {
-          const request = content
-            .replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '')
-            .trim();
+          const request =
+            opts.bookRequest ||
+            content.replace(/^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i, '').trim();
           const recall = await this.bookMemory.recall(topicAwareRequest(request, opts.messages), {
             topicHint: opts.topicHint,
             avoidIds: recentBookChunkIds(opts.messages || []),

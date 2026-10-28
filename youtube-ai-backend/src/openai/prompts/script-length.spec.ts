@@ -195,6 +195,7 @@ describe('splitLongRails', () => {
 describe('punctuation tells the reader where to stop and where to go on', () => {
   it('the contract asks for commas at the break instead of banning them', () => {
     expect(SCRIPT_LENGTH_CONTRACT).toMatch(/end a line with a COMMA when the thought continues on the next line/);
+    expect(SCRIPT_LENGTH_CONTRACT).toMatch(/Never put the comma between a subject and its verb/);
     expect(SCRIPT_LENGTH_CONTRACT).not.toMatch(/instead of chaining clauses with commas/);
   });
 

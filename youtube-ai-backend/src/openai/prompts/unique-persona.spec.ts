@@ -161,3 +161,22 @@ describe('unique persona: concrete reaction, no self-narrated caution', () => {
     expect(text).toMatch(/A man on camera does not read his own disclaimers/);
   });
 });
+
+describe('unique persona: client feedback on the Durk script (templated, off-topic, corny)', () => {
+  const text = buildUniquePersona(false);
+  it('the four beats are not a template every section repeats', () => {
+    expect(text).toMatch(/Not every point needs all four, and two points may not run them in the same order/);
+    expect(text).toMatch(/"My old mind \/ thinking \/ instinct would've\.\.\." may appear at most twice/);
+    expect(text).toMatch(/"regular people" appears at most twice/);
+    expect(text).toMatch(/no more than two may end on a question/);
+  });
+  it('every line is plain speech and the script stays on the client\'s topic', () => {
+    expect(text).toMatch(/EVERY LINE IS PLAIN SPEECH/);
+    expect(text).toMatch(/can't sit count/);
+    expect(text).toMatch(/STAY ON THE CLIENT'S TOPIC/);
+  });
+  it('knows what to do when no memory fits', () => {
+    expect(text).toMatch(/NO MEMORY FROM HIS BOOK FITS THIS STORY/);
+    expect(text).toMatch(/tells no life story at all/);
+  });
+});

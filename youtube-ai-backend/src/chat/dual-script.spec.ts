@@ -5,6 +5,9 @@ import {
   extractBulletBlock,
   insertBulletBlock,
   isFullScript,
+  isScriptRedo,
+  originalScriptRequest,
+  buildRedoNote,
   wantsDualScript,
 } from './dual-script';
 import { BULLET_SCRIPT_END, BULLET_SCRIPT_START } from '../openai/prompts/unique-persona';
@@ -208,5 +211,38 @@ describe('a comma never splits a subject from its verb', () => {
     expect(fixSubjectVerbCommas(fine)).toBe(fine);
     const handoff = '> You walk in,\n> and everybody knows your face.';
     expect(fixSubjectVerbCommas(handoff)).toBe(handoff);
+  });
+});
+
+describe('the client rejects a script: it is written again, not discussed', () => {
+  const asked = { role: 'user', content: 'write me a story on Jay Z and J Cole writing letters for Durk' };
+  const wrote = { role: 'assistant', content: '<!-- SCRIPT_START -->\n# SCRIPT TITLE: X\n<!-- SCRIPT_END -->' };
+  const moan = { role: 'user', content: 'what does the salad prep job have to do with this story, this is whack' };
+
+  it('counts only when the router said so AND a script was written earlier in the chat', () => {
+    expect(isScriptRedo(true, [asked, wrote])).toBe(true);
+    expect(isScriptRedo(true, [asked])).toBe(false);
+    expect(isScriptRedo(false, [asked, wrote])).toBe(false);
+    expect(isScriptRedo(undefined, [asked, wrote])).toBe(false);
+  });
+
+  it('finds the request that produced the latest script, not his complaint', () => {
+    expect(originalScriptRequest([asked, wrote, moan])).toBe(asked.content);
+    const second = { role: 'user', content: '[ACTIVE SCRIPT CONTEXT: old script text]\n[USER REQUEST]\nnow the Diddy story' };
+    expect(originalScriptRequest([asked, wrote, second, { ...wrote }, moan])).toBe('now the Diddy story');
+    expect(originalScriptRequest([moan])).toBe('');
+  });
+
+  it('a redo is a fresh script, so both cards are written', () => {
+    expect(wantsDualScript({ skill: 'script', userContent: moan.content, enabled: true, freshScript: true })).toBe(true);
+  });
+
+  it('the redo note asks for a new script with his words, no research, no apology', () => {
+    const note = buildRedoNote(moan.content);
+    expect(note).toContain(moan.content);
+    expect(note).toMatch(/NEW full script/);
+    expect(note).toMatch(/No new research/);
+    expect(note).toMatch(/No apology/);
+    expect(note).toMatch(/SCRIPT_START/);
   });
 });

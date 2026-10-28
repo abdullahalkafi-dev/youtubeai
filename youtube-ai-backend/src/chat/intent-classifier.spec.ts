@@ -18,6 +18,7 @@ interface ClassifierHost {
     source: string;
     footage?: boolean;
     freshScript?: boolean;
+    redoScript?: boolean;
   }>;
 }
 
@@ -250,5 +251,21 @@ describe('fresh_script routing field', () => {
     expect((await none.classify({ message: 'write me a script' })).freshScript).toBeUndefined();
     const other = makeClassifier(() => JSON.stringify({ intent: 'seo', fresh_script: true, confidence: 0.9 }));
     expect((await other.classify({ message: 'seo for this' })).freshScript).toBeUndefined();
+  });
+});
+
+describe('redo_script routing field', () => {
+  it('flags a complaint about the script just written', async () => {
+    const svc = makeClassifier(() => JSON.stringify({ intent: 'script', fresh_script: false, redo_script: true, confidence: 0.94 }));
+    expect((await svc.classify({ message: 'this is whack, what does the salad job have to do with it' })).redoScript).toBe(true);
+  });
+
+  it('is absent for a note on one part, for no answer, and for other skills', async () => {
+    const part = makeClassifier(() => JSON.stringify({ intent: 'script', redo_script: false, confidence: 0.9 }));
+    expect((await part.classify({ message: 'shorten section 3' })).redoScript).toBeUndefined();
+    const none = makeClassifier(() => JSON.stringify({ intent: 'script', confidence: 0.9 }));
+    expect((await none.classify({ message: 'write me a script' })).redoScript).toBeUndefined();
+    const other = makeClassifier(() => JSON.stringify({ intent: 'seo', redo_script: true, confidence: 0.9 }));
+    expect((await other.classify({ message: 'seo for this' })).redoScript).toBeUndefined();
   });
 });

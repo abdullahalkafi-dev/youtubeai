@@ -22,17 +22,29 @@ describe('bullet script prompt (the client\'s breathable story-flow directives)'
     expect(prompt).toMatch(/Never a topic label or a slogan/);
     expect(prompt).toMatch(/exactly THREE bullets, labeled 1A, 1B, 1C/);
     expect(prompt).toMatch(/Each bullet is TWO breath blocks/);
-    expect(prompt).toMatch(/450 to 650 written words/);
+    expect(prompt).toMatch(/700 to 850 written words/);
     expect(prompt).toMatch(/If the CLIENT REQUEST asks for something else/);
     expect(prompt).toMatch(/EVERY LINE IS 4 TO 9 WORDS/);
     expect(prompt).toMatch(/at most five times in the whole card/);
   });
 
-  it('makes every block one thought wrapped over two lines, with the comma doing the hand-over', () => {
+  it('makes every block one thought wrapped over THREE lines (client feedback), with the comma doing the hand-over', () => {
+    expect(prompt).toMatch(/ONE thought wrapped over THREE short lines/);
+    expect(prompt).toMatch(/six short lines per bullet/);
+    expect(prompt).not.toMatch(/wrapped over two short lines/);
+    expect(prompt).toMatch(/The second line ends with a comma too/);
     expect(prompt).toMatch(/The first line ENDS WITH A COMMA/);
     expect(prompt).toMatch(/Never write two separate little sentences/);
     expect(prompt).toMatch(/WRONG \(stop-start/);
     expect(prompt).toMatch(/RIGHT \(one thought, the comma hands it over\)/);
+  });
+
+  it('cuts lines at phrase boundaries and drops an off-topic life memory from the source script', () => {
+    expect(prompt).toMatch(/never between a verb and what it acts on/);
+    expect(prompt).toMatch(/Each line must make sense as a phrase on its own/);
+    expect(prompt).toMatch(/are not copied: say what the line means in plain speech/);
+    expect(prompt).toMatch(/has nothing to do with what the episode is about/);
+    expect(prompt).toMatch(/The bullets stay on the client's topic/);
   });
 
   it('keeps facts out of lists and the voice out of the news desk', () => {
@@ -47,15 +59,17 @@ describe('bullet script prompt (the client\'s breathable story-flow directives)'
     expect(prompt).toMatch(/Section 2 is the Unique twist/);
   });
 
-  it('its own model obeys its own shape: label in the first rail line, one wrapped thought per block, a two-line jewel', () => {
+  it('its own model obeys its own shape: label in the first rail line, one three-line thought per block, a two-line jewel', () => {
     const model = prompt.split("THE CLIENT'S OWN MODEL")[1];
     const blocks = model.split(/\n\s*\n/).filter((b) => /^> /.test(b.trim()) && !/JEWEL/.test(b));
     expect(blocks.length).toBe(6);
     for (const b of blocks) {
       const lines = b.trim().split('\n');
-      expect(lines).toHaveLength(2);
+      expect(lines).toHaveLength(3);
       expect(lines[0]).toMatch(/,$/);
-      expect(lines[1]).toMatch(/[.?!]$/);
+      expect(lines[1]).toMatch(/,$/);
+      expect(lines[2]).toMatch(/[.?!]$/);
+      for (const l of lines) expect(l.replace(/^> (\*\*\d[A-C]\.\*\* )?/, '').split(/\s+/).length).toBeLessThanOrEqual(9);
     }
     expect((model.match(/^> \*\*\dA?[A-C]\.\*\* /gm) || []).length).toBe(3);
     const jewel = model.split('### 💎 JEWEL')[1].split('## 2.')[0].trim().split('\n').filter((l) => l.startsWith('> '));

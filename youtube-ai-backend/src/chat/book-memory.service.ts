@@ -38,7 +38,7 @@ const KNOWN_THEMES = [
 
 const SITUATION_PROMPT = `You prepare search queries for the memoir of a street criminal who later served 26 years in federal prison. The memoir is a long book full of scenes: robberies, betrayals by partners and family, the code of the street, never working with police, his mother, his brothers, prison, money, love, fear, loss.
 
-Given a YouTube script request about a crime or prison story, work out the HUMAN SITUATION underneath it and find scenes in his own life that mirror it. Do not search the news story itself; search for the moment in his life that rhymes with it. Prefer scenes that show his own MIND at work: what he was thinking, calculating, deciding or telling himself in the split second, not only what happened around him.
+Given a YouTube script request about a crime or prison story, work out the HUMAN SITUATION underneath it and find scenes in his own life that mirror it. Do not search the news story itself; search for the moment in his life that rhymes with it. Prefer scenes that show his own MIND at work: what he was thinking, calculating, deciding or telling himself in the split second, not only what happened around him. Match the PRESSURE or CHOICE, never the topic words: a story about famous friends writing letters for a man facing a judge is about who stands by him, who stays silent and what loyalty costs, not about jobs, money or paperwork.
 
 Return ONLY JSON:
 {"queries":[3 or 4 short plain-narration descriptions of scenes from a street life that mirror the dynamics of this story, each under 25 words],"themes":[0 to 3 of: ${KNOWN_THEMES.join(', ')}],"dynamics":"one sentence on the human dynamic (who turned on whom, what the stakes were, what the split-second choice was)"}`;
@@ -55,12 +55,31 @@ const MEMORY_CARD_TIMEOUT_MS = 20000;
 
 const MEMORY_CARD_PROMPT = `You prepare ONE lived memory from a street criminal's memoir for use in a YouTube script. You will get the story being scripted and numbered memoir passages.
 
-Choose the ONE passage whose human dynamic best mirrors the story AND shows his own mind at work (what he thought, calculated or decided). Prefer a scene where he ACTED over a quiet one. If the passage continues, use the continuation too.
+Choose the ONE passage whose human dynamic truly mirrors the story AND shows his own mind at work (what he thought, calculated or decided). Prefer a scene where he ACTED over a quiet one. If the passage continues, use the continuation too.
+
+THE FIT TEST: the moment must put him in the same kind of pressure or choice as the story (who stood by him, who turned on him, what he told himself to get through it), not merely share a topic word such as a job, money, a parole officer, a visit or help. A memory that has nothing to do with what the story is about makes the script wander and the client hears it as the book pasted in. Return {"pick":0} and nothing else ONLY when every passage is clearly about something else. A passage about the same kind of pressure (betrayal, loyalty, someone staying away or showing up, a calculation under pressure, what he told himself) passes even when the people and the details differ.
 
 Then list the beats of that scene in order, using ONLY what the text says: what he was thinking, what he planned, exactly what he did (violence stated plainly, no gore for its own sake, no softening), and what it cost him right after. Do not add, moralize, or judge.
 
-Return ONLY JSON:
+Return ONLY JSON, either {"pick":0} when no passage passes the fit test, or:
 {"pick":<passage number>,"title":"<up to six words naming the moment>","beats":[5 to 9 short plain past-tense sentences, third person, in order],"inner_line":"<one thing he thought to himself, close to the book's own words, or empty>","mirror":"<one sentence: how this moment rhymes with the story being scripted>"}`;
+
+/** Pure: true when the model answered {"pick":0}: no passage fits the story, so no memory is used. */
+export function noMemoryFits(raw: string): boolean {
+  const parsed = parseJson(raw);
+  return !!parsed && parsed.pick === 0;
+}
+
+/**
+ * Pure: the block sent when no memory fits. Point 2 keeps its job (the part only he can deliver) but is
+ * built from his mind, not from a life story that has nothing to do with this one.
+ */
+export function formatNoMemoryBlock(): string {
+  return [
+    '## NO MEMORY FROM HIS BOOK FITS THIS STORY',
+    'None of his remembered moments mirrors what this story is about. Do NOT retell a job, a parole visit, a family scene or any other life story in point 2, and do not borrow a detail from the book to fill the slot. Build point 2 from his MIND instead: what the old street read of THIS situation was, what regular people feel, what it cost the people in it, and what 26 years changed. Facts about his life stay limited to the ones in his persona (26 years federal, never working with police).',
+  ].join('\n');
+}
 
 /** Pure: reads the model's JSON into a usable memory card, or null when it is unusable. */
 export function parseMemoryCard(raw: string, passageCount: number): MemoryCard | null {
@@ -332,8 +351,8 @@ export class BookMemoryService {
     return parseSituation(raw);
   }
 
-  /** Boils the recalled passages down to the one memory point 2 must retell. Null on any failure. */
-  private async memoryCardFor(request: string, passages: string, passageCount: number): Promise<MemoryCard | null> {
+  /** Boils the recalled passages down to the one memory point 2 must retell. Null on any failure, 'none' when none fits. */
+  private async memoryCardFor(request: string, passages: string, passageCount: number): Promise<MemoryCard | 'none' | null> {
     const llm = this.openai.chatFast({
       systemPrompt: MEMORY_CARD_PROMPT,
       userMessage: `STORY BEING SCRIPTED:\n${request.slice(0, 1800)}\n\nMEMOIR PASSAGES:\n${passages}`,
@@ -348,6 +367,7 @@ export class BookMemoryService {
         setTimeout(() => reject(new Error('memory card step timed out')), MEMORY_CARD_TIMEOUT_MS),
       ),
     ]);
+    if (noMemoryFits(raw)) return 'none';
     return parseMemoryCard(raw, passageCount);
   }
 
@@ -386,6 +406,10 @@ export class BookMemoryService {
       let block = passages;
       try {
         const card = await this.memoryCardFor(text, passages, chunks.length);
+        if (card === 'none') {
+          this.logger.log('Book recall: no passage fits this story, point 2 is built from his mind alone');
+          return { block: formatNoMemoryBlock(), ids: [], fellBack };
+        }
         if (card) {
           block = `${formatMemoryCard(card)}\n\n${passages}`;
           this.logger.log(`Book recall: memory card "${card.title}" (${card.beats.length} beats)`);

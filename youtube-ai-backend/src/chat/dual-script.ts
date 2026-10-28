@@ -40,6 +40,47 @@ export function wantsDualScript(params: {
   return !isPastedMaterial(content) && !REVISION_START.test(content);
 }
 
+const SCRIPT_START = '<!-- SCRIPT_START -->';
+const ACTIVE_SCRIPT_PREFIX = /^\[ACTIVE SCRIPT CONTEXT:[\s\S]*?\[USER REQUEST\]\s*/i;
+
+type ThreadMessage = { role: string; content?: string };
+
+/**
+ * The client rejected the script just written as a whole ("this is whack, it's not Unique Mecca
+ * Audio") and the router flagged it (`redoScript`). It only counts when a script was written earlier
+ * in this chat: there has to be something to redo.
+ */
+export function isScriptRedo(redoScript: boolean | undefined, earlier: ThreadMessage[] = []): boolean {
+  return redoScript === true && earlier.some((m) => m.role === 'assistant' && (m.content || '').includes(SCRIPT_START));
+}
+
+/** The request that produced the latest script in this chat (the user message just before it), or ''. */
+export function originalScriptRequest(messages: ThreadMessage[] = []): string {
+  let script = -1;
+  messages.forEach((m, i) => {
+    if (m.role === 'assistant' && (m.content || '').includes(SCRIPT_START)) script = i;
+  });
+  for (let i = script - 1; i >= 0; i--) {
+    if (messages[i].role === 'user') return (messages[i].content || '').replace(ACTIVE_SCRIPT_PREFIX, '').trim();
+  }
+  return '';
+}
+
+/**
+ * What the writer is told when the client rejects a script: write it again, now, on the same story,
+ * with no new research and no speech about what went wrong. His own words come along so what he named
+ * (an off-topic memory, a corny line) is what gets fixed.
+ */
+export function buildRedoNote(complaint: string): string {
+  return [
+    'REDO NOTE: the client just rejected the script written earlier in this chat. His words:',
+    `"${(complaint || '').trim().slice(0, 700)}"`,
+    '- Write a NEW full script now, from scratch, on the SAME story with the SAME verified facts already in this chat (the earlier script and its fact-check line). No new research, no questions back.',
+    '- Fix exactly what he named: anything he says does not belong is OUT of the new script, and every point stays on the story he asked for. Write it in his own voice, in plain speech, not as a commentator.',
+    '- No apology and no explanation of what went wrong. At most one short line before <!-- SCRIPT_START -->, then the script.',
+  ].join('\n');
+}
+
 /** Decided AFTER writing: is the reply a real full script (not a question or a snippet)? */
 export function isFullScript(reply: string, minSpokenWords: number = 250): boolean {
   const closed = closeScriptMarkers(reply || '');

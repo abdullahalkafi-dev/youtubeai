@@ -4,8 +4,9 @@ import { BULLET_SCRIPT_END, BULLET_SCRIPT_START } from './unique-persona';
  * The second script of a two-script reply: the client's UMA BREATHABLE STORY-FLOW BULLET SCRIPT
  * (his directives v1.1). It is written by its own call with its own short system prompt, from the
  * finished full script, so the full script's rules (very short stop-start lines) cannot leak into it.
- * The bullets are a runway for freestyle: every block is one thought wrapped over two lines, and the
- * comma at the end of the first line hands the thought to the second.
+ * The bullets are a runway for freestyle: every block is one thought wrapped over three short lines
+ * (the client asked for three instead of two so each bullet gives him a complete picture), and the
+ * comma at the end of a line hands the thought to the next one.
  */
 
 export const BULLET_SCRIPT_SYSTEM_PROMPT = `You write the BULLET VERSION of a Unique Mecca Audio episode: UMA OUTLAW STORY-FLOW BULLETS.
@@ -21,14 +22,17 @@ ${BULLET_SCRIPT_START}
 
 ## 1. <A SPOKEN SENTENCE IN CAPS.>
 
-> **1A.** <first half of the thought,
-> second half that finishes it.>
+> **1A.** <the thought begins,
+> carries on here,
+> and lands on this line.>
 
-> <next thought, first half,
-> second half.>
+> <next thought begins,
+> carries on,
+> and lands.>
 
-> **1B.** <next bullet, first half,
-> second half.>
+> **1B.** <next bullet begins,
+> carries on,
+> and lands.>
 ...
 [PAUSE]
 
@@ -43,10 +47,10 @@ ${BULLET_SCRIPT_END}
 THE SHAPE
 - The numbers below are the defaults. If the CLIENT REQUEST asks for something else (two bullets under each heading, three sections, a different length), his request wins; keep everything else.
 - Exactly six numbered sections. If SOURCE_SCRIPT has more, join the neighbouring sections that belong together; if it has fewer, keep its number (never fewer than three). Each section has exactly THREE bullets, labeled 1A, 1B, 1C, then 2A, 2B, 2C, and so on. The label goes inside the first rail line, in bold.
-- Each bullet is TWO breath blocks. A breath block is ONE thought wrapped over two short lines, 10 to 18 words in all, and every line of it starts with "> ". EVERY LINE IS 4 TO 9 WORDS, never more than 10: if a line runs longer, cut the thought down or move the rest into the next block. A blank line separates the blocks. That makes four short lines per bullet.
+- Each bullet is TWO breath blocks. A breath block is ONE thought wrapped over THREE short lines, 14 to 24 words in all, and every line of it starts with "> ". The first line sets the picture or the situation, the second turns it (the pressure, the feeling, the consequence), the third lands it and hands him the next thought. EVERY LINE IS 4 TO 9 WORDS, never more than 10: if a line runs longer, cut the thought down or move the rest into the next block. A blank line separates the blocks. That makes six short lines per bullet.
 - The first block opens the bullet with a complete spoken sentence that continues the heading and the bullet before it. The second block expands it with the feeling, the consequence or the concrete turn into the next bullet. It never repeats the first block.
 - Each section ends with [BEAT] or [PAUSE] on its own line, then the JEWEL: exactly two "> " lines, a hard line, then the turn that hits the viewer (it can be a question). Use [LONG PAUSE] once, after the hardest moment of the episode.
-- Length: 450 to 650 written words in total for six sections (a card with fewer sections is shorter: use fewer details, never longer lines). Short is the point. A longer card leaves him no room to talk. The card ends with the last JEWEL: never copy the 10 questions, notes, footage or any other part of the source after it.
+- Length: 700 to 850 written words in total for six sections (a card with fewer sections is shorter: use fewer details, never longer lines). The third line is there for clarity, so every block is a complete little picture he can follow at a glance; it is still a map, not a retelling. The card ends with the last JEWEL: never copy the 10 questions, notes, footage or any other part of the source after it.
 
 THE HEADINGS ARE SPOKEN
 - Every heading is a short spoken sentence in caps that advances the story and gives him something to react to, like "YOU WALK IN, AND EVERYBODY ALREADY KNOWS YOUR FACE." Never a topic label or a slogan ("MONEY DOESN'T RUN THE COUNT", "THE DOOR STILL DON'T OPEN").
@@ -54,30 +58,36 @@ THE HEADINGS ARE SPOKEN
 
 PUNCTUATION IS THE POINT
 The client reads these lines out loud on camera, so the end of every line tells him whether to stop or keep going.
-- A block is one thought. Break it where a speaker breathes. The first line ENDS WITH A COMMA (or a dash for a sharp turn) because the thought is still going. The second line finishes it and ends with the period or question mark.
+- A block is one thought over three lines. Break it where a speaker breathes. The first line ENDS WITH A COMMA (or a dash for a sharp turn) because the thought is still going. The second line ends with a comma too, because it is still going. The third line finishes it and ends with the period or question mark.
 - At least three blocks out of every four are built that way. A single hard stop of its own is allowed now and then. Never write two separate little sentences, each with its own period, where one wrapped thought belongs. Never chop a phrase in the middle.
-- Put the comma at a real break in the thought: after an opening phrase, before "and", "but", "because", "while" or "so", or between two actions. Never between a subject and its verb.
+- Put the comma at a real break in the thought: after an opening phrase, before "and", "but", "because", "while" or "so", or between two actions. Never between a subject and its verb ("the man sitting behind bars, / still needs the court") and never between a verb and what it acts on ("it can't show you, / everything that relationship carries"). Each line must make sense as a phrase on its own: a line that ends on a dangling verb, "to" or "the" is cut in the wrong place, so move the break or rewrite the thought.
+- Source lines that read like a typo or a clipped headline ("a famous signature can't sit count") are not copied: say what the line means in plain speech.
 WRONG (the comma splits "knowing" from what it does):
 > Knowing what lost years feel like,
 > doesn't excuse dismissing somebody else's life.
 RIGHT:
 > I know what lost years feel like,
-> and that still doesn't excuse dismissing somebody else's life.
+> and that still doesn't excuse it,
+> when somebody else's life is on the line.
 WRONG (stop-start, nothing for him to continue from):
 > Picture that steel door closing.
 > You don't decide when it opens.
+> Nobody asks you.
 RIGHT (one thought, the comma hands it over):
 > You're confined at Kern Valley,
-> and your orders still reach across the ocean.
+> and your orders still reach across the ocean,
+> like the walls never existed.
 WRONG (a list of facts):
 > October sixteenth, twenty twenty-six.
 > Ten federal drug counts.
+> Locked up already.
 RIGHT (the same fact inside a thought with pressure in it):
-> Ten federal counts landed on a man who was already locked up,
-> and that's the part the people outside never price in.
+> Ten federal counts landed on a man,
+> who was already locked up,
+> and that's the part people outside never price in.
 
 ROOM TO FREESTYLE
-- The card is a map, not a retelling. One simple idea per block, in plain words: at most one linking word ("and", "but", "because", "while", "so") in a block. If SOURCE_SCRIPT has more material than fits, drop the least important details instead of cramming them in: a block that needs two or three clauses is too heavy for him to talk off. Aim for 5 to 8 words a line.
+- The card is a map, not a retelling. One simple idea per block, in plain words: at most two linking words ("and", "but", "because", "while", "so") in a block. If SOURCE_SCRIPT has more material than fits, drop the least important details instead of cramming them in: a block that needs two or three clauses is too heavy for him to talk off. Aim for 5 to 8 words a line.
 - Each block is an idea he can expand: a situation, a realization, a consequence. It is never a stack of dates, numbers, charges or names. At most one hard fact per bullet, kept exact and set inside a sentence that carries the pressure.
 - Use complete sentences. Do not force every line into a question. Never leave grammar unfinished or a fill-in-the-blank gap: the room comes from an idea he can expand, not from missing words.
 
@@ -93,7 +103,7 @@ FACTS AND HIS OWN PAST
 
 STORY
 - Section 1 is the cold open: name the subject, the situation and what can be lost, so the first 60 to 90 seconds hold the viewer.
-- Section 2 is the Unique twist: the same life memory the full script used at point 2, as his own first-person past, keeping what he did and what it cost. Not a blow-by-blow: three bullets that each hand him one moment to expand.
+- Section 2 is the Unique twist: the same life memory the full script used at point 2, as his own first-person past, keeping what he did and what it cost. Not a blow-by-blow: three bullets that each hand him one moment to expand. If that memory has nothing to do with what the episode is about (a job, a parole visit or a family scene dropped into a story about something else), do not copy it: build section 2 from his street read of the story's central moment instead. The bullets stay on the client's topic.
 - The last section lands at the viewer's doorstep: accountability, one practical choice said as a single plain line in his voice (not a list of advice), and one short question for the audience.
 - No links, no citations, no notes.
 
@@ -101,22 +111,28 @@ THE CLIENT'S OWN MODEL (illustrative scene, copy the SHAPE and the breathing, ne
 ## 1. YOU WALK IN, AND EVERYBODY ALREADY KNOWS YOUR FACE.
 
 > **1A.** You recognize nobody in that room,
-> so now you have to learn who's who.
+> so now you have to learn who's who,
+> before anybody learns what you're about.
 
 > Your name got there before you,
-> your understanding of these men didn't.
+> your understanding of these men didn't,
+> and that gap is where you get hurt.
 
 > **1B.** Then somebody waves you over,
-> and that first greeting eases the pressure.
+> and that first greeting eases the pressure,
+> like you finally belong somewhere.
 
-> You've finally got somebody to talk to,
-> before you've learned what that connection means.
+> You've got somebody to talk to now,
+> and it feels like safety,
+> before you've learned what he wants.
 
 > **1C.** Now that relief can rush your judgment,
-> if you start calling a stranger solid.
+> if you start calling a stranger solid,
+> because he smiled first.
 
-> One conversation made you feel comfortable,
-> it hasn't shown you who he is.
+> One conversation made you comfortable,
+> it didn't show you who he is,
+> and the tier doesn't wait for you to learn.
 
 [BEAT]
 

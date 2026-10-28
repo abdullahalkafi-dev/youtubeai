@@ -20,6 +20,11 @@ export interface IntentClassification {
    * existing script rewritten, shortened, converted or formatted. Undefined when the model did not say.
    */
   freshScript?: boolean;
+  /**
+   * Script asks only: the client rejects the script just written as a whole ("this is whack, it's not
+   * unique mecca audio") and wants it done again. The reply is a new script, not a discussion.
+   */
+  redoScript?: boolean;
 }
 
 /** Auto image generation fires only when the router is this sure about the ask. */
@@ -108,6 +113,8 @@ RULES:
 
 "fresh_script" (only when intent is "script", otherwise null): true when the user wants a NEW script written from an idea, a topic, a story, or pasted notes or news ("write me a script on this", "now give me a script for this video", "write me a story in bullets on X", a pasted article plus "write a script"). false when the user wants an EXISTING script worked on: rewritten, shortened, lengthened, fixed, reformatted, converted into breathable blocks, put into the teleprompter, or edited in any way ("rewrite this 7 to 8 minutes", "write this up in the teleprompter", "make it harder").
 
+"redo_script" (only when intent is "script", otherwise null): true when the user is UNHAPPY with the script just written in this chat as a whole and wants it done again, even when he never says "rewrite": he calls it bad, whack, corny, lame, all over the place, off-topic, not like him, not unique, or says it mixed in things that do not belong ("what does the salad job have to do with this story"). false for a note on one part ("shorten section 3", "make the hook harder") and for a brand-new request.
+
 "mode" (only when intent is "package", otherwise null):
 - "audit": the message refers to an EXISTING or already-uploaded video (a YouTube link, "this video", "my X video", "the one I posted", "repackage", "fix my packaging", "why isn't this working").
 - "new": the message describes a video that does NOT exist yet (a new topic, a pasted new script, "the video I'm getting ready to put in").
@@ -116,7 +123,7 @@ RULES:
 "confidence": 0.0 to 1.0 — how certain you are of the category.
 
 Return ONLY this JSON shape:
-{"intent":"package","mode":"new","footage":false,"fresh_script":null,"confidence":0.92}`;
+{"intent":"package","mode":"new","footage":false,"fresh_script":null,"redo_script":null,"confidence":0.92}`;
 
 @Injectable()
 export class IntentClassifierService {
@@ -195,6 +202,7 @@ export class IntentClassifierService {
             ...(finalIntent === 'script' && typeof parsed.fresh_script === 'boolean'
               ? { freshScript: parsed.fresh_script }
               : {}),
+            ...(finalIntent === 'script' && parsed.redo_script === true ? { redoScript: true } : {}),
           };
           this.logger.log(
             `[Intent] "${message.slice(0, 80)}" -> ${result.intent}${
