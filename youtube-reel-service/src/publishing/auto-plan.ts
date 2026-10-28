@@ -106,8 +106,8 @@ export function pickSlots(input: { date: string; now: Date; count: number; slots
 /** From this New York time the day is locked: whatever is still empty is filled from the stock of finished reels. */
 export const LOCK_TIME = '07:00';
 export const lockAt = (date: string) => nyToUtc(date, LOCK_TIME);
-/** The daily mix the client asked for: up to 2 reels from the newest videos, 2 from the topic of the day, 1 from a second topic; the rest by score. */
-export const DAILY_MIX: Array<[string, number]> = [['fresh', 2], ['main', 2], ['explore', 1]];
+/** The daily mix (client, 2026-10-28: his new uploads are the trending ones): up to 3 reels from the newest videos, 1 from the topic of the day, 1 from a second topic; the rest by score. */
+export const DAILY_MIX: Array<[string, number]> = [['fresh', 3], ['main', 1], ['explore', 1]];
 /** No more than this many reels about the same person in one day (the channel's own name is not a person). */
 export const MAX_PER_PERSON = 2;
 
@@ -124,12 +124,19 @@ export function freeSlots(input: { date: string; now: Date; slots: string[]; ext
   return out.sort();
 }
 
+/** A stock reel cut from a video older than this many days ranks lower, so a leftover slot goes to a recent one first. */
+export const STALE_AFTER_DAYS = 21;
+export const STALE_PENALTY = 15;
+const stockRank = (r: { score: number; sourceAgeDays?: number }) => r.score - ((r.sourceAgeDays ?? 0) > STALE_AFTER_DAYS ? STALE_PENALTY : 0);
+
 export interface PlanReel {
   id: string;
   score: number;
   /** People in the reel (slugs). */
   entities: string[];
   createdAt?: number;
+  /** Age in days of the video the reel was cut from (stock reels only; unknown = not penalised). */
+  sourceAgeDays?: number;
   /** The lane the reel came from (fresh, main, explore, bank, best); stock reels have none. */
   track?: string;
 }
@@ -156,7 +163,7 @@ export function chooseReels(input: {
   const byScore = (a: PlanReel, b: PlanReel) => b.score - a.score || (b.createdAt ?? 0) - (a.createdAt ?? 0);
   const pool: Array<PlanReel & { source: 'fresh' | 'stock' }> = [
     ...[...input.fresh].sort(byScore).map((r) => ({ ...r, source: 'fresh' as const })),
-    ...(input.useStock ? [...input.stock].sort(byScore).map((r) => ({ ...r, source: 'stock' as const })) : []),
+    ...(input.useStock ? [...input.stock].sort((a, b) => stockRank(b) - stockRank(a) || byScore(a, b)).map((r) => ({ ...r, source: 'stock' as const })) : []),
   ];
   const picked: Array<PlanReel & { source: 'fresh' | 'stock' }> = [];
   const count = new Map<string, number>();

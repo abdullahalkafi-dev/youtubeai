@@ -40,7 +40,7 @@ describe('footage-first lanes of the day', () => {
     expect(created[0]).toMatchObject({ origin: 'daily', track: 'fresh', dailyDate: '2026-10-26', parentCampaignId: null });
     expect(created[0].settings.lane).toBe('fresh');
     expect(created[0].settings.seedVideoIds).toEqual(['b', 'a']);
-    expect(created[0].settings.targetReels).toBe(3);
+    expect(created[0].settings.targetReels).toBe(5);
     expect(svc.queues.campaign).toHaveBeenCalledWith('research', expect.any(String));
   });
 

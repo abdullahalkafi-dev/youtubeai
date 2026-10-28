@@ -6,6 +6,8 @@
 
 export const FRESH_DAYS = 30;
 export const MIN_LONG_SEC = 300;
+/** Reels the fresh lane makes: more than the 3 posted from it, so one weak reel can be dropped without losing a slot. */
+export const FRESH_LANE_REELS = 5;
 /** Stock level the bank lane keeps: below this many finished, unposted reels it adds a campaign. */
 export const STOCK_TARGET = 12;
 
@@ -33,6 +35,15 @@ export function recencyWeight(age: number): number {
   if (age <= 7) return 1;
   if (age >= FRESH_DAYS) return 0.4;
   return 1 - ((age - 7) / (FRESH_DAYS - 7)) * 0.6;
+}
+
+/**
+ * Extra source-search points for a video from the last 30 days (1.5 at most, fading like recencyWeight), so the trending topic's
+ * reels lean on his new uploads instead of old videos that only win on views and on being analysed already. Older videos get 0.
+ */
+export function freshnessBonus(publishedAt: Date | null | undefined, now: Date = new Date()): number {
+  const age = ageDays({ publishedAt: publishedAt ?? null }, now);
+  return age > FRESH_DAYS ? 0 : 1.5 * recencyWeight(age);
 }
 
 /**

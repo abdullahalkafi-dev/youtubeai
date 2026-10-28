@@ -20,6 +20,7 @@ import {
   TitleScanSchema,
 } from '../prompts/sourcing.prompt';
 import { OrchestratorService } from '../queue/orchestrator.service';
+import { freshnessBonus } from './lanes';
 
 interface CatalogItem {
   _id: Types.ObjectId;
@@ -191,6 +192,7 @@ export class SourcingService {
         c.bankScore * 3 +
         (Math.log1p(c.viewCount) / Math.log1p(maxViews)) * 1 +
         (c.fromBank ? 0.5 : 0) +
+        freshnessBonus(c.publishedAt) +
         (c.seeded ? 100 : 0);
     }
     const pool = [...cands.values()].sort((a, b) => b.score - a.score).slice(0, 36);

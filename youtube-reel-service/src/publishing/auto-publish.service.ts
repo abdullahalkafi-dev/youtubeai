@@ -34,6 +34,8 @@ export interface AutoSettingsPatch {
   resume?: boolean;
 }
 
+const ageOf = (published: Date | undefined): number | undefined => (published ? (Date.now() - published.getTime()) / 86_400_000 : undefined);
+
 /**
  * Auto-publish: after the day's reels are made, the good ones go to YouTube by themselves at New York times the system chooses
  * (the client's list of slots; the order is randomised at first so each slot gets a fair test). Only ever active while the client's
@@ -176,6 +178,14 @@ export class AutoPublishService {
     this.logger.warn(`Auto-publish paused for ${channelId}: ${reason} (${queued.length} waiting posts cancelled)`);
   }
 
+  /** publishedAt of the source videos (youtubeId -> date); uploads and unknown ids are simply missing. */
+  private async sourcePublished(ids: Array<string | undefined>): Promise<Map<string, Date>> {
+    const wanted = [...new Set(ids.filter((x): x is string => !!x && !x.startsWith('up_')))];
+    if (!wanted.length) return new Map();
+    const docs = await this.videos.find({ youtubeId: { $in: wanted } }).select('youtubeId publishedAt').lean();
+    return new Map(docs.filter((d) => d.publishedAt).map((d) => [d.youtubeId, new Date(d.publishedAt as Date)]));
+  }
+
   // ------------------------------------------------------------------ planning
 
   /**
@@ -241,11 +251,13 @@ export class AutoPublishService {
       const candidates = async (filter: Record<string, unknown>, limit: number, source: 'fresh' | 'stock', want: number) => {
         const rows = await this.reels
           .find({ channelId: cid, status: 'todo', _id: { $nin: [...plannedIds].map((x) => new Types.ObjectId(x)) }, ...filter })
-          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs createdAt')
+          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs createdAt clips.youtubeId')
           .sort({ 'scores.overall': -1, createdAt: -1 })
           .limit(limit)
           .lean();
         const good: Array<PlanReel & { title: string; campaignId: Types.ObjectId }> = [];
+        // how old the source video of each stock reel is, so old stock does not take the leftover slots first
+        const published = source === 'stock' ? await this.sourcePublished(rows.map((r) => r.clips?.[0]?.youtubeId)) : new Map<string, Date>();
         for (const r of rows) {
           if (good.length >= want) break;
           const title = r.packaging?.title || r.concept || 'Reel';
@@ -259,7 +271,7 @@ export class AutoPublishService {
             }
             continue;
           }
-          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined });
+          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, sourceAgeDays: ageOf(published.get(r.clips?.[0]?.youtubeId ?? '')) });
         }
         return good;
       };

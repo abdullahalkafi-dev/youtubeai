@@ -13,7 +13,7 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
-import { bankBrief, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
+import { bankBrief, FRESH_LANE_REELS, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
 
 const UPLOAD_CHECK_EVERY_MS = 45 * 60_000;
@@ -106,7 +106,7 @@ export class LanesService {
       this.logger.log(`Daily ${date}: ${track} lane campaign ${campaign._id} (${picks.length} video(s), ${reels} reels)`);
     };
 
-    await create('fresh', pickFresh(catalog, now, 3), freshBrief(pickFresh(catalog, now, 3)), 3, 'new videos');
+    await create('fresh', pickFresh(catalog, now, 3), freshBrief(pickFresh(catalog, now, 3)), FRESH_LANE_REELS, 'new videos');
     const stock = await this.reels.countDocuments({ channelId, status: 'todo' });
     if (stock < STOCK_TARGET) {
       const picks = pickBank(catalog, now, 3);

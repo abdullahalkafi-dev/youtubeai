@@ -1,4 +1,4 @@
-import { ageDays, bankBrief, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
+import { ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
 
 const now = new Date('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
@@ -64,5 +64,23 @@ describe('briefs and upload analysis', () => {
       { youtubeId: 'old', durationSec: 1200, publishedAt: daysAgo(40) },
     ];
     expect(needsAnalysis(rows, new Set(['known']), now)).toEqual(['a', 'b']);
+  });
+});
+
+describe('freshness bonus in the source search', () => {
+  const now = new Date('2026-10-28T12:00:00Z');
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
+
+  it('a video from this week gets the full bonus, fading to 40% at 30 days', () => {
+    expect(freshnessBonus(daysAgo(2), now)).toBeCloseTo(1.5);
+    expect(freshnessBonus(daysAgo(30), now)).toBeCloseTo(0.6);
+    expect(freshnessBonus(daysAgo(18), now)).toBeGreaterThan(0.6);
+    expect(freshnessBonus(daysAgo(18), now)).toBeLessThan(1.5);
+  });
+
+  it('old or undated videos get nothing', () => {
+    expect(freshnessBonus(daysAgo(31), now)).toBe(0);
+    expect(freshnessBonus(null, now)).toBe(0);
+    expect(freshnessBonus(undefined, now)).toBe(0);
   });
 });

@@ -73,20 +73,20 @@ describe('choosing reels for the empty slots', () => {
 describe('the daily mix', () => {
   const r = (id: string, score: number, track?: string, entities: string[] = []): PlanReel => ({ id, score, entities, track, createdAt: 0 });
 
-  it('two from the new videos, two from the topic of the day, one explore, whatever the scores', () => {
+  it('three from the new videos, one from the topic of the day, one explore, whatever the scores', () => {
     const fresh = [r('f1', 70, 'fresh'), r('f2', 68, 'fresh'), r('f3', 99, 'fresh'), r('m1', 90, 'main'), r('m2', 88, 'main'), r('m3', 87, 'main'), r('e1', 60, 'explore'), r('e2', 59, 'explore')];
     const out = chooseReels({ need: 5, fresh, stock: [], useStock: true, plannedEntities: [] });
     const lanes = out.map((x) => x.track);
-    expect(lanes.filter((t) => t === 'fresh')).toHaveLength(2);
-    expect(lanes.filter((t) => t === 'main')).toHaveLength(2);
+    expect(lanes.filter((t) => t === 'fresh')).toHaveLength(3);
+    expect(lanes.filter((t) => t === 'main')).toHaveLength(1);
     expect(lanes.filter((t) => t === 'explore')).toHaveLength(1);
     // the best of each lane
-    expect(out.map((x) => x.id).sort()).toEqual(['e1', 'f1', 'f3', 'm1', 'm2'].sort());
+    expect(out.map((x) => x.id).sort()).toEqual(['e1', 'f1', 'f2', 'f3', 'm1'].sort());
   });
 
   it('lanes already planned today count against the mix', () => {
     const fresh = [r('f1', 70, 'fresh'), r('m1', 90, 'main'), r('m2', 88, 'main'), r('m3', 87, 'main')];
-    const out = chooseReels({ need: 2, fresh, stock: [], useStock: true, plannedEntities: [], plannedTracks: ['fresh', 'fresh', 'main'] });
+    const out = chooseReels({ need: 2, fresh, stock: [], useStock: true, plannedEntities: [], plannedTracks: ['fresh', 'fresh', 'fresh', 'main'] });
     expect(out.map((x) => x.id)).toEqual(['m1', 'm2']);
   });
 
@@ -99,5 +99,19 @@ describe('the daily mix', () => {
     const fresh = [r('f1', 90, 'fresh', ['diddy']), r('f2', 89, 'fresh', ['diddy']), r('f3', 88, 'fresh', ['diddy'])];
     const out = chooseReels({ need: 3, fresh, stock: [], useStock: true, plannedEntities: [] });
     expect(out.map((x) => x.id)).toEqual(['f1', 'f2', 'f3']); // relaxed by one only because nothing else exists
+  });
+});
+
+describe('stock reels from old videos', () => {
+  const s = (id: string, score: number, sourceAgeDays?: number): PlanReel => ({ id, score, entities: [], createdAt: 0, sourceAgeDays });
+
+  it('a recent video wins a leftover slot over a slightly better reel from an old one', () => {
+    const out = chooseReels({ need: 2, fresh: [], stock: [s('old', 90, 200), s('new', 80, 10), s('unknown', 70)], useStock: true, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['new', 'old']);
+  });
+
+  it('a much better old reel still beats a weak recent one', () => {
+    const out = chooseReels({ need: 1, fresh: [], stock: [s('old', 95, 200), s('new', 65, 10)], useStock: true, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['old']);
   });
 });
