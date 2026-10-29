@@ -1,4 +1,4 @@
-import { ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
+import { ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, entityOf, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
 
 const now = new Date('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
@@ -16,7 +16,7 @@ describe('fresh lane (videos from the last 30 days)', () => {
   });
 
   it('a video that is already mined out is pushed down; an analyzed one is ready sooner', () => {
-    const out = pickFresh([v('mined', { views: 50_000, usedMoments: 4 }), v('plain', { views: 40_000 }), v('ready', { views: 38_000, analyzed: true })], now, 3);
+    const out = pickFresh([v('mined', { views: 50_000, usedMoments: 4 }), v('plain', { views: 40_000 }), v('ready', { views: 38_000, analyzed: true, strongMoments: 6 })], now, 3);
     expect(out.map((x) => x.youtubeId)).toEqual(['ready', 'plain', 'mined']);
   });
 
@@ -82,5 +82,41 @@ describe('freshness bonus in the source search', () => {
     expect(freshnessBonus(daysAgo(31), now)).toBe(0);
     expect(freshnessBonus(null, now)).toBe(0);
     expect(freshnessBonus(undefined, now)).toBe(0);
+  });
+});
+
+describe('hit-video-first (Oct 28 audit)', () => {
+  const now = new Date('2026-10-28T12:00:00Z');
+  const daysAgo = (n: number) => new Date(now.getTime() - n * 86_400_000);
+  const hv = (id: string, over: Partial<LaneVideo> = {}): LaneVideo => ({ youtubeId: id, videoId: `db-${id}`, title: id, publishedAt: daysAgo(10), views: 10_000, durationSec: 1200, analyzed: true, strongMoments: 6, usedMoments: 0, ...over });
+
+  it('ranks by views per day, so a fast new hit beats a slower old video with more total views', () => {
+    const out = pickFresh([hv('slow', { publishedAt: daysAgo(28), views: 40_000 }), hv('fast', { publishedAt: daysAgo(6), views: 30_000 })], now, 2);
+    expect(out.map((x) => x.youtubeId)).toEqual(['fast', 'slow']);
+  });
+
+  it('the channel\'s own traffic for the person lifts a video, and little footage left pushes it down', () => {
+    const out = pickFresh([hv('plain', { views: 12_000 }), hv('wanted', { views: 10_000, demand: 0.24 }), hv('mined', { views: 30_000, strongMoments: 0 })], now, 3);
+    expect(out.map((x) => x.youtubeId)).toEqual(['wanted', 'plain', 'mined']);
+  });
+
+  it('never more than two of the three picks about the same person', () => {
+    const out = pickFresh([hv('d1', { views: 60_000, entity: 'diddy' }), hv('d2', { views: 50_000, entity: 'diddy' }), hv('d3', { views: 40_000, entity: 'diddy' }), hv('k', { views: 20_000, entity: 'keefe d' })], now, 3);
+    expect(out.map((x) => x.youtubeId)).toEqual(['d1', 'd2', 'k']);
+  });
+
+  it('finds the person a title is about (longest name wins) and ignores titles about nobody known', () => {
+    const ents = [{ key: 'diddy', names: ['diddy', 'sean combs'] }, { key: 'keefe d', names: ['keefe d', 'duane davis'] }];
+    expect(entityOf("Why Diddy's Prison Move Is More Than Just A Change of Location", ents)).toBe('diddy');
+    expect(entityOf('Prison intake: one guard', ents)).toBeNull();
+  });
+
+  it('videos waiting for analysis go most-watched first, within 30 days', () => {
+    const rows = [
+      { youtubeId: 'new-weak', durationSec: 1200, publishedAt: daysAgo(1), views: 300 },
+      { youtubeId: 'hit', durationSec: 1200, publishedAt: daysAgo(10), views: 16_000 },
+      { youtubeId: 'older', durationSec: 1200, publishedAt: daysAgo(40), views: 90_000 },
+    ];
+    expect(needsAnalysis(rows, new Set(), now)).toEqual(['hit', 'new-weak']);
   });
 });

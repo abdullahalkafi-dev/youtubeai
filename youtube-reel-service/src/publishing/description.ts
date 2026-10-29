@@ -40,3 +40,11 @@ export function buildEngagementComment(question: string | null | undefined): str
   if (!q) return null;
   return `${q}\n\nFull video is in the description.`;
 }
+
+/** The channel's name is not a subject: "Unique Mecca Audio: He asked for school" becomes "He asked for school" (a title is never cut to nothing). */
+export function stripBrandPrefix(title: string | null | undefined): string {
+  const t = String(title ?? '').trim();
+  const stripped = t.replace(/^(?:unique\s+mecca\s+audio(?:\s+nyc)?|uma)\s*[:\-–—|]\s*/i, '').trim();
+  if (!stripped) return t;
+  return stripped.charAt(0).toUpperCase() + stripped.slice(1);
+}

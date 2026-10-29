@@ -1,4 +1,4 @@
-import { buildEngagementComment, COMMENT_MAX_CHARS, fullVideoLine, withFullVideoLine } from './description';
+import { buildEngagementComment, stripBrandPrefix, COMMENT_MAX_CHARS, fullVideoLine, withFullVideoLine } from './description';
 
 describe('full video line', () => {
   it('names the full video and carries its link', () => {
@@ -43,5 +43,17 @@ describe('engagement comment', () => {
     expect(buildEngagementComment('   ')).toBeNull();
     expect(buildEngagementComment(undefined)).toBeNull();
     expect(buildEngagementComment('x'.repeat(2000))!.length).toBeLessThanOrEqual(COMMENT_MAX_CHARS);
+  });
+});
+
+describe('stripBrandPrefix', () => {
+  it('drops the channel name used as a topic', () => {
+    expect(stripBrandPrefix('Unique Mecca Audio: He asked for school after life without parole')).toBe('He asked for school after life without parole');
+    expect(stripBrandPrefix('Unique Mecca Audio - prison took his daughter’s childhood')).toBe('Prison took his daughter’s childhood');
+  });
+
+  it('leaves real titles alone and never empties one', () => {
+    expect(stripBrandPrefix('Diddy and isolation: Who are you without an audience?')).toBe('Diddy and isolation: Who are you without an audience?');
+    expect(stripBrandPrefix('Unique Mecca Audio:')).toBe('Unique Mecca Audio:');
   });
 });

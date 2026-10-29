@@ -127,10 +127,20 @@ export function freeSlots(input: { date: string; now: Date; slots: string[]; ext
   return out.sort();
 }
 
+/**
+ * How likely a reel is to be watched, used to rank reels (the Oct 28 audit found the critic's score had zero correlation with 24h views, r = 0.00
+ * over 36 posts, so it stays only as the quality gate and as a small part of this). Starting weights from that audit, to be refit as posts come in:
+ * naming a person or case (about 1,200 vs 800 first-day views), the channel's own traffic share for that person, and how fast the source video is growing.
+ * A reel with none of those inputs ranks by 0.35 x score, so the order of plain scores is unchanged.
+ */
+export function appeal(r: Pick<PlanReel, 'score' | 'named' | 'demand' | 'sourceVelocity'>): number {
+  return 0.35 * r.score + (r.named ? 20 : 0) + 80 * Math.min(0.3, r.demand ?? 0) + 3 * Math.log1p(Math.max(0, r.sourceVelocity ?? 0));
+}
+
 /** A stock reel cut from a video older than this many days ranks lower, so a leftover slot goes to a recent one first. */
 export const STALE_AFTER_DAYS = 21;
-export const STALE_PENALTY = 15;
-const stockRank = (r: { score: number; sourceAgeDays?: number }) => r.score - ((r.sourceAgeDays ?? 0) > STALE_AFTER_DAYS ? STALE_PENALTY : 0);
+export const STALE_PENALTY = 5;
+const stockRank = (r: PlanReel) => appeal(r) - ((r.sourceAgeDays ?? 0) > STALE_AFTER_DAYS ? STALE_PENALTY : 0);
 
 export interface PlanReel {
   id: string;
@@ -138,8 +148,14 @@ export interface PlanReel {
   /** People in the reel (slugs). */
   entities: string[];
   createdAt?: number;
-  /** Age in days of the video the reel was cut from (stock reels only; unknown = not penalised). */
+  /** Age in days of the video the reel was cut from (unknown = not penalised). */
   sourceAgeDays?: number;
+  /** The reel is about a named person or case (not the channel's own name). */
+  named?: boolean;
+  /** 0..1: the channel's own last-3-day traffic share for the person the reel is about. */
+  demand?: number;
+  /** Views per day of the source video since it went up. */
+  sourceVelocity?: number;
   /** The lane the reel came from (fresh, main, explore, bank, best); stock reels have none. */
   track?: string;
 }
@@ -163,7 +179,7 @@ export function chooseReels(input: {
 }): Array<PlanReel & { source: 'fresh' | 'stock' }> {
   const ignore = input.ignore ?? (() => false);
   const people = (r: { entities: string[] }) => [...new Set(r.entities.filter((e) => !ignore(e)))];
-  const byScore = (a: PlanReel, b: PlanReel) => b.score - a.score || (b.createdAt ?? 0) - (a.createdAt ?? 0);
+  const byScore = (a: PlanReel, b: PlanReel) => appeal(b) - appeal(a) || (b.createdAt ?? 0) - (a.createdAt ?? 0);
   const pool: Array<PlanReel & { source: 'fresh' | 'stock' }> = [
     ...[...input.fresh].sort(byScore).map((r) => ({ ...r, source: 'fresh' as const })),
     ...(input.useStock ? [...input.stock].sort((a, b) => stockRank(b) - stockRank(a) || byScore(a, b)).map((r) => ({ ...r, source: 'stock' as const })) : []),

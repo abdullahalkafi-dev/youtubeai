@@ -34,7 +34,24 @@ export interface AutoSettingsPatch {
   resume?: boolean;
 }
 
-const ageOf = (published: Date | undefined): number | undefined => (published ? (Date.now() - published.getTime()) / 86_400_000 : undefined);
+const isBrandName = (n: string) => /mecca|^unique$/i.test(n.trim());
+
+/** What the ranking needs about a reel: who it is about, how much of the channel's traffic that person has, and how its source video is doing. */
+export function appealInputs(
+  reel: { entityNames?: string[] },
+  source: { publishedAt: Date; views: number } | undefined,
+  shares: Map<string, number>,
+  now = Date.now(),
+): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays'> {
+  const people = (reel.entityNames ?? []).filter((n) => !isBrandName(n)).map((n) => n.toLowerCase());
+  const age = source ? (now - source.publishedAt.getTime()) / 86_400_000 : undefined;
+  return {
+    named: people.length > 0,
+    demand: Math.max(0, ...people.map((n) => shares.get(n) ?? 0)),
+    sourceVelocity: source && age !== undefined ? source.views / Math.max(3, age) : undefined,
+    sourceAgeDays: age,
+  };
+}
 
 /**
  * Auto-publish: after the day's reels are made, the good ones go to YouTube by themselves at New York times the system chooses
@@ -199,12 +216,22 @@ export class AutoPublishService {
     this.logger.warn(`Auto-publish paused for ${channelId}: ${reason} (${queued.length} waiting posts cancelled)`);
   }
 
-  /** publishedAt of the source videos (youtubeId -> date); uploads and unknown ids are simply missing. */
-  private async sourcePublished(ids: Array<string | undefined>): Promise<Map<string, Date>> {
+  /** When the source videos went up and how many views they have (youtubeId -> info); uploads and unknown ids are simply missing. */
+  private async sourceInfo(ids: Array<string | undefined>): Promise<Map<string, { publishedAt: Date; views: number }>> {
     const wanted = [...new Set(ids.filter((x): x is string => !!x && !x.startsWith('up_')))];
     if (!wanted.length) return new Map();
-    const docs = await this.videos.find({ youtubeId: { $in: wanted } }).select('youtubeId publishedAt').lean();
-    return new Map(docs.filter((d) => d.publishedAt).map((d) => [d.youtubeId, new Date(d.publishedAt as Date)]));
+    const docs = await this.videos.find({ youtubeId: { $in: wanted } }).select('youtubeId publishedAt viewCount').lean();
+    return new Map(docs.filter((d) => d.publishedAt).map((d) => [d.youtubeId, { publishedAt: new Date(d.publishedAt as Date), views: d.viewCount ?? 0 }]));
+  }
+
+  /** The channel's own last-3-day traffic share by person (lowercase name -> 0..1), from the latest signal snapshot. */
+  private async ownShares(channelId: Types.ObjectId): Promise<Map<string, number>> {
+    try {
+      const snap: any = await this.posts.db.collection('reel_signals').findOne({ channelId }, { sort: { date: -1 }, projection: { 'own.byEntity': 1 } });
+      return new Map<string, number>((snap?.own?.byEntity ?? []).map((e: any) => [String(e.key).toLowerCase(), Number(e.share3d) || 0]));
+    } catch {
+      return new Map();
+    }
   }
 
   // ------------------------------------------------------------------ planning
@@ -270,18 +297,19 @@ export class AutoPublishService {
       const held: Array<{ reelId: Types.ObjectId; title: string; reason: string }> = [...(existing?.held ?? [])];
       const heldIds = new Set(held.map((h) => String(h.reelId)));
 
+      const shares = await this.ownShares(cid);
       const candidates = async (filter: Record<string, unknown>, limit: number, source: 'fresh' | 'stock', want: number) => {
         const rows = await this.reels
           .find({ channelId: cid, status: 'todo', _id: { $nin: [...plannedIds].map((x) => new Types.ObjectId(x)) }, ...filter })
-          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs createdAt clips.youtubeId')
+          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs entityNames createdAt clips.youtubeId')
           .sort({ 'scores.overall': -1, createdAt: -1 })
           .limit(limit)
           .lean();
         const good: Array<PlanReel & { title: string; campaignId: Types.ObjectId }> = [];
-        // how old the source video of each stock reel is, so old stock does not take the leftover slots first
-        const published = source === 'stock' ? await this.sourcePublished(rows.map((r) => r.clips?.[0]?.youtubeId)) : new Map<string, Date>();
+        // what ranks a reel: the age and speed of its source video and the channel's own traffic for the person it is about (see appeal)
+        const info = await this.sourceInfo(rows.map((r) => r.clips?.[0]?.youtubeId));
         for (const r of rows) {
-          if (good.length >= want) break;
+          if (good.length >= Math.max(want * 3, 12)) break; // a wider pool than the slots, so the ranking (not the critic's order) picks
           const title = r.packaging?.title || r.concept || 'Reel';
           const pre = await this.publish.preflight(channelId, String(r._id), 'youtube', { privacy: s.privacy, scheduleAt: null }).catch((e) => ({ canPublish: false, issues: [{ level: 'error', message: errMsg(e) }] }));
           const errors = (pre.issues as Array<{ level: string; message: string }>).filter((i) => i.level === 'error').map((i) => i.message);
@@ -293,7 +321,7 @@ export class AutoPublishService {
             }
             continue;
           }
-          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, sourceAgeDays: ageOf(published.get(r.clips?.[0]?.youtubeId ?? '')) });
+          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares) });
         }
         return good;
       };

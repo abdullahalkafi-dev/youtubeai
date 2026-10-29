@@ -27,7 +27,7 @@ import { QueueService } from '../queue/queue.service';
 import { assemble, Assembled, AssembleRules, Material } from './assembly';
 import { EntityService } from './entity.service';
 import { formatLine } from './transcript';
-import { fullVideoLine, withFullVideoLine } from '../publishing/description';
+import { fullVideoLine, stripBrandPrefix, withFullVideoLine } from '../publishing/description';
 
 interface Candidate {
   ref: string;
@@ -362,7 +362,7 @@ export class ComposerService {
         critique: { verdict: c.review!.verdict, issues: c.review!.issues, revised: c.revised },
         packaging: {
           headline: pack?.headline || truncate(c.plan.concept, 34),
-          title: pack?.title || truncate(c.plan.concept, 70),
+          title: stripBrandPrefix(pack?.title) || truncate(c.plan.concept, 70),
           altTitles: pack?.altTitles ?? [],
           description: withFullVideoLine((pack?.description || c.plan.concept).trim(), fullVideoLine(main.material.title, link)),
           tags: normaliseTags(pack?.tags ?? []),

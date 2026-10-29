@@ -13,8 +13,9 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
-import { bankBrief, FRESH_LANE_REELS, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
+import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
+import { SignalsService } from './signals.service';
 
 const UPLOAD_CHECK_EVERY_MS = 45 * 60_000;
 const MAX_KICKS_PER_CHECK = 3;
@@ -38,6 +39,7 @@ export class LanesService {
     @InjectModel(ReelSetting.name) private readonly settings: Model<ReelSettingDocument>,
     private readonly runner: CampaignRunnerService,
     private readonly queues: QueueService,
+    private readonly signals: SignalsService,
   ) {}
 
   /** The channel's public long videos with what we know about their analysis and footage. */
@@ -61,17 +63,31 @@ export class LanesService {
       },
     ]);
     const byYt = new Map(stats.map((s) => [s._id, s]));
-    return rows.map((d) => ({
-      youtubeId: d.youtubeId,
-      videoId: String(d._id),
-      title: d.title ?? '',
-      publishedAt: d.publishedAt ? new Date(d.publishedAt) : null,
-      views: d.viewCount ?? 0,
-      durationSec: d.durationSeconds || parseIsoDuration(d.duration),
-      analyzed: ready.has(d.youtubeId),
-      strongMoments: byYt.get(d.youtubeId)?.strong ?? 0,
-      usedMoments: byYt.get(d.youtubeId)?.used ?? 0,
-    }));
+    // who each video is about, and how much of the channel's own last-3-day traffic that person has (demand the reels should follow)
+    let entities: Array<{ key: string; names: string[] }> = [];
+    const share = new Map<string, number>();
+    try {
+      entities = await this.signals.entityKeys(channelId);
+      for (const e of (await this.signals.latest(channelId))?.own?.byEntity ?? []) share.set(e.key, e.share3d);
+    } catch (err) {
+      this.logger.warn(`Demand signals unavailable for the lanes: ${errMsg(err)}`);
+    }
+    return rows.map((d) => {
+      const entity = entityOf(d.title ?? '', entities);
+      return {
+        youtubeId: d.youtubeId,
+        videoId: String(d._id),
+        title: d.title ?? '',
+        publishedAt: d.publishedAt ? new Date(d.publishedAt) : null,
+        views: d.viewCount ?? 0,
+        durationSec: d.durationSeconds || parseIsoDuration(d.duration),
+        analyzed: ready.has(d.youtubeId),
+        strongMoments: byYt.get(d.youtubeId)?.strong ?? 0,
+        usedMoments: byYt.get(d.youtubeId)?.used ?? 0,
+        entity,
+        demand: entity ? share.get(entity) ?? 0 : 0,
+      };
+    });
   }
 
   /**
@@ -115,7 +131,7 @@ export class LanesService {
     return made;
   }
 
-  /** New uploads become reel material the same day: anything published in the last 14 days that is not downloaded yet is queued. */
+  /** Videos become reel material: anything published in the last 30 days that is not downloaded yet is queued, the most-watched first. */
   async analyzeNewUploads(force = false): Promise<number> {
     if (!this.cfg.REELS_ENABLED) return 0;
     if (freeDiskGb(this.cfg.REEL_WORK_DIR) < this.cfg.REEL_MIN_FREE_DISK_GB) return 0;

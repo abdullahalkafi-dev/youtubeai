@@ -16,6 +16,9 @@ FOR EACH REEL
   ("Lil Durk Denied Bond Again - 26 Years in the Feds Told Me Why"), never "he", "she", "this" or a lesson with no incident
   ("Everything Changes"). Reported facts only ("charged", "denied", "arrested"); never state guilt. Put the incident first, the take after it.
   Sentence case or Title Case (not ALL CAPS). No fake quotes. At most one emoji, usually none.
+  Never start a title with the channel's name ("Unique Mecca Audio: ...") or use it as the subject: the subject is the real person, case or
+  situation. Work like an editor: draft five different titles for each reel in your head (name + fact, a first-person line, a question, a
+  verdict, a number), choose the one a stranger would most want to tap, and make the next two best the altTitles.
 - altTitles: 2 alternative titles with a different hook style (question / bold claim / insider verdict).
 - description: exactly 3 short lines in plain text. Line 1 re-hooks the story with the name and the fact. Line 2 adds the lesson/context in the
   host's voice (first person is fine: "I did 26 years in the feds..." only if consistent with what he says). Line 3 is the question people

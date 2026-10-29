@@ -1,4 +1,5 @@
-import { chooseReels, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, freeSlots, lockAt, nyToUtc, PlanReel } from './auto-plan';
+import { appeal, chooseReels, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, freeSlots, lockAt, nyToUtc, PlanReel } from './auto-plan';
+import { appealInputs } from './auto-publish.service';
 
 describe('free slots (the day can be filled again and again)', () => {
   const date = '2026-10-26';
@@ -113,5 +114,30 @@ describe('stock reels from old videos', () => {
   it('a much better old reel still beats a weak recent one', () => {
     const out = chooseReels({ need: 1, fresh: [], stock: [s('old', 95, 200), s('new', 65, 10)], useStock: true, plannedEntities: [] });
     expect(out.map((x) => x.id)).toEqual(['old']);
+  });
+});
+
+describe('ranking by appeal, not by the critic score alone', () => {
+  const r = (id: string, score: number, extra: Partial<PlanReel> = {}): PlanReel => ({ id, score, entities: [], createdAt: 0, ...extra });
+
+  it('a reel that names a person whose videos are being watched beats a higher-scored generic reel', () => {
+    const named = r('named', 74, { named: true, demand: 0.24, sourceVelocity: 3000 });
+    const generic = r('generic', 92, { named: false, demand: 0, sourceVelocity: 400 });
+    expect(appeal(named)).toBeGreaterThan(appeal(generic));
+    const out = chooseReels({ need: 1, fresh: [generic, named], stock: [], useStock: false, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['named']);
+  });
+
+  it('without those inputs the order is the order of the plain scores', () => {
+    const out = chooseReels({ need: 3, fresh: [r('a', 70), r('b', 90), r('c', 80)], stock: [], useStock: false, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('appealInputs finds the person, ignores the channel name, and measures the source video speed', () => {
+    const shares = new Map([['diddy', 0.24]]);
+    const now = Date.parse('2026-10-29T12:00:00Z');
+    const got = appealInputs({ entityNames: ['Unique Mecca Audio', 'Diddy'] }, { publishedAt: new Date(now - 10 * 86_400_000), views: 50_000 }, shares, now);
+    expect(got).toMatchObject({ named: true, demand: 0.24, sourceVelocity: 5000 });
+    expect(appealInputs({ entityNames: ['Unique Mecca Audio'] }, undefined, shares, now)).toMatchObject({ named: false, demand: 0 });
   });
 });
