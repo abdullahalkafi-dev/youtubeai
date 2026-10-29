@@ -22,7 +22,8 @@ FOR EACH REEL
 - altTitles: 2 alternative titles with a different hook style (question / bold claim / insider verdict).
 - description: exactly 3 short lines in plain text. Line 1 re-hooks the story with the name and the fact. Line 2 adds the lesson/context in the
   host's voice (first person is fine: "I did 26 years in the feds..." only if consistent with what he says). Line 3 is the question people
-  should answer in the comments. Do NOT write a link or a "full video" line: the system puts the full video's title and link above your lines.
+  should answer in the comments. Write as the host in first person ("my daughter", "when I went in"), never about "Unique Mecca Audio" in the third
+  person (that is the channel's name, not a person). Do NOT write a link or a "full video" line: the system puts the full video's title and link above your lines.
   No hashtags inside the description.
 - tags: 12-20 lowercase search tags: person/case names with common variations and misspellings, topic phrases people search,
   prison/legal terms, plus "unique mecca audio" and "unique mecca audio nyc".
