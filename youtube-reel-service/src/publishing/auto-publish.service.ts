@@ -12,7 +12,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
-import { assignRotation, AutoSettings, chooseReels, DEFAULT_AUTO_SETTINGS, evaluateGuardrails, freeSlots, gateReason, lockAt, nyToUtc, parseSlot, PlanReel, validSlot } from './auto-plan';
+import { assignRotation, AutoSettings, autoBaseline, chooseReels, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, LEGACY_VIEWS_PAUSE, lockAt, nyToUtc, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
@@ -65,7 +65,7 @@ export class AutoPublishService {
   async settings(channelId: string): Promise<AutoSettings> {
     const doc = await this.settingsModel.findOne({ key: key(channelId) }).lean();
     const v = (doc?.value ?? {}) as Partial<AutoSettings>;
-    return { ...DEFAULT_AUTO_SETTINGS, ...v, pausedAt: v.pausedAt ? new Date(v.pausedAt) : null };
+    return { ...DEFAULT_AUTO_SETTINGS, ...v, pausedAt: v.pausedAt ? new Date(v.pausedAt) : null, slowUntil: v.slowUntil ? new Date(v.slowUntil) : null };
   }
 
   async update(channelId: string, patch: AutoSettingsPatch): Promise<AutoSettings> {
@@ -114,14 +114,16 @@ export class AutoPublishService {
     }
   }
 
-  /** Typical views of the channel's own Shorts (the baseline the stop rule compares against). */
+  /**
+   * What "normal" is for the reels themselves: the median views of our own automatic posts from 3 to 17 days ago. (It used to be the median
+   * of every Short on the channel in 540 days, which our hand-picked first reels had pushed to about 1,950, so a normal week looked like a collapse.)
+   */
   async shortsBaseline(channelId: string): Promise<number | null> {
-    const since = new Date(Date.now() - 540 * 86_400_000);
-    const rows = await this.videos
-      .find({ channelId: new Types.ObjectId(channelId), deletedFromYoutube: { $ne: true }, durationSeconds: { $lte: 61 }, publishedAt: { $gte: since } })
-      .select('viewCount')
+    const rows = await this.posts
+      .find({ channelId: new Types.ObjectId(channelId), source: 'auto', status: 'published', publishedAt: { $gte: new Date(Date.now() - 18 * 86_400_000) } })
+      .select('publishedAt latestMetrics.views')
       .lean();
-    return rows.length >= 8 ? median(rows.map((r: any) => r.viewCount ?? 0)) : null;
+    return autoBaseline(rows.map((p) => ({ publishedAt: p.publishedAt ? new Date(p.publishedAt) : null, views: p.latestMetrics?.views ?? null })));
   }
 
   /** Each settled automatic post with its views after about a day (the 24h snapshot, else the latest numbers once it is over 36 hours old). */
@@ -154,20 +156,39 @@ export class AutoPublishService {
   /** Stops auto-publish (and cancels what has not started uploading) when YouTube flags something or the results collapse. */
   async guard(channelId: string) {
     const s = await this.settings(channelId);
-    if (!s.enabled || s.pausedReason) return null;
+    // A pause an older version wrote for views alone is judged again with the current rules; any other pause stays until the client resumes.
+    const legacyViewsPause = !!s.pausedReason && LEGACY_VIEWS_PAUSE.test(s.pausedReason);
+    if (!s.enabled || (s.pausedReason && !legacyViewsPause)) return null;
     const cid = new Types.ObjectId(channelId);
     const recent = await this.posts
       .find({ channelId: cid, source: 'auto', createdAt: { $gte: new Date(Date.now() - 10 * 86_400_000) } })
       .sort({ createdAt: -1 })
       .select('status publishedAt latestMetrics.views warnings errorCode')
       .lean();
-    const reason = evaluateGuardrails(
-      recent.map((p) => ({ status: p.status, publishedAt: p.publishedAt ? new Date(p.publishedAt) : null, views: p.latestMetrics?.views ?? null, warnings: p.warnings ?? [], errorCode: p.errorCode })),
-      await this.shortsBaseline(channelId),
-    );
-    if (!reason) return null;
-    await this.pause(channelId, reason);
-    return reason;
+    const guardPosts = recent.map((p) => ({ status: p.status, publishedAt: p.publishedAt ? new Date(p.publishedAt) : null, views: p.latestMetrics?.views ?? null, warnings: p.warnings ?? [], errorCode: p.errorCode }));
+    const trouble = platformTrouble(guardPosts);
+    if (trouble) {
+      if (!s.pausedReason) await this.pause(channelId, trouble);
+      return trouble;
+    }
+    const slowing = !!s.slowUntil && s.slowUntil.getTime() > Date.now();
+    const collapse = slowing && !legacyViewsPause ? null : viewsCollapse(guardPosts, await this.shortsBaseline(channelId));
+    const next = { ...s } as AutoSettings;
+    let changed = false;
+    if (legacyViewsPause) {
+      next.pausedReason = null;
+      next.pausedAt = null;
+      changed = true;
+      this.logger.log(`Auto-publish for ${channelId}: the old views-only pause is lifted (it is judged by the new rules now)`);
+    }
+    if (collapse) {
+      next.slowUntil = new Date(Date.now() + SLOW_DAYS * 86_400_000);
+      next.slowReason = `Slowed down to ${SLOW_POSTS} posts a day for ${SLOW_DAYS} days: ${collapse}`;
+      changed = true;
+      this.logger.warn(`Auto-publish for ${channelId}: ${next.slowReason}`);
+    }
+    if (changed) await this.settingsModel.updateOne({ key: key(channelId) }, { $set: { value: { ...next, updatedAt: new Date() } } }, { upsert: true });
+    return collapse;
   }
 
   async pause(channelId: string, reason: string) {
@@ -207,7 +228,8 @@ export class AutoPublishService {
     // Cheap exit first: no empty slot left today means nothing to do.
     const existing = await this.days.findOne({ channelId: cid, date }).lean();
     const taken = (existing?.items ?? []).map((i) => i.slot);
-    const empty = freeSlots({ date, now, slots: s.slots, extraSlots: s.extraSlots, taken, spacingMin: s.spacingMin });
+    const slowed = !!s.slowUntil && s.slowUntil.getTime() > now.getTime();
+    const empty = freeSlots({ date, now, slots: slowed ? slowSlots(s.slots) : s.slots, extraSlots: slowed ? [] : s.extraSlots, taken, spacingMin: s.spacingMin });
     if (!empty.length) return { status: 'already-planned' as const };
 
     const run = await this.runs.findOne({ channelId: cid, date, status: 'started' }).lean();
@@ -370,7 +392,7 @@ export class AutoPublishService {
       held: (d.held ?? []).map((h) => ({ reelId: String(h.reelId), title: h.title, reason: h.reason })),
     });
     return {
-      settings: { enabled: s.enabled, privacy: s.privacy, slots: s.slots, extraSlots: s.extraSlots, minScore: s.minScore, maxPerDay: s.maxPerDay, pausedReason: s.pausedReason, pausedAt: s.pausedAt },
+      settings: { enabled: s.enabled, privacy: s.privacy, slots: s.slots, extraSlots: s.extraSlots, minScore: s.minScore, maxPerDay: s.maxPerDay, pausedReason: s.pausedReason, pausedAt: s.pausedAt, slowUntil: s.slowUntil ?? null, slowReason: s.slowReason ?? null },
       timezone: 'America/New_York',
       shortsBaseline: baseline ? Math.round(baseline) : null,
       slotReport: await this.slotReport(channelId),

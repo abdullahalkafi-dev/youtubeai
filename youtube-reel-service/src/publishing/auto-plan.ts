@@ -25,6 +25,9 @@ export interface AutoSettings {
   /** Set when the system stopped itself (or the client paused it). */
   pausedReason: string | null;
   pausedAt: Date | null;
+  /** Posting is slowed to SLOW_POSTS a day until this time (a views slump, not a YouTube problem). */
+  slowUntil?: Date | null;
+  slowReason?: string | null;
 }
 
 export const DEFAULT_AUTO_SETTINGS: AutoSettings = {
@@ -260,19 +263,54 @@ const PLATFORM_TROUBLE = /set this video to private|youtube set it to|rejected|c
  * earned under 30% of the channel's usual Shorts views. Returns the reason, or null to carry on.
  */
 export function evaluateGuardrails(posts: GuardPost[], shortsMedian: number | null, now = new Date()): string | null {
+  const trouble = platformTrouble(posts);
+  if (trouble) return trouble;
+  const collapse = viewsCollapse(posts, shortsMedian, now);
+  return collapse ? `Stopped by itself: ${collapse} Look at what changed, then resume.` : null;
+}
+
+/** A real problem on YouTube's side (flag, rejection, copyright claim, removal): the only thing that hard-stops posting. */
+export function platformTrouble(posts: GuardPost[]): string | null {
   const trouble = posts.find((p) => p.errorCode === 'rejected' || p.status === 'removed' || p.warnings.some((w) => PLATFORM_TROUBLE.test(w)));
-  if (trouble) {
-    const why = trouble.warnings.find((w) => PLATFORM_TROUBLE.test(w)) ?? (trouble.status === 'removed' ? 'a video was removed' : 'YouTube rejected a video');
-    return `Stopped by itself: YouTube flagged an automatic post (${why}). Check YouTube Studio, then resume.`;
-  }
-  if (shortsMedian && shortsMedian > 0) {
-    const settled = posts
-      .filter((p) => p.status === 'published' && p.publishedAt && now.getTime() - p.publishedAt.getTime() >= 24 * 3600_000 && p.views !== null)
-      .sort((a, b) => b.publishedAt!.getTime() - a.publishedAt!.getTime())
-      .slice(0, 3);
-    if (settled.length === 3 && settled.every((p) => (p.views ?? 0) < 0.3 * shortsMedian)) {
-      return `Stopped by itself: the last 3 automatic posts each earned under 30% of your usual Shorts views (about ${Math.round(shortsMedian)}). Look at what changed, then resume.`;
-    }
+  if (!trouble) return null;
+  const why = trouble.warnings.find((w) => PLATFORM_TROUBLE.test(w)) ?? (trouble.status === 'removed' ? 'a video was removed' : 'YouTube rejected a video');
+  return `Stopped by itself: YouTube flagged an automatic post (${why}). Check YouTube Studio, then resume.`;
+}
+
+/** The last three settled automatic posts each earned under 30% of the baseline (null = fine, or not enough to judge). */
+export function viewsCollapse(posts: GuardPost[], baseline: number | null, now = new Date()): string | null {
+  if (!baseline || baseline <= 0) return null;
+  const settled = posts
+    .filter((p) => p.status === 'published' && p.publishedAt && now.getTime() - p.publishedAt.getTime() >= 24 * 3600_000 && p.views !== null)
+    .sort((a, b) => b.publishedAt!.getTime() - a.publishedAt!.getTime())
+    .slice(0, 3);
+  if (settled.length === 3 && settled.every((p) => (p.views ?? 0) < 0.3 * baseline)) {
+    return `the last 3 automatic posts each earned under 30% of your usual Shorts views (about ${Math.round(baseline)}).`;
   }
   return null;
+}
+
+/** A views slump does not stop the channel: it slows to this many posts a day for SLOW_DAYS, then is judged again. */
+export const SLOW_POSTS = 3;
+export const SLOW_DAYS = 3;
+/** The text an older version of the guard wrote when it paused on views alone (such a pause is re-judged with the new rules). */
+export const LEGACY_VIEWS_PAUSE = /earned under 30% of your usual Shorts views/i;
+
+/** The slots used while slowed down: every other one, so mornings and evenings both stay (08:00, 20:00, 22:00 of five). */
+export function slowSlots(slots: string[]): string[] {
+  const sorted = [...slots].filter(validSlot).sort();
+  return sorted.filter((_, i) => i % 2 === 0).slice(0, SLOW_POSTS);
+}
+
+/** The median views of the channel's own automatic posts from 3 to 17 days ago: what "normal" means for the reels themselves (null under 8 posts). */
+export function autoBaseline(posts: Array<{ publishedAt: Date | null; views: number | null }>, now = new Date()): number | null {
+  const from = now.getTime() - 17 * 86_400_000;
+  const to = now.getTime() - 3 * 86_400_000;
+  const v = posts
+    .filter((p) => p.publishedAt && p.views !== null && p.publishedAt.getTime() >= from && p.publishedAt.getTime() <= to)
+    .map((p) => p.views as number)
+    .sort((a, b) => a - b);
+  if (v.length < 8) return null;
+  const mid = Math.floor(v.length / 2);
+  return v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2;
 }

@@ -1,4 +1,4 @@
-import { assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, evaluateGuardrails, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
+import { assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, autoBaseline, evaluateGuardrails, LEGACY_VIEWS_PAUSE, platformTrouble, slowSlots, viewsCollapse, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
 
 describe('New York slot times', () => {
   it('converts wall-clock time to UTC with daylight saving', () => {
@@ -125,5 +125,38 @@ describe('guardrails (when it stops by itself)', () => {
     expect(evaluateGuardrails([post(5, 10, { warnings: ['YouTube set this video to PRIVATE although another visibility was requested. This can happen for API projects that have not passed the Google API audit — check the video in YouTube Studio.'] })], 2700, now)).toMatch(/flagged/);
     expect(evaluateGuardrails([post(5, 10, { status: 'failed', errorCode: 'rejected' })], 2700, now)).toMatch(/flagged/);
     expect(evaluateGuardrails([post(5, 10, { status: 'removed' })], 2700, now)).toMatch(/removed/);
+  });
+});
+
+describe('guard: a views slump slows posting, only YouTube trouble stops it', () => {
+  const now = new Date('2026-10-30T12:00:00Z');
+  const post = (hoursAgo: number, views: number | null) => ({ status: 'published', publishedAt: new Date(now.getTime() - hoursAgo * 3600_000), views, warnings: [] as string[] });
+
+  it('a slump is reported by viewsCollapse, not as a platform problem', () => {
+    const posts = [post(30, 100), post(40, 120), post(50, 90)];
+    expect(viewsCollapse(posts, 1000, now)).toMatch(/last 3 automatic posts/);
+    expect(platformTrouble(posts)).toBeNull();
+  });
+
+  it('platformTrouble catches the flags that must hard-stop', () => {
+    expect(platformTrouble([{ ...post(5, 10), status: 'removed' }])).toMatch(/removed/);
+  });
+
+  it('the old views-only pause text is recognised so it can be lifted', () => {
+    expect(LEGACY_VIEWS_PAUSE.test('Stopped by itself: the last 3 automatic posts each earned under 30% of your usual Shorts views (about 1954). Look at what changed, then resume.')).toBe(true);
+    expect(LEGACY_VIEWS_PAUSE.test('Stopped by itself: YouTube flagged an automatic post (rejected). Check YouTube Studio, then resume.')).toBe(false);
+  });
+
+  it('slowSlots keeps a morning and two evening slots out of five', () => {
+    expect(slowSlots(['08:00', '09:00', '20:00', '21:00', '22:00'])).toEqual(['08:00', '20:00', '22:00']);
+    expect(slowSlots(['09:00', '21:00'])).toEqual(['09:00']);
+  });
+
+  it('the baseline is the median of automatic posts from 3 to 17 days ago, and needs 8 of them', () => {
+    const at = (daysAgo: number, views: number) => ({ publishedAt: new Date(now.getTime() - daysAgo * 86_400_000), views });
+    const old = [4, 5, 6, 7, 8, 9, 10, 11].map((d, i) => at(d, (i + 1) * 100)); // 100..800, median 450
+    expect(autoBaseline(old, now)).toBe(450);
+    expect(autoBaseline([...old, at(1, 5), at(20, 99999)], now)).toBe(450); // too new / too old are ignored
+    expect(autoBaseline(old.slice(0, 7), now)).toBeNull();
   });
 });
