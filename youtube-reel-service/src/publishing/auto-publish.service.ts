@@ -138,9 +138,12 @@ export class AutoPublishService {
   async shortsBaseline(channelId: string): Promise<number | null> {
     const rows = await this.posts
       .find({ channelId: new Types.ObjectId(channelId), source: 'auto', status: 'published', publishedAt: { $gte: new Date(Date.now() - 18 * 86_400_000) } })
-      .select('publishedAt latestMetrics.views')
+      .select('publishedAt')
       .lean();
-    return autoBaseline(rows.map((p) => ({ publishedAt: p.publishedAt ? new Date(p.publishedAt) : null, views: p.latestMetrics?.views ?? null })));
+    // views after about a day for every post, so a week-old post is not measured by a week of views against a new post's first day
+    const snaps = await this.metrics.find({ postId: { $in: rows.map((p) => p._id) }, checkpoint: '24h' }).select('postId views').lean();
+    const at24 = new Map(snaps.map((s) => [String(s.postId), s.views]));
+    return autoBaseline(rows.map((p) => ({ publishedAt: p.publishedAt ? new Date(p.publishedAt) : null, views: at24.get(String(p._id)) ?? null })));
   }
 
   /** Each settled automatic post with its views after about a day (the 24h snapshot, else the latest numbers once it is over 36 hours old). */
