@@ -8,7 +8,7 @@ const lv = (id: string, over: Partial<LaneVideo> = {}): LaneVideo => ({
   youtubeId: id, videoId: `db-${id}`, title: `Video ${id}`, publishedAt: new Date(Date.now() - 3 * 86_400_000), views: 10_000, durationSec: 1200, analyzed: false, strongMoments: 0, usedMoments: 0, ...over,
 });
 
-function make(opts: { catalog: LaneVideo[]; stock: number; existing?: boolean; sources?: string[] }) {
+function make(opts: { catalog: LaneVideo[]; stock: number; existing?: boolean; sources?: string[]; empty?: string[] }) {
   const created: any[] = [];
   const svc: any = Object.create(LanesService.prototype);
   svc.logger = { log: jest.fn(), warn: jest.fn() };
@@ -23,9 +23,9 @@ function make(opts: { catalog: LaneVideo[]; stock: number; existing?: boolean; s
     distinct: jest.fn(async () => [oid()]),
   };
   svc.reels = { countDocuments: jest.fn(async () => opts.stock) };
-  svc.sources = { find: () => ({ select: () => ({ lean: async () => (opts.sources ?? []).map((youtubeId) => ({ youtubeId })) }) }) };
+  svc.sources = { find: () => ({ select: () => ({ lean: async () => (opts.sources ?? []).map((youtubeId) => ({ youtubeId })), limit: () => ({ lean: async () => (opts.empty ?? []).map((youtubeId) => ({ youtubeId, title: 'T ' + youtubeId })) }) }) }), updateOne: jest.fn() };
   svc.settings = { findOne: () => ({ lean: async () => null }), updateOne: jest.fn() };
-  svc.queues = { campaign: jest.fn() };
+  svc.queues = { campaign: jest.fn(), analyze: jest.fn() };
   svc.runner = { kickSource: jest.fn() };
   return { svc, created };
 }
@@ -60,11 +60,18 @@ describe('footage-first lanes of the day', () => {
     expect(await none.svc.createForDay(channel, '2026-10-26', oid())).toEqual([]);
   });
 
-  it('queues analysis for new uploads nobody has downloaded, at most three at a time', async () => {
+  it('queues analysis for new uploads nobody has downloaded, at most four at a time', async () => {
     const cat = ['a', 'b', 'c', 'd', 'e'].map((id, i) => lv(id, { publishedAt: new Date(Date.now() - (i + 1) * 86_400_000) }));
     const { svc } = make({ catalog: cat, stock: 0, sources: ['b'] });
-    expect(await svc.analyzeNewUploads(true)).toBe(3);
-    expect(svc.runner.kickSource.mock.calls.map((c: any[]) => c[0].youtubeId)).toEqual(['a', 'c', 'd']);
+    expect(await svc.analyzeNewUploads(true)).toBe(4);
+    expect(svc.runner.kickSource.mock.calls.map((c: any[]) => c[0].youtubeId)).toEqual(['a', 'c', 'd', 'e']);
+  });
+
+  it('mines a video that gave no moments one more time', async () => {
+    const { svc } = make({ catalog: [], stock: 0, empty: ['wack'] });
+    expect(await svc.analyzeNewUploads(true)).toBe(1);
+    expect(svc.sources.updateOne).toHaveBeenCalledWith({ youtubeId: 'wack' }, { $set: { minedVersion: null, remined: true } });
+    expect(svc.queues.analyze).toHaveBeenCalledWith('wack');
   });
 
   it('a campaign for a lane needs no web research', () => {

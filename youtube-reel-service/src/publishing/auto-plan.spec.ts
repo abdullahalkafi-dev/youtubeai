@@ -1,4 +1,4 @@
-import { assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, autoBaseline, evaluateGuardrails, LEGACY_VIEWS_PAUSE, platformTrouble, slowSlots, viewsCollapse, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
+import { appeal, chooseReels, concreteness, PlanReel, assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, autoBaseline, evaluateGuardrails, LEGACY_VIEWS_PAUSE, platformTrouble, slowSlots, viewsCollapse, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
 
 describe('New York slot times', () => {
   it('converts wall-clock time to UTC with daylight saving', () => {
@@ -158,5 +158,39 @@ describe('guard: a views slump slows posting, only YouTube trouble stops it', ()
     expect(autoBaseline(old, now)).toBe(450);
     expect(autoBaseline([...old, at(1, 5), at(20, 99999)], now)).toBe(450); // too new / too old are ignored
     expect(autoBaseline(old.slice(0, 7), now)).toBeNull();
+  });
+});
+
+describe('concrete stories and varied sources (Oct 30 audit)', () => {
+  it('scores a concrete incident above an abstract lesson', () => {
+    expect(concreteness('Prison deprivation: I washed my clothes in a toilet')).toBeGreaterThanOrEqual(0.7);
+    expect(concreteness('Brooklyn Bounty says he saw a killing in his first hour in prison')).toBeGreaterThanOrEqual(0.4);
+    expect(concreteness('Public disrespect: How an audience turns pride into a prison risk')).toBe(0);
+    expect(concreteness('Diddy discussion: Defending a name isnt always loyalty')).toBe(0);
+    expect(concreteness('')).toBe(0);
+    expect(concreteness('33 arrived. Only three remained a week later')).toBeGreaterThan(0);
+  });
+
+  it('ranks the concrete reel higher and a repeated source lower, and changes nothing without the new inputs', () => {
+    const base = { score: 70 };
+    expect(appeal({ ...base, concrete: 1 })).toBeGreaterThan(appeal({ ...base, concrete: 0 }));
+    expect(appeal({ ...base, recentSourceUses: 2 })).toBeLessThan(appeal({ ...base, recentSourceUses: 0 }));
+    expect(appeal(base)).toBeCloseTo(0.35 * 70, 6);
+  });
+
+  const reel = (id: string, score: number, sourceIds: string[], entities: string[] = []): PlanReel => ({ id, score, entities, sourceIds, track: 'fresh' });
+
+  it('takes one reel per source video when the day can be filled that way', () => {
+    const fresh = [reel('a1', 90, ['A']), reel('a2', 88, ['A']), reel('b1', 70, ['B']), reel('c1', 60, ['C'])];
+    const ids = chooseReels({ need: 3, fresh, stock: [], useStock: false, plannedEntities: [], mix: [] }).map((r) => r.id);
+    expect(ids).toEqual(['a1', 'b1', 'c1']);
+  });
+
+  it('allows a second reel from one source only to fill the day, and counts the sources already planned', () => {
+    const fresh = [reel('a1', 90, ['A']), reel('a2', 88, ['A'])];
+    expect(chooseReels({ need: 2, fresh, stock: [], useStock: false, plannedEntities: [], mix: [] }).map((r) => r.id)).toEqual(['a1', 'a2']);
+    expect(chooseReels({ need: 1, fresh, stock: [], useStock: false, plannedEntities: [], plannedSources: [['A']], mix: [] })).toHaveLength(1);
+    const fresh2 = [reel('a1', 90, ['A']), reel('b1', 50, ['B'])];
+    expect(chooseReels({ need: 1, fresh: fresh2, stock: [], useStock: false, plannedEntities: [], plannedSources: [['A']], mix: [] }).map((r) => r.id)).toEqual(['b1']);
   });
 });

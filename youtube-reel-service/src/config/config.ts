@@ -66,6 +66,8 @@ const EnvSchema = z.object({
   REEL_ANALYZE_CONCURRENCY: int(2),
   REEL_CAMPAIGN_CONCURRENCY: int(2),
   REEL_MAX_REELS_PER_CAMPAIGN: int(10),
+  /** The daily run's second "explore" topic (off: the day is the main topic plus the new-video lane). */
+  REEL_EXPLORE_ENABLED: bool(false),
   REEL_MAX_SOURCES_PER_CAMPAIGN: int(10),
   REEL_TOKEN_BUDGET: int(3_000_000),
   REEL_RANGE_COOLDOWN_DAYS: int(120),

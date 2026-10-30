@@ -45,6 +45,8 @@ export class ReelSource {
   @Prop({ default: false }) transcriptReady: boolean;
   @Prop() minedVersion?: string;
   @Prop({ default: 0 }) momentCount: number;
+  /** A video mined to zero moments is mined once more (then left alone). */
+  @Prop({ default: false }) remined: boolean;
 
   @Prop({ default: 0 }) attempts: number;
   @Prop() error?: string;

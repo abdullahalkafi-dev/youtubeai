@@ -1,4 +1,4 @@
-import { ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, entityOf, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
+import { isSourceable, ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, entityOf, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
 
 const now = new Date('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
@@ -118,5 +118,16 @@ describe('hit-video-first (Oct 28 audit)', () => {
       { youtubeId: 'older', durationSec: 1200, publishedAt: daysAgo(40), views: 90_000 },
     ];
     expect(needsAnalysis(rows, new Set(), now)).toEqual(['hit', 'new-weak']);
+  });
+});
+
+describe('stale "upcoming" flag (Oct 30 audit)', () => {
+  it('a premiere that already aired and has views is usable; a live one and an unwatched upcoming one are not', () => {
+    expect(isSourceable({ liveBroadcastContent: 'upcoming', viewCount: 15_788, publishedAt: daysAgo(11) }, now)).toBe(true);
+    expect(isSourceable({ liveBroadcastContent: 'upcoming', viewCount: 0, publishedAt: daysAgo(1) }, now)).toBe(false);
+    expect(isSourceable({ liveBroadcastContent: 'upcoming', viewCount: 5_000, publishedAt: new Date(now.getTime() + 3_600_000) }, now)).toBe(false);
+    expect(isSourceable({ liveBroadcastContent: 'live', viewCount: 5_000, publishedAt: daysAgo(0) }, now)).toBe(false);
+    expect(isSourceable({ liveBroadcastContent: 'none', viewCount: 10, publishedAt: daysAgo(1) }, now)).toBe(true);
+    expect(isSourceable({}, now)).toBe(true);
   });
 });

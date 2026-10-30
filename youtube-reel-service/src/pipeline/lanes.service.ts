@@ -13,12 +13,14 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
-import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
+import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
 import { SignalsService } from './signals.service';
 
 const UPLOAD_CHECK_EVERY_MS = 45 * 60_000;
-const MAX_KICKS_PER_CHECK = 3;
+const MAX_KICKS_PER_CHECK = 4;
+/** Videos mined to nothing get this many more passes (the miner is not deterministic: a 17-minute video with 4,800 views once gave zero moments). */
+const MAX_REMINES_PER_CHECK = 2;
 
 /**
  * The footage-first lanes of the daily run: reels from videos uploaded in the last 30 days ("fresh") and from the best of the older
@@ -48,7 +50,8 @@ export class LanesService {
       .find({ channelId, privacyStatus: 'public', deletedAt: null, deletedFromYoutube: { $ne: true } })
       .select('youtubeId title publishedAt viewCount duration durationSeconds liveBroadcastContent')
       .lean();
-    const rows = docs.filter((d) => d.youtubeId && d.liveBroadcastContent !== 'live' && d.liveBroadcastContent !== 'upcoming');
+    const now = new Date();
+    const rows = docs.filter((d) => d.youtubeId && isSourceable(d, now));
     const ready = new Set(
       (await this.sources.find({ stage: 'ready', minedVersion: MINING_VERSION, youtubeId: { $in: rows.map((r) => r.youtubeId) } }).select('youtubeId').lean()).map((s) => s.youtubeId),
     );
@@ -151,6 +154,13 @@ export class LanesService {
           await this.runner.kickSource({ youtubeId: v.youtubeId, videoId: v.videoId, title: v.title }, id);
           kicked++;
           this.logger.log(`New upload "${truncate(v.title, 70)}" queued for analysis`);
+        }
+        const empty = await this.sources.find({ channelId: id, kind: 'youtube', stage: 'ready', momentCount: 0, remined: { $ne: true } }).select('youtubeId title').limit(MAX_REMINES_PER_CHECK).lean();
+        for (const e of empty) {
+          await this.sources.updateOne({ youtubeId: e.youtubeId }, { $set: { minedVersion: null, remined: true } });
+          await this.queues.analyze(e.youtubeId);
+          kicked++;
+          this.logger.log(`"${truncate(e.title ?? e.youtubeId, 70)}" gave no reel moments: mining it once more`);
         }
       } catch (err) {
         this.logger.warn(`New-upload check for channel ${id} failed: ${errMsg(err)}`);

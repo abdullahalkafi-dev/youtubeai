@@ -133,8 +133,41 @@ export function freeSlots(input: { date: string; now: Date; slots: string[]; ext
  * naming a person or case (about 1,200 vs 800 first-day views), the channel's own traffic share for that person, and how fast the source video is growing.
  * A reel with none of those inputs ranks by 0.35 x score, so the order of plain scores is unchanged.
  */
-export function appeal(r: Pick<PlanReel, 'score' | 'named' | 'demand' | 'sourceVelocity'>): number {
-  return 0.35 * r.score + (r.named ? 20 : 0) + 80 * Math.min(0.3, r.demand ?? 0) + 3 * Math.log1p(Math.max(0, r.sourceVelocity ?? 0));
+export function appeal(r: Pick<PlanReel, 'score' | 'named' | 'demand' | 'sourceVelocity' | 'concrete' | 'recentSourceUses'>): number {
+  return (
+    0.35 * r.score +
+    (r.named ? 20 : 0) +
+    80 * Math.min(0.3, r.demand ?? 0) +
+    3 * Math.log1p(Math.max(0, r.sourceVelocity ?? 0)) +
+    CONCRETE_WEIGHT * (r.concrete ?? 0) -
+    REPEAT_PENALTY * Math.min(2, r.recentSourceUses ?? 0)
+  );
+}
+
+/** Up to this many points for a reel about a concrete event (the Oct 30 audit: the 1,500-1,700 view reels were incidents, the 150-300 ones abstract lessons). */
+export const CONCRETE_WEIGHT = 15;
+/** Points off per recent post cut from the same source video (the feed should not show the same picture again and again). */
+export const REPEAT_PENALTY = 8;
+
+const FIRST_PERSON = /\b(i|i'm|i've|i'd|i'll|my|me|we|our)\b/i;
+const EVENT_WORDS =
+  /\b(kill(?:ed|ing)?|murder(?:ed)?|stab(?:bed|bing)?|shot|shooting|fight|fought|arrest(?:ed)?|charged|denied|sentence[ds]?|hospital|escape[ds]?|riot|lockdown|cell|isolation|solitary|strip[- ]?search(?:ed)?|toilet|handcuff(?:ed|s)?|guard|testif(?:y|ied)|snitch(?:ed)?|informant|bail|bond|trial|verdict|plea)\b/i;
+const ABSTRACT_WORDS = /\b(lesson|mindset|mentality|psycholog\w*|accountability|identity|perception|reputation trap|illusion|journey|reflection|discussion|analysis|thoughts? on)\b/i;
+
+/**
+ * 0..1: how concrete the story behind a reel's title and opening line is. A number, a first-person account and a real event add; an
+ * abstract frame ("lesson", "mindset", "discussion") subtracts. A rough text check, not a judgement of the story: it only orders
+ * reels that are otherwise close.
+ */
+export function concreteness(text: string | null | undefined): number {
+  const t = String(text ?? '');
+  if (!t.trim()) return 0;
+  let s = 0;
+  if (/\d/.test(t)) s += 0.25;
+  if (FIRST_PERSON.test(t)) s += 0.35;
+  if (EVENT_WORDS.test(t)) s += 0.4;
+  if (ABSTRACT_WORDS.test(t)) s -= 0.4;
+  return Math.max(0, Math.min(1, s));
 }
 
 /** A stock reel cut from a video older than this many days ranks lower, so a leftover slot goes to a recent one first. */
@@ -158,6 +191,12 @@ export interface PlanReel {
   sourceVelocity?: number;
   /** The lane the reel came from (fresh, main, explore, bank, best); stock reels have none. */
   track?: string;
+  /** 0..1: how concrete the reel's story is (see concreteness). */
+  concrete?: number;
+  /** The YouTube videos the reel was cut from. */
+  sourceIds?: string[];
+  /** How many recent posts (last 3 days) were cut from the same source videos. */
+  recentSourceUses?: number;
 }
 
 /**
@@ -176,6 +215,10 @@ export function chooseReels(input: {
   /** Lanes already used today (their reels count against the mix). */
   plannedTracks?: string[];
   mix?: Array<[string, number]>;
+  /** Source videos of the reels already planned today. */
+  plannedSources?: string[][];
+  /** Reels from one source video per day: 1 first, 2 only when that is the only way to fill the day. */
+  maxPerSource?: number;
 }): Array<PlanReel & { source: 'fresh' | 'stock' }> {
   const ignore = input.ignore ?? (() => false);
   const people = (r: { entities: string[] }) => [...new Set(r.entities.filter((e) => !ignore(e)))];
@@ -188,10 +231,15 @@ export function chooseReels(input: {
   const count = new Map<string, number>();
   for (const e of input.plannedEntities.flatMap((x) => [...new Set(x.filter((y) => !ignore(y)))])) count.set(e, (count.get(e) ?? 0) + 1);
   const base = input.maxPerPerson ?? MAX_PER_PERSON;
-  const allowed = (r: PlanReel, cap: number) => !people(r).some((e) => (count.get(e) ?? 0) >= cap);
+  const srcCount = new Map<string, number>();
+  const sources = (r: PlanReel) => [...new Set(r.sourceIds ?? [])];
+  for (const s of (input.plannedSources ?? []).flatMap((x) => [...new Set(x)])) srcCount.set(s, (srcCount.get(s) ?? 0) + 1);
+  const srcBase = input.maxPerSource ?? 1;
+  const allowed = (r: PlanReel, cap: number, srcCap = srcBase) => !people(r).some((e) => (count.get(e) ?? 0) >= cap) && !sources(r).some((s) => (srcCount.get(s) ?? 0) >= srcCap);
   const take = (r: PlanReel & { source: 'fresh' | 'stock' }) => {
     picked.push(r);
     for (const e of people(r)) count.set(e, (count.get(e) ?? 0) + 1);
+    for (const s of sources(r)) srcCount.set(s, (srcCount.get(s) ?? 0) + 1);
   };
   // The mix first: the best reels of each lane up to its share (counting lanes already planned today).
   const usedTracks = new Map<string, number>();
@@ -204,11 +252,12 @@ export function chooseReels(input: {
       usedTracks.set(lane, (usedTracks.get(lane) ?? 0) + 1);
     }
   }
-  for (const cap of [base, base + 1]) {
+  // Fill the rest: one reel per source video and the person cap first, then two per source, then one more per person.
+  for (const [cap, srcCap] of [[base, srcBase], [base, srcBase + 1], [base + 1, srcBase + 1]] as Array<[number, number]>) {
     for (const r of pool) {
       if (picked.length >= input.need) break;
       if (picked.includes(r)) continue;
-      if (!allowed(r, cap)) continue;
+      if (!allowed(r, cap, srcCap)) continue;
       take(r);
     }
   }

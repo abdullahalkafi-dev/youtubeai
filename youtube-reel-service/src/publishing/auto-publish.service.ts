@@ -12,7 +12,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
-import { assignRotation, AutoSettings, autoBaseline, chooseReels, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, LEGACY_VIEWS_PAUSE, lockAt, nyToUtc, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
+import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, LEGACY_VIEWS_PAUSE, lockAt, nyToUtc, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
@@ -38,18 +38,23 @@ const isBrandName = (n: string) => /mecca|^unique$/i.test(n.trim());
 
 /** What the ranking needs about a reel: who it is about, how much of the channel's traffic that person has, and how its source video is doing. */
 export function appealInputs(
-  reel: { entityNames?: string[] },
+  reel: { entityNames?: string[]; packaging?: { title?: string }; hookText?: string; clips?: Array<{ youtubeId?: string }> },
   source: { publishedAt: Date; views: number } | undefined,
   shares: Map<string, number>,
   now = Date.now(),
-): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays'> {
+  recentUses: Map<string, number> = new Map(),
+): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays' | 'concrete' | 'sourceIds' | 'recentSourceUses'> {
   const people = (reel.entityNames ?? []).filter((n) => !isBrandName(n)).map((n) => n.toLowerCase());
   const age = source ? (now - source.publishedAt.getTime()) / 86_400_000 : undefined;
+  const sourceIds = [...new Set((reel.clips ?? []).map((c) => c.youtubeId).filter((x): x is string => !!x))];
   return {
     named: people.length > 0,
     demand: Math.max(0, ...people.map((n) => shares.get(n) ?? 0)),
     sourceVelocity: source && age !== undefined ? source.views / Math.max(3, age) : undefined,
     sourceAgeDays: age,
+    concrete: concreteness(`${reel.packaging?.title ?? ''}. ${reel.hookText ?? ''}`),
+    sourceIds,
+    recentSourceUses: Math.max(0, ...sourceIds.map((id) => recentUses.get(id) ?? 0)),
   };
 }
 
@@ -227,6 +232,16 @@ export class AutoPublishService {
     return new Map(docs.filter((d) => d.publishedAt).map((d) => [d.youtubeId, { publishedAt: new Date(d.publishedAt as Date), views: d.viewCount ?? 0 }]));
   }
 
+  /** How many of the last 3 days' posts (not cancelled) were cut from each source video (youtubeId -> count). */
+  private async recentSourceUses(channelId: Types.ObjectId, now: Date): Promise<Map<string, number>> {
+    const since = new Date(now.getTime() - 3 * 86_400_000);
+    const posts = await this.posts.find({ channelId, platform: 'youtube', createdAt: { $gte: since }, status: { $nin: ['cancelled', 'failed'] } }).select('reelId').lean();
+    const reels = posts.length ? await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('clips.youtubeId').lean() : [];
+    const out = new Map<string, number>();
+    for (const r of reels) for (const id of new Set((r.clips ?? []).map((c) => c.youtubeId).filter(Boolean))) out.set(id as string, (out.get(id as string) ?? 0) + 1);
+    return out;
+  }
+
   /** The channel's own last-3-day traffic share by person (lowercase name -> 0..1), from the latest signal snapshot. */
   private async ownShares(channelId: Types.ObjectId): Promise<Map<string, number>> {
     try {
@@ -296,15 +311,16 @@ export class AutoPublishService {
     try {
       const trackOf = new Map(camps.map((c) => [String(c._id), (c.track ?? 'main') as ReelTrack]));
       const plannedIds = new Set((existing?.items ?? []).map((i) => String(i.reelId)));
-      const plannedReels = plannedIds.size ? await this.reels.find({ _id: { $in: [...plannedIds].map((x) => new Types.ObjectId(x)) } }).select('entitySlugs').lean() : [];
+      const plannedReels = plannedIds.size ? await this.reels.find({ _id: { $in: [...plannedIds].map((x) => new Types.ObjectId(x)) } }).select('entitySlugs clips.youtubeId').lean() : [];
       const held: Array<{ reelId: Types.ObjectId; title: string; reason: string }> = [...(existing?.held ?? [])];
       const heldIds = new Set(held.map((h) => String(h.reelId)));
 
       const shares = await this.ownShares(cid);
+      const recentUses = await this.recentSourceUses(cid, now);
       const candidates = async (filter: Record<string, unknown>, limit: number, source: 'fresh' | 'stock', want: number) => {
         const rows = await this.reels
           .find({ channelId: cid, status: 'todo', _id: { $nin: [...plannedIds].map((x) => new Types.ObjectId(x)) }, ...filter })
-          .select('campaignId scores.overall critique.verdict packaging.title concept entitySlugs entityNames createdAt clips.youtubeId')
+          .select('campaignId scores.overall critique.verdict packaging.title concept hookText entitySlugs entityNames createdAt clips.youtubeId')
           .sort({ 'scores.overall': -1, createdAt: -1 })
           .limit(limit)
           .lean();
@@ -324,7 +340,7 @@ export class AutoPublishService {
             }
             continue;
           }
-          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares) });
+          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares, Date.now(), recentUses) });
         }
         return good;
       };
@@ -333,7 +349,7 @@ export class AutoPublishService {
       // The stock is only used after the lock, and only for as many slots as are still empty after today's own reels.
       const stock = !beforeLock && fresh.length < empty.length ? await candidates({ campaignId: { $nin: ids } }, 60, 'stock', empty.length * 2) : [];
       const brandSlug = (slug: string) => /mecca|^unique$/.test(slug);
-      const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), plannedTracks: (existing?.items ?? []).map((i) => i.track), ignore: brandSlug });
+      const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), plannedSources: plannedReels.map((r) => (r.clips ?? []).map((c) => c.youtubeId).filter((x): x is string => !!x)), plannedTracks: (existing?.items ?? []).map((i) => i.track), ignore: brandSlug });
 
       if (!picks.length) {
         if (!existing?.items?.length) {

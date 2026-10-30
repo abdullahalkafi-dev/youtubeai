@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { renderChannelProfile } from './channel-profile';
 
-export const PACKAGING_VERSION = 'packaging-v2';
+export const PACKAGING_VERSION = 'packaging-v3';
 
 export const PACKAGING_SYSTEM = `You are the channel's YouTube Shorts packaging specialist. The cuts are final; you write everything around them.
 Packaging must sell exactly what the reel delivers — curiosity yes, lies never.
@@ -11,7 +11,11 @@ ${renderChannelProfile()}
 FOR EACH REEL
 - headline: the on-screen text that sits ABOVE the video for the whole reel. It frames the story so second one makes sense.
   3-7 words, max 34 characters, punchy, no emojis, no hashtags. Name the person/case when that's the draw. Don't just repeat the hook.
-- title: YouTube Shorts title, max 70 characters. Formula: NAME + WHAT HAPPENED (the plain fact, in the words people search), then the host's take.
+- title: YouTube Shorts title, max 70 characters. This channel's own best Shorts are named "Person or case: the one specific thing behind it"
+  ("Tory Lanez: The Prison Money Trap Behind the Stabbing" 80k views, "Making a Jail Call: The 300-Minute Phone Trap" 44k, "Diddy: The Bail Trap Nobody Talks About" 15k).
+  Use that shape: the NAME or EVENT first, a colon, then one concrete hook (a number, an object, a named thing) in plain words. Never use "discussion",
+  "analysis", "thoughts on" or an abstract lesson as the title ("How an audience turns pride into a prison risk" earned 162 first-day views; "I washed my
+  clothes in a toilet" earned 1,690). Formula: NAME + WHAT HAPPENED (the plain fact, in the words people search), then the host's take.
   A stranger who knows nothing must understand what the story is from the title alone: use the real name, place or number from the reel
   ("Lil Durk Denied Bond Again - 26 Years in the Feds Told Me Why"), never "he", "she", "this" or a lesson with no incident
   ("Everything Changes"). Reported facts only ("charged", "denied", "arrested"); never state guilt. Put the incident first, the take after it.

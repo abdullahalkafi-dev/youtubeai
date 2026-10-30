@@ -124,6 +124,16 @@ export function bankBrief(videos: LaneVideo[]): string {
   );
 }
 
+/**
+ * Can the video be used as reel material? A scheduled premiere or live that already aired keeps liveBroadcastContent "upcoming" in the
+ * sync (a 15,788-view video sat out for 11 days that way), so "upcoming" only excludes a video nobody has watched yet.
+ */
+export function isSourceable(v: { liveBroadcastContent?: string; viewCount?: number; publishedAt?: Date | string | null }, now: Date): boolean {
+  if (v.liveBroadcastContent === 'live') return false;
+  if (v.liveBroadcastContent === 'upcoming') return (v.viewCount ?? 0) >= 100 && !!v.publishedAt && new Date(v.publishedAt).getTime() <= now.getTime();
+  return true;
+}
+
 /** Which new uploads still need analysis: published recently, long enough, and not yet downloaded or in progress. */
 export function needsAnalysis(videos: Array<{ youtubeId: string; durationSec: number; publishedAt: Date | null; views?: number }>, known: Set<string>, now: Date, days = FRESH_DAYS): string[] {
   const speed = (v: { views?: number; publishedAt: Date | null }) => (v.views ?? 0) / Math.max(3, ageDays(v, now));

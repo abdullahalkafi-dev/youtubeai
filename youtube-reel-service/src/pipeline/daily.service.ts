@@ -136,9 +136,11 @@ export class DailyService {
       const decision = await this.decide(cid, date);
       if (!decision.main) return skip('Not enough matching footage for any topic today', { candidates: decision.candidates, degraded: decision.degraded });
       // The topic lanes are capped (the footage-first lanes below add to them): about three reels on the main topic and two on a second one.
-      const { main, explore } = decision;
-      const mainReels = Math.min(decision.mainReels, MAIN_TOPIC_REELS);
-      const exploreReels = Math.min(decision.exploreReels, EXPLORE_TOPIC_REELS);
+      // The second ("explore") topic is off unless switched on: it failed 7 of 10 runs and its reels averaged the fewest views (Oct 30 audit).
+      const { main } = decision;
+      const explore = this.cfg.REEL_EXPLORE_ENABLED ? decision.explore : null;
+      const mainReels = explore ? Math.min(decision.mainReels, MAIN_TOPIC_REELS) : MAIN_TOPIC_REELS;
+      const exploreReels = explore ? Math.min(decision.exploreReels, EXPLORE_TOPIC_REELS) : 0;
       const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
       const make = (t: ScoredCandidate, reels: number, track: 'main' | 'explore', parent?: Types.ObjectId) =>

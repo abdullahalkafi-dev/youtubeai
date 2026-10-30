@@ -26,6 +26,15 @@ import { classifyYouTubeError, YouTubeUploader } from './youtube-uploader';
 
 const VIDEOS_URL = 'https://www.googleapis.com/youtube/v3/videos';
 
+/**
+ * Share of the video people watched (0-100): watch minutes over views x length. The daily stats carry watch minutes but no retention column,
+ * so this is the "% watched" signal (the Oct 30 audit: 1,931-view reels kept 47-51%, the 230-290 view ones 28-33%). Undefined without data.
+ */
+export function watchedPct(watchMinutes: number, views: number, durationSec: number | undefined): number | undefined {
+  if (!(watchMinutes > 0) || !(views > 0) || !durationSec || durationSec <= 0) return undefined;
+  return Math.round(Math.min(100, ((watchMinutes * 60) / (views * durationSec)) * 100) * 10) / 10;
+}
+
 const REJECTION_TEXT: Record<string, string> = {
   claim: 'YouTube rejected it: a copyright claim.',
   copyright: 'YouTube rejected it for copyright.',
@@ -270,7 +279,7 @@ export class YouTubePublisher implements Publisher, OnModuleInit {
     if (!input.externalIds.length) return out;
     const vids = await this.videos
       .find({ youtubeId: { $in: input.externalIds }, channelId: new Types.ObjectId(input.channelId) })
-      .select('youtubeId viewCount likeCount commentCount deletedFromYoutube lastSyncedAt')
+      .select('youtubeId viewCount likeCount commentCount deletedFromYoutube lastSyncedAt durationSeconds')
       .lean();
     if (!vids.length) return out;
     const rows = await this.daily.find({ videoId: { $in: vids.map((v) => v._id) } }).lean();
@@ -294,7 +303,7 @@ export class YouTubePublisher implements Publisher, OnModuleInit {
         likes: v.likeCount,
         comments: v.commentCount,
         watchMinutes: days.length ? Math.round(days.reduce((n, d) => n + (d.watchMinutes ?? 0), 0) * 10) / 10 : undefined,
-        avgViewPct: retention !== undefined ? Math.round(retention * 10) / 10 : undefined,
+        avgViewPct: retention !== undefined ? Math.round(retention * 10) / 10 : watchedPct(days.reduce((n, d) => n + (d.watchMinutes ?? 0), 0), dailyViews, v.durationSeconds),
         subscribersGained: days.length ? days.reduce((n, d) => n + (d.subsGained ?? 0), 0) : undefined,
         provisional: !days.length || days.some((d) => d.date >= recent),
         source: 'main-app-sync',
