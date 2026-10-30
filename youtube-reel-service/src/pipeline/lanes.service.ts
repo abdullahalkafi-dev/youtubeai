@@ -157,7 +157,7 @@ export class LanesService {
         }
         const empty = await this.sources.find({ channelId: id, kind: 'youtube', stage: 'ready', momentCount: 0, remined: { $ne: true } }).select('youtubeId title').limit(MAX_REMINES_PER_CHECK).lean();
         for (const e of empty) {
-          await this.sources.updateOne({ youtubeId: e.youtubeId }, { $set: { minedVersion: null, remined: true } });
+          await this.sources.updateOne({ youtubeId: e.youtubeId }, { $set: { minedVersion: null, transcriptReady: false, remined: true } });
           await this.queues.analyze(e.youtubeId);
           kicked++;
           this.logger.log(`"${truncate(e.title ?? e.youtubeId, 70)}" gave no reel moments: mining it once more`);

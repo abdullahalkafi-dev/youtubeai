@@ -70,7 +70,7 @@ describe('footage-first lanes of the day', () => {
   it('mines a video that gave no moments one more time', async () => {
     const { svc } = make({ catalog: [], stock: 0, empty: ['wack'] });
     expect(await svc.analyzeNewUploads(true)).toBe(1);
-    expect(svc.sources.updateOne).toHaveBeenCalledWith({ youtubeId: 'wack' }, { $set: { minedVersion: null, remined: true } });
+    expect(svc.sources.updateOne).toHaveBeenCalledWith({ youtubeId: 'wack' }, { $set: { minedVersion: null, transcriptReady: false, remined: true } });
     expect(svc.queues.analyze).toHaveBeenCalledWith('wack');
   });
 

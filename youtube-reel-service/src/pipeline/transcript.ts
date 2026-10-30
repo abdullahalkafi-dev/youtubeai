@@ -155,3 +155,18 @@ export function assertTranscriptExtent(lines: TLine[], audioDurationSec: number,
     if (lines[i].s + 0.5 < lines[i - 1].s) throw new Error(`transcript lines are out of order at line ${i}`);
   }
 }
+
+/**
+ * Whisper can loop on its own prompt (the video's title) and write the same line over the whole video: one 17-minute video came back as
+ * 53 copies of its title, so nothing could be mined from it. True when one line makes up a large share of the transcript, or the
+ * transcript is far too thin for the audio's length.
+ */
+export function transcriptLooping(lines: TLine[], durationSec?: number): boolean {
+  if (!lines.length) return false;
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 30);
+  const counts = new Map<string, number>();
+  for (const l of lines) counts.set(norm(l.t), (counts.get(norm(l.t)) ?? 0) + 1);
+  const top = Math.max(...counts.values());
+  if (top >= 6 && top / lines.length >= 0.15) return true;
+  return !!durationSec && durationSec >= 300 && lines.length / (durationSec / 60) < 3;
+}

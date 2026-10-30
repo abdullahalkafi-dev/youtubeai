@@ -9,7 +9,7 @@ import { FatalJobError } from '../common/errors';
 import { AiService, WhisperResult } from '../ai/ai.service';
 import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
 import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
-import { ReelTranscript, ReelTranscriptDocument, TLine } from '../db/schemas/reel-transcript.schema';
+import { ReelTranscript, ReelTranscriptDocument, TLine, TWord } from '../db/schemas/reel-transcript.schema';
 import { ReelMoment, ReelMomentDocument } from '../db/schemas/reel-moment.schema';
 import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { buildMiningUser, MINING_SYSTEM, MINING_VERSION, MiningSchema } from '../prompts/mining.prompt';
@@ -19,7 +19,7 @@ import { QueueService } from '../queue/queue.service';
 import { overlapSec, parseIsoDuration } from '../common/text';
 import { EntityService } from './entity.service';
 import { jobDir, probeMedia, removeDir } from './media';
-import { assertChunkDurations, assertTranscriptExtent, buildTranscript, chunkOffsets, formatLines } from './transcript';
+import { assertChunkDurations, assertTranscriptExtent, buildTranscript, chunkOffsets, formatLines, transcriptLooping } from './transcript';
 
 const LOCK_STALE_MS = 3 * 60 * 60_000;
 const CHUNK_SEC = 1200; // 20 min per speech-to-text request (well under the 25 MB API limit at 32 kbps)
@@ -218,14 +218,21 @@ export class AnalyzerService {
       }
       const offsets = chunkOffsets(durations);
 
-      const prompt = `Unique Mecca Audio. ${title}.`;
-      const chunks: Array<{ offset: number; result: WhisperResult }> = [];
-      for (let i = 0; i < parts.length; i++) {
-        const result = await this.ai.transcribe(parts[i], prompt, usage);
-        chunks.push({ offset: offsets[i], result });
+      // The title as a hint helps with names, but Whisper can loop on it; then it is tried again with a shorter hint, then with none.
+      let chunks: Array<{ offset: number; result: WhisperResult }> = [];
+      let built = { lines: [] as TLine[], words: [] as TWord[] };
+      for (const prompt of [`Unique Mecca Audio. ${title}.`, 'Unique Mecca Audio.', '']) {
+        chunks = [];
+        for (let i = 0; i < parts.length; i++) {
+          const result = await this.ai.transcribe(parts[i], prompt, usage);
+          chunks.push({ offset: offsets[i], result });
+        }
+        built = buildTranscript(chunks);
+        if (!transcriptLooping(built.lines, meta.duration)) break;
+        this.logger.warn(`Speech-to-text repeated itself for ${youtubeId} (${built.lines.length} lines); trying again with ${prompt ? 'a shorter hint' : 'no hint'}`);
       }
-
-      const { lines, words } = buildTranscript(chunks);
+      if (transcriptLooping(built.lines, meta.duration)) throw new FatalJobError('Speech-to-text keeps repeating itself, so there is no usable transcript');
+      const { lines, words } = built;
       if (lines.length < 10) throw new FatalJobError(`Speech-to-text returned too little speech (${lines.length} lines)`);
       try {
         assertTranscriptExtent(lines, meta.duration);

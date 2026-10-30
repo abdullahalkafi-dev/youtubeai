@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { toStrictJsonSchema } from '../ai/json-schema';
-import { buildTranscript } from './transcript';
+import { buildTranscript, transcriptLooping } from './transcript';
 import { assemble, Material, resolveClipTimes } from './assembly';
 import { assColor, buildAss, buildSrt, chunkWords, layoutHeadline } from './captions';
 import { parseTemplate } from './template';
@@ -194,5 +194,22 @@ describe('chunk timing guards', () => {
     const lines = [{ s: 0, e: 5, t: 'a', w0: 0, w1: 0 }, { s: 5000, e: 5010, t: 'b', w0: 1, w1: 1 }];
     expect(() => assertTranscriptExtent(lines, 3000)).toThrow(/corrupt/);
     expect(() => assertTranscriptExtent(lines, 5012)).not.toThrow();
+  });
+});
+
+describe('transcriptLooping (Whisper repeating its prompt)', () => {
+  const line = (i: number, t: string) => ({ s: i * 10, e: i * 10 + 9, t, w0: i, w1: i });
+  it('flags a transcript that is the video title over and over', () => {
+    const lines = Array.from({ length: 53 }, (_, i) => line(i, i % 2 ? 'Wack 100 Praises Diddy Prison Reputation - But What Does Gangster Really Cost?' : 'Wack 100 Praises Diddy Prison Reputation - But What Does Gangster?'));
+    expect(transcriptLooping(lines, 1011)).toBe(true);
+  });
+  it('flags a transcript far too thin for the audio length', () => {
+    const lines = Array.from({ length: 20 }, (_, i) => line(i, `Sentence number ${i} about something different`));
+    expect(transcriptLooping(lines, 1800)).toBe(true);
+  });
+  it('accepts a normal transcript, including a few repeated phrases', () => {
+    const lines = Array.from({ length: 200 }, (_, i) => line(i, i % 40 === 0 ? 'You know what I mean.' : `Distinct sentence ${i} with its own words`));
+    expect(transcriptLooping(lines, 1200)).toBe(false);
+    expect(transcriptLooping([], 1200)).toBe(false);
   });
 });
