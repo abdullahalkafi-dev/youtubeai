@@ -10,6 +10,13 @@ export const DEFAULT_SLOTS = ['08:00', '09:00', '20:00', '21:00', '22:00'];
 export const DEFAULT_EXTRA_SLOTS: string[] = [];
 /** A slot must be at least this far in the future when the plan is made (time to cancel or move it). */
 export const MIN_LEAD_MIN = 20;
+/**
+ * A post goes out at a random time within this many minutes either side of its slot (8:00 is anywhere from 7:30 to 8:30, 9:00 from 8:30 to 9:30),
+ * so the channel does not post on the dot every day. The slot stays the label the slot tests and the client see.
+ */
+export const JITTER_MIN = 30;
+/** Two posts are never closer than this, whatever the dice say. */
+export const MIN_GAP_MIN = 12;
 /** The upload starts this long before the slot so the video is public at the slot time. */
 export const UPLOAD_LEAD_MS = 2 * 60_000;
 
@@ -95,7 +102,7 @@ export function nyToUtc(date: string, hhmm: string): Date {
 export function pickSlots(input: { date: string; now: Date; count: number; slots: string[]; extraSlots: string[]; spacingMin: number; leadMin?: number }): string[] {
   const earliest = input.now.getTime() + (input.leadMin ?? MIN_LEAD_MIN) * 60_000;
   const usable = [...new Set([...input.slots, ...input.extraSlots])].filter(validSlot);
-  const isFuture = (s: string) => nyToUtc(input.date, s).getTime() >= earliest;
+  const isFuture = (s: string) => nyToUtc(input.date, s).getTime() + JITTER_MIN * 60_000 >= earliest;
   const chosen: string[] = [];
   const farEnough = (s: string) => chosen.every((c) => Math.abs(nyToUtc(input.date, s).getTime() - nyToUtc(input.date, c).getTime()) >= input.spacingMin * 60_000);
   // base slots are preferred over extras whatever their time
@@ -104,6 +111,31 @@ export function pickSlots(input: { date: string; now: Date; count: number; slots
     if (usable.includes(s) && isFuture(s) && !chosen.includes(s) && farEnough(s)) chosen.push(s);
   }
   return chosen.sort();
+}
+
+/**
+ * The moment a post in `slot` goes out: a random time within JITTER_MIN either side of the slot, never earlier than `earliest` and never within
+ * MIN_GAP_MIN of another post (`others`, epoch ms). Reproducible from `seed`, so a day's plan can be replayed.
+ */
+export function jitterRunAt(input: { date: string; slot: string; seed: string; earliest: number; others: number[] }): Date {
+  const centre = nyToUtc(input.date, input.slot).getTime();
+  const lo = Math.max(centre - JITTER_MIN * 60_000, input.earliest);
+  const hi = Math.max(centre + JITTER_MIN * 60_000, lo);
+  const rnd = seededRandom(input.seed);
+  const gap = MIN_GAP_MIN * 60_000;
+  const clearance = (t: number) => Math.min(Infinity, ...input.others.map((o) => Math.abs(o - t)));
+  let best = lo;
+  let bestClear = -1;
+  for (let i = 0; i < 40; i++) {
+    const t = Math.round((lo + rnd() * (hi - lo)) / 1000) * 1000; // random to the second
+    const c = clearance(t);
+    if (c >= gap) return new Date(t);
+    if (c > bestClear) {
+      best = t;
+      bestClear = c;
+    }
+  }
+  return new Date(best); // a crowded window: the candidate farthest from every other post
 }
 
 /** From this New York time the day is locked: whatever is still empty is filled from the stock of finished reels. */
@@ -121,7 +153,7 @@ export function freeSlots(input: { date: string; now: Date; slots: string[]; ext
   const near = new Set(input.taken.filter(validSlot));
   const out: string[] = [];
   for (const s of [...new Set([...input.slots.filter(validSlot).sort(), ...input.extraSlots.filter(validSlot).sort()])]) {
-    if (near.has(s) || at(s) < earliest) continue;
+    if (near.has(s) || at(s) + JITTER_MIN * 60_000 < earliest) continue;
     if ([...near, ...out].every((c) => Math.abs(at(s) - at(c)) >= input.spacingMin * 60_000)) out.push(s);
   }
   return out.sort();

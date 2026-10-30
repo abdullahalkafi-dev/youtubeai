@@ -118,6 +118,15 @@ describe('auto-publish fills the day', () => {
     expect(diddy).toHaveLength(2);
     // every post got its own slot, all in the future
     expect(new Set(created.map((c) => c.slot)).size).toBe(5);
+    // each post goes out at a random time within 30 minutes either side of its slot, at least 12 minutes after the previous one
+    const now = nyToUtc(date, '07:30').getTime();
+    const times = created.map((c) => ({ slot: c.slot as string, t: new Date(c.runAt).getTime() })).sort((x, y) => x.t - y.t);
+    for (const { slot, t } of times) {
+      expect(Math.abs(t - nyToUtc(date, slot).getTime())).toBeLessThanOrEqual(30 * 60_000);
+      expect(t).toBeGreaterThanOrEqual(now + 20 * 60_000);
+    }
+    for (let i = 1; i < times.length; i++) expect(times[i].t - times[i - 1].t).toBeGreaterThanOrEqual(12 * 60_000);
+    expect(times.some(({ slot, t }) => t !== nyToUtc(date, slot).getTime())).toBe(true);
   });
 
   it('later calls add to the same day and never reuse a taken slot', async () => {
@@ -143,8 +152,8 @@ describe('auto-publish fills the day', () => {
     const old = oid();
     const existing = ['08:00', '09:00'].map((slot) => ({ reelId: oid(), postId: oid(), slot, runAt: nyToUtc(date, slot), score: 80, track: 'main', title: slot }));
     const { svc, channelId, created } = setup({ date, todayCamp: today, existingItems: existing, reels: [reel(old, 75, ['a']), reel(old, 74, ['b']), reel(old, 73, ['c'])] });
-    await svc.plan(channelId, nyToUtc(date, '20:50')); // 8 PM and 9 PM are past/too close; 10 PM is ahead
-    expect(created.map((c) => c.slot)).toEqual(['22:00']);
+    await svc.plan(channelId, nyToUtc(date, '20:50')); // the 8 PM window is over; 9 PM and 10 PM are still ahead
+    expect(created.map((c) => c.slot)).toEqual(['21:00', '22:00']);
   });
 
   it('a pass already running for the day (claimed) is left alone', async () => {

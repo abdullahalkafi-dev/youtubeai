@@ -34,11 +34,18 @@ function makeAss(s, duration) {
   return ass;
 }
 
+// The live reels end with a short car-screech (assets/sfx/end.wav) played in a tail after the last word; the samples do the same.
+const { sfxChain, tailFor } = require('/app/dist/pipeline/sfx.js');
+const SFX_FILE = '/app/assets/sfx/end.wav';
+const SFX_VOLUME = 0.7;
+const sfxDur = parseFloat(spawnSync('ffprobe', ['-v', 'error', '-show_entries', 'format=duration', '-of', 'csv=p=0', SFX_FILE], { encoding: 'utf8' }).stdout) || 1.3;
+const TAIL = tailFor(sfxDur);
+
 for (const s of specs) {
   if (only && s.id !== only) continue;
   const duration = +(s.end - s.start).toFixed(2);
   const assPath = `/work/samples/out/${s.id}.ass`;
-  fs.writeFileSync(assPath, makeAss(s, duration));
+  fs.writeFileSync(assPath, makeAss(s, duration + TAIL));
   const p = s.pic, u = s.uq;
   const picH = Math.round((W * p.h) / p.w / 2) * 2;
   const uqY = PIC_Y + picH;
@@ -56,14 +63,17 @@ for (const s of specs) {
     `[t1][uqbg]overlay=0:${uqY}[t1b]`,
     `[t1b][uq]overlay=${uqX}:${uqY}[t2]`,
     `[t2]drawbox=x=0:y=${PIC_Y - 6}:w=${W}:h=6:color=0xFFD400:t=fill,drawbox=x=0:y=${uqY}:w=${W}:h=6:color=0xFFD400:t=fill,` +
-      `drawbox=x=120:y=1818:w=840:h=84:color=black@0.62:t=fill,ass=${assPath}:fontsdir=${FONTS},format=yuv420p[v]`,
-    `[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo[a]`,
+      `drawbox=x=120:y=1818:w=840:h=84:color=black@0.62:t=fill,ass=${assPath}:fontsdir=${FONTS},format=yuv420p[v0]`,
+    `[v0]tpad=stop_mode=clone:stop_duration=${TAIL}[v]`,
+    `[0:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo,apad=pad_dur=${TAIL}[avo]`,
+    sfxChain(1, sfxDur, duration + 0.04, SFX_VOLUME, 'sfx'),
+    `[avo][sfx]amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.84:level=disabled:latency=1,aresample=48000,aformat=sample_fmts=fltp:sample_rates=48000:channel_layouts=stereo[a]`,
   ].join(';');
-  const out = `/work/samples/out/${s.id}.mp4`;
-  const args = ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(s.start), '-t', String(duration), '-i', `/work/samples/src/${s.yt}.mp4`,
+  const out = `/work/samples/out/${s.id}_v2.mp4`;
+  const args = ['-hide_banner', '-loglevel', 'error', '-y', '-ss', String(s.start), '-t', String(duration), '-i', `/work/samples/src/${s.yt}.mp4`, '-i', SFX_FILE,
     '-filter_complex', graph, '-map', '[v]', '-map', '[a]', '-c:v', 'libx264', '-preset', 'medium', '-crf', '20', '-pix_fmt', 'yuv420p', '-r', '30',
     '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', out];
   const r = spawnSync('ffmpeg', args, { encoding: 'utf8' });
   console.log(s.id, r.status === 0 ? 'ok ' + fs.statSync(out).size : 'FAIL ' + (r.stderr || '').slice(-600));
-  if (r.status === 0) spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '6', '-i', out, '-frames:v', '1', `/work/samples/out/${s.id}.jpg`]);
+  if (r.status === 0) spawnSync('ffmpeg', ['-hide_banner', '-loglevel', 'error', '-y', '-ss', '6', '-i', out, '-frames:v', '1', `/work/samples/out/${s.id}_v2.jpg`]);
 }

@@ -12,7 +12,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDate } from '../pipeline/daily.service';
-import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, LEGACY_VIEWS_PAUSE, lockAt, nyToUtc, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
+import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, jitterRunAt, LEGACY_VIEWS_PAUSE, lockAt, MIN_LEAD_MIN, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
@@ -372,12 +372,16 @@ export class AutoPublishService {
       if (!owner?.userId) throw new Error('Channel owner not found');
       const meta = new Map([...fresh, ...stock].map((x) => [x.id, x]));
       const items: AutoDayItem[] = [];
-      for (const { item, slot } of assigned) {
+      // Each post goes out at a random time within 30 minutes either side of its slot (never within 12 minutes of another post).
+      const times = (existing?.items ?? []).map((i) => new Date(i.runAt).getTime());
+      for (const { item, slot } of [...assigned].sort((x, y) => x.slot.localeCompare(y.slot))) {
+        const runAt = jitterRunAt({ date, slot, seed: `${channelId}:${date}:${slot}`, earliest: now.getTime() + MIN_LEAD_MIN * 60_000, others: times });
+        times.push(runAt.getTime());
         const info = meta.get(item.id)!;
         const track: ReelTrack = item.source === 'stock' ? 'stock' : (trackOf.get(String(info.campaignId)) ?? 'main');
         try {
-          const post = await this.publish.createAutoPost(channelId, String(owner.userId), item.id, { runAt: nyToUtc(date, slot), slot, planDate: date, mode, privacy: s.privacy, track, score: item.score });
-          items.push({ reelId: new Types.ObjectId(item.id), postId: new Types.ObjectId(post.id), slot, runAt: nyToUtc(date, slot), score: item.score, track, title: info.title });
+          const post = await this.publish.createAutoPost(channelId, String(owner.userId), item.id, { runAt, slot, planDate: date, mode, privacy: s.privacy, track, score: item.score });
+          items.push({ reelId: new Types.ObjectId(item.id), postId: new Types.ObjectId(post.id), slot, runAt, score: item.score, track, title: info.title });
         } catch (err) {
           if (!heldIds.has(item.id)) held.push({ reelId: new Types.ObjectId(item.id), title: info.title, reason: errMsg(err) });
         }

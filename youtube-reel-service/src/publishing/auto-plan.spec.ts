@@ -1,4 +1,4 @@
-import { appeal, chooseReels, concreteness, PlanReel, assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, autoBaseline, evaluateGuardrails, LEGACY_VIEWS_PAUSE, platformTrouble, slowSlots, viewsCollapse, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
+import { jitterRunAt, JITTER_MIN, MIN_GAP_MIN, appeal, chooseReels, concreteness, PlanReel, assignRotation, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, autoBaseline, evaluateGuardrails, LEGACY_VIEWS_PAUSE, platformTrouble, slowSlots, viewsCollapse, gateReason, GuardPost, nyToUtc, parseSlot, pickSlots, seededRandom } from './auto-plan';
 
 describe('New York slot times', () => {
   it('converts wall-clock time to UTC with daylight saving', () => {
@@ -36,15 +36,16 @@ describe('slot choice', () => {
     expect(parseSlot('soon')).toBeNull();
   });
 
-  it('never picks a slot that is closer than the lead time, so the client can still cancel or move it', () => {
-    expect(pickSlots({ ...base, now: at('07:45'), count: 5 })).not.toContain('08:00');
-    expect(pickSlots({ ...base, now: at('07:30'), count: 5 })).toContain('08:00'); // 30 minutes ahead is fine
+  it('a slot stays usable until 10 minutes into its window (the post is then drawn from what is left), so the client can still cancel or move it', () => {
+    expect(pickSlots({ ...base, now: at('08:15'), count: 5 })).not.toContain('08:00'); // the 8:00 window ends 8:30, the lead time needs 20 minutes
+    expect(pickSlots({ ...base, now: at('07:45'), count: 5 })).toContain('08:00'); // still inside the window
   });
 
   it('late in the day it returns fewer slots than reels instead of inventing times', () => {
     expect(pickSlots({ ...base, now: at('19:00'), count: 5 })).toEqual(['20:00', '21:00', '22:00']);
-    expect(pickSlots({ ...base, now: at('20:50'), count: 5 })).toEqual(['22:00']);
-    expect(pickSlots({ ...base, now: at('22:00'), count: 5 })).toEqual([]);
+    expect(pickSlots({ ...base, now: at('20:50'), count: 5 })).toEqual(['21:00', '22:00']);
+    expect(pickSlots({ ...base, now: at('22:00'), count: 5 })).toEqual(['22:00']);
+    expect(pickSlots({ ...base, now: at('22:20'), count: 5 })).toEqual([]);
   });
 
   it('keeps the spacing between uploads', () => {
@@ -192,5 +193,41 @@ describe('concrete stories and varied sources (Oct 30 audit)', () => {
     expect(chooseReels({ need: 1, fresh, stock: [], useStock: false, plannedEntities: [], plannedSources: [['A']], mix: [] })).toHaveLength(1);
     const fresh2 = [reel('a1', 90, ['A']), reel('b1', 50, ['B'])];
     expect(chooseReels({ need: 1, fresh: fresh2, stock: [], useStock: false, plannedEntities: [], plannedSources: [['A']], mix: [] }).map((r) => r.id)).toEqual(['b1']);
+  });
+});
+
+describe('random posting time inside the slot window', () => {
+  const date = '2026-10-31';
+  const centre = (slot: string) => nyToUtc(date, slot).getTime();
+  const far = nyToUtc(date, '03:00').getTime();
+
+  it('is within 30 minutes either side of the slot: 8:00 is 7:30 to 8:30, 9:00 is 8:30 to 9:30', () => {
+    for (let i = 0; i < 200; i++) {
+      for (const slot of ['08:00', '09:00', '20:00']) {
+        const t = jitterRunAt({ date, slot, seed: `s${i}`, earliest: far, others: [] }).getTime();
+        expect(t).toBeGreaterThanOrEqual(centre(slot) - JITTER_MIN * 60_000);
+        expect(t).toBeLessThanOrEqual(centre(slot) + JITTER_MIN * 60_000);
+      }
+    }
+  });
+
+  it('really varies from day to day, and is the same for the same seed', () => {
+    const times = new Set(Array.from({ length: 30 }, (_, i) => jitterRunAt({ date, slot: '08:00', seed: `day${i}`, earliest: far, others: [] }).getTime()));
+    expect(times.size).toBeGreaterThan(25);
+    const a = jitterRunAt({ date, slot: '08:00', seed: 'same', earliest: far, others: [] }).getTime();
+    expect(jitterRunAt({ date, slot: '08:00', seed: 'same', earliest: far, others: [] }).getTime()).toBe(a);
+  });
+
+  it('never lands before the earliest allowed time and keeps its distance from other posts', () => {
+    const earliest = centre('08:00') - 5 * 60_000;
+    for (let i = 0; i < 100; i++) {
+      const t = jitterRunAt({ date, slot: '08:00', seed: `e${i}`, earliest, others: [] }).getTime();
+      expect(t).toBeGreaterThanOrEqual(earliest);
+    }
+    for (let i = 0; i < 100; i++) {
+      const other = centre('08:00') + 30 * 60_000; // the 9:00 post drew the very start of its window
+      const t = jitterRunAt({ date, slot: '08:00', seed: `g${i}`, earliest: far, others: [other] }).getTime();
+      expect(Math.abs(t - other)).toBeGreaterThanOrEqual(MIN_GAP_MIN * 60_000);
+    }
   });
 });

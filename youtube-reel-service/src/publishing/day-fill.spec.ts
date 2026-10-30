@@ -11,9 +11,10 @@ describe('free slots (the day can be filled again and again)', () => {
     expect(freeSlots({ ...base, now: at('05:00'), taken: ['09:00', '21:00'] })).toEqual(['08:00', '20:00', '22:00']);
   });
 
-  it('slots in the past or inside the lead time are gone', () => {
-    expect(freeSlots({ ...base, now: at('08:50'), taken: [] })).toEqual(['20:00', '21:00', '22:00']);
-    expect(freeSlots({ ...base, now: at('22:00'), taken: [] })).toEqual([]);
+  it('slots whose window has passed (or is inside the lead time) are gone', () => {
+    expect(freeSlots({ ...base, now: at('08:50'), taken: [] })).toEqual(['09:00', '20:00', '21:00', '22:00']);
+    expect(freeSlots({ ...base, now: at('22:00'), taken: [] })).toEqual(['22:00']);
+    expect(freeSlots({ ...base, now: at('22:20'), taken: [] })).toEqual([]);
   });
 
   it('keeps the spacing from slots that are already taken', () => {
