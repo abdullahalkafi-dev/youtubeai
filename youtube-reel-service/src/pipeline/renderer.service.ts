@@ -18,6 +18,8 @@ import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
 import { ReelTemplate } from './template';
 import { TemplateStoreService } from './template-store.service';
 import { ThumbnailService } from './thumbnail.service';
+import { buildFullscreenAss } from './fullscreen';
+import { LayoutAudit, LayoutService } from './layout.service';
 import { AiService } from '../ai/ai.service';
 import { EndSfx, resolveSfxFile, tailFor } from './sfx';
 import { captionsInSilence, ClipSpan, parseSilences, realignWords } from './word-align';
@@ -51,6 +53,7 @@ export class RendererService {
     private readonly orchestrator: OrchestratorService,
     private readonly queues: QueueService,
     private readonly thumbnails: ThumbnailService,
+    private readonly layouts: LayoutService,
     @Inject(AiService) private readonly ai: AiService | null = null,
   ) {}
 
@@ -98,16 +101,37 @@ export class RendererService {
 
     const dir = jobDir(this.cfg.REEL_WORK_DIR, 'render', reelId);
     try {
+      // Look: full-screen needs the studio layout of every shot in the reel; if any shot cannot be read the reel is made in the classic look.
+      let look: 'classic' | 'fullscreen' = 'classic';
+      let lookNote: string | undefined;
+      let renderClips = clips;
+      let layoutShots: LayoutAudit[] | undefined;
+      if (this.cfg.REEL_LOOK === 'fullscreen') {
+        const found = await this.layouts.resolve({
+          clips: reel.clips.map((c, i) => ({ youtubeId: c.youtubeId, src: clips[i].src, start: c.start, duration: c.end - c.start })),
+          dir,
+          usage: this.orchestrator.usageSink(reel.campaignId),
+        });
+        if (found.ok) {
+          look = 'fullscreen';
+          renderClips = found.clips;
+          layoutShots = found.shots;
+        } else {
+          lookNote = found.reason;
+          this.logger.warn(`Reel ${reelId}: classic look (${found.reason})`);
+        }
+      }
       const result = await this.renderToDir({
         dir,
-        clips,
+        clips: renderClips,
         words: reel.words,
         headline: reel.packaging?.headline ?? null,
         template: tpl.template,
         canvasPath: tpl.canvasPath,
         expectedDuration: reel.durationSec,
         pace: this.pace(),
-        fx: this.fx(),
+        look,
+        fx: look === 'fullscreen' ? undefined : this.fx(),
         sfx: await this.endSfx(),
       });
 
@@ -124,6 +148,9 @@ export class RendererService {
           $set: {
             status: 'todo',
             error: null,
+            look,
+            lookNote: lookNote ?? null,
+            layoutShots: layoutShots ?? [],
             templateEtag: tpl.etag,
             durationSec: Math.round(result.duration * 100) / 100,
             timing: {
@@ -155,6 +182,13 @@ export class RendererService {
     } finally {
       removeDir(dir);
     }
+  }
+
+  /** A readable URL of a cached source video (operator tools). */
+  async sourceUrl(youtubeId: string): Promise<string> {
+    const s = await this.sources.findOne({ youtubeId }).select('videoKey videoPresent').lean();
+    if (!s?.videoPresent || !s.videoKey) throw new Error(`Source ${youtubeId} is not in the cache`);
+    return this.storage.presignedGet(BUCKETS.sources, s.videoKey);
   }
 
   /** The pace applied to every reel (env-controlled). */
@@ -202,6 +236,8 @@ export class RendererService {
     canvasPath: string;
     expectedDuration: number;
     pace?: PaceOptions;
+    /** 'fullscreen' needs a `layout` on every clip; default 'classic'. */
+    look?: 'classic' | 'fullscreen';
     fx?: RenderFx;
     /** Ending sound (adds a short tail after the last word). */
     sfx?: EndSfx | null;
@@ -253,7 +289,11 @@ export class RendererService {
     for (const f of fs.readdirSync(this.cfg.fontsDir).filter((x) => /\.(ttf|otf)$/i.test(x))) {
       fs.copyFileSync(path.join(this.cfg.fontsDir, f), path.join(fonts, f));
     }
-    fs.writeFileSync(path.join(dir, 'reel.ass'), buildAss({ words, headline: input.headline, template, duration: total }));
+    const fullscreen = input.look === 'fullscreen';
+    fs.writeFileSync(
+      path.join(dir, 'reel.ass'),
+      fullscreen ? buildFullscreenAss({ words, headline: input.headline, duration: total + (input.sfx ? input.sfx.tail : 0) }) : buildAss({ words, headline: input.headline, template, duration: total }),
+    );
     fs.copyFileSync(input.canvasPath, path.join(dir, 'canvas.png'));
 
     // Pass 1: loudness measurement.
@@ -282,7 +322,7 @@ export class RendererService {
         'canvas.png',
         ...(input.sfx ? ['-i', input.sfx.file] : []),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, fx: input.fx, sfx: input.sfx ? { inputIndex: clips.length + 1, duration: input.sfx.duration, tail: input.sfx.tail, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, look: input.look, fx: input.fx, sfx: input.sfx ? { inputIndex: clips.length + 1, duration: input.sfx.duration, tail: input.sfx.tail, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
         '-map',
         '[vout]',
         '-map',

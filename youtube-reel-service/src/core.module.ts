@@ -19,6 +19,7 @@ import { MaintenanceService } from './pipeline/maintenance.service';
 import { AnalyticsService } from './publishing/analytics.service';
 import { ImageGenService } from './ai/image-gen.service';
 import { PeopleService } from './pipeline/people.service';
+import { LayoutService } from './pipeline/layout.service';
 import { ThumbnailService } from './pipeline/thumbnail.service';
 import { DailyService } from './pipeline/daily.service';
 import { LanesService } from './pipeline/lanes.service';
@@ -51,6 +52,7 @@ const providers = [
   MaintenanceService,
   ImageGenService,
   PeopleService,
+  LayoutService,
   ThumbnailService,
   PillarService,
   SignalsService,

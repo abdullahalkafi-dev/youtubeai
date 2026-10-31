@@ -30,15 +30,27 @@ export function withFullVideoLine(description: string, line: string): string {
 
 export const COMMENT_MAX_CHARS = 500;
 
-/** The channel's first comment on a reel: the question that gets people arguing, plus where the full video is. Null when there is no question. */
-export function buildEngagementComment(question: string | null | undefined): string | null {
+/** The full-video link on the first line of a description (see `fullVideoLine`), or null (no link yet / not linked to YouTube). */
+export function fullVideoLinkOf(description: string | null | undefined): string | null {
+  const m = /^🎥 FULL VIDEO[^\n]*?→\s*(https?:\/\/\S+)/u.exec(String(description ?? '').trim());
+  return m ? m[1] : null;
+}
+
+/**
+ * The channel's first comment on a reel: the question that gets people arguing, then the full video's link (client decision
+ * 2026-10-31: the on-screen text points to the first comment; a channel comment with a link is tappable, a Shorts description is not).
+ * Without a link it says the video is in the description. Null when there is neither a question nor a link.
+ */
+export function buildEngagementComment(question: string | null | undefined, link?: string | null): string | null {
+  const url = link && /^https?:\/\/\S+$/.test(link) ? link : null;
   const q = String(question ?? '')
     .replace(/[<>]/g, '')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, COMMENT_MAX_CHARS - 60);
-  if (!q) return null;
-  return `${q}\n\nFull video is in the description.`;
+    .slice(0, COMMENT_MAX_CHARS - 120);
+  if (!q && !url) return null;
+  const tail = url ? `🎥 Full video: ${url}` : 'Full video is in the description.';
+  return q ? `${q}\n\n${tail}` : tail;
 }
 
 /** The channel's name is not a subject: "Unique Mecca Audio: He asked for school" becomes "He asked for school" (a title is never cut to nothing). */

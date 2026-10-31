@@ -18,7 +18,7 @@ import { UPLOAD_LEAD_MS } from './auto-plan';
 import { hasErrors } from './preflight';
 import { msUntilPacificMidnight, PublishQuotaService } from './publish-quota.service';
 import { PublisherRegistry } from './registry';
-import { buildEngagementComment } from './description';
+import { buildEngagementComment, fullVideoLinkOf } from './description';
 import { YouTubePublisher } from './youtube.publisher';
 import { ACTIVE_POST_STATUSES, AccountStatus, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
 
@@ -488,10 +488,11 @@ export class PublishService {
   /** Post the reel's engagement question as the channel's first comment. Once per post; failure only adds a warning. */
   private async applyComment(postId: string, channelId: string, reelId: string, videoId: string) {
     try {
-      const post = await this.posts.findById(postId).select('commentPosted').lean();
+      const post = await this.posts.findById(postId).select('commentPosted metadata.description').lean();
       if (post?.commentPosted) return;
-      const reel = await this.reels.findById(reelId).select('packaging.pinnedComment').lean();
-      const text = buildEngagementComment(reel?.packaging?.pinnedComment);
+      const reel = await this.reels.findById(reelId).select('packaging.pinnedComment packaging.description').lean();
+      const link = fullVideoLinkOf(post?.metadata?.description) ?? fullVideoLinkOf(reel?.packaging?.description);
+      const text = buildEngagementComment(reel?.packaging?.pinnedComment, link);
       if (!text) return;
       const problem = await this.youtube.postComment(channelId, videoId, text);
       if (problem) {

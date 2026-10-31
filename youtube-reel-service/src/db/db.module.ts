@@ -5,6 +5,7 @@ import { ReelCampaign, ReelCampaignSchema } from './schemas/reel-campaign.schema
 import { Reel, ReelSchema } from './schemas/reel.schema';
 import { ReelSource, ReelSourceSchema } from './schemas/reel-source.schema';
 import { ReelTranscript, ReelTranscriptSchema } from './schemas/reel-transcript.schema';
+import { ReelLayout, ReelLayoutSchema } from './schemas/reel-layout.schema';
 import { ReelMoment, ReelMomentSchema } from './schemas/reel-moment.schema';
 import { ReelEntity, ReelEntitySchema, ReelSetting, ReelSettingSchema } from './schemas/reel-misc.schema';
 import { ReelPost, ReelPostSchema } from './schemas/reel-post.schema';
@@ -32,6 +33,7 @@ const models = MongooseModule.forFeature([
   { name: Reel.name, schema: ReelSchema },
   { name: ReelSource.name, schema: ReelSourceSchema },
   { name: ReelTranscript.name, schema: ReelTranscriptSchema },
+  { name: ReelLayout.name, schema: ReelLayoutSchema },
   { name: ReelMoment.name, schema: ReelMomentSchema },
   { name: ReelEntity.name, schema: ReelEntitySchema },
   { name: ReelSetting.name, schema: ReelSettingSchema },

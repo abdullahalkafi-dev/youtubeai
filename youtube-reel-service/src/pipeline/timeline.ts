@@ -119,7 +119,7 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
       if (a < s.from || b > s.to) continue;
       if (a > cursor + 1e-6) {
         const dq = frames(a - cursor, 'round'); // a pause is >= 0.1 s, so cursor + dq stays inside it
-        segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf() });
+        segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf(), layout: s.clip.layout });
         cuts.push([r3(cursor + dq), r3(b)]);
       } else if (b > cursor) {
         // dead air right at the start of the clip: nothing before it to keep
@@ -130,7 +130,7 @@ export function buildTimeline(clips: RenderClipInput[], words: ReelWord[], pace:
     const tail = s.to - cursor;
     if (tail > 0.02) {
       const dq = frames(tail, 'floor');
-      segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf() });
+      segments.push({ src: s.clip.src, start: r3(s.clip.start + (cursor - s.from)), duration: r3(dq), kind: kindOf(), layout: s.clip.layout });
       if (tail - dq > 1e-4) cuts.push([r3(cursor + dq), r3(s.to)]);
     } else if (tail > 1e-4) {
       cuts.push([r3(cursor), r3(s.to)]);

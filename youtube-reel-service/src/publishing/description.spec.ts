@@ -1,4 +1,4 @@
-import { buildEngagementComment, stripBrandPrefix, COMMENT_MAX_CHARS, fullVideoLine, withFullVideoLine } from './description';
+import { buildEngagementComment, stripBrandPrefix, COMMENT_MAX_CHARS, fullVideoLine, fullVideoLinkOf, withFullVideoLine } from './description';
 
 describe('full video line', () => {
   it('names the full video and carries its link', () => {
@@ -33,10 +33,27 @@ describe('withFullVideoLine', () => {
 });
 
 describe('engagement comment', () => {
-  it('is the question plus where the full video is', () => {
+  it('is the question plus the full video link', () => {
+    expect(buildEngagementComment('Would you take the plea or ride it out at trial?', 'https://youtu.be/abc?t=42')).toBe(
+      'Would you take the plea or ride it out at trial?\n\n🎥 Full video: https://youtu.be/abc?t=42',
+    );
+  });
+
+  it('points to the description when the reel has no link yet', () => {
     expect(buildEngagementComment('Would you take the plea or ride it out at trial?')).toBe(
       'Would you take the plea or ride it out at trial?\n\nFull video is in the description.',
     );
+  });
+
+  it('still posts the link when there is no question, and ignores a link that is not a URL', () => {
+    expect(buildEngagementComment('  ', 'https://youtu.be/abc')).toBe('🎥 Full video: https://youtu.be/abc');
+    expect(buildEngagementComment('Q?', 'javascript:alert(1)')).toBe('Q?\n\nFull video is in the description.');
+  });
+
+  it('reads the link back from a description', () => {
+    expect(fullVideoLinkOf(fullVideoLine('Some title', 'https://youtu.be/abc?t=42') + '\n\nHook.')).toBe('https://youtu.be/abc?t=42');
+    expect(fullVideoLinkOf('🎥 Full video on the channel.\n\nHook.')).toBeNull();
+    expect(fullVideoLinkOf(undefined)).toBeNull();
   });
 
   it('is skipped without a question and never exceeds the limit', () => {

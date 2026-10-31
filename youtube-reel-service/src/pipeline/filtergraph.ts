@@ -1,6 +1,8 @@
 import type { ReelTemplate } from './template';
 import type { Voice } from './timeline';
 import { sfxChain } from './sfx';
+import { fullscreenSegmentChain } from './fullscreen';
+import type { ShotLayout } from './layout';
 
 export interface RenderClipInput {
   /** Path or URL of the source video. */
@@ -9,6 +11,8 @@ export interface RenderClipInput {
   duration: number;
   /** Why this segment starts: the reel opening, a topic change (a new clip) or a pause jump cut inside a clip. */
   kind?: 'start' | 'join' | 'cut';
+  /** Full-screen look only: how this stretch of footage is cropped (studio layout of the shot). */
+  layout?: ShotLayout;
 }
 
 /** Visual rhythm. None of these changes a segment length, so captions and loudness stay in sync. */
@@ -122,13 +126,16 @@ export function renderGraph(input: {
   voice?: Voice;
   semitones?: number;
   fx?: RenderFx;
+  /** 'fullscreen': every clip carries a `layout`, the frame is built from the studio crops and the template canvas is not used. Default 'classic'. */
+  look?: 'classic' | 'fullscreen';
   /** Ending sound: a tail is added after the last word and the sound plays in it. */
   sfx?: { inputIndex: number; duration: number; tail: number; volume: number } | null;
 }): string {
   const { template: t, clips } = input;
   const { w, h, x, y } = t.window;
   const speed = input.speed && input.speed > 0 ? input.speed : 1;
-  const fx = input.fx ?? NO_FX;
+  const fullscreen = input.look === 'fullscreen';
+  const fx = fullscreen ? NO_FX : (input.fx ?? NO_FX);
   const tail = input.sfx ? input.sfx.tail : 0;
   const dur = input.totalDuration + tail;
   const starts = segmentStarts(clips, speed);
@@ -137,6 +144,11 @@ export function renderGraph(input: {
   const flashAt: number[] = [];
   let zoomOdd = false;
   clips.forEach((c, i) => {
+    if (fullscreen) {
+      if (!c.layout) throw new Error('Full-screen look needs a layout on every clip');
+      parts.push(fullscreenSegmentChain(i, c.duration, c.layout), audioChain(i, c.duration));
+      return;
+    }
     // Framing: a topic change or the opening resets to 100%; every jump cut alternates 100% / 112%.
     if (c.kind === 'cut') zoomOdd = !zoomOdd;
     else zoomOdd = false;
@@ -170,11 +182,15 @@ export function renderGraph(input: {
     parts.push(`[vc]tpad=stop_mode=clone:stop_duration=${n(tail)}[vct]`);
     video = 'vct';
   }
+  let cur = 'b1';
+  if (fullscreen) {
+    // the segments are already complete 1080x1920 frames; only the captions and text go on top
+    parts.push(`[${video}]ass=${input.assFile}:fontsdir=${input.fontsDir},format=yuv420p[vout]`);
+  } else {
   parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(dur + 0.5)}[bg]`);
   parts.push(`[bg][${video}]overlay=x=${x}:y=${y}:shortest=1[b1]`);
 
   // Topic-change flash and progress line sit inside the window, under the canvas and captions.
-  let cur = 'b1';
   flashAt.forEach((at, j) => {
     const a = Math.max(0, at - FX.FLASH_IN);
     const b = at + FX.FLASH_OUT;
@@ -192,6 +208,7 @@ export function renderGraph(input: {
 
   parts.push(`[${cur}][${input.canvasInputIndex}:v]overlay=x=0:y=0:format=auto[b2]`);
   parts.push(`[b2]ass=${input.assFile}:fontsdir=${input.fontsDir},format=yuv420p[vout]`);
+  }
   const ln = input.measured
     ? `loudnorm=I=${LOUDNESS.I}:TP=${LOUDNESS.TP}:LRA=${LOUDNESS.LRA}:measured_I=${input.measured.input_i}:measured_TP=${input.measured.input_tp}` +
       `:measured_LRA=${input.measured.input_lra}:measured_thresh=${input.measured.input_thresh}:offset=${input.measured.target_offset}:linear=true`

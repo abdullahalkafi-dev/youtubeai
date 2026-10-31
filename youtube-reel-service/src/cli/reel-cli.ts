@@ -18,6 +18,7 @@ import { ReelSource } from '../db/schemas/reel-source.schema';
 import { ReelCampaign, ReelCampaignDocument, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ensureDir } from '../pipeline/media';
+import { LayoutService } from '../pipeline/layout.service';
 import { LanesService } from '../pipeline/lanes.service';
 import { nyDate } from '../common/time';
 
@@ -35,7 +36,8 @@ import { nyDate } from '../common/time';
  *   node dist/cli/reel-cli.js lanes:preview <channelId>   (which videos the new-video and best-of-old lanes would use today; creates nothing)
  *   node dist/cli/reel-cli.js lanes:create <channelId> <userId>   (create today's new-video / best-of-old campaigns now, if they do not exist)
  *   node dist/cli/reel-cli.js uploads:check   (queue analysis of new uploads now)
- *   node dist/cli/reel-cli.js render:local <video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
+ *   node dist/cli/reel-cli.js look:test <youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]   (one moment in the full-screen look; stores its studio layout, posts nothing)
+ *   node dist/cli/reel-cli.js render:local<video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
  */
 async function main() {
   const [cmd, ...args] = process.argv.slice(2);
@@ -144,6 +146,26 @@ async function main() {
         console.log(`${apply ? 'Queued' : 'Dry run:'} ${total} reel(s).${apply ? '' : ' Add --apply to re-render them.'}`);
         break;
       }
+      case 'look:test': {
+        // Cuts one moment of a source video in the full-screen look: finds the studio layout (and stores it), renders to <outDir>, posts nothing.
+        const [youtubeId, start, duration, outDir, headline = '', videoFile] = args;
+        if (!youtubeId || !outDir) throw new Error('Usage: look:test <youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]');
+        const transcripts = app.get<Model<any>>(getModelToken('ReelTranscript'));
+        const t = (await transcripts.findOne({ youtubeId }).lean()) as { words?: Array<{ w: string; s: number; e: number }> } | null;
+        const s0 = Number(start);
+        const dur = Number(duration);
+        const words = (t?.words ?? []).filter((w: any) => w.s >= s0 && w.e <= s0 + dur).map((w: any, i: number, all: any[]) => ({ w: w.w, s: +(w.s - s0).toFixed(3), e: +(w.e - s0).toFixed(3), eos: i === all.length - 1 }));
+        const src = videoFile ? path.resolve(videoFile) : await app.get(RendererService).sourceUrl(youtubeId);
+        const dir = ensureDir(path.resolve(outDir));
+        const found = await app.get(LayoutService).resolve({ clips: [{ youtubeId, src, start: s0, duration: dur }], dir });
+        console.log(JSON.stringify(found.ok ? { ok: true, shots: found.shots } : found, null, 1));
+        if (!found.ok) break;
+        const tpl = await app.get(TemplateStoreService).get('default');
+        const renderer = app.get(RendererService);
+        const res = await renderer.renderToDir({ dir, clips: found.clips, words, headline, template: tpl.template, canvasPath: tpl.canvasPath, expectedDuration: dur, pace: renderer.pace(), look: 'fullscreen', sfx: await renderer.endSfx() });
+        console.log(`rendered ${res.file} (${res.duration.toFixed(1)}s, ${res.lufs} LUFS) cover ${res.cover}; warnings: ${JSON.stringify(res.warnings)}`);
+        break;
+      }
       case 'render:retry-failed': {
         // Re-queues reels whose render failed (for example killed for memory) since a date. Reels that were cancelled are left alone.
         const since = new Date(`${args[0] ?? ''}T00:00:00Z`);
@@ -178,7 +200,7 @@ async function renderLocal(args: string[]) {
   const cfg = loadConfig();
   const tplDir = path.resolve(templateDir ?? path.join(cfg.assetsDir, 'templates', 'default'));
   const template = parseTemplate(JSON.parse(fs.readFileSync(path.join(tplDir, 'template.json'), 'utf8')));
-  const renderer = new RendererService(cfg,null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null);
+  const renderer = new RendererService(cfg, null as any, null as any,null as any, null as any, null as any, null as any, null as any, null as any, null as any, null);
   const dur = Number(duration);
   const sample = 'the first night inside nobody tells you the rules you learn them the hard way and that is the jewel'.split(' ');
   const words = sample.map((w, i) => ({ w, s: (i * dur) / sample.length, e: ((i + 0.85) * dur) / sample.length, eos: i === 8 || i === sample.length - 1 }));

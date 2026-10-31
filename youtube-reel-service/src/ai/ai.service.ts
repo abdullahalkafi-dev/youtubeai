@@ -32,6 +32,10 @@ export interface JsonCallOptions<T extends z.ZodType> {
   reasoningEffort?: 'low' | 'medium' | 'high';
   maxCompletionTokens?: number;
   usage?: UsageSink;
+  /** Pictures the model should look at (JPEG/PNG bytes), in order, shown after the user text. */
+  images?: Array<{ data: Buffer; mime?: string }>;
+  /** Vision detail for `images` ("high" reads boxes more precisely). */
+  imageDetail?: 'low' | 'high';
 }
 
 export interface WhisperResult {
@@ -51,6 +55,7 @@ export class AiService {
 
   constructor(@Inject(CONFIG) private readonly cfg: AppConfig) {
     this.taskModels = parsePairs(cfg.OPENAI_REEL_TASK_MODELS);
+    if (cfg.REEL_LAYOUT_MODEL && !this.taskModels.has('layout')) this.taskModels.set('layout', cfg.REEL_LAYOUT_MODEL);
     this.taskEffort = parsePairs(cfg.OPENAI_REEL_TASK_EFFORT);
     this.client = new OpenAI({
       apiKey: cfg.OPENAI_API_KEY,
@@ -84,7 +89,18 @@ export class AiService {
     const jsonSchema = toStrictJsonSchema(opts.schema);
     const messages: OpenAI.Chat.ChatCompletionMessageParam[] = [
       { role: 'system', content: opts.system },
-      { role: 'user', content: opts.user },
+      {
+        role: 'user',
+        content: opts.images?.length
+          ? [
+              { type: 'text', text: opts.user },
+              ...opts.images.map((im) => ({
+                type: 'image_url' as const,
+                image_url: { url: `data:${im.mime ?? 'image/jpeg'};base64,${im.data.toString('base64')}`, detail: opts.imageDetail ?? 'high' },
+              })),
+            ]
+          : opts.user,
+      },
     ];
 
     for (let attempt = 1; attempt <= 2; attempt++) {
