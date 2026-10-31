@@ -6,7 +6,7 @@
  * right (`host_left`) and the reverse (`host_right`). Anything else (host alone, a full-screen clip, an intro card) is `other`
  * and makes the reel fall back to the classic look.
  */
-export const LAYOUT_VERSION = 'layout-v3';
+export const LAYOUT_VERSION = 'layout-v4';
 
 export type LayoutKind = 'host_left' | 'host_right' | 'other';
 
@@ -58,8 +58,10 @@ export const LAYOUT_RULES = {
   minTop: 0.055,
   headWidth: [0.08, 0.42] as const,
   headHeight: [0.15, 0.75] as const,
-  pictureWidth: [0.35, 0.8] as const,
-  pictureAspect: [1.2, 2.3] as const,
+  pictureWidth: [0.3, 0.85] as const,
+  /** In this set the panel always runs to the far edge of the frame (share of the width); a picture box that stops short is some other layout. */
+  pictureFarEdge: 0.9,
+  pictureAspect: [0.8, 2.4] as const,
   /** The host crop stops this far (share of the frame width) beyond the head on the picture side, and starts this far above it (share of the height). */
   hostMargin: 0.004,
   hostTopPad: 0.02,
@@ -117,6 +119,7 @@ export function checkSample(raw: RawFrameLayout, t: number, W: number, H: number
   if (pw < R.pictureWidth[0] || pw > R.pictureWidth[1] || pAspect < R.pictureAspect[0] || pAspect > R.pictureAspect[1]) return bad('picture panel outside the studio proportions');
   const left = raw.kind === 'host_left';
   if (left ? (hd.l + hd.r) / 2 >= (pc.l + pc.r) / 2 : (hd.l + hd.r) / 2 <= (pc.l + pc.r) / 2) return bad('host and picture on the wrong sides');
+  if (left ? pc.r < R.pictureFarEdge * W : pc.l > (1 - R.pictureFarEdge) * W) return bad('picture panel stops short of the frame edge');
 
   const m = R.hostMargin * W;
   const top = Math.max(R.minTop * H, hd.t - R.hostTopPad * H);

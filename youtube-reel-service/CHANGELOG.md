@@ -6,6 +6,72 @@ server, and how to undo it. Times are New York unless noted. Server: `ssh root@2
 
 ---
 
+## 2026-10-31: full-screen look, found automatically; full-video link in the first comment
+
+**Client decision:** the full-screen look is better than the old one; keep the old look available so switching back needs no rewrite.
+
+### What a reel looks like now (`REEL_LOOK=fullscreen`, the default)
+1080x1920: headline on top (Anton 140, two lines, second line yellow) | story picture (680 px, cropped from the studio frame) |
+gold line | host cropped big at the bottom over a blurred fill | captions over the host | "FULL VIDEO LINK IN FIRST COMMENT" and
+"BOOK A CALL 1-917-680-9091" at the bottom. Pace, voice, word alignment, loudness, ending sound, slots, ranking and thumbnails are
+unchanged. The classic punch-in / flash / progress-bar effects are not used in this look. No AI images.
+
+### How the crops are found (nothing is set by hand)
+The studio set has two orientations that the editor swaps with a short slide: host left / picture right (`host_left`) and the
+reverse (`host_right`). The host stands in front of one end of the story panel, so his body is no divider; his **head** is.
+Per reel (`pipeline/layout.service.ts`, pure rules in `pipeline/layout.ts`):
+1. **Shots:** for every clip, ffmpeg scene detection (`REEL_LAYOUT_SCENE_THRESHOLD`, default 0.12, low on purpose: the swap
+   is a 0.4 s slide that scores 0.13 to 0.24) gives the cut times; cuts under 0.6 s apart are one shot.
+2. **Looks:** one still frame in the middle of a short shot, two (at 25% and 75%) in a shot of 3 s or more, sent to the vision
+   model (`prompts/layout.prompt.ts`, up to 8 frames per call, model = `OPENAI_REEL_FAST_MODEL`; `REEL_LAYOUT_MODEL` or task key
+   `layout` in `OPENAI_REEL_TASK_MODELS` overrides). It answers `host_left` / `host_right` / `other`, a confidence, a **head box** and a
+   **panel box** (fractions of the frame).
+3. **Crops** (`checkSample`): host crop = frame edge to just past the head (+0.4% of the width), from the head top to 82% of the
+   height; picture crop = divider to the panel's far edge inside its gold frame, never lower than 77% of the height (the ticker
+   overlaps the panel's lower edge); nothing above 5.5% (channel header). Checked against the crops set by hand for the approved
+   samples: overlap (IoU) above 0.85 for the Diddy video and above 0.8 for the Durk video (`layout.spec.ts`).
+4. **Stored per source video** in Mongo collection `reel_layouts` (`youtubeId`, `version`, `samples[]` with time, kind,
+   confidence, head/host/picture boxes and `why` when rejected). A sample inside a shot is reused by every later reel cut from the
+   same video, so each video is looked at once. When a video has two or more samples of an orientation, their median boxes are used
+   so every reel from it crops alike, unless a shot's own boxes differ clearly (IoU under 0.8, e.g. a zoomed camera).
+   Bump `LAYOUT_VERSION` (`layout.ts`) to make all stored samples be ignored and looked at again.
+5. **Split:** a clip is split where the orientation changes (neighbouring shots that crop the same are merged). Each piece carries its
+   own crop into `renderGraph` (`look: 'fullscreen'`, `fullscreenSegmentChain` in `pipeline/fullscreen.ts`).
+6. **Fallback, never a failed reel:** if any shot is `other`, below `REEL_LAYOUT_MIN_CONF` (0.7), has looks that disagree inside one
+   shot, or anything throws, the whole reel is rendered in the **classic** look and `reel.lookNote` says why.
+
+Audit trail on every reel: `reel.look` (`fullscreen` | `classic`), `reel.lookNote` (why classic), `reel.layoutShots[]` (source video,
+from/to seconds, orientation, host and picture boxes). Layout checks cost about 1 to 3 cents per source video (a few frames; cached).
+
+### Switching back to the classic look
+- **Setting:** set `REEL_LOOK=classic` in the reel stack's environment and restart (`docker compose -f docker-compose.reels.yml up -d`).
+  New renders use the classic look at once; re-make reels already in stock with `node dist/cli/reel-cli.js look:refresh --apply`.
+- **Code:** the classic path is untouched (`renderGraph` without `look`, template canvas in MinIO bucket `reel-templates`).
+  The commit before this work is tagged **`reels-classic-look`** (`git checkout reels-classic-look` to see that exact version).
+
+### Operator commands (inside `youtubeai-reels-reel-worker-1`, `node dist/cli/reel-cli.js ...`)
+- `look:test <youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]`: one moment in the new look; stores its layout; posts nothing.
+- `look:refresh [--apply]`: re-make the To-do reels in the current look; skips reels that already have it, reels whose post is queued
+  or uploading (the video must not change under an upload) and the imported `fullscreen-v1-test` reels. Dry run without `--apply`.
+
+### Check on the server
+`db.reel_layouts.find({youtubeId})` (samples and `why`); worker log lines `[layout:<id>] [...]` (the model's raw answer) and
+`Reel <id>: classic look (<reason>)`; `db.reels.aggregate([{$group:{_id:'$look',n:{$sum:1}}}])` for the split between looks.
+
+### Known limits
+- A shot where the studio is not in one of the two set-ups (host alone full-frame, full-screen clip, intro card) makes the reel classic.
+- If a slide transition is gentler than the cut threshold the shot is refused (classic), never mis-cropped.
+- The host crop shows a thin slice of the picture graphic at its divider when the graphic runs behind the host's head (as in the approved samples).
+
+### First comment carries the link
+`publishing/description.ts` `buildEngagementComment(question, link)`: the question, a blank line, `🎥 Full video: <link>` (the link
+jumps to the second the reel was cut from, `?t=`). The link is read back from the description's first line (`fullVideoLinkOf`); with no
+link yet the comment says the video is in the description. The description keeps its first-line link too. The API cannot pin comments.
+`publish.service.ts` `applyComment` posts it once per post right after upload. The on-screen text of the **classic** look is part of the
+template image and still says "CHECK DESCRIPTION" until a new template is uploaded; the new look says "FULL VIDEO LINK IN FIRST COMMENT".
+
+---
+
 ## 2026-10-31: AI images removed from reels
 
 **Client decision:** drop the AI pictures from reels. The video look and structure stay as they were (host video in the template
@@ -94,7 +160,7 @@ days later. Three posts are a direction, not proof. Cancel a post in the app bef
 
 | Item | Waiting on | Notes |
 |---|---|---|
-| Full-screen layout in the live pipeline | Client feedback on the 3 samples | Needs a per-cut layout detector first: the studio switches sides inside one video (host left / picture right, then reversed). Plan: grab a still frame per cut, detect the host and picture boxes, crop per cut, safe centre-crop fallback; about 2 to 3 days, test on about 20 videos. Prototype in `scripts/samples/`. |
+| Full-screen look on more footage | Watching real reels | Built and live (see the first entry). Test it on more source videos: check `reel.look` / `reel.lookNote` and how many reels fall back to classic. Prototype notes in `scripts/samples/`. |
 | Thumbnails with an AI scene | Client | Unchanged. Without the AI scene a thumbnail would be a reel frame under a second headline. Custom covers also do not show on the channel's Shorts tab. |
 | Newer template (smaller phone number) | Client / user | In the repo only. The live template is the old one (window y=560, h=760) in MinIO bucket `reel-templates`. Uploading needs the CLI; conflicts with the full-screen decision, so ask first. |
 | Use "% watched" in ranking | Data (about 3 days lag) | Value is recorded as `avgViewPct`. |

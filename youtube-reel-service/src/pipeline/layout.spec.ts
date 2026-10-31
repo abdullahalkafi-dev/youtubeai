@@ -50,9 +50,21 @@ describe('checkSample', () => {
   it('rejects geometry that cannot be the studio set', () => {
     expect(checkSample(raw({ kind: 'host_right' }), 1, W, H, 0.7).kind).toBe('other'); // says right, boxes say left
     expect(checkSample(raw({ head: { x: 0.1, y: 0.1, w: 0.03, h: 0.1 } }), 1, W, H, 0.7).kind).toBe('other'); // head far too small
-    expect(checkSample(raw({ picture: { x: 0.45, y: 0.1, w: 0.3, h: 0.6 } }), 1, W, H, 0.7).kind).toBe('other'); // panel too narrow
+    expect(checkSample(raw({ picture: { x: 0.45, y: 0.1, w: 0.2, h: 0.6 } }), 1, W, H, 0.7).kind).toBe('other'); // panel too narrow
     expect(checkSample(raw({ head: null }), 1, W, H, 0.7).kind).toBe('other');
     expect(checkSample(raw({ head: null }), 1, W, H, 0.7).why).toContain('boxes missing');
+  });
+
+  it('accepts the variant with a tall panel and no gold frame (host left, panel from the middle to the right edge)', () => {
+    const s = checkSample({ kind: 'host_left', confidence: 0.96, head: { x: 0.1, y: 0.03, w: 0.3, h: 0.46 }, picture: { x: 0.49, y: 0, w: 0.5, h: 0.82 } }, 1, W, H, 0.7);
+    expect(s.kind).toBe('host_left');
+    expect(s.picture!.x).toBeGreaterThanOrEqual(s.host!.x + s.host!.w);
+  });
+
+  it('refuses a layout where the picture is only a small inset over a background (panel stops short of the edge)', () => {
+    const s = checkSample({ kind: 'host_left', confidence: 0.92, head: { x: 0.13, y: 0.05, w: 0.38, h: 0.59 }, picture: { x: 0.12, y: 0.06, w: 0.76, h: 0.85 } }, 1, W, H, 0.7);
+    expect(s.kind).toBe('other');
+    expect(s.why).toContain('stops short');
   });
 
   it('treats an unsure answer as other', () => {
