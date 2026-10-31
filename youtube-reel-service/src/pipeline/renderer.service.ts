@@ -121,19 +121,33 @@ export class RendererService {
           this.logger.warn(`Reel ${reelId}: classic look (${found.reason})`);
         }
       }
-      const result = await this.renderToDir({
-        dir,
-        clips: renderClips,
-        words: reel.words,
-        headline: reel.packaging?.headline ?? null,
-        template: tpl.template,
-        canvasPath: tpl.canvasPath,
-        expectedDuration: reel.durationSec,
-        pace: this.pace(),
-        look,
-        fx: look === 'fullscreen' ? undefined : this.fx(),
-        sfx: await this.endSfx(),
-      });
+      const sfx = await this.endSfx();
+      const make = (l: 'classic' | 'fullscreen', c: RenderClipInput[]) =>
+        this.renderToDir({
+          dir,
+          clips: c,
+          words: reel.words,
+          headline: reel.packaging?.headline ?? null,
+          template: tpl.template,
+          canvasPath: tpl.canvasPath,
+          expectedDuration: reel.durationSec,
+          pace: this.pace(),
+          look: l,
+          fx: l === 'fullscreen' ? undefined : this.fx(),
+          sfx,
+        });
+      let result: RenderResult;
+      try {
+        result = await make(look, renderClips);
+      } catch (err: any) {
+        if (look !== 'fullscreen') throw err;
+        // the new look must never cost a reel: make it in the classic look instead
+        look = 'classic';
+        layoutShots = undefined;
+        lookNote = `full-screen render failed: ${String(err?.message ?? err).slice(0, 200)}`;
+        this.logger.warn(`Reel ${reelId}: classic look (${lookNote})`);
+        result = await make('classic', clips);
+      }
 
       const lowRes = srcs.filter((s) => s.height && s.height < 720).map((s) => `${s.youtubeId} is ${s.height}p`);
       const prefix = `${reel.channelId}/${reel.campaignId}/${reel._id}`;
