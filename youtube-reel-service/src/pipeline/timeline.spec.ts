@@ -63,7 +63,7 @@ describe('timeline (pause cuts + speed)', () => {
   });
 });
 
-describe('render graph pace + images', () => {
+describe('render graph pace', () => {
   const template = parseTemplate({ window: { x: 0, y: 656, w: 1080, h: 608 }, headline: {}, captions: {} });
   it('speeds video and raises pitch for chipmunk', () => {
     const g = renderGraph({ clips: [{ src: 'a', start: 0, duration: 5 }], template, canvasInputIndex: 1, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 4.17, speed: 1.2, voice: 'chipmunk' });
@@ -79,21 +79,6 @@ describe('render graph pace + images', () => {
   it('natural voice uses atempo; speed 1 is a pass-through', () => {
     expect(renderGraph({ clips: [{ src: 'a', start: 0, duration: 5 }], template, canvasInputIndex: 1, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 4, speed: 1.2, voice: 'natural' })).toContain('atempo=1.2000');
     expect(renderGraph({ clips: [{ src: 'a', start: 0, duration: 5 }], template, canvasInputIndex: 1, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 5 })).toContain('[vc0]null[vc]');
-  });
-  it('overlays picture cards inside the window, under the canvas, only during their beat, with fades', () => {
-    const g = renderGraph({
-      clips: [{ src: 'a', start: 0, duration: 10 }],
-      template,
-      canvasInputIndex: 1,
-      assFile: 'r.ass',
-      fontsDir: 'f',
-      measured: null,
-      totalDuration: 10,
-      images: [{ file: 'card.png', start: 2, end: 4.5 }],
-    });
-    expect(g).toContain('[2:v]format=yuva420p,fade=t=in:st=0:d=0.180:alpha=1,fade=t=out:st=2.380:d=0.120:alpha=1,setpts=PTS-STARTPTS+2.000/TB[im0]');
-    expect(g).toContain("[b1][im0]overlay=x=0:y=656:eof_action=pass:enable='between(t,2.000,4.500)'[bi0]");
-    expect(g).toContain('[bi0][1:v]overlay=x=0:y=0');
   });
 });
 
@@ -150,9 +135,9 @@ describe('visual rhythm (effects never change a segment length)', () => {
     expect(graph).toContain('amix=inputs=2:normalize=0:duration=first,alimiter=limit=0.84:level=disabled:latency=1');
     expect(graph).toContain("overlay=x='-w+W*t/22.000':y=1406:shortest=1");
   });
-  it('effects sit above the pictures and under the canvas and captions', () => {
-    const graph = renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 22, speed: 1, voice: 'natural', fx: all, images: [{ file: 'c.png', start: 2, end: 4 }] });
-    const order = ['[bi0]', '[fl0]', '[bar]', `[bbar][${clips.length}:v]overlay=x=0:y=0`].map((m) => graph.indexOf(m));
+  it('effects sit on the video window and under the canvas and captions', () => {
+    const graph = renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'r.ass', fontsDir: 'f', measured: null, totalDuration: 22, speed: 1, voice: 'natural', fx: all });
+    const order = ['[b1]', '[fl0]', '[bar]', `[bbar][${clips.length}:v]overlay=x=0:y=0`].map((m) => graph.indexOf(m));
     expect(order.every((i) => i >= 0)).toBe(true);
     expect([...order].sort((a, b) => a - b)).toEqual(order);
   });

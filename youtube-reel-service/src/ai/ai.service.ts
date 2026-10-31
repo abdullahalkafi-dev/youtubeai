@@ -14,7 +14,7 @@ export interface UsageDelta {
   sttSeconds?: number;
   embedTokens?: number;
   calls?: number;
-  /** AI images generated (reel visuals, thumbnails). */
+  /** AI images generated (thumbnail scenes). */
   images?: number;
   /** The model that produced these tokens (for the per-model cost split). */
   model?: string;

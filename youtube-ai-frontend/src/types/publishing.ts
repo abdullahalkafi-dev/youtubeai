@@ -106,7 +106,7 @@ export interface AnalyticsOverview {
   top: Array<{ postId: string; reelId: string; platform: PlatformId; url: string | null; title: string; views: number; publishedAt: string }>
 }
 
-export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign' | 'images' | 'voice' | 'look' | 'slot' | 'pillar' | 'track' | 'signal'
+export type BreakdownBy = 'platform' | 'shape' | 'theme' | 'entity' | 'duration' | 'weekday' | 'campaign' | 'voice' | 'look' | 'slot' | 'pillar' | 'track' | 'signal'
 
 export interface BreakdownRow {
   key: string

@@ -11,7 +11,7 @@ export interface RenderClipInput {
   kind?: 'start' | 'join' | 'cut';
 }
 
-/** Visual rhythm. None of these changes a segment length, so captions, pictures and loudness stay in sync. */
+/** Visual rhythm. None of these changes a segment length, so captions and loudness stay in sync. */
 export interface RenderFx {
   /** Alternate the framing 100% / 112% on every jump cut. */
   punch: boolean;
@@ -34,13 +34,6 @@ export function segmentStarts(clips: RenderClipInput[], speed: number): number[]
     t += c.duration;
     return at;
   });
-}
-
-/** An AI image shown inside the video window from `start` to `end` (output seconds). */
-export interface RenderImageInput {
-  file: string;
-  start: number;
-  end: number;
 }
 
 export interface LoudnessMeasure {
@@ -109,11 +102,6 @@ export function plannedAudioGraph(clips: RenderClipInput[]): string {
   return parts.join(';');
 }
 
-/** Input args for still images (one per AI image beat), looped for their on-screen time. */
-export function imageInputArgs(images: RenderImageInput[]): string[] {
-  return images.flatMap((im) => ['-loop', '1', '-framerate', '30', '-t', n(im.end - im.start + 0.05), '-i', im.file]);
-}
-
 /**
  * Pass 2: full reel.
  *  - each clip: cover-fit + crop into the template window (gentle zoom of 16:9), 30 fps, yuv420p
@@ -133,8 +121,6 @@ export function renderGraph(input: {
   speed?: number;
   voice?: Voice;
   semitones?: number;
-  /** AI images; their inputs follow the canvas input. */
-  images?: RenderImageInput[];
   fx?: RenderFx;
   /** Ending sound: a tail is added after the last word and the sound plays in it. */
   sfx?: { inputIndex: number; duration: number; tail: number; volume: number } | null;
@@ -187,23 +173,8 @@ export function renderGraph(input: {
   parts.push(`color=c=black:s=${t.width}x${t.height}:r=30:d=${n(dur + 0.5)}[bg]`);
   parts.push(`[bg][${video}]overlay=x=${x}:y=${y}:shortest=1[b1]`);
 
-  // AI pictures: each input is a window-sized card overlay (card.ts: dimmed backdrop + shadow + border + rounded picture),
-  // faded in/out, under the canvas and captions so the host's video stays visible around the card.
+  // Topic-change flash and progress line sit inside the window, under the canvas and captions.
   let cur = 'b1';
-  (input.images ?? []).forEach((im, j) => {
-    const idx = input.canvasInputIndex + 1 + j;
-    const d = Math.max(0.4, im.end - im.start);
-    const fin = 0.18;
-    const fout = 0.12;
-    parts.push(
-      `[${idx}:v]format=yuva420p,fade=t=in:st=0:d=${n(fin)}:alpha=1,fade=t=out:st=${n(Math.max(fin, d - fout))}:d=${n(fout)}:alpha=1,` +
-        `setpts=PTS-STARTPTS+${n(im.start)}/TB[im${j}]`,
-    );
-    parts.push(`[${cur}][im${j}]overlay=x=${x}:y=${y}:eof_action=pass:enable='between(t,${n(im.start)},${n(im.end)})'[bi${j}]`);
-    cur = `bi${j}`;
-  });
-
-  // Topic-change flash and progress line sit inside the window, above the pictures, under the canvas and captions.
   flashAt.forEach((at, j) => {
     const a = Math.max(0, at - FX.FLASH_IN);
     const b = at + FX.FLASH_OUT;

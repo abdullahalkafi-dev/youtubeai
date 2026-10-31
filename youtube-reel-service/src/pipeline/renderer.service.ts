@@ -12,13 +12,11 @@ import { BUCKETS, StorageService } from '../storage/storage.service';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
 import { buildAss, buildSrt } from './captions';
-import { clipInputArgs, imageInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, plannedAudioGraph, RenderClipInput, RenderFx, RenderImageInput, renderGraph } from './filtergraph';
-import { cardGraph } from './card';
+import { clipInputArgs, LOUDNESS, loudnessMeasureGraph, parseLoudnorm, parseQa, plannedAudioGraph, RenderClipInput, RenderFx, renderGraph } from './filtergraph';
 import { buildTimeline, mapWords, NO_PACE, PaceOptions, Timeline } from './timeline';
 import { ensureDir, freeDiskGb, jobDir, probeMedia, removeDir } from './media';
 import { ReelTemplate } from './template';
 import { TemplateStoreService } from './template-store.service';
-import { VisualsService } from './visuals.service';
 import { ThumbnailService } from './thumbnail.service';
 import { AiService } from '../ai/ai.service';
 import { EndSfx, resolveSfxFile, tailFor } from './sfx';
@@ -52,7 +50,6 @@ export class RendererService {
     private readonly templates: TemplateStoreService,
     private readonly orchestrator: OrchestratorService,
     private readonly queues: QueueService,
-    private readonly visuals: VisualsService,
     private readonly thumbnails: ThumbnailService,
     @Inject(AiService) private readonly ai: AiService | null = null,
   ) {}
@@ -101,24 +98,6 @@ export class RendererService {
 
     const dir = jobDir(this.cfg.REEL_WORK_DIR, 'render', reelId);
     try {
-      // AI images: planned + generated once, reused on every re-render. Never blocks the reel.
-      const images: RenderImageInput[] = [];
-      try {
-        for (const v of await this.visuals.ensure(reel)) {
-          const jpg = path.join(dir, `beat-${v.id}-${v.variant ?? 0}.jpg`);
-          const card = path.join(dir, `card-${v.id}-${v.variant ?? 0}.png`);
-          await this.storage.getFile(BUCKETS.reels, v.key!, jpg);
-          // the picture becomes a card on top of the host's video (see card.ts); ~0.2 s per picture
-          await run(this.cfg.FFMPEG_BIN, ['-hide_banner', '-y', '-i', jpg, '-filter_complex', cardGraph(tpl.template.window), '-map', '[out]', '-frames:v', '1', card], {
-            cwd: dir,
-            timeoutMs: 60_000,
-            lowPriority: true,
-          });
-          images.push({ file: card, start: v.start, end: v.end });
-        }
-      } catch (err: any) {
-        this.logger.warn(`Reel ${reelId}: rendering without AI images (${err.message})`);
-      }
       const result = await this.renderToDir({
         dir,
         clips,
@@ -128,7 +107,6 @@ export class RendererService {
         canvasPath: tpl.canvasPath,
         expectedDuration: reel.durationSec,
         pace: this.pace(),
-        images,
         fx: this.fx(),
         sfx: await this.endSfx(),
       });
@@ -224,8 +202,6 @@ export class RendererService {
     canvasPath: string;
     expectedDuration: number;
     pace?: PaceOptions;
-    /** AI images, timed on the planned reel timeline. */
-    images?: RenderImageInput[];
     fx?: RenderFx;
     /** Ending sound (adds a short tail after the last word). */
     sfx?: EndSfx | null;
@@ -234,7 +210,6 @@ export class RendererService {
 
     // Word times measured on this reel's own audio. If anything goes wrong the stored times are used, as before.
     let plannedWords = input.words;
-    let plannedImages = input.images ?? [];
     let realign: RenderResult['realign'] = null;
     let basePace = input.pace ?? NO_PACE;
     if (this.ai && this.cfg.REEL_STT_REALIGN && input.words.length) {
@@ -255,10 +230,6 @@ export class RendererService {
         const res = realignWords(input.words, (heard.words ?? []).map((w: any) => ({ word: w.word, start: w.start, end: w.end })), spans);
         if (res.ok) {
           plannedWords = res.words;
-          plannedImages = plannedImages.map((im) => {
-            const start = res.correct(im.start);
-            return { ...im, start, end: Math.max(start + 0.4, res.correct(im.end)) };
-          });
           basePace = { ...basePace, edgeCuts: true };
           realign = { ok: true, coverage: Math.round(res.coverage * 100) / 100, maxShiftSec: res.maxShift };
           this.logger.log(`Realigned ${plannedWords.length} words on the reel audio (matched ${Math.round(res.coverage * 100)}%, largest move ${res.maxShift}s)`);
@@ -276,9 +247,6 @@ export class RendererService {
     const clips = tl.segments;
     const total = tl.duration;
     const words = mapWords(plannedWords, tl);
-    const images = plannedImages
-      .map((im) => ({ file: im.file, start: tl.map(im.start), end: tl.map(im.end) }))
-      .filter((im) => im.end - im.start >= 0.3 && im.start < total);
 
     // Fonts + ASS live inside the job dir so filter paths stay relative (no escaping issues on any OS).
     const fonts = ensureDir(path.join(dir, 'fonts'));
@@ -312,10 +280,9 @@ export class RendererService {
         ...clipInputArgs(clips),
         '-i',
         'canvas.png',
-        ...imageInputArgs(images),
         ...(input.sfx ? ['-i', input.sfx.file] : []),
         '-filter_complex',
-        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, images, fx: input.fx, sfx: input.sfx ? { inputIndex: clips.length + 1 + images.length, duration: input.sfx.duration, tail: input.sfx.tail, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
+        renderGraph({ clips, template, canvasInputIndex: clips.length, assFile: 'reel.ass', fontsDir: 'fonts', measured, totalDuration: total, speed: tl.speed, voice: tl.voice, semitones: tl.semitones, fx: input.fx, sfx: input.sfx ? { inputIndex: clips.length + 1, duration: input.sfx.duration, tail: input.sfx.tail, volume: this.cfg.REEL_END_SFX_VOLUME } : null }),
         '-map',
         '[vout]',
         '-map',

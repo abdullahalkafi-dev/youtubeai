@@ -18,7 +18,7 @@ import { CampaignRunnerService } from './pipeline/campaign-runner.service';
 import { MaintenanceService } from './pipeline/maintenance.service';
 import { AnalyticsService } from './publishing/analytics.service';
 import { ImageGenService } from './ai/image-gen.service';
-import { VisualsService } from './pipeline/visuals.service';
+import { PeopleService } from './pipeline/people.service';
 import { ThumbnailService } from './pipeline/thumbnail.service';
 import { DailyService } from './pipeline/daily.service';
 import { LanesService } from './pipeline/lanes.service';
@@ -50,7 +50,7 @@ const providers = [
   CampaignRunnerService,
   MaintenanceService,
   ImageGenService,
-  VisualsService,
+  PeopleService,
   ThumbnailService,
   PillarService,
   SignalsService,

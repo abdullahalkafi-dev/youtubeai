@@ -24,7 +24,6 @@ const BREAKDOWNS: Array<[BreakdownBy, string]> = [
   ['duration', 'Length'],
   ['weekday', 'Weekday'],
   ['campaign', 'Campaign'],
-  ['images', 'Pictures'],
   ['voice', 'Voice'],
   ['look', 'Look'],
   ['slot', 'Time slot'],

@@ -6,7 +6,7 @@ import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { parsePeriodDays } from './publish.service';
 
-export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice', 'look', 'slot', 'pillar', 'track', 'signal'] as const;
+export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'voice', 'look', 'slot', 'pillar', 'track', 'signal'] as const;
 export type Breakdown = (typeof BREAKDOWNS)[number];
 
 const DURATION_BUCKETS = [0, 30, 45, 60, 1e9];
@@ -112,17 +112,6 @@ export class AnalyticsService {
       case 'duration':
         key = '$bucketKey'; // computed below
         break;
-      case 'images': {
-        // how many AI pictures the reel had: does a busier reel keep people watching?
-        const n = { $size: { $filter: { input: { $ifNull: ['$reel.visuals', []] }, as: 'v', cond: { $eq: ['$$v.status', 'ready'] } } } };
-        pipeline.push({
-          $addFields: {
-            picKey: { $switch: { branches: [{ case: { $eq: [n, 0] }, then: 'No pictures' }, { case: { $lte: [n, 2] }, then: '1–2 pictures' }, { case: { $lte: [n, 4] }, then: '3–4 pictures' }], default: '5 or more pictures' } },
-          },
-        });
-        key = '$picKey';
-        break;
-      }
       case 'voice':
         // the pace/voice treatment the reel was rendered with (older reels have none recorded)
         pipeline.push({

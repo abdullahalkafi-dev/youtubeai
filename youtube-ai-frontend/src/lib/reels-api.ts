@@ -156,8 +156,6 @@ export const reelsApi = {
     request<Reel>(`/channels/${channelId}/reels/${reelId}/thumbnails/regenerate`, { method: 'POST' }),
   chooseThumbnail: (channelId: string, reelId: string, thumbId: string) =>
     request<Reel>(`/channels/${channelId}/reels/${reelId}/thumbnails/${thumbId}/choose`, { method: 'POST' }),
-  changeVisual: (channelId: string, reelId: string, visualId: string, action: 'replace' | 'remove') =>
-    request<{ ok: boolean }>(`/channels/${channelId}/reels/${reelId}/visuals/${visualId}/${action}`, { method: 'POST' }),
 
   // ---- delete / refresh ----
   deletePreview: (channelId: string, campaignId: string) => request<DeletePreview>(`/channels/${channelId}/campaigns/${campaignId}/delete-preview`),

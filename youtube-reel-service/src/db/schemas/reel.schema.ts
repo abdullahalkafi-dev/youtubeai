@@ -11,28 +11,6 @@ export type ReelShape = (typeof REEL_SHAPES)[number];
 export const CLIP_ROLES = ['hook', 'setup', 'build', 'payoff', 'close'] as const;
 export type ClipRole = (typeof CLIP_ROLES)[number];
 
-/** An AI image shown inside the video window (times on the planned reel timeline). */
-export interface ReelVisual {
-  id: string;
-  start: number;
-  end: number;
-  importance: 'high' | 'medium';
-  purpose: string;
-  /** The words he says when the picture appears. */
-  phrase?: string;
-  prompt: string;
-  safePrompt: string;
-  people: string[];
-  status: 'pending' | 'ready' | 'failed' | 'removed';
-  key?: string;
-  variant?: number;
-  /** Generated from the fallback prompt without real people. */
-  usedSafe?: boolean;
-  /** Shows a real, named person realistically → publish declares synthetic content. */
-  realPerson?: boolean;
-  error?: string;
-}
-
 /** A finished 9:16 thumbnail variant. */
 export interface ReelThumbnail {
   id: string;
@@ -120,8 +98,6 @@ export class Reel {
   assets: { videoKey?: string; coverKey?: string; srtKey?: string; planKey?: string; sizeBytes?: number };
   @Prop() templateName?: string;
   @Prop() templateEtag?: string;
-  @Prop({ type: [Object], default: [] }) visuals: ReelVisual[];
-  @Prop() visualsVersion?: string;
   @Prop({ type: [Object], default: [] }) thumbnails: ReelThumbnail[];
   @Prop() thumbnailChoice?: string;
   @Prop() thumbnailsVersion?: string;

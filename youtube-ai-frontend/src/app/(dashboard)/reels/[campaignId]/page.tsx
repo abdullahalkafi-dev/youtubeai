@@ -111,7 +111,7 @@ export default function CampaignPage() {
   const refreshLook = async () => {
     if (!c) return
     const n = c.reels.filter((r) => r.status === 'todo').length
-    if (!confirm(`Re-make ${n} reel${n === 1 ? '' : 's'} that are not posted yet with the latest voice and pictures? It takes about a minute per reel.`)) return
+    if (!confirm(`Re-make ${n} reel${n === 1 ? '' : 's'} that are not posted yet with the latest look and voice? It takes about a minute per reel.`)) return
     setBusy(true)
     try {
       const r = await reelsApi.refreshLook(channelId, c.id)
@@ -172,7 +172,7 @@ export default function CampaignPage() {
             </button>
           )}
           {!active && c.reels.some((r) => r.status === 'todo') && (
-            <button onClick={refreshLook} disabled={busy} title="Re-make the reels that are not posted yet with the latest voice and pictures" className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
+            <button onClick={refreshLook} disabled={busy} title="Re-make the reels that are not posted yet with the latest look and voice" className="px-3 py-2 rounded-xl bg-zinc-100 dark:bg-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 flex items-center gap-1.5">
               <Sparkles className="w-3.5 h-3.5" /> Refresh look
             </button>
           )}

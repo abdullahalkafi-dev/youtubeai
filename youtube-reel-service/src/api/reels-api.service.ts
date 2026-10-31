@@ -26,7 +26,6 @@ import { OrchestratorService } from '../queue/orchestrator.service';
 import { fullVideoLine, withFullVideoLine } from '../publishing/description';
 import { PublishService } from '../publishing/publish.service';
 import { AnalyticsService } from '../publishing/analytics.service';
-import { VisualsService } from '../pipeline/visuals.service';
 import { ThumbnailService } from '../pipeline/thumbnail.service';
 import { UploadsService } from './uploads.service';
 import { CreateCampaignInput, PatchReelInput } from './dto';
@@ -49,7 +48,6 @@ export class ReelsApiService {
     private readonly jwt: JwtService,
     private readonly publish: PublishService,
     private readonly analytics: AnalyticsService,
-    private readonly visualsSvc: VisualsService,
     private readonly thumbs: ThumbnailService,
     private readonly uploads: UploadsService,
   ) {}
@@ -71,30 +69,6 @@ export class ReelsApiService {
     } catch {
       return false;
     }
-  }
-
-  private visualsOut(r: any, userId: string) {
-    const list = (r.visuals ?? []).filter((v: any) => v.status !== 'removed');
-    if (!list.length) return [];
-    const t = encodeURIComponent(this.mediaToken(String(r._id), userId));
-    // planned reel time → time in the finished (paced) file
-    const map = (sec: number) => {
-      const cuts: Array<[number, number]> = r.timing?.cuts ?? [];
-      let removed = 0;
-      for (const [a, b] of cuts) if (sec > a) removed += Math.min(sec, b) - a;
-      return (sec - removed) / (r.timing?.speed ?? 1);
-    };
-    const r1 = (n: number) => Math.round(n * 10) / 10;
-    return list.map((v: any) => ({
-      id: v.id,
-      at: r1(map(v.start)),
-      duration: r1(map(v.end) - map(v.start)),
-      purpose: v.purpose,
-      phrase: v.phrase ?? null,
-      status: v.status,
-      realPerson: !!v.realPerson,
-      url: v.status === 'ready' && v.key ? `/api/reels/media/${r._id}/beat-${v.id}?t=${t}&v=${v.variant ?? 0}` : null,
-    }));
   }
 
   private thumbnailsOut(r: any, userId: string) {
@@ -123,15 +97,6 @@ export class ReelsApiService {
     if (!r) throw new NotFoundException('Reel not found');
     await this.thumbs.choose(reelId, thumbId);
     return this.getReel(channelId, reelId, userId);
-  }
-
-  async changeVisual(channelId: string, reelId: string, visualId: string, action: 'replace' | 'remove') {
-    const r = await this.reels.findOne({ _id: reelId, channelId }).select('status').lean();
-    if (!r) throw new NotFoundException('Reel not found');
-    if (['queued', 'rendering'].includes(r.status)) throw new ConflictException('This reel is being rendered right now. Try again in a minute.');
-    if (action === 'replace') await this.visualsSvc.replace(reelId, visualId);
-    else await this.visualsSvc.remove(reelId, visualId);
-    return this.rerender(channelId, reelId);
   }
 
   private media(reelId: string, userId: string, ready: boolean) {
@@ -492,7 +457,6 @@ export class ReelsApiService {
       rejectReason: r.rejectReason ?? null,
       createdAt: r.createdAt,
       media: this.media(String(r._id), userId, ready),
-      visuals: this.visualsOut(r, userId),
       thumbnails: this.thumbnailsOut(r, userId),
       posts,
     };

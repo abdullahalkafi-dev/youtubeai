@@ -178,7 +178,7 @@ async function renderLocal(args: string[]) {
   const cfg = loadConfig();
   const tplDir = path.resolve(templateDir ?? path.join(cfg.assetsDir, 'templates', 'default'));
   const template = parseTemplate(JSON.parse(fs.readFileSync(path.join(tplDir, 'template.json'), 'utf8')));
-  const renderer = new RendererService(cfg, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null);
+  const renderer = new RendererService(cfg,null as any, null as any, null as any, null as any, null as any, null as any, null as any, null as any, null);
   const dur = Number(duration);
   const sample = 'the first night inside nobody tells you the rules you learn them the hard way and that is the jewel'.split(' ');
   const words = sample.map((w, i) => ({ w, s: (i * dur) / sample.length, e: ((i + 0.85) * dur) / sample.length, eos: i === 8 || i === sample.length - 1 }));

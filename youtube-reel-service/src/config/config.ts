@@ -95,11 +95,9 @@ const EnvSchema = z.object({
   REEL_FX_JOIN: bool(true),
   REEL_FX_WHOOSH: bool(true),
   REEL_FX_BAR: bool(true),
-  // AI images inside reels (GPT Image). Low quality keeps each image around a cent.
-  REEL_IMAGES_ENABLED: bool(true),
+  // GPT Image model for the thumbnail scenes (the reels themselves carry no AI images). Low quality keeps each image around a cent.
   REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),
   REEL_IMAGE_QUALITY: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('low'),
-  REEL_IMAGES_MAX: int(7),
   REEL_THUMBNAILS_ENABLED: bool(true),
   /** The main app's MinIO bucket (read-only use: its subject photos, host cutouts). */
   MAIN_MINIO_BUCKET: str('thumbnails'),

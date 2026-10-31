@@ -22,7 +22,7 @@ const ReviewSchema = z.object({
     .max(6),
 });
 
-const SECTIONS: Array<(typeof BREAKDOWNS)[number]> = ['pillar', 'track', 'signal', 'slot', 'weekday', 'shape', 'duration', 'images', 'voice', 'look'];
+const SECTIONS: Array<(typeof BREAKDOWNS)[number]> = ['pillar', 'track', 'signal', 'slot', 'weekday', 'shape', 'duration', 'voice', 'look'];
 
 export function mondayOf(date: string): string {
   const d = new Date(`${date}T12:00:00Z`);

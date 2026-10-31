@@ -157,16 +157,6 @@ export class CampaignsController {
     return this.api.rerender(channelId, reelId);
   }
 
-  @Post('reels/:reelId/visuals/:visualId/replace')
-  replaceVisual(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Param('visualId') visualId: string) {
-    return this.api.changeVisual(channelId, reelId, visualId, 'replace');
-  }
-
-  @Post('reels/:reelId/visuals/:visualId/remove')
-  removeVisual(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Param('visualId') visualId: string) {
-    return this.api.changeVisual(channelId, reelId, visualId, 'remove');
-  }
-
   @Post('reels/:reelId/thumbnails/regenerate')
   regenerateThumbnails(@Param('channelId') channelId: string, @Param('reelId') reelId: string, @Req() req: AuthedRequest) {
     return this.api.regenerateThumbnails(channelId, reelId, uid(req));
@@ -203,11 +193,9 @@ export class MediaController {
   @Get(':reelId/:kind')
   async serve(@Param('reelId') reelId: string, @Param('kind') kind: string, @Query('t') token: string, @Req() req: Request, @Res() res: Response) {
     if (!token || !(await this.api.verifyMediaToken(token, reelId))) throw new UnauthorizedException('Invalid media link');
-    const reel = await this.reels.findById(reelId).select('assets packaging.title index visuals thumbnails').lean();
+    const reel = await this.reels.findById(reelId).select('assets packaging.title index thumbnails').lean();
     const key = kind.startsWith('thumb-')
       ? reel?.thumbnails?.find((t) => `thumb-${t.id}` === kind && t.status === 'ready')?.key
-      : kind.startsWith('beat-')
-      ? reel?.visuals?.find((v) => `beat-${v.id}` === kind && v.status === 'ready')?.key
       : kind === 'video' || kind === 'download'
         ? reel?.assets?.videoKey
         : kind === 'cover'

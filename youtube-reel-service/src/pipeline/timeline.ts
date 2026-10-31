@@ -3,7 +3,7 @@ import type { RenderClipInput } from './filtergraph';
 
 /**
  * Pace of a rendered reel: pauses inside clips are cut out (jump cuts) and the whole reel is sped up.
- * Everything that is timed on the reel — captions, AI image beats, the cover frame, QA — goes through the
+ * Everything that is timed on the reel — captions, the cover frame, QA — goes through the
  * same `map()`, so nothing can drift out of sync.
  *
  * Times come in three flavours:

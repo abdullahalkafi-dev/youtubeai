@@ -93,8 +93,7 @@ export class PublishService {
       privacy: this.cfg.PUBLISH_DEFAULT_PRIVACY,
       scheduleAt: null,
       madeForKids: false,
-      // Realistic AI images of real people must be declared as altered/synthetic content on YouTube.
-      containsSyntheticMedia: !!reel.visuals?.some((v) => v.status === 'ready' && v.realPerson),
+      containsSyntheticMedia: false, // reels carry no AI images
       notifySubscribers: false,
     };
   }

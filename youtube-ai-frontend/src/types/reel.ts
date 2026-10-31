@@ -1,17 +1,5 @@
 import type { PostSummary } from './publishing'
 
-export interface ReelVisual {
-  id: string
-  at: number
-  duration: number
-  purpose: string
-  /** The words he says when this picture appears. */
-  phrase?: string | null
-  status: 'pending' | 'ready' | 'failed'
-  realPerson: boolean
-  url: string | null
-}
-
 export type CampaignStatus =
   | 'queued'
   | 'researching'
@@ -189,8 +177,6 @@ export interface Reel {
   media: { video: string; cover: string; download: string; srt: string } | null
   needsRerender?: boolean
   posts?: PostSummary[]
-  /** AI images shown during the reel (times are in the finished video). */
-  visuals?: ReelVisual[]
   /** 9:16 thumbnail variants; `chosen` is the one sent to YouTube. */
   thumbnails?: Array<{ id: string; headline: string; chosen: boolean; source: string; url: string }>
 }

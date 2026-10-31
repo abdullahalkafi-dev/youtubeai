@@ -152,7 +152,7 @@ const SAMPLES = [
         durationSec: item.duration,
         packaging: { headline: item.pack.headline, title: item.pack.title, altTitles: item.pack.altTitles, description: item.description, tags: item.pack.tags, hashtags: item.pack.hashtags, pinnedComment: item.pack.pinnedComment, summary: item.pack.summary },
         entitySlugs: item.entitySlugs, entityNames: item.entityNames, themes: item.themes, pillar: item.pillar,
-        templateName: FORMAT, visuals: [], thumbnails: [],
+        templateName: FORMAT, thumbnails: [],
         qa: { loudnessLufs: -14.5, width: 1080, height: 1920, warnings: [] },
       });
       const key = `${CHANNEL}/${campaign._id}/${reel._id}/reel.mp4`;

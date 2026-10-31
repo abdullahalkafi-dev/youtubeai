@@ -101,7 +101,7 @@ export const PostsQuery = z.object({
 
 export const AnalyticsQuery = z.object({
   period: z.string().regex(/^(\d{1,3}d|all)$/).default('30d'),
-  by: z.enum(['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'images', 'voice', 'look', 'slot', 'pillar', 'track', 'signal']).default('platform'),
+  by: z.enum(['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'voice', 'look', 'slot', 'pillar', 'track', 'signal']).default('platform'),
 });
 
 export const StartUploadDto = z.object({

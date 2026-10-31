@@ -15,7 +15,7 @@ import { OrchestratorService } from '../queue/orchestrator.service';
 import { BUCKETS, StorageService } from '../storage/storage.service';
 import { ensureDir, jobDir, removeDir } from './media';
 import { buildThumbAss, HOST_POSES, THUMB_SCENE_SIZE, thumbGraph } from './thumb-compose';
-import { nameTokens, sameName, VisualsService } from './visuals.service';
+import { nameTokens, PeopleService, sameName } from './people.service';
 
 type Variant = ThumbnailPlan['variants'][number];
 
@@ -34,7 +34,7 @@ export class ThumbnailService {
     private readonly ai: AiService,
     private readonly images: ImageGenService,
     private readonly storage: StorageService,
-    private readonly visuals: VisualsService,
+    private readonly people: PeopleService,
     private readonly orchestrator: OrchestratorService,
   ) {}
 
@@ -78,7 +78,7 @@ export class ThumbnailService {
 
   private async generate(reel: ReelDocument, coverFile: string | null) {
     const usage = this.orchestrator.usageSink(reel.campaignId);
-    const people = await this.visuals.peopleWithPhotos();
+    const people = await this.people.peopleWithPhotos();
     const spoken = ` ${(reel.entityNames ?? []).join(' ')} ${reel.concept} ${reel.packaging?.title ?? ''} `.toLowerCase();
     const relevant = people.filter((p) => (reel.entityNames ?? []).some((n) => sameName(n, p.name)) || nameTokens(p.name).some((t) => spoken.includes(` ${t}`)));
 
@@ -139,7 +139,7 @@ export class ThumbnailService {
     const scene = path.join(dir, `scene-${i}.jpg`);
     let source: ReelThumbnail['source'] = 'frame';
     const person = v.subject ? people.find((p) => sameName(p.name, v.subject!)) : undefined;
-    const ref = person ? await this.visuals.readPhoto(person.imageUrl) : null;
+    const ref = person ? await this.people.readPhoto(person.imageUrl) : null;
     const tries: Array<{ prompt: string; refs?: Array<{ name: string; data: Buffer }>; source: ReelThumbnail['source'] }> = [
       { prompt: v.scene + (ref ? ` The person in the reference photo is ${person!.name}; keep his real likeness.` : ''), refs: ref ? [{ name: person!.name, data: ref }] : undefined, source: ref ? 'photo-ref' : 'ai' },
       { prompt: v.safeScene, source: 'ai-safe' },
