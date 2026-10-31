@@ -6,7 +6,7 @@
  * right (`host_left`) and the reverse (`host_right`). Anything else (host alone, a full-screen clip, an intro card) is `other`
  * and makes the reel fall back to the classic look.
  */
-export const LAYOUT_VERSION = 'layout-v1';
+export const LAYOUT_VERSION = 'layout-v2';
 
 export type LayoutKind = 'host_left' | 'host_right' | 'other';
 
@@ -22,15 +22,21 @@ export interface Box {
 export interface RawFrameLayout {
   kind: LayoutKind;
   confidence: number;
-  host: Box | null;
+  /** The host's head only (hat, face, headphones). The host stands in front of one end of the story panel, so his body box would cut into the picture. */
+  head: Box | null;
+  /** The story panel as the model sees it (it may run behind the host). */
   picture: Box | null;
 }
 
-/** A checked answer for one frame, boxes in source pixels. `t` is source seconds. */
+/** A checked answer for one frame. `t` is source seconds; `host` and `picture` are the crops (source pixels) derived from the head and panel boxes. */
 export interface LayoutSample {
+  /** Why a frame was not accepted (audit). */
+  why?: string;
   t: number;
   kind: LayoutKind;
   conf: number;
+  /** The model's head box in source pixels (audit). */
+  head?: Box;
   host?: Box;
   picture?: Box;
 }
@@ -47,12 +53,22 @@ export interface ShotLayout {
 export const LAYOUT_RULES = {
   /** The phone-number ticker and the channel header sit outside the story: nothing below this share of the frame counts. */
   maxBottom: 0.82,
+  /** The story panel's gold frame ends here in every video of this set (the ticker overlaps its lower edge). */
+  pictureMaxBottom: 0.77,
   minTop: 0.03,
-  hostWidth: [0.2, 0.6] as const,
+  headWidth: [0.08, 0.42] as const,
+  headHeight: [0.15, 0.75] as const,
   pictureWidth: [0.35, 0.8] as const,
   pictureAspect: [1.2, 2.3] as const,
-  /** How much the two boxes may overlap, as a share of the frame width. */
-  maxOverlap: 0.08,
+  /** The host crop stops this far (share of the frame width) beyond the head on the picture side, and starts this far above it (share of the height). */
+  hostMargin: 0.012,
+  hostTopPad: 0.02,
+  /** The picture crop is taken this far inside the model's panel box, to keep the gold frame out. */
+  pictureInsetX: 0.01,
+  pictureInsetY: 0.006,
+  /** The host crop must be at least this wide and the picture crop at least this wide (shares of the frame width) to be usable. */
+  minHostWidth: 0.2,
+  minPictureWidth: 0.3,
   /** A sample whose own box is this close (IoU) to the video's typical box uses the typical one, so every reel from a video crops alike. */
   stickIou: 0.8,
   /** A cut closer than this to the previous one is not a new shot. */
@@ -74,36 +90,47 @@ export function iou(a: Box, b: Box): number {
   return union > 0 ? inter / union : 0;
 }
 
-function toPixels(f: Box, W: number, H: number): Box {
-  const R = LAYOUT_RULES;
-  const x = clamp(f.x, 0, 1) * W;
-  const y = clamp(f.y, R.minTop, 1) * H;
-  const right = clamp(f.x + f.w, 0, 1) * W;
-  const bottom = clamp(f.y + f.h, 0, R.maxBottom) * H;
-  return { x: Math.round(x), y: Math.round(y), w: Math.round(right - x), h: Math.round(bottom - y) };
+/** A fractional box (clamped to the frame) in pixels, as edges. */
+function edges(f: Box, W: number, H: number) {
+  return { l: clamp(f.x, 0, 1) * W, t: clamp(f.y, 0, 1) * H, r: clamp(f.x + f.w, 0, 1) * W, b: clamp(f.y + f.h, 0, 1) * H };
 }
 
-/** Turns the model's answer for a frame into a checked sample: any impossible geometry makes it `other` with no confidence. */
+const px = (l: number, t: number, r: number, b: number): Box => ({ x: Math.round(l), y: Math.round(t), w: Math.round(r - l), h: Math.round(b - t) });
+
+/**
+ * Turns the model's answer for a frame into a checked sample. The host crop runs from the frame edge to just past his head (his
+ * body is partly in front of the picture panel, so the head is the divider); the picture crop is the panel from that divider to its
+ * far edge, inside its gold frame. Impossible geometry makes the sample `other` with no confidence.
+ */
 export function checkSample(raw: RawFrameLayout, t: number, W: number, H: number, minConf: number): LayoutSample {
-  const bad: LayoutSample = { t, kind: 'other', conf: 0 };
+  const bad = (why: string): LayoutSample => ({ t, kind: 'other', conf: 0, why: `${why} (model said ${raw.kind} ${raw.confidence})` });
   if (raw.kind === 'other') return { t, kind: 'other', conf: clamp(raw.confidence, 0, 1) };
-  if (!raw.host || !raw.picture) return bad;
+  if (!raw.head || !raw.picture) return bad('boxes missing');
   const R = LAYOUT_RULES;
-  const host = toPixels(raw.host, W, H);
-  const picture = toPixels(raw.picture, W, H);
-  if (host.w <= 0 || host.h <= 0 || picture.w <= 0 || picture.h <= 0) return bad;
-  const hw = host.w / W;
-  const pw = picture.w / W;
-  const aspect = picture.w / picture.h;
-  if (hw < R.hostWidth[0] || hw > R.hostWidth[1] || pw < R.pictureWidth[0] || pw > R.pictureWidth[1]) return bad;
-  if (aspect < R.pictureAspect[0] || aspect > R.pictureAspect[1]) return bad;
-  const hostCentre = host.x + host.w / 2;
-  const picCentre = picture.x + picture.w / 2;
-  if (raw.kind === 'host_left' ? hostCentre >= picCentre : hostCentre <= picCentre) return bad;
-  const overlap = Math.max(0, Math.min(host.x + host.w, picture.x + picture.w) - Math.max(host.x, picture.x));
-  if (overlap / W > R.maxOverlap) return bad;
+  const hd = edges(raw.head, W, H);
+  const pc = edges(raw.picture, W, H);
+  const headW = (hd.r - hd.l) / W;
+  const headH = (hd.b - hd.t) / H;
+  if (headW < R.headWidth[0] || headW > R.headWidth[1] || headH < R.headHeight[0] || headH > R.headHeight[1]) return bad('head size outside the studio proportions');
+  const pw = (pc.r - pc.l) / W;
+  const pAspect = (pc.r - pc.l) / Math.max(1, pc.b - pc.t);
+  if (pw < R.pictureWidth[0] || pw > R.pictureWidth[1] || pAspect < R.pictureAspect[0] || pAspect > R.pictureAspect[1]) return bad('picture panel outside the studio proportions');
+  const left = raw.kind === 'host_left';
+  if (left ? (hd.l + hd.r) / 2 >= (pc.l + pc.r) / 2 : (hd.l + hd.r) / 2 <= (pc.l + pc.r) / 2) return bad('host and picture on the wrong sides');
+
+  const m = R.hostMargin * W;
+  const top = Math.max(R.minTop * H, hd.t - R.hostTopPad * H);
+  const bottom = R.maxBottom * H;
+  const divider = left ? hd.r + m : hd.l - m;
+  const host = left ? px(0, top, divider, bottom) : px(divider, top, W, bottom);
+  const inX = R.pictureInsetX * W;
+  const inY = R.pictureInsetY * H;
+  const pTop = Math.max(R.minTop * H, pc.t + inY);
+  const pBottom = Math.min(R.pictureMaxBottom * H, pc.b - inY);
+  const picture = left ? px(Math.max(divider, pc.l), pTop, pc.r - inX, pBottom) : px(pc.l + inX, pTop, Math.min(divider, pc.r), pBottom);
+  if (host.w / W < R.minHostWidth || picture.w / W < R.minPictureWidth || host.h <= 0 || picture.h <= 0) return bad('crops too small');
   const conf = clamp(raw.confidence, 0, 1);
-  return { t, kind: conf >= minConf ? raw.kind : 'other', conf, host, picture };
+  return { t, kind: conf >= minConf ? raw.kind : 'other', conf, head: px(hd.l, hd.t, hd.r, hd.b), host, picture };
 }
 
 export function median(nums: number[]): number {

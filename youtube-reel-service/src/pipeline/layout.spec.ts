@@ -6,36 +6,58 @@ import type { ReelTemplate } from './template';
 
 const W = 1920;
 const H = 1080;
-const frac = (b: Box) => ({ x: b.x / W, y: b.y / H, w: b.w / W, h: b.h / H });
 // the boxes set by hand for the Diddy sample (host left, picture right)
 const HOST_L: Box = { x: 0, y: 60, w: 700, h: 790 };
 const PIC_R: Box = { x: 690, y: 112, w: 1170, h: 698 };
-const raw = (over: Partial<RawFrameLayout> = {}): RawFrameLayout => ({ kind: 'host_left', confidence: 0.9, host: frac(HOST_L), picture: frac(PIC_R), ...over });
+// what the vision model answered for the Diddy footage (head box + panel box, fractions of the frame), read on the server on 2026-10-31
+const RAW_DIDDY: RawFrameLayout = { kind: 'host_left', confidence: 0.96, head: { x: 0.08, y: 0.02, w: 0.29, h: 0.47 }, picture: { x: 0.327, y: 0.1, w: 0.647, h: 0.72 } };
+// ... and for the Lil Durk footage (host on the right)
+const RAW_DURK: RawFrameLayout = { kind: 'host_right', confidence: 0.96, head: { x: 0.59, y: 0.13, w: 0.31, h: 0.56 }, picture: { x: 0.01, y: 0.13, w: 0.67, h: 0.75 } };
+const DURK_HOST: Box = { x: 1030, y: 100, w: 870, h: 750 }; // set by hand for the approved Durk sample
+const DURK_PIC: Box = { x: 15, y: 140, w: 1075, h: 705 };
+const raw = (over: Partial<RawFrameLayout> = {}): RawFrameLayout => ({ ...RAW_DIDDY, ...over });
 
 describe('checkSample', () => {
-  it('keeps a plausible host-left frame and converts the boxes to pixels', () => {
-    const s = checkSample(raw(), 12, W, H, 0.7);
-    expect(s.kind).toBe('host_left');
-    expect(iou(s.host!, HOST_L)).toBeGreaterThan(0.99);
-    expect(iou(s.picture!, PIC_R)).toBeGreaterThan(0.99);
+  it('derives crops from the head and the panel that match the ones set by hand for the approved samples', () => {
+    const a = checkSample(RAW_DIDDY, 12, W, H, 0.7);
+    expect(a.kind).toBe('host_left');
+    expect(iou(a.host!, HOST_L)).toBeGreaterThan(0.85);
+    expect(iou(a.picture!, PIC_R)).toBeGreaterThan(0.85);
+    const d = checkSample(RAW_DURK, 12, W, H, 0.7);
+    expect(d.kind).toBe('host_right');
+    expect(iou(d.host!, DURK_HOST)).toBeGreaterThan(0.8);
+    expect(iou(d.picture!, DURK_PIC)).toBeGreaterThan(0.8);
   });
 
-  it('never lets a box reach the phone-number ticker at the bottom', () => {
-    const s = checkSample(raw({ host: { x: 0, y: 0.05, w: 0.36, h: 0.95 } }), 1, W, H, 0.7);
+  it('the host crop stops just past his head and the picture starts there, so neither shows the other', () => {
+    const s = checkSample(RAW_DIDDY, 1, W, H, 0.7);
+    expect(s.host!.x).toBe(0);
+    expect(s.host!.x + s.host!.w).toBeGreaterThan(s.head!.x + s.head!.w);
+    expect(s.picture!.x).toBeGreaterThanOrEqual(s.host!.x + s.host!.w);
+    const r = checkSample(RAW_DURK, 1, W, H, 0.7);
+    expect(r.host!.x + r.host!.w).toBe(W);
+    expect(r.host!.x).toBeLessThan(r.head!.x);
+    expect(r.picture!.x + r.picture!.w).toBeLessThanOrEqual(r.host!.x);
+  });
+
+  it('never lets a crop reach the phone-number ticker at the bottom', () => {
+    const s = checkSample(raw({ picture: { x: 0.327, y: 0.1, w: 0.647, h: 0.9 } }), 1, W, H, 0.7);
     expect(s.kind).toBe('host_left');
     expect(s.host!.y + s.host!.h).toBeLessThanOrEqual(Math.round(H * 0.82));
+    expect(s.picture!.y + s.picture!.h).toBeLessThanOrEqual(Math.round(H * 0.77));
   });
 
   it('rejects geometry that cannot be the studio set', () => {
     expect(checkSample(raw({ kind: 'host_right' }), 1, W, H, 0.7).kind).toBe('other'); // says right, boxes say left
-    expect(checkSample(raw({ host: { x: 0, y: 0.1, w: 0.1, h: 0.7 } }), 1, W, H, 0.7).kind).toBe('other'); // host far too narrow
-    expect(checkSample(raw({ picture: { x: 0.2, y: 0.1, w: 0.7, h: 0.7 } }), 1, W, H, 0.7).kind).toBe('other'); // overlaps the host
-    expect(checkSample(raw({ host: null }), 1, W, H, 0.7).kind).toBe('other');
+    expect(checkSample(raw({ head: { x: 0.1, y: 0.1, w: 0.03, h: 0.1 } }), 1, W, H, 0.7).kind).toBe('other'); // head far too small
+    expect(checkSample(raw({ picture: { x: 0.45, y: 0.1, w: 0.3, h: 0.6 } }), 1, W, H, 0.7).kind).toBe('other'); // panel too narrow
+    expect(checkSample(raw({ head: null }), 1, W, H, 0.7).kind).toBe('other');
+    expect(checkSample(raw({ head: null }), 1, W, H, 0.7).why).toContain('boxes missing');
   });
 
   it('treats an unsure answer as other', () => {
     expect(checkSample(raw({ confidence: 0.5 }), 1, W, H, 0.7).kind).toBe('other');
-    expect(checkSample(raw({ kind: 'other', host: null, picture: null }), 1, W, H, 0.7).kind).toBe('other');
+    expect(checkSample(raw({ kind: 'other', head: null, picture: null }), 1, W, H, 0.7).kind).toBe('other');
   });
 });
 

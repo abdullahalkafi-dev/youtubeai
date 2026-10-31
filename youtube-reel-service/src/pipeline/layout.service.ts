@@ -170,6 +170,7 @@ export class LayoutService {
           imageDetail: 'high',
           usage,
         });
+        this.logger.log(`[layout:${id}] ${JSON.stringify(res.frames)}`);
         const fresh: LayoutSample[] = group.map((t, k) => {
           const f = res.frames.find((x) => x.index === k);
           return f ? checkSample(f, t, w, h, this.cfg.REEL_LAYOUT_MIN_CONF) : { t, kind: 'other' as const, conf: 0 };
