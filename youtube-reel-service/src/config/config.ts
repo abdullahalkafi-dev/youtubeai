@@ -97,7 +97,7 @@ const EnvSchema = z.object({
   REEL_FX_BAR: bool(true),
   // Reel look: 'fullscreen' (headline, story picture and host cropped from the studio frame, found automatically per shot) or
   // 'classic' (the small video window on the template canvas). A fullscreen reel whose shots cannot all be read falls back to classic.
-  REEL_LOOK: z.enum(['classic', 'fullscreen']).default('classic'),
+  REEL_LOOK: z.enum(['classic', 'fullscreen']).default('fullscreen'),
   // The studio-layout check (vision): the model to use (task key "layout" in OPENAI_REEL_TASK_MODELS overrides it) and how sure it must be.
   REEL_LAYOUT_MODEL: str(''),
   REEL_LAYOUT_MIN_CONF: str('0.7').transform((v) => parseFloat(v)).pipe(z.number().min(0.3).max(1)),

@@ -6,7 +6,7 @@
  * right (`host_left`) and the reverse (`host_right`). Anything else (host alone, a full-screen clip, an intro card) is `other`
  * and makes the reel fall back to the classic look.
  */
-export const LAYOUT_VERSION = 'layout-v2';
+export const LAYOUT_VERSION = 'layout-v3';
 
 export type LayoutKind = 'host_left' | 'host_right' | 'other';
 
@@ -55,13 +55,13 @@ export const LAYOUT_RULES = {
   maxBottom: 0.82,
   /** The story panel's gold frame ends here in every video of this set (the ticker overlaps its lower edge). */
   pictureMaxBottom: 0.77,
-  minTop: 0.03,
+  minTop: 0.055,
   headWidth: [0.08, 0.42] as const,
   headHeight: [0.15, 0.75] as const,
   pictureWidth: [0.35, 0.8] as const,
   pictureAspect: [1.2, 2.3] as const,
   /** The host crop stops this far (share of the frame width) beyond the head on the picture side, and starts this far above it (share of the height). */
-  hostMargin: 0.012,
+  hostMargin: 0.004,
   hostTopPad: 0.02,
   /** The picture crop is taken this far inside the model's panel box, to keep the gold frame out. */
   pictureInsetX: 0.01,
