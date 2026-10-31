@@ -58,6 +58,19 @@ from/to seconds, orientation, host and picture boxes). Layout checks cost about 
 `db.reel_layouts.find({youtubeId})` (samples and `why`); worker log lines `[layout:<id>] [...]` (the model's raw answer) and
 `Reel <id>: classic look (<reason>)`; `db.reels.aggregate([{$group:{_id:'$look',n:{$sum:1}}}])` for the split between looks.
 
+### Checks applied to the model's answer (`checkSample`, all in `LAYOUT_RULES`)
+Head 8-42% of the frame width and 15-75% of its height; panel 30-85% wide, shape 0.8-2.4, running to the far edge of the frame
+(`pictureFarEdge` 0.9: a picture box that stops short is a different layout, e.g. a small inset over a dark background);
+head and panel on opposite sides as claimed; resulting crops at least 20% (host) and 30% (picture) of the width. Anything else is
+`other` and the stored sample keeps the reason in `why`.
+
+### Result on the stock (2026-10-31)
+All 24 To-do reels were re-made with `look:refresh --apply` (two reels with a waiting post were left alone): **16 full-screen, 6 classic**
+(footage whose studio set-up is different: host large with a small inset picture, or a full-frame background), 0 failed. One reel failed
+its first full-screen render (a 640x360 source with 16 segments: ffmpeg could not configure a scale filter); that is why a failed
+full-screen render is now **retried in the classic look automatically** (`lookNote` starts with "full-screen render failed"). Watch the
+share of `classic` over the coming days; if it stays high, look at `reel_layouts.samples[].why` for the footage that falls back.
+
 ### Known limits
 - A shot where the studio is not in one of the two set-ups (host alone full-frame, full-screen clip, intro card) makes the reel classic.
 - If a slide transition is gentler than the cut threshold the shot is refused (classic), never mis-cropped.
