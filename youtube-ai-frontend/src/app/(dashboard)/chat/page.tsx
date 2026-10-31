@@ -29,6 +29,8 @@ import { EmptyState } from '@/components/chat/empty-state'
 import { CategorySelector } from '@/components/chat/category-selector'
 import { VoiceWaveform } from '@/components/chat/voice-waveform'
 import { HostCutoutModal } from '@/components/chat/host-cutout-modal'
+import { ThumbnailTextEditor } from '@/components/chat/thumbnail-text-editor'
+import { DictateBulletsModal } from '@/components/dictation/dictate-bullets-modal'
 import type { ThreadCategory, ChatImage } from '@/types/chat'
 
 function PreStreamLoader({ category, initialElapsed = 0, statusNote }: { category?: ThreadCategory | string; initialElapsed?: number; statusNote?: string }) {
@@ -251,8 +253,8 @@ export default function ChatPage() {
   const [deleteModalThread, setDeleteModalThread] = useState<{ id: string; title: string } | null>(null)
   const [isHostCutoutModalOpen, setIsHostCutoutModalOpen] = useState(false)
   const [isRecomposing, setIsRecomposing] = useState(false)
-  const [rewordText, setRewordText] = useState('')
   const [isRewording, setIsRewording] = useState(false)
+  const [isDictateOpen, setIsDictateOpen] = useState(false)
   // Set only for a legacy reply that just streamed in this session (never on historical mount).
   const [freshAutoMessageId, setFreshAutoMessageId] = useState<string | null>(null)
   const [iteratingImage, setIteratingImage] = useState<{
@@ -583,20 +585,22 @@ export default function ChatPage() {
     }
   }
 
-  // Change only the words on a finished thumbnail; the photo and scene stay.
-  const handleReword = async () => {
+  // Change only the words on a finished thumbnail (one or several lines); the photo and scene stay.
+  // An optional new photo replaces the person.
+  const handleReword = async (lines: string[], photo: File | null) => {
     if (!iteratingImage || !activeThreadId || isRewording) return
-    const words = rewordText.trim()
-    if (!words) {
+    if (!lines.length) {
       toast.error('Type the new words for the thumbnail first.')
       return
     }
-    const toastId = toast.loading('Rewording the thumbnail. The photo stays the same...')
+    const toastId = toast.loading(photo ? 'Changing the words and the person. This takes about a minute...' : 'Changing the words. The picture stays the same...')
     setIsRewording(true)
     try {
+      const photoUrl = photo ? (await api.uploadReferenceAsset(activeThreadId, photo))?.url : undefined
       const res = await api.rewordThumbnail(activeThreadId, {
         baseImageUrl: iteratingImage.cleanUrl || iteratingImage.url,
-        text: words,
+        lines,
+        photoUrl,
         aspectRatio: iteratingImage.aspectRatio,
         selectedHostImage: iteratingImage.selectedHostImage,
         customHostUrl: iteratingImage.customHostUrl,
@@ -605,14 +609,62 @@ export default function ChatPage() {
       dispatch(selectThread(activeThreadId))
       if (channelId) dispatch(fetchThreads(channelId))
       const issues = res?.image?.reviewIssues || []
-      if (issues.length) toast.warning(`New thumbnail ready, but check it: ${issues[0]}`, { id: toastId })
+      if (issues.length) toast.warning(`New thumbnail ready, but check the words: ${issues[0]}`, { id: toastId })
       else toast.success('New thumbnail ready. The old one is still in the chat.', { id: toastId })
-      setRewordText('')
       setIteratingImage(null)
     } catch (err: any) {
-      toast.error(err?.message || 'Could not reword the thumbnail', { id: toastId })
+      toast.error(err?.message || 'Could not change the words', { id: toastId })
     } finally {
       setIsRewording(false)
+    }
+  }
+
+  // Take every word off the thumbnail (the AI draws the words, so the AI takes them off): a clean
+  // picture to use as a background, like removing the host.
+  const handleRemoveText = async () => {
+    if (!iteratingImage || !activeThreadId || isRewording) return
+    const toastId = toast.loading('Taking the words off. The rest of the picture stays...')
+    setIsRewording(true)
+    try {
+      await api.removeThumbnailText(activeThreadId, {
+        baseImageUrl: iteratingImage.cleanUrl || iteratingImage.url,
+        aspectRatio: iteratingImage.aspectRatio,
+        selectedHostImage: iteratingImage.selectedHostImage,
+        customHostUrl: iteratingImage.customHostUrl,
+        logoPosition: iteratingImage.logoPosition,
+      })
+      dispatch(selectThread(activeThreadId))
+      if (channelId) dispatch(fetchThreads(channelId))
+      toast.success('Thumbnail without words is ready. The old one is still in the chat.', { id: toastId })
+      setIteratingImage(null)
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not take the words off', { id: toastId })
+    } finally {
+      setIsRewording(false)
+    }
+  }
+
+  // Dictated bullets go into this chat (a new chat when none is open); the chat goes on from there.
+  const handleDictationToChat = async (bullets: string[]) => {
+    if (!channelId) {
+      toast.error('Please select a channel first')
+      throw new Error('No channel')
+    }
+    let threadId = activeThreadId
+    if (!threadId) {
+      const newThread = await dispatch(createThread({ channelId, title: 'My dictated bullets', type: 'standalone' })).unwrap()
+      threadId = newThread.id
+    }
+    const toastId = toast.loading('Writing your bullet card and the full script. About a minute...')
+    try {
+      const res = await api.dictationToThread(threadId, { bullets })
+      dispatch(selectThread(threadId))
+      if (channelId) dispatch(fetchThreads(channelId))
+      if (res.hasScript) toast.success('Your bullets and the full script are in the chat.', { id: toastId })
+      else toast.warning('Your bullet card is in the chat. The full script could not be written, ask the chat for it.', { id: toastId })
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not generate this time. Your bullets are saved, try again.', { id: toastId })
+      throw err
     }
   }
 
@@ -1513,6 +1565,16 @@ export default function ChatPage() {
 
                     <button
                       type="button"
+                      onClick={handleRemoveText}
+                      disabled={isRecomposing || isRewording}
+                      className="px-2 py-1 rounded-md bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 border border-pink-200 dark:border-pink-500/30 hover:bg-pink-100 dark:hover:bg-pink-500/20 transition font-medium flex items-center gap-1 disabled:opacity-50"
+                      title="Take every word off the thumbnail (about a minute). The rest of the picture stays. Use it as a background."
+                    >
+                      <span>{isRewording ? 'Working...' : '🚫 No Words'}</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={() => {
                         const currentLogo = iteratingImage.logoPosition || 'top-right'
                         const nextLogo = currentLogo === 'none' ? 'top-right' : 'none'
@@ -1541,33 +1603,12 @@ export default function ChatPage() {
                     </button>
                   </div>
 
-                  {/* Reword: new words, same photo */}
-                  <div className="flex items-center gap-1.5 pt-1 border-t border-pink-200/50 dark:border-pink-500/20 text-[10px]">
-                    <input
-                      type="text"
-                      value={rewordText}
-                      onChange={(e) => setRewordText(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter') {
-                          e.preventDefault()
-                          handleReword()
-                        }
-                      }}
-                      maxLength={60}
-                      disabled={isRewording}
-                      placeholder={iteratingImage.textOverlay ? `New words (now: ${iteratingImage.textOverlay})` : 'New words for the thumbnail'}
-                      className="flex-1 min-w-0 px-2 py-1 rounded-md bg-white dark:bg-gray-800 border border-pink-200 dark:border-pink-500/30 text-gray-800 dark:text-gray-100 text-[11px] focus:outline-none focus:ring-1 focus:ring-pink-400 disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleReword}
-                      disabled={isRewording || isRecomposing || !rewordText.trim()}
-                      className="px-2.5 py-1 rounded-md bg-pink-600 hover:bg-pink-700 text-white font-medium transition shadow-sm whitespace-nowrap disabled:opacity-50"
-                      title="Change only the words. The photo and scene stay the same."
-                    >
-                      {isRewording ? 'Rewording...' : '✏️ Reword (same photo)'}
-                    </button>
-                  </div>
+                  {/* New words, one box per line (3 lines can become 1): same picture, optional new photo */}
+                  <ThumbnailTextEditor
+                    currentText={iteratingImage.textOverlay}
+                    busy={isRewording || isRecomposing}
+                    onChangeWords={handleReword}
+                  />
                 </div>
               )}
 
@@ -1697,6 +1738,19 @@ export default function ChatPage() {
                           {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                         </button>
                       )}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (isListening) stopListening()
+                          setIsDictateOpen(true)
+                        }}
+                        disabled={!channelId || sending}
+                        className="px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 border border-indigo-200 dark:border-indigo-500/30 transition flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                        title="Say your own bullets one at a time, then get them as a teleprompter card plus a full script"
+                      >
+                        <Mic className="w-3.5 h-3.5" />
+                        <span>Dictate bullets</span>
+                      </button>
                     </div>
 
                     <div className="shrink-0 flex items-center pl-1">
@@ -1747,6 +1801,17 @@ export default function ChatPage() {
           </div>
         </div>
       </div>
+    )}
+
+    {/* Dictate my own bullets: they go into this chat */}
+    {channelId && (
+      <DictateBulletsModal
+        isOpen={isDictateOpen}
+        onClose={() => setIsDictateOpen(false)}
+        channelId={channelId}
+        mode="chat"
+        onGenerateToChat={handleDictationToChat}
+      />
     )}
 
     {/* Dedicated Host Cutout Management Modal */}

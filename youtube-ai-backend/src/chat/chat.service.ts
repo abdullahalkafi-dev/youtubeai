@@ -93,12 +93,14 @@ import {
   insertBulletBlock,
   isFullScript,
   isScriptRedo,
+  latestScriptReply,
   originalScriptRequest,
+  wantsBulletsOnly,
   wantsDualScript,
 } from './dual-script';
 import { FootageIntentService } from './footage-intent.service';
 import { matchUploadedPhoto, recentChatUploads } from './thumbnail-uploads';
-import { cleanRewordText, rewordPrompt } from './thumbnail-reword';
+import { cleanRewordText, removeTextPrompt, rewordPrompt } from './thumbnail-reword';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
 const THREAD_EXPIRY_DAYS = 7;
@@ -861,11 +863,23 @@ export class ChatService {
     // answer is a new script on the same story, not a discussion, so research and footage are skipped
     // (the facts are already in this chat) and the book is searched with the ORIGINAL request, not his
     // complaint, which names the very memory he did not want.
+    const earlierMessages = updatedThread.messages.slice(0, -1);
     const redoScript =
-      resolvedSkill === 'script' &&
-      isScriptRedo(intentResult.redoScript, updatedThread.messages.slice(0, -1));
-    const originalRequest = redoScript ? originalScriptRequest(updatedThread.messages) : '';
+      resolvedSkill === 'script' && isScriptRedo(intentResult.redoScript, earlierMessages);
+    // "write this up in bullets" on a chat that already has a script: the bullet card of THAT script,
+    // straight from it (no new full script, no research, no book search).
+    const bulletsOnly = wantsBulletsOnly({
+      skill: resolvedSkill,
+      userContent: cleanUserPrompt || dto.content,
+      freshScript: intentResult.freshScript,
+      redoScript,
+      earlier: earlierMessages,
+    });
+    const priorScript = bulletsOnly ? latestScriptReply(earlierMessages) || '' : '';
+    const originalRequest =
+      redoScript || bulletsOnly ? originalScriptRequest(updatedThread.messages) : '';
     if (redoScript) this.logger.log(`Thread ${threadId}: client rejected the script, writing it again`);
+    if (bulletsOnly) this.logger.log(`Thread ${threadId}: bullets asked for the script above, writing only the bullet card`);
 
     // Mark thread as actively generating with skill and timestamp
     await this.threadModel.findByIdAndUpdate(threadId, {
@@ -879,12 +893,14 @@ export class ChatService {
     // RAG context starts now and runs alongside the channel/skill context loading: the book recall
     // makes one small model call (about 5 s) that should not add to the wait.
     const ragSink: { bookChunkIds?: string[] } = {};
-    const ragPromise = this.buildRagContext(dto.content, resolvedSkill, {
-      topicHint: updatedThread.title,
-      messages: updatedThread.messages,
-      sink: ragSink,
-      bookRequest: originalRequest || undefined,
-    }).catch(() => '');
+    const ragPromise = bulletsOnly
+      ? Promise.resolve('')
+      : this.buildRagContext(dto.content, resolvedSkill, {
+          topicHint: updatedThread.title,
+          messages: updatedThread.messages,
+          sink: ragSink,
+          bookRequest: redoScript ? originalRequest || undefined : undefined,
+        }).catch(() => '');
 
     const channel = await channelPromise;
     const skill = this.skillRegistry.get(resolvedSkill);
@@ -893,7 +909,7 @@ export class ChatService {
       updatedThread.videoId || undefined,
     );
 
-    if (resolvedSkill === 'script' && personaEnabled() && BookMemoryService.enabled()) {
+    if (resolvedSkill === 'script' && personaEnabled() && BookMemoryService.enabled() && !bulletsOnly) {
       yield { type: 'status', content: 'Pulling a real memory from the book…' };
     }
     const ragContext = await ragPromise;
@@ -1050,9 +1066,9 @@ export class ChatService {
     }
 
     // Footage pack: local market pack preferred; marketless topic pack otherwise.
-    if (redoScript) needsResearch = false;
+    if (redoScript || bulletsOnly) needsResearch = false;
     const recentThreadText = this.buildRecentThreadText(updatedThread.messages);
-    const footagePack = redoScript ? null : await this.loadFootagePack(
+    const footagePack = redoScript || bulletsOnly ? null : await this.loadFootagePack(
       channel,
       dto.content,
       resolvedSkill,
@@ -1109,18 +1125,23 @@ export class ChatService {
     }
 
     // A fresh script request also gets the bullet version (written after the full script).
-    const dualWanted = wantsDualScript({
-      skill: resolvedSkill,
-      userContent: cleanUserPrompt || dto.content,
-      freshScript: redoScript ? true : intentResult.freshScript,
-    });
+    const dualWanted =
+      !bulletsOnly &&
+      wantsDualScript({
+        skill: resolvedSkill,
+        userContent: cleanUserPrompt || dto.content,
+        freshScript: redoScript ? true : intentResult.freshScript,
+        earlierHasScript: latestScriptReply(earlierMessages) !== null,
+      });
     if (dualWanted) dynamicContext += '\n\n' + DUAL_FORMAT_NOTE;
     if (redoScript) dynamicContext += '\n\n' + buildRedoNote(cleanUserPrompt || dto.content);
     // What the bullet writer reads as the client's request: after a rejection, the story he first asked
     // for plus his notes on the first version (his complaint alone says nothing about the story).
     const bulletRequest = redoScript
       ? `${originalRequest}\n\nHis notes on the first version: ${(cleanUserPrompt || dto.content).slice(0, 700)}`
-      : cleanUserPrompt || dto.content;
+      : bulletsOnly && originalRequest
+        ? `${originalRequest}\n\nNow he asks: ${(cleanUserPrompt || dto.content).slice(0, 700)}`
+        : cleanUserPrompt || dto.content;
     let bulletAttempted = false;
     let bulletBlock: string | null = null;
     // The full script finished streaming / the clip list is in / the whole tail is in place. They let
@@ -1164,7 +1185,30 @@ export class ChatService {
     }
 
     try {
-      if (needsResearch) {
+      if (bulletsOnly) {
+        // Only the bullet card, written from the script already in this chat.
+        yield { type: 'status', content: 'Writing your bullet card from the script above…' };
+        const out: { block: string | null; usage?: TokenUsage } = { block: null };
+        try {
+          for await (const piece of this.streamBulletScript({
+            clientRequest: bulletRequest,
+            reply: priorScript,
+            threadId: threadId.toString(),
+            out,
+          })) {
+            yield { type: 'chunk', content: piece };
+          }
+        } catch (error: any) {
+          this.logger.warn(`Thread ${threadId}: bullet card failed (${error?.message || error})`);
+        }
+        addUsage(out.usage);
+        if (!out.block) {
+          yield { type: 'error', content: 'Could not write the bullet card this time. Please try again.' };
+          return;
+        }
+        bulletBlock = out.block;
+        bulletAttempted = true;
+      } else if (needsResearch) {
         this.logger.log(
           `Thread ${threadId}: Research detected in stream, using web search`,
         );
@@ -1317,7 +1361,7 @@ export class ChatService {
       // Inserted after the footage block so no heading match can ever land inside it, and placed
       // right after the full script so the two script cards sit together.
       if (bulletBlock) {
-        fullContent = insertBulletBlock(fullContent, bulletBlock);
+        fullContent = bulletsOnly ? bulletBlock : insertBulletBlock(fullContent, bulletBlock);
       }
       tailDone = true;
     } finally {
@@ -4027,7 +4071,12 @@ Hard rules:
     threadId: string,
     dto: {
       baseImageUrl: string;
-      text: string;
+      /** The new words: one string (line breaks or " / " between lines) or `lines`. */
+      text?: string;
+      /** The new words, one entry per line (the editor's one box per line). */
+      lines?: string[];
+      /** A new photo of the main person, already uploaded (replaces the face, keeps the rest). */
+      photoUrl?: string;
       aspectRatio?: '16:9' | '9:16';
       selectedHostImage?: string;
       customHostUrl?: string;
@@ -4037,7 +4086,7 @@ Hard rules:
     const thread = await this.threadModel.findById(threadId);
     if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
 
-    const cleaned = cleanRewordText(dto.text);
+    const cleaned = cleanRewordText(dto.lines?.length ? dto.lines : dto.text || '');
     if ('error' in cleaned) throw new BadRequestException(cleaned.error);
     const newText = cleaned.text;
 
@@ -4070,7 +4119,7 @@ Hard rules:
     const base = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
     const zones = layoutZones({ aspectRatio, logoPosition, excludeLogo, excludeHost });
     const editOptions = {
-      referenceImageUrls: [] as string[],
+      referenceImageUrls: dto.photoUrl ? [dto.photoUrl] : ([] as string[]),
       mode: 'thumbnail' as const,
       selectedHostImage: selectedHost,
       customHostUrl: dto.customHostUrl,
@@ -4086,6 +4135,7 @@ Hard rules:
         oldText: matchedImg?.textOverlay,
         newText,
         zoneRules: zonePrompt(zones, newText),
+        hasNewPhoto: !!dto.photoUrl,
       }),
       editOptions,
     );
@@ -4144,6 +4194,97 @@ Hard rules:
         messages: {
           role: 'assistant',
           content: `Reworded thumbnail: ${newText}`,
+          metadata: { category: 'image', images: [imageObj] },
+          createdAt: new Date(),
+        } as Message,
+      },
+      $set: { updatedAt: new Date() },
+    });
+    return { imageUrl: result.imageUrl, image: imageObj };
+  }
+
+  /**
+   * "Remove the words": the same finished thumbnail with no lettering, to use as a background picture.
+   * The AI draws the headline, so the AI takes it off; the photo, scene and layout stay.
+   */
+  async removeThumbnailText(
+    threadId: string,
+    dto: {
+      baseImageUrl: string;
+      photoUrl?: string;
+      aspectRatio?: '16:9' | '9:16';
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+    },
+  ) {
+    const thread = await this.threadModel.findById(threadId);
+    if (!thread) throw new NotFoundException(`Thread ${threadId} not found`);
+
+    let matchedImg: any = null;
+    const cleanBase = (dto.baseImageUrl || '').split('?')[0];
+    for (const msg of (thread.messages || []).slice().reverse()) {
+      const found = (msg as any).metadata?.images?.find(
+        (img: any) =>
+          (img.url && img.url.split('?')[0] === cleanBase) ||
+          (img.cleanBackgroundUrl && img.cleanBackgroundUrl.split('?')[0] === cleanBase),
+      );
+      if (found) {
+        matchedImg = found;
+        break;
+      }
+    }
+
+    const aspectRatio: '16:9' | '9:16' =
+      dto.aspectRatio || (matchedImg?.aspectRatio === '9:16' ? '9:16' : '16:9');
+    const selectedHost: string = dto.selectedHostImage || matchedImg?.selectedHostImage || 'default';
+    const excludeHost = selectedHost === 'none';
+    const logoPosition: 'top-left' | 'top-right' | 'none' =
+      dto.logoPosition ||
+      (['top-left', 'top-right', 'none'].includes(matchedImg?.logoPosition) ? matchedImg.logoPosition : 'top-right');
+    const excludeLogo = logoPosition === 'none';
+    const base = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+    const zones = layoutZones({ aspectRatio, logoPosition, excludeLogo, excludeHost });
+
+    const result = await this.openaiService.editImageWithReference(
+      base,
+      removeTextPrompt({
+        oldText: matchedImg?.textOverlay,
+        zoneRules: zonePrompt(zones),
+        hasNewPhoto: !!dto.photoUrl,
+      }),
+      {
+        referenceImageUrls: dto.photoUrl ? [dto.photoUrl] : [],
+        mode: 'thumbnail',
+        selectedHostImage: selectedHost,
+        customHostUrl: dto.customHostUrl,
+        excludeHost,
+        excludeLogo,
+        logoPosition,
+        aspectRatio,
+      },
+    );
+
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: result.imageUrl,
+      cleanBackgroundUrl: result.cleanBackgroundUrl || result.imageUrl,
+      prompt: result.revisedPrompt,
+      conceptTitle: matchedImg?.conceptTitle ? `${matchedImg.conceptTitle} (no words)` : 'No words',
+      textOverlay: '',
+      visualDescription: matchedImg?.visualDescription || '',
+      selectedHostImage: selectedHost,
+      logoPosition,
+      aspectRatio,
+      mode: 'thumbnail',
+      textRemovedFrom: matchedImg?.id,
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: {
+        messages: {
+          role: 'assistant',
+          content: 'Thumbnail without words',
           metadata: { category: 'image', images: [imageObj] },
           createdAt: new Date(),
         } as Message,

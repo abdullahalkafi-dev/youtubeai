@@ -43,7 +43,12 @@ describe('title and thumbnail wording is shared everywhere it matters', () => {
   it('the Bold block no longer bans naming the incident', () => {
     expect(CREATIVE_CONTRACT).not.toMatch(/no topic labels/);
     expect(CREATIVE_CONTRACT).not.toMatch(/adding something the title does not say/);
-    expect(CREATIVE_CONTRACT).toMatch(/three short lines, about 8-12 words in all/);
+    expect(CREATIVE_CONTRACT).toMatch(/three full lines, about 9-14 words in all/);
+    expect(CREATIVE_CONTRACT).toMatch(/holding back ONE thing/);
+    expect(THUMBNAIL_HEADLINE_RULE).toMatch(/CURIOSITY RULE/);
+    expect(THUMBNAIL_HEADLINE_RULE).toMatch(/never states the outcome/);
+    expect(THUMBNAIL_HEADLINE_RULE).toContain('keep all three lines');
+    expect(THUMBNAIL_HEADLINE_RULE).toContain("LIL DURK / OFFERS PUBLISHING FOR BAIL / MOM'S HOME AT STAKE");
     expect(CREATIVE_CONTRACT).toMatch(/host photo is fixed/);
   });
 

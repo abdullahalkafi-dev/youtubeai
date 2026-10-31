@@ -12,6 +12,7 @@ describe('studio routing at legacy image entry points', () => {
     legacy as any,
     channel as any,
     router as any,
+    {} as any,
   );
   beforeEach(() => jest.resetAllMocks());
   it('routes a mixed image-mode request through the coordinator unchanged', async () => {

@@ -7,6 +7,8 @@ import {
   isFullScript,
   isScriptRedo,
   originalScriptRequest,
+  latestScriptReply,
+  wantsBulletsOnly,
   buildRedoNote,
   wantsDualScript,
 } from './dual-script';
@@ -244,5 +246,40 @@ describe('the client rejects a script: it is written again, not discussed', () =
     expect(note).toMatch(/No new research/);
     expect(note).toMatch(/No apology/);
     expect(note).toMatch(/SCRIPT_START/);
+  });
+});
+
+describe('"write this up in bullets" on a chat that already has a script', () => {
+  const longScript = '<!-- SCRIPT_START -->\n# SCRIPT TITLE: X\n## **1. A**\n\n' + Array.from({ length: 80 }, (_, i) => '> Line number ' + i + ' is short here').join('\n') + '\n<!-- SCRIPT_END -->';
+  const asked = { role: 'user', content: 'write the script for the ADX story' };
+  const wrote = { role: 'assistant', content: longScript };
+  const base = { skill: 'script', userContent: 'okay write this up in bullets now', freshScript: false, earlier: [asked, wrote], enabled: true };
+
+  it('finds the newest assistant message that holds a full script', () => {
+    expect(latestScriptReply([asked, wrote, { role: 'user', content: 'thanks' }, { role: 'assistant', content: 'You are welcome' }])).toBe(longScript);
+    expect(latestScriptReply([asked, { role: 'assistant', content: 'short answer' }])).toBeNull();
+    expect(latestScriptReply([])).toBeNull();
+  });
+
+  it('writes only the bullet card of the script above when he asks for bullets and nothing is new', () => {
+    expect(wantsBulletsOnly(base)).toBe(true);
+    expect(wantsBulletsOnly({ ...base, userContent: 'put it in outlaw bullets' })).toBe(true);
+  });
+
+  it('does not, for a new story, a rewrite, no script above, no bullets word or another skill', () => {
+    expect(wantsBulletsOnly({ ...base, freshScript: true })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, freshScript: undefined })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, redoScript: true })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, earlier: [asked] })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, userContent: 'make it shorter' })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, skill: 'seo' })).toBe(false);
+    expect(wantsBulletsOnly({ ...base, enabled: false })).toBe(false);
+  });
+
+  it('a bullets ask with no script anywhere in the chat is a new story: both cards', () => {
+    const ask = { skill: 'script', userContent: 'okay write this up in bullets now', enabled: true, freshScript: false };
+    expect(wantsDualScript({ ...ask, earlierHasScript: false })).toBe(true);
+    expect(wantsDualScript({ ...ask, earlierHasScript: true })).toBe(false);
+    expect(wantsDualScript({ ...ask, userContent: 'make it shorter', earlierHasScript: false })).toBe(false);
   });
 });

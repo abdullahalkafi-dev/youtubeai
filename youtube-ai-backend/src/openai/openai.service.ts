@@ -190,6 +190,26 @@ export class OpenAIService {
   }
 
   /**
+   * Speech to text for the dictation feature: one recorded bullet in, its words out.
+   * Whisper adds the punctuation, so a long ramble arrives readable. No prompt hint: a hint that
+   * repeats the expected text makes Whisper drop words (measured in the reel service).
+   */
+  async transcribeAudio(params: { buffer: Buffer; filename: string; mimeType: string }): Promise<string> {
+    const { toFile } = await import('openai');
+    const file = await toFile(params.buffer, params.filename, { type: params.mimeType });
+    const res: any = await retryWithBackoff(
+      () =>
+        this.client.audio.transcriptions.create({
+          file,
+          model: this.configService.get<string>('OPENAI_STT_MODEL', 'whisper-1'),
+          language: 'en',
+        }),
+      { operationName: 'OpenAI Transcribe' },
+    );
+    return String(res?.text || '').trim();
+  }
+
+  /**
    * Generate SEO-optimized title, description, tags, and hashtags.
    */
   async generateSeo(params: {

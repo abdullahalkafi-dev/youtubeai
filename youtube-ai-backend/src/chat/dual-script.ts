@@ -32,11 +32,16 @@ export function wantsDualScript(params: {
   userContent: string;
   enabled?: boolean;
   freshScript?: boolean;
+  /** False when nothing in the chat holds a full script: there is nothing to "edit", so a bullets ask is a new story. */
+  earlierHasScript?: boolean;
 }): boolean {
   const enabled = params.enabled ?? dualScriptEnabled();
   const content = (params.userContent || '').trim();
   if (!enabled || params.skill !== 'script' || content.length === 0) return false;
-  if (typeof params.freshScript === 'boolean') return params.freshScript;
+  if (typeof params.freshScript === 'boolean') {
+    if (!params.freshScript && params.earlierHasScript === false && BULLET_WORD.test(content)) return true;
+    return params.freshScript;
+  }
   return !isPastedMaterial(content) && !REVISION_START.test(content);
 }
 
@@ -79,6 +84,40 @@ export function buildRedoNote(complaint: string): string {
     '- Fix exactly what he named: anything he says does not belong is OUT of the new script, and every point stays on the story he asked for. Write it in his own voice, in plain speech, not as a commentator.',
     '- No apology and no explanation of what went wrong. At most one short line before <!-- SCRIPT_START -->, then the script.',
   ].join('\n');
+}
+
+/** "in bullets", "bullet form", "Outlaw bullets": the client's name for his bullet script. */
+const BULLET_WORD = /\b(?:outlaw\s+)?bullets?\b/i;
+
+/** The newest assistant message in the chat that holds a real full script, or null. */
+export function latestScriptReply(messages: ThreadMessage[] = []): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === 'assistant' && isFullScript(m.content || '')) return m.content || '';
+  }
+  return null;
+}
+
+/**
+ * "okay write this up in bullets now" on a chat that already has a script: he wants the bullet card of
+ * THAT script. It is not a new story and not an edit, so the card is written straight from the script
+ * above: no new full script, no web search, no book search (about 30 s instead of 2-3 minutes).
+ * Only when the router said it is not a fresh script; a new story "in bullets" still gets both cards.
+ */
+export function wantsBulletsOnly(params: {
+  skill: string | undefined;
+  userContent: string;
+  freshScript?: boolean;
+  redoScript?: boolean;
+  earlier?: ThreadMessage[];
+  enabled?: boolean;
+}): boolean {
+  const enabled = params.enabled ?? dualScriptEnabled();
+  const content = (params.userContent || '').trim();
+  if (!enabled || params.skill !== 'script' || content.length === 0 || params.redoScript) return false;
+  if (params.freshScript !== false) return false;
+  if (!BULLET_WORD.test(content) || isPastedMaterial(content)) return false;
+  return latestScriptReply(params.earlier) !== null;
 }
 
 /** Decided AFTER writing: is the reply a real full script (not a question or a snippet)? */

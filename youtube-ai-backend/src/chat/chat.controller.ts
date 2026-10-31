@@ -19,6 +19,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Response } from 'express';
 import { ChatService } from './chat.service';
+import { DictationService } from './dictation.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ChannelOwnershipGuard } from '../common/guards/channel-ownership.guard';
 import { CreateThreadDto, SendMessageDto } from './dto/chat.dto';
@@ -43,7 +44,40 @@ export class ChatController {
     private readonly chatService: ChatService,
     private readonly studio: StudioService,
     private readonly studioRouter: StudioRouter,
+    private readonly dictation: DictationService,
   ) {}
+
+  // ---- Dictate my own bullets: record -> transcribe, his bullet card, the full script, or both into a chat ----
+
+  @Post('channels/:channelId/dictation/transcribe')
+  @UseInterceptors(
+    FileInterceptor('audio', {
+      limits: { fileSize: 25 * 1024 * 1024 },
+      fileFilter: (req, file, cb) => {
+        if (file.mimetype.startsWith('audio/') || file.mimetype === 'video/webm') cb(null, true);
+        else cb(new BadRequestException(`Recording type "${file.mimetype}" is not supported.`), false);
+      },
+    }),
+  )
+  transcribeBullet(@UploadedFile() file: Express.Multer.File) {
+    if (!file) throw new BadRequestException('No recording uploaded');
+    return this.dictation.transcribe(file);
+  }
+
+  @Post('channels/:channelId/dictation/bullets')
+  dictationBulletCard(@Body() body: { bullets: string[]; title?: string }) {
+    return this.dictation.bulletsCard(body?.bullets, body?.title);
+  }
+
+  @Post('channels/:channelId/dictation/script')
+  dictationFullScript(@Body() body: { bullets: string[]; title?: string }) {
+    return this.dictation.fullScript(body?.bullets, body?.title);
+  }
+
+  @Post('threads/:id/dictation')
+  dictationToThread(@Param('id') id: string, @Body() body: { bullets: string[]; title?: string }) {
+    return this.dictation.addToThread(id, body?.bullets, body?.title);
+  }
 
   @Post('channels/:channelId/threads')
   createThread(
@@ -304,13 +338,31 @@ export class ChatController {
     return this.chatService.generateImageDirect(id, body);
   }
 
+  @Post('threads/:id/remove-thumbnail-text')
+  removeThumbnailText(
+    @Param('id') id: string,
+    @Body()
+    body: {
+      baseImageUrl: string;
+      photoUrl?: string;
+      aspectRatio?: '16:9' | '9:16';
+      selectedHostImage?: string;
+      customHostUrl?: string;
+      logoPosition?: 'top-left' | 'top-right' | 'none';
+    },
+  ) {
+    return this.chatService.removeThumbnailText(id, body);
+  }
+
   @Post('threads/:id/reword-thumbnail')
   rewordThumbnail(
     @Param('id') id: string,
     @Body()
     body: {
       baseImageUrl: string;
-      text: string;
+      text?: string;
+      lines?: string[];
+      photoUrl?: string;
       aspectRatio?: '16:9' | '9:16';
       selectedHostImage?: string;
       customHostUrl?: string;

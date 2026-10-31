@@ -13,12 +13,14 @@ import {
   RefreshCw,
   Star,
   Layers,
+  Mic,
 } from 'lucide-react'
 import { useAppSelector } from '@/store/hooks'
 import { toast } from 'sonner'
 import api from '@/lib/api'
 import { ScriptCard } from '@/components/scripts/script-card'
 import { AddScriptModal } from '@/components/scripts/add-script-modal'
+import { DictateBulletsModal } from '@/components/dictation/dictate-bullets-modal'
 import { TeleprompterEditorModal } from '@/components/scripts/editor/teleprompter-editor-modal'
 import { VersionHistoryModal } from '@/components/scripts/version-history-modal'
 import { FullscreenTeleprompter } from '@/components/scripts/teleprompter/fullscreen-teleprompter'
@@ -39,6 +41,7 @@ export default function ScriptsPage() {
 
   // Modals state
   const [showAddModal, setShowAddModal] = useState(false)
+  const [showDictateModal, setShowDictateModal] = useState(false)
   const [activeTeleprompterScript, setActiveTeleprompterScript] = useState<ScriptItem | null>(null)
   const [activeEditorScript, setActiveEditorScript] = useState<ScriptItem | null>(null)
   const [activeHistoryScript, setActiveHistoryScript] = useState<ScriptItem | null>(null)
@@ -123,6 +126,14 @@ export default function ScriptsPage() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowDictateModal(true)}
+            disabled={!channelId}
+            className="px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm flex items-center space-x-2 transition active:scale-95 shadow-md disabled:opacity-50"
+          >
+            <Mic className="w-4 h-4" />
+            <span>Dictate bullets</span>
+          </button>
           <button
             onClick={() => setShowAddModal(true)}
             className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-sm flex items-center space-x-2 transition active:scale-95 shadow-md"
@@ -282,6 +293,20 @@ export default function ScriptsPage() {
             />
           ))}
         </div>
+      )}
+
+      {/* Dictate my own bullets: his bullet card and a full script, saved to the Library */}
+      {channelId && (
+        <DictateBulletsModal
+          isOpen={showDictateModal}
+          onClose={() => setShowDictateModal(false)}
+          channelId={channelId}
+          mode="library"
+          onScriptCreated={(newScript) => {
+            setScripts((prev) => [newScript, ...prev])
+            loadData()
+          }}
+        />
       )}
 
       {/* Add Script Modal */}

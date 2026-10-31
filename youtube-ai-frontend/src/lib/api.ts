@@ -380,7 +380,12 @@ class ApiClient {
     threadId: string,
     data: {
       baseImageUrl: string
-      text: string
+      /** The new words as one string (" / " between lines), or send `lines`. */
+      text?: string
+      /** The new words, one entry per line. */
+      lines?: string[]
+      /** A new photo of the person, already uploaded with uploadReferenceAsset. */
+      photoUrl?: string
       aspectRatio?: '16:9' | '9:16'
       selectedHostImage?: string
       customHostUrl?: string
@@ -388,6 +393,57 @@ class ApiClient {
     },
   ) {
     return this.post<{ imageUrl: string; image?: { reviewIssues?: string[] } }>(`/api/threads/${threadId}/reword-thumbnail`, data)
+  }
+
+  /** The same thumbnail with no words on it (the AI takes the lettering off), for a background picture. */
+  async removeThumbnailText(
+    threadId: string,
+    data: {
+      baseImageUrl: string
+      photoUrl?: string
+      aspectRatio?: '16:9' | '9:16'
+      selectedHostImage?: string
+      customHostUrl?: string
+      logoPosition?: 'top-left' | 'top-right' | 'none'
+    },
+  ) {
+    return this.post<{ imageUrl: string; image?: { reviewIssues?: string[] } }>(`/api/threads/${threadId}/remove-thumbnail-text`, data)
+  }
+
+  // ---- Dictate my own bullets ----
+
+  /** One recorded bullet in, its words out. */
+  async transcribeBullet(channelId: string, audio: Blob): Promise<{ text: string }> {
+    const token = this.getToken()
+    const formData = new FormData()
+    const ext = (audio.type.split('/')[1] || 'webm').split(';')[0]
+    formData.append('audio', audio, `bullet.${ext}`)
+    const response = await fetch(`${this.baseUrl}/api/channels/${channelId}/dictation/transcribe`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    })
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({ message: response.statusText }))
+      throw new Error(err.message || `Could not transcribe the recording (${response.status})`)
+    }
+    const data = await response.json()
+    return data.data ?? data
+  }
+
+  /** His bullets as a teleprompter card (his words, tidied). Quick. */
+  async dictationBulletCard(channelId: string, data: { bullets: string[]; title?: string }) {
+    return this.post<{ title: string; bulletCard: string; bullets: string[] }>(`/api/channels/${channelId}/dictation/bullets`, data)
+  }
+
+  /** The full spoken script built on his bullets. Takes about a minute. */
+  async dictationFullScript(channelId: string, data: { bullets: string[]; title?: string }) {
+    return this.post<{ title: string; fullScript: string }>(`/api/channels/${channelId}/dictation/script`, data)
+  }
+
+  /** Both cards saved into a chat as one exchange; the chat goes on from there. */
+  async dictationToThread(threadId: string, data: { bullets: string[]; title?: string }) {
+    return this.post<{ title: string; hasScript: boolean }>(`/api/threads/${threadId}/dictation`, data)
   }
 
   async recomposeOverlay(
