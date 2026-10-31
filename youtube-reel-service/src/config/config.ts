@@ -101,8 +101,8 @@ const EnvSchema = z.object({
   // The studio-layout check (vision): the model to use (task key "layout" in OPENAI_REEL_TASK_MODELS overrides it) and how sure it must be.
   REEL_LAYOUT_MODEL: str(''),
   REEL_LAYOUT_MIN_CONF: str('0.7').transform((v) => parseFloat(v)).pipe(z.number().min(0.3).max(1)),
-  // A frame-to-frame change above this (0..1) counts as a camera cut when splitting a clip into shots.
-  REEL_LAYOUT_SCENE_THRESHOLD: str('0.3').transform((v) => parseFloat(v)).pipe(z.number().min(0.1).max(0.9)),
+  // A frame-to-frame change above this (0..1) counts as a camera cut when splitting a clip into shots. Low on purpose: the studio swaps sides with a short slide (scores 0.13-0.24), and extra cuts only cost a few more looks.
+  REEL_LAYOUT_SCENE_THRESHOLD: str('0.12').transform((v) => parseFloat(v)).pipe(z.number().min(0.1).max(0.9)),
   // GPT Image model for the thumbnail scenes (the reels themselves carry no AI images). Low quality keeps each image around a cent.
   REEL_IMAGE_MODEL: str('gpt-image-2.5-flare'),
   REEL_IMAGE_QUALITY: z.enum(['low', 'medium', 'high', 'xhigh', 'max', 'auto']).default('low'),

@@ -36,7 +36,8 @@ import { nyDate } from '../common/time';
  *   node dist/cli/reel-cli.js lanes:preview <channelId>   (which videos the new-video and best-of-old lanes would use today; creates nothing)
  *   node dist/cli/reel-cli.js lanes:create <channelId> <userId>   (create today's new-video / best-of-old campaigns now, if they do not exist)
  *   node dist/cli/reel-cli.js uploads:check   (queue analysis of new uploads now)
- *   node dist/cli/reel-cli.js look:test <youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]   (one moment in the full-screen look; stores its studio layout, posts nothing)
+ *   node dist/cli/reel-cli.js look:refresh [--apply]   (re-make the To-do reels in the current REEL_LOOK; skips reels with a waiting/uploading post; dry run without --apply)
+ *   node dist/cli/reel-cli.js look:test<youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]   (one moment in the full-screen look; stores its studio layout, posts nothing)
  *   node dist/cli/reel-cli.js render:local<video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
  */
 async function main() {
@@ -144,6 +145,31 @@ async function main() {
           }
         }
         console.log(`${apply ? 'Queued' : 'Dry run:'} ${total} reel(s).${apply ? '' : ' Add --apply to re-render them.'}`);
+        break;
+      }
+      case 'look:refresh': {
+        // Re-makes the To-do reels in the current look (REEL_LOOK). Leaves alone reels that already have the current look, reels with a post that is
+        // waiting or uploading (their video must not change under it) and the imported format-test reels. Dry run without --apply.
+        const apply = args.includes('--apply');
+        const want = loadConfig().REEL_LOOK;
+        const reels = app.get<Model<ReelDocument>>(getModelToken(Reel.name));
+        const campaigns = app.get<Model<ReelCampaignDocument>>(getModelToken(ReelCampaign.name));
+        const posts = app.get<Model<any>>(getModelToken('ReelPost'));
+        const queues = app.get(QueueService);
+        const busy = new Set((await posts.find({ status: { $in: ['queued', 'uploading', 'processing'] } }).select('reelId').lean()).map((p: any) => String(p.reelId)));
+        const todo = await reels.find({ status: 'todo', deletedAt: null }).select('_id campaignId look templateName').lean();
+        const pick = todo.filter((r) => r.look !== want && r.templateName !== 'fullscreen-v1-test' && !busy.has(String(r._id)));
+        console.log(`${todo.length} To-do reels; ${pick.length} to re-make in the "${want}" look (${todo.length - pick.length} left alone)`);
+        if (!apply) break;
+        for (const cid of new Set(pick.map((r) => String(r.campaignId)))) {
+          const mine = pick.filter((r) => String(r.campaignId) === cid);
+          await campaigns.updateOne({ _id: cid }, { $set: { status: 'rendering', finishedAt: null, cancelRequested: false, 'progress.stage': 'rendering', 'progress.message': `Re-making ${mine.length} reels in the ${want} look` } });
+          for (const r of mine) {
+            await reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
+            await queues.render(String(r._id));
+          }
+        }
+        console.log(`Queued ${pick.length} reel(s).`);
         break;
       }
       case 'look:test': {
