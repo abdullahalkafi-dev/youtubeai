@@ -29,6 +29,25 @@ production and was not touched). Single channel: every switch below is one globa
   `variant="bullet"`; saving it stores `metadata.bulletScriptId` (the full script keeps `metadata.scriptId`); the
   stream's `done` event carries `finalContent` so the live view matches the saved order.
 
+## 2026-11-01 audit fixes (from the client's real chats of Oct 28-31)
+- **Router on long dictated asks** (`intent-classifier.service.ts`): the fast model's reasoning used up the old
+  250-token budget on his 1,000-3,300 character dictations (replayed live: 4 of 12 runs fell to the keyword
+  fallback, 9 of 12 needed a retry). Budget is now `ROUTER_MAX_TOKENS` 2000, timeout 12 s, long messages go in as
+  head + tail (`routerText`). If the model still fails, `guardLongStoryFallback` turns a long "write this up /
+  rewrite this / write me a story" ask that the keywords read as `image`/`outline`/`general` into a script ask with
+  `freshScript: true` (both cards). A deliberate package / SEO / thumbnail ask is left alone. The fallback logs
+  `[Intent] Routed by the keyword fallback`.
+- **Book memory fit test** (`book-memory.service.ts`): now strict. The same turning point must be in the story and
+  in the passage; a broad theme (loyalty, family, a visit, a job) is not enough, and "unsure" means `{"pick":0}`
+  (point 2 is then built from his mind alone). Look for `Book recall: no passage fits this story` in the logs to see
+  how often it now declines.
+- **Voice** (`unique-persona.ts`, `uma-persona-v6`): "NEVER THE REPORTER" block: no more than two plain fact lines in a
+  row, name who/what the video is about within the first eight lines, cut the case-file detail, "Imagine/Picture" may
+  open at most one section. The bullet card allows two of those words instead of five.
+- **Dictate bullets button** (frontend `chat/page.tsx`): it sat at the end of a horizontally scrolling tool row, so on
+  a normal window it was out of sight. It now sits next to Send, and a one-line tip under the box (hidden after the
+  first use or close, remembered in `localStorage` key `uma.dictateHintSeen`) explains it.
+
 ## Rollback
 Set the relevant variable(s) to `false` and restart the backend. No data migration is involved; the new
 Chroma collection and the `bookChunkIds` / `dualScript` message fields are simply ignored.

@@ -255,6 +255,27 @@ export default function ChatPage() {
   const [isRecomposing, setIsRecomposing] = useState(false)
   const [isRewording, setIsRewording] = useState(false)
   const [isDictateOpen, setIsDictateOpen] = useState(false)
+  // A one-line "how to dictate your own bullets" hint under the box until he has opened it once or closed it.
+  const [dictateHintSeen, setDictateHintSeen] = useState(true)
+  useEffect(() => {
+    try {
+      setDictateHintSeen(window.localStorage.getItem('uma.dictateHintSeen') === '1')
+    } catch {
+      setDictateHintSeen(false)
+    }
+  }, [])
+  const markDictateHintSeen = () => {
+    setDictateHintSeen(true)
+    try {
+      window.localStorage.setItem('uma.dictateHintSeen', '1')
+    } catch {
+      /* the hint just shows again next time */
+    }
+  }
+  const openDictate = () => {
+    markDictateHintSeen()
+    setIsDictateOpen(true)
+  }
   // Set only for a legacy reply that just streamed in this session (never on historical mount).
   const [freshAutoMessageId, setFreshAutoMessageId] = useState<string | null>(null)
   const [iteratingImage, setIteratingImage] = useState<{
@@ -1711,6 +1732,26 @@ export default function ChatPage() {
                     className="w-full bg-transparent border-0 px-1 py-0.5 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:outline-none focus:ring-0 resize-none font-normal leading-relaxed min-h-[38px] max-h-[140px]"
                   />
 
+                  {!dictateHintSeen && !input.trim() && !sending && (
+                    <div className="flex items-center gap-2 rounded-lg bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-100 dark:border-indigo-500/20 px-2.5 py-1.5 mb-1.5 text-xs text-indigo-700 dark:text-indigo-200">
+                      <Mic className="w-3.5 h-3.5 shrink-0" />
+                      <span className="flex-1 min-w-0">
+                        Have your own bullets? Tap <b>Dictate bullets</b>, say them one at a time, and get your teleprompter card plus a full script.
+                      </span>
+                      <button
+                        type="button"
+                        onClick={openDictate}
+                        disabled={!channelId}
+                        className="px-2 py-0.5 rounded-md bg-indigo-600 text-white font-semibold hover:bg-indigo-700 transition cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        Try it
+                      </button>
+                      <button type="button" onClick={markDictateHintSeen} className="p-0.5 rounded hover:bg-indigo-100 dark:hover:bg-indigo-500/20 cursor-pointer shrink-0" title="Hide this tip">
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
+
                   {/* Bottom Control Bar */}
                   <div className="flex items-center justify-between gap-1.5 sm:gap-2 pt-1 border-t border-gray-200/60 dark:border-gray-700/50 min-w-0">
                     <div className="flex items-center gap-1 sm:gap-1.5 min-w-0 flex-1 overflow-x-auto no-scrollbar py-0.5">
@@ -1738,22 +1779,23 @@ export default function ChatPage() {
                           {isListening ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
                         </button>
                       )}
+                    </div>
+
+                    <div className="shrink-0 flex items-center gap-1.5 pl-1">
+                      {/* Outside the scrolling tool row so it is always in view */}
                       <button
                         type="button"
                         onClick={() => {
                           if (isListening) stopListening()
-                          setIsDictateOpen(true)
+                          openDictate()
                         }}
                         disabled={!channelId || sending}
-                        className="px-2 py-1 rounded-lg text-[11px] font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/15 hover:bg-indigo-100 dark:hover:bg-indigo-500/25 border border-indigo-200 dark:border-indigo-500/30 transition flex items-center gap-1 shrink-0 cursor-pointer disabled:opacity-50"
+                        className="px-2.5 py-1.5 rounded-lg text-xs font-semibold text-white bg-gradient-to-r from-purple-500 to-indigo-600 hover:from-purple-600 hover:to-indigo-700 shadow-sm shadow-indigo-500/25 transition flex items-center gap-1.5 shrink-0 cursor-pointer disabled:opacity-50"
                         title="Say your own bullets one at a time, then get them as a teleprompter card plus a full script"
                       >
                         <Mic className="w-3.5 h-3.5" />
                         <span>Dictate bullets</span>
                       </button>
-                    </div>
-
-                    <div className="shrink-0 flex items-center pl-1">
                       {sending ? (
                         <Button onClick={handleStopStreaming} size="icon" className="w-8 h-8 rounded-xl bg-red-500 hover:bg-red-600 text-white shrink-0 shadow-sm shadow-red-500/20 cursor-pointer">
                           <Square className="w-3.5 h-3.5" />

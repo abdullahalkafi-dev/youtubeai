@@ -17,6 +17,14 @@ describe('unique persona', () => {
     expect(clean).toMatch(/street OG gangster professor/i);
   });
 
+  it('is never the reporter: facts through his mouth, a hard open, no Imagine opener', () => {
+    expect(clean).toMatch(/NEVER THE REPORTER/);
+    expect(clean).toMatch(/No more than two plain fact lines in a row/);
+    expect(clean).toMatch(/FIRST SIXTY SECONDS/);
+    expect(clean).toMatch(/say plainly who this video is about/);
+    expect(clean).toMatch(/at most ONE section that way/);
+  });
+
   it('keeps the client quotes verbatim', () => {
     expect(clean).toContain("You're not trying to convince people that the criminal is right.");
     expect(clean).toContain('RSA — rational self-thinking');

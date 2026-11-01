@@ -98,7 +98,7 @@ VOICE
 - The outlaw perspective shows an old mindset and what it cost. It never glorifies crime, prison, violence or retaliation. Write "the split-second read", never "RSA".
 
 FACTS AND HIS OWN PAST
-- Keep verified facts, allegations and illustration apart. Never turn an allegation into a confirmed fact, never state a real person's private thoughts as known, never invent a scene, quote or threat. Mark an illustration with words like "Imagine" or "A man in that position might" ONCE, where the imagined scene starts, then tell the scene plainly in the present tense ("The stranger reaches. John pulls the receiver back."). "Imagine", "Picture" and "Put yourself" together appear at most five times in the whole card: a card where every line starts with "Imagine" is a failed card.
+- Keep verified facts, allegations and illustration apart. Never turn an allegation into a confirmed fact, never state a real person's private thoughts as known, never invent a scene, quote or threat. Mark an illustration with words like "Imagine" or "A man in that position might" ONCE, where the imagined scene starts, then tell the scene plainly in the present tense ("The stranger reaches. John pulls the receiver back."). "Imagine", "Picture" and "Put yourself" together appear at most two times in the whole card: a card where every line starts with "Imagine" is a failed card.
 - His first-person memories are used ONLY as they already appear in SOURCE_SCRIPT. Never invent a memory, act, quote or feeling for him, and never turn one memory into a general claim about what he saw ("I watched men explain their violence") unless SOURCE_SCRIPT says exactly that.
 
 STORY

@@ -63,6 +63,44 @@ export function guardBulletIntent(message: string, intent: string): string {
   return BULLET_WORD.test(text) && WRITE_ASK.test(text) && !isPastedMaterial(text) ? 'script' : intent;
 }
 
+/**
+ * The router's reasoning budget. The fast model thinks before it answers and a small limit comes back
+ * empty ("max_tokens reached") exactly on his long dictated asks, so the budget is generous and the
+ * wait is longer than a short ask needs.
+ */
+export const ROUTER_MAX_TOKENS = 2000;
+export const ROUTER_TIMEOUT_MS = 12000;
+
+/**
+ * A 3,000-character dictated story does not need to be read whole to be routed: the ask is at the start
+ * and the end. Long messages go to the router as their head and tail.
+ */
+export function routerText(message: string, head: number = 1100, tail: number = 450): string {
+  const text = message || '';
+  if (text.length <= head + tail + 200) return text;
+  return `${text.slice(0, head)}\n[... middle of the message left out ...]\n${text.slice(-tail)}`;
+}
+
+/** "rewrite this", "write this up", "write me a story / the script": an order to write, not a passing mention. */
+const STORY_WRITE_ORDER =
+  /\b(?:re-?write|redo)\b|\bwrite\s+(?:me\s+)?(?:this|it|that)\s+up\b|\bwrite\s+(?:me\s+)?(?:this|it|that)\b|\bwrite\s+(?:me\s+)?(?:a|the)\s+(?:full\s+)?(?:story|script)\b/i;
+/**
+ * Categories the keyword guess lands on by accident when a long story ask happens to say "pictures".
+ * Package, SEO and thumbnail are left alone: a message that asks for those on purpose keeps them.
+ */
+const STORY_FALLBACK_OVERRIDES = new Set(['image', 'outline', 'general']);
+
+/**
+ * Last-resort routing (the model's answer could not be used). The keyword guess reads a long dictated
+ * story ask by its stray words ("pictures" became an image ask). A long message that orders a story or
+ * script to be written is a script ask.
+ */
+export function guardLongStoryFallback(message: string, intent: string): string {
+  const text = message || '';
+  if (text.length < 400 || !STORY_FALLBACK_OVERRIDES.has(intent)) return intent;
+  return STORY_WRITE_ORDER.test(text) ? 'script' : intent;
+}
+
 /** Confidence for the regex fallback: an explicit thumbnail ask still earns the auto-image gate. */
 export function fallbackConfidence(message: string, intent: string): number {
   return (intent === 'thumbnail' || intent === 'package') && EXPLICIT_THUMBNAIL_ASK.test(message || '')
@@ -168,17 +206,17 @@ export class IntentClassifierService {
         const llmPromise = this.openaiService.chatFast({
           systemPrompt: CLASSIFIER_SYSTEM_PROMPT,
           userMessage:
-            `User message:\n"${message}"\n\n` +
+            `User message:\n"${routerText(message)}"\n\n` +
             (prev
               ? `Previous assistant message (truncated):\n"${prev.slice(-1500)}"`
               : 'Previous assistant message: none'),
           temperature: 0,
-          maxCompletionTokens: 250,
+          maxCompletionTokens: ROUTER_MAX_TOKENS,
         });
         // Swallow late rejection if the timeout race below wins.
         llmPromise.catch(() => undefined);
 
-        const raw = await this.withTimeout(llmPromise, 6000);
+        const raw = await this.withTimeout(llmPromise, ROUTER_TIMEOUT_MS);
         const parsed = this.parseJsonSafe(raw);
         const intent = String(parsed?.intent || '').toLowerCase();
         if (parsed && KNOWN_INTENTS.has(intent)) {
@@ -221,11 +259,15 @@ export class IntentClassifierService {
       }
     }
 
-    const fallbackIntent = guardBulletIntent(message, this.skillRegistry.classifyIntent(message, prev));
+    const guessed = guardBulletIntent(message, this.skillRegistry.classifyIntent(message, prev));
+    const fallbackIntent = guardLongStoryFallback(message, guessed);
+    this.logger.warn(`[Intent] Routed by the keyword fallback: ${guessed}${fallbackIntent !== guessed ? ` -> ${fallbackIntent}` : ''}`);
     return {
       intent: fallbackIntent,
       confidence: fallbackConfidence(message, fallbackIntent),
       source: 'fallback',
+      // A long story ask moved to the script skill is a new story: both cards, like any fresh script.
+      ...(fallbackIntent === 'script' && guessed !== 'script' ? { freshScript: true } : {}),
     };
   }
 
