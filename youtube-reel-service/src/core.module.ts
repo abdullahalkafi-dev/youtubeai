@@ -23,6 +23,7 @@ import { LayoutService } from './pipeline/layout.service';
 import { ThumbnailService } from './pipeline/thumbnail.service';
 import { DailyService } from './pipeline/daily.service';
 import { LanesService } from './pipeline/lanes.service';
+import { OpsReportService } from './pipeline/ops-report.service';
 import { PillarService } from './pipeline/pillars.service';
 import { SignalsService } from './pipeline/signals.service';
 import { GoogleTokenProvider } from './publishing/google-token.provider';
@@ -58,6 +59,7 @@ const providers = [
   SignalsService,
   LanesService,
   DailyService,
+  OpsReportService,
   // publishing (manual, YouTube first)
   PublisherRegistry,
   GoogleTokenProvider,

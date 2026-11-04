@@ -13,7 +13,7 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
-import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, pickBank, pickFresh, STOCK_TARGET } from './lanes';
+import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, pickBackup, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
 import { SignalsService } from './signals.service';
 
@@ -99,39 +99,60 @@ export class LanesService {
    */
   async createForDay(channelId: Types.ObjectId, date: string, userId: Types.ObjectId): Promise<Array<{ track: ReelTrack; campaignId: string; videos: string[] }>> {
     const made: Array<{ track: ReelTrack; campaignId: string; videos: string[] }> = [];
-    const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const catalog = await this.catalog(channelId);
     const now = new Date();
 
-    const create = async (track: 'fresh' | 'bank', picks: LaneVideo[], brief: string, reels: number, tag: string) => {
-      if (!picks.length) return;
-      if (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track })) return;
-      const campaign = await this.campaigns.create({
-        channelId,
-        userId,
-        origin: 'daily',
-        dailyDate: date,
-        track,
-        parentCampaignId: null,
-        name: truncate(`Daily ${label} (${tag}): ${picks[0].title}`, 80),
-        brief,
-        status: 'queued',
-        settings: { targetReels: reels, minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: picks.map((p) => p.youtubeId), lane: track },
-        progress: { stage: 'queued', message: `Daily ${tag} — starting` },
-        log: [{ at: new Date(), level: 'info', msg: `Daily ${track} lane for ${date}: ${picks.map((p) => p.title).join(' | ')}` }],
-      });
-      await this.queues.campaign('research', String(campaign._id));
-      made.push({ track, campaignId: String(campaign._id), videos: picks.map((p) => p.youtubeId) });
-      this.logger.log(`Daily ${date}: ${track} lane campaign ${campaign._id} (${picks.length} video(s), ${reels} reels)`);
-    };
-
-    await create('fresh', pickFresh(catalog, now, 3), freshBrief(pickFresh(catalog, now, 3)), FRESH_LANE_REELS, 'new videos');
+    // the videos this lane used on the last two days sit out today (Oct 26 - Nov 4 it took the same 2-3 Diddy videos day after day)
+    const recent = await this.campaigns
+      .find({ channelId, origin: 'daily', track: 'fresh', dailyDate: { $lt: date }, createdAt: { $gte: new Date(now.getTime() - 3 * 86_400_000) } })
+      .select('settings.seedVideoIds')
+      .lean();
+    const rested = new Set(recent.flatMap((c) => c.settings?.seedVideoIds ?? []));
+    const fresh = pickFresh(catalog, now, 3, rested);
+    const one = await this.createLane(channelId, date, userId, 'fresh', fresh, freshBrief(fresh), FRESH_LANE_REELS, 'new videos');
+    if (one) made.push(one);
     const stock = await this.reels.countDocuments({ channelId, status: 'todo' });
     if (stock < STOCK_TARGET) {
       const picks = pickBank(catalog, now, 3);
-      await create('bank', picks, bankBrief(picks), 3, 'best of the older videos');
+      const two = await this.createLane(channelId, date, userId, 'bank', picks, bankBrief(picks), 3, 'best of the older videos');
+      if (two) made.push(two);
     }
     return made;
+  }
+
+  /**
+   * The day's backup (see DailyService.superviseDay): one campaign from the analyzed videos with the most strong unused footage, leaving
+   * out the videos today's other lanes already used. Null when no video has enough strong footage left.
+   */
+  async backupForDay(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, reels: number) {
+    const today = await this.campaigns.find({ channelId, origin: 'daily', dailyDate: date }).select('sources.youtubeId settings.seedVideoIds').lean();
+    const used = new Set(today.flatMap((c) => [...(c.settings?.seedVideoIds ?? []), ...(c.sources ?? []).map((s) => s.youtubeId)]));
+    const picks = pickBackup(await this.catalog(channelId), used, 3);
+    return this.createLane(channelId, date, userId, 'best', picks, bankBrief(picks), Math.max(2, Math.min(5, reels)), 'strongest footage');
+  }
+
+  /** Creates one footage-first campaign for the day (idempotent per day and track). */
+  private async createLane(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, track: 'fresh' | 'bank' | 'best', picks: LaneVideo[], brief: string, reels: number, tag: string) {
+    if (!picks.length) return null;
+    if (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track })) return null;
+    const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const campaign = await this.campaigns.create({
+      channelId,
+      userId,
+      origin: 'daily',
+      dailyDate: date,
+      track,
+      parentCampaignId: null,
+      name: truncate(`Daily ${label} (${tag}): ${picks[0].title}`, 80),
+      brief,
+      status: 'queued',
+      settings: { targetReels: reels, minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: picks.map((p) => p.youtubeId), lane: track },
+      progress: { stage: 'queued', message: `Daily ${tag} — starting` },
+      log: [{ at: new Date(), level: 'info', msg: `Daily ${track} lane for ${date}: ${picks.map((p) => p.title).join(' | ')}` }],
+    });
+    await this.queues.campaign('research', String(campaign._id));
+    this.logger.log(`Daily ${date}: ${track} lane campaign ${campaign._id} (${picks.length} video(s), ${reels} reels)`);
+    return { track: track as ReelTrack, campaignId: String(campaign._id), videos: picks.map((p) => p.youtubeId) };
   }
 
   /** Videos become reel material: anything published in the last 30 days that is not downloaded yet is queued, the most-watched first. */

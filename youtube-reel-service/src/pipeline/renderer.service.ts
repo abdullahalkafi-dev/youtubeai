@@ -4,7 +4,7 @@ import { Model } from 'mongoose';
 import * as fs from 'fs';
 import * as path from 'path';
 import { AppConfig, CONFIG } from '../config/config';
-import { run } from '../common/exec';
+import { ExecError, run } from '../common/exec';
 import { ReelCampaign, ReelCampaignDocument } from '../db/schemas/reel-campaign.schema';
 import { Reel, ReelDocument, ReelWord } from '../db/schemas/reel.schema';
 import { ReelSource, ReelSourceDocument } from '../db/schemas/reel-source.schema';
@@ -37,6 +37,18 @@ export interface RenderResult {
   fx: RenderFx | null;
   realign: { ok: boolean; coverage?: number; maxShiftSec?: number; reason?: string } | null;
   sfx: EndSfx | null;
+}
+
+/** The lines of a failed render that say why (ffmpeg prints them last, after hundreds of filter notices), at most ~900 characters. */
+export function renderFailure(err: unknown): string {
+  const stderr = err instanceof ExecError ? err.result.stderr : '';
+  const why = stderr
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => /error|fail|invalid|cannot|unable|out of range|too (?:big|small)/i.test(l))
+    .slice(-8)
+    .join(' | ');
+  return (why || String((err as Error)?.message ?? err)).slice(-900);
 }
 
 @Injectable()
@@ -144,7 +156,8 @@ export class RendererService {
         // the new look must never cost a reel: make it in the classic look instead
         look = 'classic';
         layoutShots = undefined;
-        lookNote = `full-screen render failed: ${String(err?.message ?? err).slice(0, 200)}`;
+        // keep ffmpeg's actual reason: the old 200-character cut ended right before it, twice (Oct 31, Nov 2), so the cause was never seen
+        lookNote = `full-screen render failed: ${renderFailure(err)}`;
         this.logger.warn(`Reel ${reelId}: classic look (${lookNote})`);
         result = await make('classic', clips);
       }

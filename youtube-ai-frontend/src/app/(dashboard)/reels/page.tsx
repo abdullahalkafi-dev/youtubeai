@@ -15,7 +15,7 @@ import { AccountsBar } from '@/components/reels/accounts-bar'
 import { PerformancePanel } from '@/components/reels/performance-panel'
 import { DailyPanel } from '@/components/reels/daily-panel'
 import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
-import { CampaignStatusBadge, compact, timeAgo } from '@/components/reels/reel-ui'
+import { CampaignStatusBadge, campaignStatusLine, compact, timeAgo } from '@/components/reels/reel-ui'
 
 type Tab = 'campaigns' | 'daily' | 'library' | 'performance' | 'coverage'
 const LIBRARY_FILTERS: Array<{ id: ReelStatus | 'all'; label: string }> = [
@@ -164,7 +164,7 @@ export default function ReelsPage() {
                       <span className="text-[11px] text-zinc-400">{timeAgo(c.createdAt)}</span>
                     </div>
                     <p className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mt-1.5 truncate">{c.name}</p>
-                    <p className="text-xs text-zinc-500 mt-0.5 truncate">{c.blockedReason === 'youtube_login_required' ? 'Waiting for YouTube reconnect' : c.progress?.message}</p>
+                    <p className="text-xs text-zinc-500 mt-0.5 truncate">{c.blockedReason === 'youtube_login_required' ? 'Waiting for YouTube reconnect' : campaignStatusLine(c)}</p>
                   </div>
                   <div className="flex items-center gap-4 shrink-0">
                     {!!c.performance?.posts && (

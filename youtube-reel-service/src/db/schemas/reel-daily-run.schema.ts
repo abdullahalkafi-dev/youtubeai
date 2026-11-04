@@ -36,6 +36,8 @@ export class ReelDailyRun {
     why?: string;
     keywords?: string[];
     thin?: boolean;
+    /** Videos holding the passages the topic was written from; used as the campaign's seed videos. */
+    anchors?: string[];
   }>;
   @Prop({ type: MongooseSchema.Types.ObjectId }) campaignId?: Types.ObjectId;
   @Prop({ type: MongooseSchema.Types.ObjectId }) exploreCampaignId?: Types.ObjectId;
@@ -50,6 +52,8 @@ export class ReelDailyRun {
   @Prop({ default: 0 }) fallbackCount: number;
   /** True once no further replacement will be tried today (limit reached, or nothing suitable left). */
   @Prop({ default: false }) rescueExhausted: boolean;
+  /** The footage-first campaign started when the day fell short of reels after the topic lanes settled (one per day). */
+  @Prop({ type: MongooseSchema.Types.ObjectId }) backupCampaignId?: Types.ObjectId;
   @Prop() reason?: string;
   @Prop({ default: 1 }) attempts: number;
 }

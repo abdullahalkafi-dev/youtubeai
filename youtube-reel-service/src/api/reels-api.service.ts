@@ -357,23 +357,7 @@ export class ReelsApiService {
     const existing = await this.reels.countDocuments({ campaignId: c._id, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
     const add = Math.max(1, Math.min(10, Math.floor(count ?? (existing < c.settings.targetReels ? c.settings.targetReels - existing : 3))));
     if (existing + add > 25) throw new BadRequestException('A campaign can hold at most 25 reels');
-    await this.campaigns.updateOne(
-      { _id: c._id },
-      {
-        $set: {
-          status: 'composing',
-          'settings.targetReels': existing + add,
-          cancelRequested: false,
-          finishedAt: null,
-          error: null,
-          blockedReason: null,
-          'progress.stage': 'composing',
-          'progress.message': `Looking for ${add} more reel${add === 1 ? '' : 's'} in the unreviewed moments`,
-        },
-        $push: { log: { $each: [{ at: new Date(), level: 'info', msg: `Top-up requested: ${add} more reel${add === 1 ? '' : 's'}` }], $slice: -300 } },
-      },
-    );
-    await this.queues.campaign('topup', String(c._id));
+    if (!(await this.orchestrator.startTopUp(c._id, existing + add, add, 'client'))) throw new ConflictException('This campaign is already running');
     return { ok: true, adding: add };
   }
 

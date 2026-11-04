@@ -12,7 +12,8 @@ describe('fresh lane (videos from the last 30 days)', () => {
       [v('old', { publishedAt: daysAgo(45), views: 900_000 }), v('short', { durationSec: 120 }), v('a', { publishedAt: daysAgo(2), views: 20_000 }), v('b', { publishedAt: daysAgo(25), views: 20_000 }), v('c', { publishedAt: daysAgo(5), views: 60_000 })],
       now,
     );
-    expect(out.map((x) => x.youtubeId)).toEqual(['c', 'a', 'b']);
+    // 'a' went up 2 days ago: an upload from the last 3 days leads the lane (Nov 4 audit: new uploads were barely used)
+    expect(out.map((x) => x.youtubeId)).toEqual(['a', 'c', 'b']);
   });
 
   it('a video that is already mined out is pushed down; an analyzed one is ready sooner', () => {

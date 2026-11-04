@@ -13,8 +13,9 @@ import { buildDailyTopicUser, DAILY_TOPIC_SYSTEM, DailyTopicResult, DailyTopicSc
 import { AnalyticsService } from '../publishing/analytics.service';
 import { DEFAULT_SLOTS, freeSlots, lockAt, slot12 } from '../publishing/auto-plan';
 import { LearningService } from '../publishing/learning.service';
+import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
-import { BrainCandidate, CandidateEvidence, MAX_FALLBACKS, MIN_MAIN_MOMENTS, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
+import { BrainCandidate, CandidateEvidence, entityPattern, MAX_FALLBACKS, MIN_MAIN_MOMENTS, pickAnchors, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
 import { freeDiskGb } from './media';
 import { LanesService } from './lanes.service';
 import { isBrandEntity, PillarService } from './pillars.service';
@@ -25,6 +26,9 @@ export const DAILY_HOUR = 4;
 /** Reels asked of the two topic lanes (the new-video and best-of-old lanes add to these). */
 export const MAIN_TOPIC_REELS = 3;
 export const EXPLORE_TOPIC_REELS = 2;
+/** Reels a day should end with (the posting plan fills five slots); below this the day is topped up, then given a backup campaign. */
+export const DAILY_REEL_FLOOR = 5;
+export const NO_TOPIC_REASON = 'Not enough matching footage for any topic today';
 
 /** Next 4:00 AM New York (handles daylight-saving changes: NY offsets are whole hours). */
 export function nextDailyRun(from = new Date()): Date {
@@ -69,6 +73,7 @@ export class DailyService {
     private readonly signals: SignalsService,
     private readonly learning: LearningService,
     private readonly lanes: LanesService,
+    private readonly orchestrator: OrchestratorService,
   ) {}
 
   async isEnabled(channelId: string): Promise<boolean> {
@@ -134,7 +139,12 @@ export class DailyService {
 
     try {
       const decision = await this.decide(cid, date);
-      if (!decision.main) return skip('Not enough matching footage for any topic today', { candidates: decision.candidates, degraded: decision.degraded });
+      if (!decision.main) {
+        // No topic has real footage today: the footage-first lanes still run, so the day is not left without reels.
+        const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
+        await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`));
+        return skip(NO_TOPIC_REASON, { candidates: decision.candidates, degraded: decision.degraded });
+      }
       // The topic lanes are capped (the footage-first lanes below add to them): about three reels on the main topic and two on a second one.
       // The second ("explore") topic is off unless switched on: it failed 7 of 10 runs and its reels averaged the fewest views (Oct 30 audit).
       const { main } = decision;
@@ -154,7 +164,8 @@ export class DailyService {
           name: truncate(track === 'main' ? `Daily ${label}: ${t.c.name}` : `Daily ${label} (explore): ${t.c.name}`, 80),
           brief: t.c.brief,
           status: 'queued',
-          settings: { targetReels: Math.min(reels, this.cfg.REEL_MAX_REELS_PER_CAMPAIGN), minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: [] },
+          // the videos holding the passages the topic was written from are always used (Nov 1-2: the passage existed, the search missed it)
+          settings: { targetReels: Math.min(reels, this.cfg.REEL_MAX_REELS_PER_CAMPAIGN), minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: t.ev.anchors ?? [] },
           progress: { stage: 'queued', message: `Daily ${track === 'main' ? 'campaign' : 'explore part'} — starting research` },
           log: [{ at: new Date(), level: 'info', msg: `Daily ${track} topic for ${date}: ${t.c.why}` }],
         });
@@ -203,7 +214,8 @@ export class DailyService {
    */
   async rescue() {
     if (!this.cfg.REELS_ENABLED) return;
-    const runs = await this.runs.find({ date: nyDate(), status: 'started', rescueExhausted: { $ne: true } }).lean();
+    const date = nyDate();
+    const runs = await this.runs.find({ date, status: 'started', rescueExhausted: { $ne: true } }).lean();
     for (const run of runs) {
       try {
         await this.rescueRun(run);
@@ -211,6 +223,46 @@ export class DailyService {
         this.logger.warn(`Daily rescue for run ${run._id} failed: ${errMsg(err)}`);
       }
     }
+    const days = await this.runs.find({ date, $or: [{ status: 'started' }, { status: 'skipped', reason: NO_TOPIC_REASON }] }).lean();
+    for (const run of days) {
+      try {
+        await this.superviseDay(run);
+      } catch (err) {
+        this.logger.warn(`Daily floor check for run ${run._id} failed: ${errMsg(err)}`);
+      }
+    }
+  }
+
+  /**
+   * The day's floor (Oct 29 - Nov 4: 12 campaigns ended partial and three days made 0-1 reels, with nothing retrying). Once every
+   * campaign of the day has settled and the day has fewer than DAILY_REEL_FLOOR reels: each partial campaign that still has unreviewed
+   * moments is topped up once; when that is done (or there is nothing to top up) one backup campaign is made from the strongest
+   * footage of older videos. Silent for the client: it only adds reels; what happened is in the developer ops report.
+   */
+  private async superviseDay(run: ReelDailyRun & { _id: Types.ObjectId }) {
+    const camps = await this.campaigns.find({ channelId: run.channelId, origin: 'daily', dailyDate: run.date }).lean();
+    if (camps.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status))) return; // still working
+    if (run.status === 'started' && !run.rescueExhausted && camps.find((c) => run.campaignId && c._id.equals(run.campaignId))?.status === 'failed') return; // a replacement topic comes first
+    const made = await this.campaigns.db
+      .collection('reels')
+      .countDocuments({ campaignId: { $in: camps.map((c) => c._id) }, deletedAt: null, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
+    const short = DAILY_REEL_FLOOR - made;
+    if (short <= 0) return;
+
+    const topUps = camps.filter((c) => c.status === 'partial' && !c.autoTopupAt && !c.cancelRequested && (c.stats?.momentsShown ?? 0) < (c.stats?.momentsAvailable ?? 0));
+    if (topUps.length) {
+      for (const c of topUps) {
+        const have = await this.campaigns.db.collection('reels').countDocuments({ campaignId: c._id, deletedAt: null, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
+        const add = Math.max(1, Math.min(3, short));
+        if (await this.orchestrator.startTopUp(c._id, have + add, add, 'auto')) this.logger.log(`Daily ${run.date}: ${made} reels so far, topping up "${c.name}" by ${add}`);
+      }
+      return;
+    }
+    if (run.backupCampaignId !== undefined) return; // one backup per day
+    const owner = await this.campaigns.db.collection('channels').findOne({ _id: run.channelId }, { projection: { userId: 1 } });
+    const backup = await this.lanes.backupForDay(run.channelId, run.date, owner?.userId ?? run.channelId, short);
+    await this.runs.updateOne({ _id: run._id }, { $set: { backupCampaignId: backup ? new Types.ObjectId(backup.campaignId) : null } });
+    this.logger.log(`Daily ${run.date}: ${made} reels so far; ${backup ? `backup campaign ${backup.campaignId} (${backup.videos.length} videos, ${short} reels)` : 'no older video had enough strong footage for a backup'}`);
   }
 
   private async rescueRun(run: ReelDailyRun & { _id: Types.ObjectId }) {
@@ -244,8 +296,9 @@ export class DailyService {
           sources: [],
           candidates: [],
           blockedReason: null,
+          'settings.seedVideoIds': next.anchors ?? [],
           'progress.stage': 'queued',
-          'progress.message': `Replacement topic after "${run.topic?.name ?? 'the first topic'}" had too little usable footage — starting research`,
+          'progress.message': 'Starting research',
           stats: { candidates: 0, kept: 0, dropped: 0, rendered: 0, failed: 0, rounds: 0, momentsShown: 0, momentsAvailable: 0 },
         },
         $unset: { research: '', error: '', finishedAt: '', startedAt: '' },
@@ -359,26 +412,40 @@ export class DailyService {
       const words = [...new Set(c.keywords.map((k) => k.trim().toLowerCase()).filter((k) => k.length >= 3))].slice(0, 10);
       if (!words.length) continue;
       const cand: BrainCandidate = { name: c.name, brief: c.brief, why: c.why, keywords: words, signal: c.signal, pillar: pillarKeys.has(c.pillar) ? c.pillar : null, entity: canonical(c.entity) };
-      // A moment counts when it matches at least two of the topic's keywords (one broad word like "consequences" matches almost
-      // everything); a catalog video counts when its title has one of the 3 main keywords.
+      // A topic about a person counts only moments (and catalog titles) that name that person: generic keywords like "son", "charges"
+      // or "prison" match hundreds of unrelated moments (Nov 1-3: topics with 0 real footage were picked as the main topic three days
+      // running). A topic without a person counts moments matching at least two of its keywords.
+      const entityRe = cand.entity ? entityPattern([cand.entity, ...(entityKeys.find((e) => e.key === cand.entity)?.names ?? [])]) : null;
       const text = { $concat: [{ $ifNull: ['$title', ''] }, ' ', { $ifNull: ['$summary', ''] }, ' ', { $reduce: { input: { $concatArrays: [{ $ifNull: ['$entityNames', []] }, { $ifNull: ['$themes', []] }] }, initialValue: '', in: { $concat: ['$$value', ' ', '$$this'] } } }] };
       const hits = { $add: words.map((w) => ({ $cond: [{ $regexMatch: { input: text, regex: escapeRe(w), options: 'i' } }, 1, 0] })) };
-      const [m] = await db
+      const onTopic = entityRe ? { named: true } : { hits: { $gte: Math.min(2, words.length) } };
+      const rows = await db
         .collection('reel_moments')
-        .aggregate<{ n: number; strong: number }>([
+        .aggregate<{ youtubeId: string; hits: number; standalone: number | null; strong: boolean; unused: boolean }>([
           { $match: { channelId } },
-          { $project: { hits, strong: { $and: [{ $eq: ['$status', 'unused'] }, { $gte: [{ $ifNull: ['$standalone', 0] }, 7] }] } } },
-          { $match: { hits: { $gte: Math.min(2, words.length) } } },
-          { $group: { _id: null, n: { $sum: 1 }, strong: { $sum: { $cond: ['$strong', 1, 0] } } } },
+          {
+            $project: {
+              youtubeId: 1,
+              standalone: 1,
+              hits,
+              named: entityRe ? { $regexMatch: { input: text, regex: entityRe, options: 'i' } } : true,
+              unused: { $eq: ['$status', 'unused'] },
+              strong: { $and: [{ $eq: ['$status', 'unused'] }, { $gte: [{ $ifNull: ['$standalone', 0] }, 7] }] },
+            },
+          },
+          { $match: onTopic },
         ])
         .toArray();
-      const titleRe = new RegExp(words.slice(0, 3).map(escapeRe).join('|'), 'i');
+      const m = { n: rows.length, strong: rows.filter((r) => r.strong).length };
+      // the videos holding the passages the topic was written from: the campaign gets them as seeds, so it cannot miss them
+      const anchors = pickAnchors(rows.filter((r) => r.unused));
+      const titleRe = entityRe ? new RegExp(entityRe, 'i') : new RegExp(words.slice(0, 3).map(escapeRe).join('|'), 'i');
       const matching = (await db.collection('videos').find({ channelId, deletedFromYoutube: { $ne: true }, durationSeconds: { $gt: 240 }, title: titleRe }, { projection: { youtubeId: 1 } }).limit(600).toArray()).map((v: any) => v.youtubeId).filter(Boolean);
       const videos = matching.length;
       // matching videos nobody has analysed yet: the campaign can download and mine them
       const analysed = videos ? await db.collection('reel_sources').countDocuments({ youtubeId: { $in: matching }, momentCount: { $gt: 0 } }) : 0;
       const trend = matchTrend(cand, usableTrends);
-      const ev: CandidateEvidence = { moments: m?.n ?? 0, videos, strongMoments: m?.strong ?? 0, minableVideos: Math.max(0, videos - analysed), trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own ? { ...snap.own, byEntity: snap.own.byEntity, byPillar: snap.own.byPillar } : undefined) };
+      const ev: CandidateEvidence = { anchors, moments: m.n, videos, strongMoments: m.strong, minableVideos: Math.max(0, videos - analysed), trendMatch: trend.match, trendTitle: trend.title, velocityShare: velocityShareFor(cand, snap.own ? { ...snap.own, byEntity: snap.own.byEntity, byPillar: snap.own.byPillar } : undefined) };
       const s = scoreCandidate(cand, ev, { ...ctxBase, targetReels: 7 });
       scored.push(s);
     }
@@ -409,6 +476,7 @@ export class DailyService {
         picked: s === portfolio.main ? 'main' : s === portfolio.explore ? 'explore' : undefined,
         reels: reelsFor(s) || undefined,
         thin: s.thin,
+        anchors: s.ev.anchors ?? [],
         brief: s.c.brief,
         why: s.c.why,
         keywords: s.c.keywords,

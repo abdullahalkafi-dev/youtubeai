@@ -30,7 +30,7 @@ export interface CampaignSettings {
   /** origin 'video': the uploaded source this campaign is built from. */
   uploadSourceId?: string;
   /** Footage-first daily lanes: the videos in seedVideoIds ARE the sources (no web research, no topic search). */
-  lane?: 'fresh' | 'bank';
+  lane?: 'fresh' | 'bank' | 'best';
 }
 
 export interface CandidateLedgerEntry {
@@ -114,6 +114,8 @@ export class ReelCampaign {
   @Prop({ type: [Object], default: [] }) log: Array<{ at: Date; level: 'info' | 'warn' | 'error'; msg: string }>;
 
   @Prop() error?: string;
+  /** Set when the daily supervisor topped this campaign up by itself (once per campaign). */
+  @Prop() autoTopupAt?: Date;
   @Prop({ default: false }) cancelRequested: boolean;
   @Prop() startedAt?: Date;
   @Prop() finishedAt?: Date;

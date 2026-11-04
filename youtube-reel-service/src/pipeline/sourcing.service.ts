@@ -20,7 +20,7 @@ import {
   TitleScanSchema,
 } from '../prompts/sourcing.prompt';
 import { OrchestratorService } from '../queue/orchestrator.service';
-import { freshnessBonus } from './lanes';
+import { freshnessBonus, isSourceable } from './lanes';
 
 interface CatalogItem {
   _id: Types.ObjectId;
@@ -293,6 +293,7 @@ export class SourcingService {
   }
 
   private async loadCatalog(channelId: Types.ObjectId): Promise<CatalogItem[]> {
+    const now = new Date();
     const docs = await this.videos
       .find({ channelId, privacyStatus: 'public', deletedAt: null })
       .select('youtubeId title tags description viewCount publishedAt duration durationSeconds liveBroadcastContent')
@@ -309,7 +310,9 @@ export class SourcingService {
         durationSec: d.durationSeconds || parseIsoDuration(d.duration),
         live: d.liveBroadcastContent,
       }))
-      .filter((d) => d.youtubeId && d.durationSec > 240 && d.live !== 'live' && d.live !== 'upcoming')
+      // same rule as the lanes: an aired premiere still flagged "upcoming" is usable (Nov 3-4 the lane picked two such videos and this
+      // filter silently dropped them, leaving the campaign one video)
+      .filter((d) => d.youtubeId && d.durationSec > 240 && isSourceable({ liveBroadcastContent: d.live, viewCount: d.viewCount, publishedAt: d.publishedAt }, now))
       .map(({ live: _live, ...rest }) => rest);
   }
 

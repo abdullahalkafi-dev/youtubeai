@@ -49,6 +49,8 @@ export class ReelSource {
   @Prop({ default: false }) remined: boolean;
 
   @Prop({ default: 0 }) attempts: number;
+  /** Times the recovery tick restarted this video after it sat in a working stage too long (capped; then it is marked failed). */
+  @Prop({ default: 0 }) recoveries: number;
   @Prop() error?: string;
   @Prop() downloadedAt?: Date;
   @Prop() lastUsedAt?: Date;

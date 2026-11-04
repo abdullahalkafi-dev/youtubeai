@@ -16,7 +16,7 @@ import { CampaignPerformance } from '@/components/reels/campaign-performance'
 import { CampaignChat } from '@/components/reels/campaign-chat'
 import { LinkVideoCard } from '@/components/reels/link-video-card'
 import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
-import { CampaignStatusBadge, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
+import { CampaignStatusBadge, campaignStatusLine, clientLogLine, compact, fmtSec, timeAgo } from '@/components/reels/reel-ui'
 import { fmtNYTimeSec } from '@/lib/time'
 
 const STAGES: Array<{ id: string; label: string }> = [
@@ -219,7 +219,7 @@ export default function CampaignPage() {
             )
           })}
         </div>
-        <p className={cn('text-xs mt-4 text-center', c.status === 'failed' ? 'text-red-500' : 'text-zinc-500')}>{c.error || c.progress?.message}</p>
+        <p className="text-xs mt-4 text-center text-zinc-500">{campaignStatusLine(c)}</p>
         <p className="text-[10px] mt-1 text-center text-zinc-400">
           AI usage: {compact(tokens)} tokens{c.usage?.costUsd ? ` (about $${c.usage.costUsd.toFixed(2)})` : ''} · {Math.round((c.usage?.sttSeconds ?? 0) / 60)} min transcribed
           {c.stats?.candidates ? ` · ${c.stats.candidates} reel ideas reviewed, ${c.stats.kept} kept` : ''}
@@ -387,8 +387,8 @@ export default function CampaignPage() {
       <section className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">
         <h2 className="text-sm font-bold text-zinc-900 dark:text-zinc-100 mb-3">Activity</h2>
         <ul className="space-y-1 max-h-64 overflow-y-auto font-mono">
-          {[...c.log].reverse().map((l, i) => (
-            <li key={i} className={cn('text-[11px]', l.level === 'error' ? 'text-red-500' : l.level === 'warn' ? 'text-amber-500' : 'text-zinc-500')}>
+          {[...c.log].filter(clientLogLine).reverse().map((l, i) => (
+            <li key={i} className="text-[11px] text-zinc-500">
               <span className="text-zinc-400">{fmtNYTimeSec(l.at)}</span> {l.msg}
             </li>
           ))}

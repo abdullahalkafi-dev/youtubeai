@@ -33,6 +33,8 @@ export interface CandidateEvidence {
   trendTitle: string | null;
   /** 0..1: share of the channel's last-3-day views that went to videos about this topic. */
   velocityShare: number;
+  /** Videos holding the moments this topic was written from, best first: the campaign is made to use them. */
+  anchors?: string[];
 }
 
 export interface PillarState {
@@ -83,8 +85,29 @@ export const MIN_STRONG_MOMENTS = 4;
  */
 export const MINABLE_VALUE = 1;
 export const MINABLE_CAP = 4;
-/** The main topic needs this many already-mined on-topic moments (matching 2+ keywords) to be trusted with most of the day. */
+/**
+ * The main topic needs this many already-mined on-topic moments to be trusted with most of the day. For a topic about a person,
+ * only moments that name that person count (Nov 1-3 audit: "Boosie's Son" counted 293 keyword moments and had 0 about him).
+ */
 export const MIN_MAIN_MOMENTS = 8;
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/** Word-bounded regex source for a person's names (case-insensitive use), or null when no name is long enough to match safely. */
+export function entityPattern(names: string[]): string | null {
+  const usable = [...new Set(names.map((n) => n.trim().toLowerCase()).filter((n) => n.length >= 3))];
+  return usable.length ? `\\b(?:${usable.map(escapeRe).join('|')})\\b` : null;
+}
+
+/** The videos holding a topic's best moments: most keyword hits first, then the strongest; one entry per video. */
+export function pickAnchors(rows: Array<{ youtubeId: string; hits: number; standalone?: number | null }>, max = 3): string[] {
+  const out: string[] = [];
+  for (const r of [...rows].sort((a, b) => b.hits - a.hits || (b.standalone ?? 0) - (a.standalone ?? 0))) {
+    if (!out.includes(r.youtubeId)) out.push(r.youtubeId);
+    if (out.length >= max) break;
+  }
+  return out;
+}
 /** How many times a failed main topic is replaced by the next-best one on the same day. */
 export const MAX_FALLBACKS = 2;
 

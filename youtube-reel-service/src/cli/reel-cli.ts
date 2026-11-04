@@ -21,6 +21,8 @@ import { ensureDir } from '../pipeline/media';
 import { LayoutService } from '../pipeline/layout.service';
 import { LanesService } from '../pipeline/lanes.service';
 import { nyDate } from '../common/time';
+import { OpsReportService } from '../pipeline/ops-report.service';
+import { formatOpsReport } from '../pipeline/ops-report';
 
 /**
  * Operator CLI (run inside the reel-worker container):
@@ -29,6 +31,7 @@ import { nyDate } from '../common/time';
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
+ *   node dist/cli/reel-cli.js ops:report [days] [--build [YYYY-MM-DD]] [--json]   (developer daily health record; see OPS-AUDIT.md)
  *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
@@ -210,6 +213,21 @@ async function main() {
           await reels.updateOne({ _id: r._id }, { $set: { status: 'queued', error: null } });
           await queues.render(String(r._id));
         }
+        break;
+      }
+      case 'ops:report': {
+        // Developer health record (never shown to the client). `--build [YYYY-MM-DD]` refreshes that day first (default today).
+        const ops = app.get(OpsReportService);
+        const bi = args.indexOf('--build');
+        if (bi >= 0) {
+          const day = args[bi + 1] && /^\d{4}-\d{2}-\d{2}$/.test(args[bi + 1]) ? args[bi + 1] : nyDate();
+          await ops.buildAll(day);
+        }
+        const days = Number(args.find((a) => /^\d+$/.test(a)) ?? 7);
+        const rows = await ops.latest(days);
+        if (args.includes('--json')) console.log(JSON.stringify(rows, null, 2));
+        else for (const r of rows) console.log(formatOpsReport(r));
+        if (!rows.length) console.log('No reports yet. Run: ops:report --build');
         break;
       }
       default:

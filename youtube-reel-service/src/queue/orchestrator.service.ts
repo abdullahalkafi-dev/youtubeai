@@ -83,6 +83,33 @@ export class OrchestratorService {
     );
   }
 
+  /**
+   * "Find more reels": more composing rounds over the moments a finished campaign has not reviewed yet (no new downloads, speech-to-text or
+   * mining). Used by the client's button and, once per campaign, by the daily supervisor. False when the campaign is no longer finished.
+   */
+  async startTopUp(campaignId: string | Types.ObjectId, targetReels: number, add: number, by: 'client' | 'auto'): Promise<boolean> {
+    const res = await this.campaigns.updateOne(
+      { _id: campaignId, status: { $in: ['partial', 'completed'] } },
+      {
+        $set: {
+          status: 'composing',
+          'settings.targetReels': targetReels,
+          cancelRequested: false,
+          finishedAt: null,
+          error: null,
+          blockedReason: null,
+          'progress.stage': 'composing',
+          'progress.message': `Looking for ${add} more reel${add === 1 ? '' : 's'} in the unreviewed moments`,
+          ...(by === 'auto' ? { autoTopupAt: new Date() } : {}),
+        },
+        $push: { log: { $each: [{ at: new Date(), level: 'info' as const, msg: `Top-up ${by === 'auto' ? 'started automatically' : 'requested'}: ${add} more reel${add === 1 ? '' : 's'}` }], $slice: -300 } },
+      },
+    );
+    if (!res.modifiedCount) return false;
+    await this.queues.campaign('topup', String(campaignId));
+    return true;
+  }
+
   async assertActive(campaignId: string) {
     const c = await this.campaigns.findById(campaignId).select('status cancelRequested').lean();
     if (!c || c.cancelRequested || c.status === 'cancelled') throw new CancelledError();
@@ -152,12 +179,11 @@ export class OrchestratorService {
     if (done >= campaign.settings.targetReels && failed === 0) {
       return this.finish(campaignId, 'completed', `${done} reels ready in To-do.`);
     }
+    // The client sees a plain count; the detail (moments reviewed, ideas dropped, failed renders) stays in the log for the ops report.
     const st = campaign.stats;
-    const reviewed = st?.momentsShown ? ` Reviewed ${st.momentsShown} of ${st.momentsAvailable} mined moments over ${st.rounds} round(s); ${st.dropped} reel ideas did not clear the quality bar.` : '';
-    return this.finish(
-      campaignId,
-      'partial',
-      `${done} of ${campaign.settings.targetReels} requested reels ready${failed ? ` (${failed} failed to render)` : ''}.${reviewed} Use “Find more reels” to try again.`,
-    );
+    if (st?.momentsShown || failed) {
+      await this.log(campaignId, 'info', `Detail: reviewed ${st?.momentsShown ?? 0} of ${st?.momentsAvailable ?? 0} mined moments over ${st?.rounds ?? 0} round(s); ${st?.dropped ?? 0} ideas dropped; ${failed} render(s) failed`, false);
+    }
+    return this.finish(campaignId, 'partial', `${done} reel${done === 1 ? '' : 's'} ready in To-do.`);
   }
 }

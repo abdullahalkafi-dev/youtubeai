@@ -3,6 +3,7 @@ import { AutoPublishService } from '../publishing/auto-publish.service';
 import { LanesService } from './lanes.service';
 import { LearningService } from '../publishing/learning.service';
 import { DailyService } from './daily.service';
+import { OpsReportService } from './ops-report.service';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import * as fs from 'fs';
@@ -23,6 +24,9 @@ import { YouTubeSessionService } from './youtube-session.service';
 
 const STALE_CAMPAIGN_MS = 20 * 60_000;
 const STALE_RENDER_MS = 30 * 60_000;
+/** A video in an analysis stage this long with no job on it is stuck; it is restarted at most MAX_SOURCE_RECOVERIES times. */
+const STUCK_SOURCE_MS = 3 * 60 * 60_000;
+const MAX_SOURCE_RECOVERIES = 3;
 
 /** Self-healing: crash recovery, YouTube session health, temp cleanup, source-cache eviction. */
 @Injectable()
@@ -45,10 +49,12 @@ export class MaintenanceService {
     private readonly autoPublish: AutoPublishService,
     private readonly learning: LearningService,
     private readonly lanes: LanesService,
+    private readonly ops: OpsReportService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'weekly-review') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'weekly-review' | 'ops-report') {
     if (task === 'weekly-review') return this.learning.runWeekly();
+    if (task === 'ops-report') return this.ops.buildAll();
     if (task === 'daily') return this.daily.runScheduled();
     if (task === 'auto-publish') return this.autoPublish.runDue();
     if (task === 'recover') return this.recover();
@@ -57,9 +63,37 @@ export class MaintenanceService {
     if (task === 'cleanup') return this.cleanup();
   }
 
-  private async pendingJobIds(queue: 'campaign' | 'render', key: 'campaignId' | 'reelId'): Promise<Set<string>> {
+  private async pendingJobIds(queue: 'campaign' | 'render' | 'analyze', key: 'campaignId' | 'reelId' | 'youtubeId'): Promise<Set<string>> {
     const jobs = await this.queues.q[queue].getJobs(['waiting', 'active', 'delayed', 'paused']);
     return new Set(jobs.filter(Boolean).map((j) => String(j.data?.[key])));
+  }
+
+  /**
+   * A video left in an analysis stage with no job working on it (the last retry timed out: a 107-minute, 15.8k-view video sat in
+   * "transcribing" from Oct 30 to Nov 4, and nothing looks at a video that already has a record) is restarted, a few per tick. After
+   * MAX_SOURCE_RECOVERIES restarts it is marked failed with the reason, which the ops report lists.
+   */
+  private async recoverStuckSources() {
+    const cutoff = new Date(Date.now() - STUCK_SOURCE_MS);
+    const stuck = await this.sources
+      .find({ stage: { $in: ['downloaded', 'transcribing', 'mining'] }, updatedAt: { $lt: cutoff }, $or: [{ analyzeLockAt: null }, { analyzeLockAt: { $lt: cutoff } }] })
+      .select('youtubeId stage recoveries')
+      .limit(3)
+      .lean();
+    if (!stuck.length) return;
+    const pending = await this.pendingJobIds('analyze', 'youtubeId');
+    for (const s of stuck) {
+      if (pending.has(s.youtubeId)) continue;
+      if ((s.recoveries ?? 0) >= MAX_SOURCE_RECOVERIES) {
+        await this.sources.updateOne({ youtubeId: s.youtubeId }, { $set: { stage: 'failed', analyzeLockAt: null, error: `stuck in ${s.stage} after ${s.recoveries} restarts` } });
+        await this.orchestrator.onSourceSettled(s.youtubeId);
+        this.logger.warn(`Video ${s.youtubeId} stayed stuck in ${s.stage} after ${s.recoveries} restarts: marked failed`);
+        continue;
+      }
+      await this.sources.updateOne({ youtubeId: s.youtubeId }, { $inc: { recoveries: 1 }, $set: { analyzeLockAt: null } });
+      await this.queues.analyze(s.youtubeId);
+      this.logger.log(`Video ${s.youtubeId} was stuck in ${s.stage}: analysis restarted (${(s.recoveries ?? 0) + 1} of ${MAX_SOURCE_RECOVERIES})`);
+    }
   }
 
   async recover() {
@@ -79,6 +113,11 @@ export class MaintenanceService {
       await this.lanes.analyzeNewUploads(); // new uploads become reel material the same day (checked at most every 45 minutes)
     } catch (err) {
       this.logger.warn(`New-upload analysis failed: ${errMsg(err)}`);
+    }
+    try {
+      await this.recoverStuckSources();
+    } catch (err) {
+      this.logger.warn(`Stuck-video recovery failed: ${errMsg(err)}`);
     }
     const session = await this.session.state();
     // Re-login happened → release blocked sources.

@@ -21,6 +21,7 @@ function make(opts: { catalog: LaneVideo[]; stock: number; existing?: boolean; s
       return { _id: oid(), ...doc };
     }),
     distinct: jest.fn(async () => [oid()]),
+    find: jest.fn(() => ({ select: () => ({ lean: async () => [] }) })),
   };
   svc.reels = { countDocuments: jest.fn(async () => opts.stock) };
   svc.sources = { find: () => ({ select: () => ({ lean: async () => (opts.sources ?? []).map((youtubeId) => ({ youtubeId })), limit: () => ({ lean: async () => (opts.empty ?? []).map((youtubeId) => ({ youtubeId, title: 'T ' + youtubeId })) }) }) }), updateOne: jest.fn() };

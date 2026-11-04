@@ -73,6 +73,24 @@ export function CampaignStatusBadge({ status }: { status: CampaignStatus }) {
   return <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap', s.cls)}>{s.label}</span>
 }
 
+/**
+ * The one line the client sees under a campaign. A failed campaign gets a calm, plain sentence: the technical reason is for the developer
+ * (server ops report), not the client.
+ */
+export function campaignStatusLine(c: { status: CampaignStatus; origin?: string; progress?: { message?: string } | null }): string {
+  if (c.status === 'failed') {
+    return c.origin === 'daily'
+      ? "This topic didn't give usable reels. Today's reels come from other videos."
+      : "This footage didn't give usable reels. Try another topic or video."
+  }
+  return c.progress?.message ?? ''
+}
+
+/** Activity lines worth showing the client: the steps, without the AI's working notes, warnings or errors. */
+export function clientLogLine(l: { level: string; msg: string }): boolean {
+  return l.level === 'info' && !/^(Director|Producer notes|Detail|Round \d+)/.test(l.msg)
+}
+
 export function ReelStatusBadge({ status }: { status: ReelStatus }) {
   const s = REEL_STATUS[status] ?? REEL_STATUS.queued
   return <span className={cn('px-2 py-0.5 rounded-md text-[11px] font-semibold whitespace-nowrap', s.cls)}>{s.label}</span>

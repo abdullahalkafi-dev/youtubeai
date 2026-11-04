@@ -54,19 +54,37 @@ export function freshnessBonus(publishedAt: Date | null | undefined, now: Date =
  * Videos from the last 30 days, best first: how much people watch it, how new it is, and not one already mined out. Videos that are
  * already analyzed get a small lift (their reels are ready sooner); everything else is analyzed on the way.
  */
-export function pickFresh(videos: LaneVideo[], now: Date, take = 3): LaneVideo[] {
+export function pickFresh(videos: LaneVideo[], now: Date, take = 3, rested: Set<string> = new Set()): LaneVideo[] {
   const ranked = videos
     .filter((v) => v.durationSec >= MIN_LONG_SEC && ageDays(v, now) <= FRESH_DAYS)
-    .map((v) => ({ v, score: hitScore(v, now) }))
+    .map((v) => ({ v, score: hitScore(v, now) * (ageDays(v, now) <= NEW_UPLOAD_DAYS ? NEW_UPLOAD_BOOST : 1) }))
     .sort((a, b) => b.score - a.score);
-  // at most MAX_PER_ENTITY of the picks about the same person, so one story does not take the whole lane
+  // at most MAX_PER_ENTITY of the picks about the same person, so one story does not take the whole lane; videos the lane used on the
+  // last days come only after every other video (Oct 26 - Nov 4 the same 2-3 videos were picked every day and kept failing)
   const picked: LaneVideo[] = [];
-  for (const { v } of ranked) {
-    if (picked.length >= take) break;
-    if (v.entity && picked.filter((p) => p.entity === v.entity).length >= MAX_PER_ENTITY) continue;
-    picked.push(v);
+  for (const pass of [false, true]) {
+    for (const { v } of ranked) {
+      if (picked.length >= take) break;
+      if (picked.includes(v) || rested.has(v.youtubeId) !== pass) continue;
+      if (v.entity && picked.filter((p) => p.entity === v.entity).length >= MAX_PER_ENTITY) continue;
+      picked.push(v);
+    }
   }
   return picked;
+}
+
+/** A video uploaded in the last few days is what the client is promoting right now: it leads the lane ahead of older hits. */
+export const NEW_UPLOAD_DAYS = 3;
+export const NEW_UPLOAD_BOOST = 1.5;
+
+/** The day's backup: analyzed videos of any age with the most strong unused footage, not already used today. */
+export function pickBackup(videos: LaneVideo[], usedToday: Set<string>, take = 3): LaneVideo[] {
+  return videos
+    .filter((v) => v.analyzed && v.strongMoments >= 3 && !usedToday.has(v.youtubeId))
+    .map((v) => ({ v, score: Math.min(v.strongMoments, 12) * Math.sqrt(Math.log1p(v.views) + 1) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, take)
+    .map((x) => x.v);
 }
 
 export const MAX_PER_ENTITY = 2;
