@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet, Font, Svg, Polygon, pdf } from '@react-pdf/renderer'
-import { parseScriptSections, isSourceCitationLine } from '@/lib/teleprompter-parser'
+import { parseScriptSections, isSourceCitationLine, splitBulletLabel } from '@/lib/teleprompter-parser'
 
 const styles = StyleSheet.create({
   page: {
@@ -71,7 +71,22 @@ const styles = StyleSheet.create({
     color: '#6B7280',
   },
   sectionContainer: {
-    marginBottom: 16,
+    marginBottom: 30,
+  },
+  /** Divider + gap before a new 1A/1B/1C bullet. */
+  bulletRule: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginTop: 14,
+    marginBottom: 14,
+  },
+  bulletLabel: {
+    fontFamily: 'Helvetica-Bold',
+    color: '#B45309',
+  },
+  /** First line after a blank line: a new chunk of the same bullet. */
+  chunkStart: {
+    marginTop: 8,
   },
   sectionHeader: {
     fontSize: 13,
@@ -94,7 +109,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontFamily: 'Helvetica',
     color: '#374151',
-    marginBottom: 6,
+    marginBottom: 3,
     paddingLeft: 12,
     lineHeight: 1.5,
     borderLeftWidth: 2,
@@ -204,11 +219,29 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
               </View>
             ) : (
               <View wrap={true}>
-                {section.body.split('\n').map((line, lIdx) => {
+                {section.body.split('\n').map((line, lIdx, all) => {
                   const trimmed = line.trim()
                   if (!trimmed) return null
 
                   if (isSourceCitationLine(trimmed)) return null
+
+                  // Spacing (client, Nov 5 2026: "a noticeable space between each bullet"): a rule and a big gap before a new
+                  // 1A/1B/1C bullet, a smaller gap where the script leaves a blank line between chunks of one bullet.
+                  const spoken = trimmed.replace(/^>\s*/, '')
+                  const prev = lIdx > 0 ? all[lIdx - 1].trim() : ''
+                  const afterBreak = lIdx > 0 && (!prev || /^>\s*$/.test(prev))
+                  const { label } = splitBulletLabel(spoken)
+                  if (label && lIdx > 0) {
+                    return (
+                      <View key={lIdx} wrap={false}>
+                        <View style={styles.bulletRule} />
+                        <Text style={styles.spokenLine}>
+                          <Text style={styles.bulletLabel}>{label}  </Text>
+                          {splitBulletLabel(spoken).text}
+                        </Text>
+                      </View>
+                    )
+                  }
 
                   // Strip any accidental leading backslashes
                   const cueClean = trimmed.replace(/^\\+/,'')
@@ -229,9 +262,12 @@ export const TeleprompterPdfDocument: React.FC<TeleprompterPdfDocProps> = ({
                     )
                   }
 
+                  if (/^>\s*$/.test(trimmed)) return null // a lone ">" is a breath spacer, not a line
+
                   return (
-                    <Text key={lIdx} style={styles.spokenLine} wrap={false}>
-                      {trimmed.replace(/^>\s*/, '').replace(/\*\*/g, '')}
+                    <Text key={lIdx} style={afterBreak ? [styles.spokenLine, styles.chunkStart] : styles.spokenLine} wrap={false}>
+                      {label ? <Text style={styles.bulletLabel}>{label}  </Text> : null}
+                      {label ? splitBulletLabel(spoken).text : spoken.replace(/\*\*/g, '')}
                     </Text>
                   )
                 })}

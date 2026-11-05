@@ -232,9 +232,11 @@ export function extractCleanTeleprompterText(content: string): string {
   if (!content) return '';
   const normalized = content.replace(/\r\n/g, '\n');
   const sections = parseScriptSections(normalized);
+  // Spacing (client, Nov 5 2026: "a noticeable space between each bullet"): one blank line between the chunks of a bullet,
+  // two before a new 1A/1B/1C bullet, three before a numbered bullet's header.
   return sections
     .map(sec => {
-      const head = sec.header ? `\n\n=== ${sec.header.toUpperCase()} ===\n` : '';
+      const head = sec.header ? `\n\n\n=== ${sec.header.toUpperCase()} ===\n\n` : '';
       const cleanBody = sec.body
         .split('\n')
         .filter((line) => !isSourceCitationLine(line))
@@ -242,6 +244,8 @@ export function extractCleanTeleprompterText(content: string): string {
         .replace(/^>\s*/gm, '')
         .replace(/\*\*/g, '')
         .replace(/^•\s*/gm, '• ')
+        .replace(/\n{3,}/g, '\n\n')
+        .replace(/\n\n(?=\d+[A-H]\.\s)/g, '\n\n\n')
         .trim();
       return `${head}${cleanBody}`;
     })

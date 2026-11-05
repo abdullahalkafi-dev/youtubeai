@@ -158,8 +158,10 @@ function SectionBodyRenderer({
 }: SectionBodyRendererProps) {
   const blocks = groupBodyIntoBlocks(body)
 
+  // Client, Nov 5 2026: "a noticeable space between each bullet". Chunks of one bullet get a clear gap; a new 1A/1B/1C bullet
+  // gets a divider and a bigger gap (below); numbered bullets are further apart still (the section list).
   return (
-    <div className="space-y-3">
+    <div className="space-y-6">
       {blocks.map((block, bIdx) => {
         const key = `sec-${sectionIdx}-b-${bIdx}`
 
@@ -243,9 +245,10 @@ function SectionBodyRenderer({
           // A freestyle bullet starts with its label ("1A."): badge it and leave a bigger gap before it.
           const startsBullet = Boolean(splitBulletLabel(block.lines[0] || '').label)
           return (
+            <div key={key} className={startsBullet && bIdx > 0 ? 'pt-6' : undefined}>
+            {startsBullet && bIdx > 0 && <div className={`h-px mb-10 ${isDark ? 'bg-zinc-700/70' : 'bg-zinc-200'}`} />}
             <div
-              key={key}
-              className={`pl-4 sm:pl-5 border-l-[3px] space-y-1 ${startsBullet ? 'mt-8' : ''} ${
+              className={`pl-4 sm:pl-5 border-l-[3px] space-y-1 ${
                 isDark ? 'border-zinc-600/70' : 'border-zinc-300'
               }`}
             >
@@ -299,6 +302,7 @@ function SectionBodyRenderer({
                   </div>
                 )
               })}
+            </div>
             </div>
           )
         }
@@ -891,7 +895,7 @@ export function FullscreenTeleprompter({
         className="flex-1 overflow-y-auto px-4 sm:px-6 py-16 sm:py-20 flex justify-center no-scrollbar relative"
         style={{ scrollBehavior: isPlaying ? 'auto' : 'smooth' }}
       >
-        <div className={`w-full ${widthClasses} transition-all duration-300 space-y-6 sm:space-y-8`}>
+        <div className={`w-full ${widthClasses} transition-all duration-300 space-y-12 sm:space-y-16`}>
           {/* Eyeline Indicator Guide Line (Clean laser line, NO text collision in center on small/half screens) */}
           <div className="fixed top-[40%] left-0 right-0 pointer-events-none z-10 flex items-center">
             <div className={`w-4 h-4 -ml-0.5 ${isDark ? 'text-amber-400/50' : 'text-amber-600/70'}`}>
@@ -938,7 +942,7 @@ export function FullscreenTeleprompter({
               ref={(el) => {
                 sectionRefs.current[idx] = el
               }}
-              className="space-y-3 pt-2"
+              className="space-y-5 pt-2"
             >
               {section.header && !section.isJewel && (
                 <div className={`py-1 border-b ${isDark ? 'border-zinc-800/80' : 'border-zinc-200'}`}>

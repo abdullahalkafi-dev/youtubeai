@@ -423,9 +423,11 @@ export function ScriptRenderer({
       </div>
 
       {/* Script Sections Card Body */}
-      <div className="p-5 space-y-5 max-h-[600px] overflow-y-auto">
+      {/* Spacing rhythm (client, Nov 5 2026: "a noticeable space between each bullet so it's smooth on the eyes"):
+          big gap between numbered bullets, a divider between 1A/1B/1C, a small gap between the chunks of one bullet. */}
+      <div className="p-5 space-y-9 max-h-[600px] overflow-y-auto">
         {sections.map((section, idx) => (
-          <div key={idx} className="space-y-3">
+          <div key={idx} className="space-y-4">
             {section.header && !section.isJewel && (
               <h4 className="text-xs font-bold text-amber-600 dark:text-amber-400 uppercase tracking-wider pb-1 border-b border-zinc-100 dark:border-zinc-800">
                 {section.header}
@@ -462,7 +464,7 @@ export function ScriptRenderer({
                 </div>
               </div>
             ) : (
-              <div className="space-y-2.5 text-xs leading-relaxed">
+              <div className="space-y-3.5 text-sm leading-relaxed">
                 {groupPreviewBlocks(section.body).map((block, bIdx) => {
                   if (block.type === 'cue') {
                     return (
@@ -487,12 +489,10 @@ export function ScriptRenderer({
                     // bigger gap before it, so each bullet reads as its own runway.
                     const startsBullet = Boolean(splitBulletLabel(block.lines[0]).label)
                     return (
+                      <div key={bIdx} className={cn(startsBullet && bIdx > 0 && 'pt-3')}>
+                      {startsBullet && bIdx > 0 && <div className="h-px bg-zinc-200/80 dark:bg-zinc-800 mb-6" />}
                       <div
-                        key={bIdx}
-                        className={cn(
-                          'pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1.5',
-                          startsBullet && 'mt-5',
-                        )}
+                        className="pl-3 border-l-2 border-amber-500/40 text-zinc-700 dark:text-zinc-300 space-y-1.5"
                       >
                         {block.lines.map((line, lIdx) => {
                           const { label, text } = splitBulletLabel(line)
@@ -507,6 +507,7 @@ export function ScriptRenderer({
                             </p>
                           )
                         })}
+                      </div>
                       </div>
                     )
                   }
