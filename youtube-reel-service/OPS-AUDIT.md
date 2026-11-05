@@ -66,3 +66,15 @@ Said Farah, Naresh Bhatt, Tommy Robinson and Faith Hedgepeth appear in none of t
 (50 Cent, Lou Sims) the campaign searched the catalog again and missed the very passage the topic came from. The new-videos lane reused
 the same Diddy videos daily and lost two of them to the "upcoming" filter. Two hit videos sat in "transcribing" for 5–6 days. Downloads
 fell to 360p from Oct 30 (cookies from Oct 17, bot check failing). Nothing retried partial days and nothing reported any of it.
+
+## Nov 6, 2026: the 2-a-day test
+
+The client paused the 5-a-day pace: the long videos slowed after Oct 22 (5 reels a day) and he wants to see whether the reels are the
+cause. From Nov 6: the daily run makes `REEL_DAILY_REELS` = 2 reels (all on the main topic; the lanes only fill a short day), and
+auto-publish posts 2 a day at 11:00 AM and 9:00 PM New York (the two best slots by first-24h views, Oct 16 - Nov 5). Change the count
+with the `REEL_DAILY_REELS` env and the slots in the channel's auto-publish settings, not in code.
+
+How to read the result: each report has a `main channel:` line with every long video of the last 14 days, its age in days and its
+views so far. Compare a video's views at d3 and d7 (from the reports of those days) with the long videos of Oct 22 - Nov 5. Comment
+replies changed the same day (the 3 newest long videos are now checked every 45 min; reels had taken 8 of the 10 reply slots), which
+can also lift the long videos.

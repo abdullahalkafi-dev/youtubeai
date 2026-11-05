@@ -97,7 +97,12 @@ export class LanesService {
    * Creates today's footage-first campaigns (idempotent per day and lane): "fresh" always when there is a recent video, "bank" only when
    * the stock of finished unposted reels is below STOCK_TARGET. Returns what was created.
    */
-  async createForDay(channelId: Types.ObjectId, date: string, userId: Types.ObjectId): Promise<Array<{ track: ReelTrack; campaignId: string; videos: string[] }>> {
+  async createForDay(
+    channelId: Types.ObjectId,
+    date: string,
+    userId: Types.ObjectId,
+    opts: { reels?: number; bank?: boolean } = {},
+  ): Promise<Array<{ track: ReelTrack; campaignId: string; videos: string[] }>> {
     const made: Array<{ track: ReelTrack; campaignId: string; videos: string[] }> = [];
     const catalog = await this.catalog(channelId);
     const now = new Date();
@@ -109,8 +114,9 @@ export class LanesService {
       .lean();
     const rested = new Set(recent.flatMap((c) => c.settings?.seedVideoIds ?? []));
     const fresh = pickFresh(catalog, now, 3, rested);
-    const one = await this.createLane(channelId, date, userId, 'fresh', fresh, freshBrief(fresh), FRESH_LANE_REELS, 'new videos');
+    const one = await this.createLane(channelId, date, userId, 'fresh', fresh, freshBrief(fresh), opts.reels ?? FRESH_LANE_REELS, 'new videos');
     if (one) made.push(one);
+    if (opts.bank === false) return made;
     const stock = await this.reels.countDocuments({ channelId, status: 'todo' });
     if (stock < STOCK_TARGET) {
       const picks = pickBank(catalog, now, 3);
@@ -128,7 +134,7 @@ export class LanesService {
     const today = await this.campaigns.find({ channelId, origin: 'daily', dailyDate: date }).select('sources.youtubeId settings.seedVideoIds').lean();
     const used = new Set(today.flatMap((c) => [...(c.settings?.seedVideoIds ?? []), ...(c.sources ?? []).map((s) => s.youtubeId)]));
     const picks = pickBackup(await this.catalog(channelId), used, 3);
-    return this.createLane(channelId, date, userId, 'best', picks, bankBrief(picks), Math.max(2, Math.min(5, reels)), 'strongest footage');
+    return this.createLane(channelId, date, userId, 'best', picks, bankBrief(picks), Math.max(1, Math.min(5, reels)), 'strongest footage');
   }
 
   /** Creates one footage-first campaign for the day (idempotent per day and track). */

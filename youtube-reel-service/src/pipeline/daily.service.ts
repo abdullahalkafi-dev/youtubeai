@@ -27,6 +27,7 @@ export const DAILY_HOUR = 4;
 export const MAIN_TOPIC_REELS = 3;
 export const EXPLORE_TOPIC_REELS = 2;
 /** Reels a day should end with (the posting plan fills five slots); below this the day is topped up, then given a backup campaign. */
+/** Before Nov 6 2026 the day aimed at 5 reels; now the target is cfg.REEL_DAILY_REELS (2). Kept as the old default for reference. */
 export const DAILY_REEL_FLOOR = 5;
 export const NO_TOPIC_REASON = 'Not enough matching footage for any topic today';
 
@@ -142,14 +143,17 @@ export class DailyService {
       if (!decision.main) {
         // No topic has real footage today: the footage-first lanes still run, so the day is not left without reels.
         const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
-        await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`));
+        await this.lanes
+          .createForDay(cid, date, owner?.userId ?? cid, { reels: this.cfg.REEL_DAILY_REELS, bank: false })
+          .catch((err) => this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`));
         return skip(NO_TOPIC_REASON, { candidates: decision.candidates, degraded: decision.degraded });
       }
       // The topic lanes are capped (the footage-first lanes below add to them): about three reels on the main topic and two on a second one.
       // The second ("explore") topic is off unless switched on: it failed 7 of 10 runs and its reels averaged the fewest views (Oct 30 audit).
       const { main } = decision;
       const explore = this.cfg.REEL_EXPLORE_ENABLED ? decision.explore : null;
-      const mainReels = explore ? Math.min(decision.mainReels, MAIN_TOPIC_REELS) : MAIN_TOPIC_REELS;
+      // The day makes REEL_DAILY_REELS reels (2 since Nov 6 2026), all on the main topic.
+      const mainReels = Math.min(explore ? Math.min(decision.mainReels, MAIN_TOPIC_REELS) : MAIN_TOPIC_REELS, this.cfg.REEL_DAILY_REELS);
       const exploreReels = explore ? Math.min(decision.exploreReels, EXPLORE_TOPIC_REELS) : 0;
       const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
@@ -192,11 +196,15 @@ export class DailyService {
           },
         },
       );
-      // Footage-first lanes: the newest videos, and (when the stock is low) the best of the older ones.
-      const lanes = await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => {
-        this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`);
-        return [];
-      });
+      // Footage-first lanes only while the day aims above the main topic's share (5 a day before Nov 6 2026). At 2 a day the main topic
+      // makes them all; a short day is filled by the floor (top-up, then one backup campaign) in superviseDay.
+      const lanes =
+        this.cfg.REEL_DAILY_REELS > mainReels
+          ? await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => {
+              this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`);
+              return [];
+            })
+          : [];
       this.logger.log(`Daily ${date} for ${channelId}: main "${main.c.name}" (${mainReels} reels, score ${main.score})${explore ? `, explore "${explore.c.name}" (${exploreReels} reels, ${explore.exploreScore})` : ''} → campaign ${campaign._id}${lanes.length ? `; lanes: ${lanes.map((l) => l.track).join(', ')}` : ''}`);
       return this.runs.findById(run._id).lean();
     } catch (err) {
@@ -235,7 +243,7 @@ export class DailyService {
 
   /**
    * The day's floor (Oct 29 - Nov 4: 12 campaigns ended partial and three days made 0-1 reels, with nothing retrying). Once every
-   * campaign of the day has settled and the day has fewer than DAILY_REEL_FLOOR reels: each partial campaign that still has unreviewed
+   * campaign of the day has settled and the day has fewer than cfg.REEL_DAILY_REELS reels: each partial campaign that still has unreviewed
    * moments is topped up once; when that is done (or there is nothing to top up) one backup campaign is made from the strongest
    * footage of older videos. Silent for the client: it only adds reels; what happened is in the developer ops report.
    */
@@ -246,7 +254,7 @@ export class DailyService {
     const made = await this.campaigns.db
       .collection('reels')
       .countDocuments({ campaignId: { $in: camps.map((c) => c._id) }, deletedAt: null, status: { $in: ['queued', 'rendering', 'todo', 'posted'] } });
-    const short = DAILY_REEL_FLOOR - made;
+    const short = this.cfg.REEL_DAILY_REELS - made;
     if (short <= 0) return;
 
     const topUps = camps.filter((c) => c.status === 'partial' && !c.autoTopupAt && !c.cancelRequested && (c.stats?.momentsShown ?? 0) < (c.stats?.momentsAvailable ?? 0));

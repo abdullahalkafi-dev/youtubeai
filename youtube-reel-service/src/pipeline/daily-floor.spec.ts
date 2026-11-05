@@ -110,6 +110,13 @@ describe('developer ops report', () => {
     expect(formatOpsReport({ date: '2026-11-03', issues, body: b })).toMatch(/^=== 2026-11-03: 0\/5 reels/);
   });
 
+  it('shows the long videos for the reels-vs-main-channel test (Nov 6)', () => {
+    const b = base();
+    b.target = 2;
+    b.mainChannel = [{ youtubeId: 'x', title: 'El Chapo Is Locked in ADX Florence', ageDays: 7, views: 16_982, viewsPerDay: 2_426 }];
+    expect(formatOpsReport({ date: '2026-11-06', issues: [], body: b })).toMatch(/main channel: El Chapo Is Locked in ADX F… d7 17k \(2\.4k\/day\)/);
+  });
+
   it('knows where a New York day starts, also across the daylight-saving switch', () => {
     expect(nyDayRange('2026-11-04').start.toISOString()).toBe('2026-11-04T05:00:00.000Z');
     expect(nyDayRange('2026-10-31').start.toISOString()).toBe('2026-10-31T04:00:00.000Z');

@@ -54,6 +54,14 @@ describe('footage-first lanes of the day', () => {
     expect((await full.svc.createForDay(channel, '2026-10-26', oid())).map((m: any) => m.track)).toEqual(['fresh']);
   });
 
+  it('at 2 reels a day (Nov 6 test) the new-videos lane makes 2 and the older-videos lane stays off', async () => {
+    const catalog = [lv('a'), lv('old1', { publishedAt: new Date('2025-02-01'), analyzed: true, strongMoments: 8 })];
+    const { svc, created } = make({ catalog, stock: 0 });
+    const made = await svc.createForDay(channel, '2026-11-07', oid(), { reels: 2, bank: false });
+    expect(made.map((m: any) => m.track)).toEqual(['fresh']);
+    expect(created[0].settings.targetReels).toBe(2);
+  });
+
   it('never creates a lane twice for the same day, and skips a lane with no material', async () => {
     const again = make({ catalog: [lv('a')], stock: 0, existing: true });
     expect(await again.svc.createForDay(channel, '2026-10-26', oid())).toEqual([]);

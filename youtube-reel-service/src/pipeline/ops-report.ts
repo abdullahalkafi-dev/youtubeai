@@ -21,10 +21,18 @@ export interface OpsReportBody {
   posting: { published: number; failed: Array<{ postId: string; errorCode: string | null; error: string }> };
   /** Spend on today's campaigns that produced no reel at all. */
   wasted: { promptTokens: number; sttMinutes: number };
+  /**
+   * The reels-vs-main-channel test (from Nov 6 2026: 2 reels a day instead of 5). The long videos of the last 14 days with their
+   * views as of this report; one report a day, so a video's day-3 and day-7 views can be read off the reports of those days.
+   */
+  mainChannel?: Array<{ youtubeId: string; title: string; ageDays: number; views: number; viewsPerDay: number }>;
 }
 
-/** Posts per day the stock has to cover (the auto-publish plan fills five slots). */
-export const POSTS_PER_DAY = 5;
+/** Posts per day the stock has to cover when the auto-publish slots are unknown (2 slots since Nov 6 2026). */
+export const POSTS_PER_DAY = 2;
+
+/** "12.3k" style for the one-line report. */
+const k = (n: number) => (n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n));
 export const COOKIE_MAX_AGE_DAYS = 14;
 
 const cut = (s: string, n: number) => (s.length > n ? `${s.slice(0, n - 1)}…` : s);
@@ -80,9 +88,11 @@ export function formatOpsReport(r: { date: string; issues: string[]; body: OpsRe
   const b = r.body;
   const lanes = b.campaigns.map((c) => `${c.track} ${c.reels}/${c.target} ${c.status}${c.autoTopup ? ' (auto top-up)' : ''}`).join(', ') || 'no campaigns';
   const heights = Object.entries(b.downloads.heights).map(([h, n]) => `${h}p×${n}`).join(' ') || 'none';
+  const main = (b.mainChannel ?? []).map((v) => `${cut(v.title, 28)} d${v.ageDays} ${k(v.views)} (${k(v.viewsPerDay)}/day)`).join('; ');
   return [
     `=== ${r.date}: ${b.made}/${b.target} reels | ${lanes}`,
     `    topic: ${b.run.topic ?? '-'} | stock ${b.stock.todo} (~${b.stock.daysLeft}d) | posted ${b.posting.published} | downloads ${heights}`,
+    ...(main ? [`    main channel: ${main}`] : []),
     ...(r.issues.length ? r.issues.map((i) => `    ! ${i}`) : ['    ok: no issues']),
   ].join('\n');
 }

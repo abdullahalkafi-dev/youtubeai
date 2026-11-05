@@ -66,6 +66,11 @@ const EnvSchema = z.object({
   REEL_ANALYZE_CONCURRENCY: int(2),
   REEL_CAMPAIGN_CONCURRENCY: int(2),
   REEL_MAX_REELS_PER_CAMPAIGN: int(10),
+  /**
+   * Reels the daily run makes per day (the day's floor too). 2 since Nov 6 2026: a test of whether the reels (5 a day from Oct 22)
+   * slowed the long videos. The posting side is the channel's auto-publish slots (11:00 and 21:00 New York).
+   */
+  REEL_DAILY_REELS: int(2),
   /** The daily run's second "explore" topic (off: the day is the main topic plus the new-video lane). */
   REEL_EXPLORE_ENABLED: bool(false),
   REEL_MAX_SOURCES_PER_CAMPAIGN: int(10),
