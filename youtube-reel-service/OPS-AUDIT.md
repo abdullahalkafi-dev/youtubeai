@@ -53,7 +53,7 @@ is a healthy day. The `body` of a row holds the details:
 
 | issue line | what to do |
 |---|---|
-| "downloads today were below 720p" / "session check is failing" / "cookies are N days old" | export fresh YouTube cookies from the burner account and run `cookies:import <file>` in the worker container, then `session:check` |
+| "downloads today were below 720p" / "session check is failing" / "cookies are N days old" | export fresh YouTube cookies from the burner account and paste or upload them in the app: Settings → "Reel downloader" → Replace cookies (it tests them before saving). `cookies:import <file>` in the worker container still works as a fallback |
 | "stuck in … for Nh" that keeps coming back | check `docker logs youtubeai-reels-reel-worker-1` for that youtubeId; after 3 restarts it is marked failed |
 | "fell back to the classic look" | read the ffmpeg reason in the report; reproduce with `look:test <youtubeId> <start> <duration> <outDir>` |
 | "Low stock" for several days | the topic lanes are not producing: look at `topics[].footage` and the campaign errors |

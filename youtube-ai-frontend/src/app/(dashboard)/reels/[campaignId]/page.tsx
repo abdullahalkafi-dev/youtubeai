@@ -8,10 +8,9 @@ import { toast } from 'sonner'
 import { useAppSelector } from '@/store/hooks'
 import { ACTIVE_CAMPAIGN_STATUSES, reelsApi, errorMessage } from '@/lib/reels-api'
 import { cn } from '@/lib/utils'
-import type { CampaignDetail, Reel, ReelServiceStatus } from '@/types/reel'
+import type { CampaignDetail, Reel } from '@/types/reel'
 import { ReelCard } from '@/components/reels/reel-card'
 import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
-import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
 import { CampaignPerformance } from '@/components/reels/campaign-performance'
 import { CampaignChat } from '@/components/reels/campaign-chat'
 import { LinkVideoCard } from '@/components/reels/link-video-card'
@@ -43,7 +42,6 @@ export default function CampaignPage() {
   const { campaignId } = useParams<{ campaignId: string }>()
   const channelId = useAppSelector((s) => s.auth.activeChannelId) || ''
   const [c, setC] = useState<CampaignDetail | null>(null)
-  const [status, setStatus] = useState<ReelServiceStatus | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [openReel, setOpenReel] = useState<Reel | null>(null)
   const [busy, setBusy] = useState(false)
@@ -65,10 +63,6 @@ export default function CampaignPage() {
         setError(null)
       })
       .catch((err) => alive && setError(errorMessage(err)))
-    reelsApi
-      .status()
-      .then((s) => alive && setStatus(s))
-      .catch(() => undefined)
     return () => {
       alive = false
     }
@@ -193,8 +187,6 @@ export default function CampaignPage() {
           )}
         </div>
       </div>
-
-      <YouTubeConnectBanner status={status} onFixed={load} />
 
       {/* Stage tracker */}
       <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800">

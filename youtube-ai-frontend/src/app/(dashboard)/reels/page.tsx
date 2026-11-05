@@ -7,7 +7,6 @@ import { useAppSelector } from '@/store/hooks'
 import { ACTIVE_CAMPAIGN_STATUSES, reelsApi, errorMessage } from '@/lib/reels-api'
 import type { CampaignSummary, Reel, ReelServiceStatus, ReelStatus } from '@/types/reel'
 import { NewCampaignModal } from '@/components/reels/new-campaign-modal'
-import { YouTubeConnectBanner } from '@/components/reels/youtube-connect'
 import { ReelCard } from '@/components/reels/reel-card'
 import { ReelDetailModal } from '@/components/reels/reel-detail-modal'
 import { CoveragePanel } from '@/components/reels/coverage-panel'
@@ -113,7 +112,6 @@ export default function ReelsPage() {
         </button>
       </div>
 
-      <YouTubeConnectBanner status={status} onFixed={refresh} />
       {channelId && <AccountsBar channelId={channelId} />}
       {status?.enabled === false && (
         <div className="p-3 rounded-xl bg-zinc-500/10 text-xs text-zinc-500">Reel generation is currently turned off by the administrator.</div>

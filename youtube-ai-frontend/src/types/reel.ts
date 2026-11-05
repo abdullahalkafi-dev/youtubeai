@@ -190,6 +190,8 @@ export interface ReelServiceStatus {
     lastOkAt: string | null
     lastError: string | null
     downloadsPaused: boolean
+    /** Sharpness of the last week's source downloads (720p+ = hd). Missing on an older reel service. */
+    recentDownloads?: { days: number; count: number; hd: number; lastHeight: number | null }
   }
   queues: Record<string, { waiting: number; active: number; failed: number; paused: boolean }>
 }

@@ -60,7 +60,18 @@ export class YouTubeSessionService {
       lastOkAt: s.lastOkAt ?? null,
       lastError: s.lastError ?? null,
       downloadsPaused: await this.queues.q.download.isPaused(),
+      recentDownloads: await this.recentDownloads(),
     };
+  }
+
+  /**
+   * How sharp the last week's downloads were. A session can pass the login check and still get only 360p
+   * (YouTube's bot check on old cookies; Oct 30 - Nov 5 2026), so this is the real sign the cookies need replacing.
+   */
+  async recentDownloads(days = 7): Promise<{ days: number; count: number; hd: number; lastHeight: number | null }> {
+    const since = new Date(Date.now() - days * 86_400_000);
+    const rows = await this.sources.find({ downloadedAt: { $gte: since } }).sort({ downloadedAt: -1 }).select('height').lean();
+    return { days, count: rows.length, hd: rows.filter((r) => (r.height ?? 0) >= 720).length, lastHeight: rows[0]?.height ?? null };
   }
 
   private async patch(patch: Partial<SessionState>) {

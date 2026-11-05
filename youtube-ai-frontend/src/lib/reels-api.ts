@@ -80,7 +80,7 @@ export const reelsApi = {
   status: () => request<ReelServiceStatus>('/status'),
   uploadCookies: (cookies: string) =>
     request<{ ok: boolean; reason?: string }>('/youtube-session/cookies', { method: 'POST', body: JSON.stringify({ cookies }) }),
-  checkSession: () => request<{ status: string; lastError: string | null }>('/youtube-session/check', { method: 'POST' }),
+  checkSession: () => request<{ status: string; lastError: string | null; lastCheckAt: string | null }>('/youtube-session/check', { method: 'POST' }),
 
   createCampaign: (channelId: string, input: CreateCampaignInput) =>
     request<CampaignSummary>(`/channels/${channelId}/campaigns`, { method: 'POST', body: JSON.stringify(input) }),
