@@ -2,7 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Video, VideoDocument } from '../mongo/schemas/video.schema';
-import { MAX_ACTIVE_COMMENT_VIDEOS } from '../automation/automation.constants';
+import { MAX_ACTIVE_COMMENT_VIDEOS, MAX_ACTIVE_SHORT_COMMENT_VIDEOS } from '../automation/automation.constants';
+import { ReplyKind, replyKind, SHORT_MAX_SECONDS, TOP_LANE_SIZE } from '../automation/comment-lanes';
+
+/** Each kind has its own list: 10 long videos, 10 Shorts. */
+export const capFor = (kind: ReplyKind) => (kind === 'short' ? MAX_ACTIVE_SHORT_COMMENT_VIDEOS : MAX_ACTIVE_COMMENT_VIDEOS);
 
 export interface AutoReplyEvictedVideo {
   videoId: string;
@@ -46,7 +50,8 @@ function isPublicPrivacy(privacyStatus?: string | null): boolean {
 
 /**
  * Single source of truth for comment auto-reply list membership.
- * Policy: active set is capped at MAX_ACTIVE_COMMENT_VIDEOS.
+ * Policy: two lists, each capped on its own: 10 long videos (MAX_ACTIVE_COMMENT_VIDEOS) and
+ * 10 Shorts (MAX_ACTIVE_SHORT_COMMENT_VIDEOS). The 3 newest long videos are always on.
  * Eviction key is YouTube publishedAt (oldest upload leaves), NOT added-to-list time.
  */
 @Injectable()
@@ -65,8 +70,34 @@ export class AutoReplyPolicyService {
         autoReplyEnabled: true,
         deletedFromYoutube: { $ne: true },
       })
-      .select('_id youtubeId title publishedAt privacyStatus autoReplyLastRanAt')
+      .select('_id youtubeId title publishedAt privacyStatus autoReplyLastRanAt durationSeconds')
       .lean();
+  }
+
+  /**
+   * The 3 newest public long videos are always on auto-reply (client, Nov 6 2026: "the main 3 recent long form
+   * video must always be responded to in the comments automatically"). Turns on any that are off; returns them.
+   */
+  async ensureNewestLongEnabled(channelId: IdLike, n = TOP_LANE_SIZE) {
+    const cId = toObjectId(channelId);
+    const newest = await this.videoModel
+      .find({
+        channelId: cId,
+        deletedFromYoutube: { $ne: true },
+        privacyStatus: 'public',
+        durationSeconds: { $gt: SHORT_MAX_SECONDS },
+        publishedAt: { $lte: new Date() },
+      })
+      .sort({ publishedAt: -1 })
+      .limit(n)
+      .select('_id youtubeId title autoReplyEnabled')
+      .lean();
+    for (const v of newest) {
+      if (v.autoReplyEnabled) continue;
+      const res = await this.enableWithEviction(cId, v._id);
+      this.logger.log(`Auto-reply: newest long video turned on: ${v.title} (${v.youtubeId})${res?.evicted.length ? `, replaced ${res.evicted.map((e) => e.youtubeId).join(', ')}` : ''}`);
+    }
+    return newest;
   }
 
   private sortByPublishedOldestFirst<
@@ -118,7 +149,6 @@ export class AutoReplyPolicyService {
   ): Promise<AutoReplyEnableResult | null> {
     const cId = toObjectId(channelId);
     const targetOid = toObjectId(videoId);
-    const maxActive = MAX_ACTIVE_COMMENT_VIDEOS;
 
     const video = await this.videoModel.findById(targetOid).lean();
     if (!video) return null;
@@ -131,7 +161,10 @@ export class AutoReplyPolicyService {
       );
     }
 
-    const active = await this.getActiveSet(cId);
+    // Evict only within the same kind: a Short replaces the oldest Short, a long video the oldest long video.
+    const kind = replyKind(video);
+    const maxActive = capFor(kind);
+    const active = (await this.getActiveSet(cId)).filter((v) => replyKind(v) === kind);
     const sortedOldestFirst = this.sortByPublishedOldestFirst(active);
     const targetId = String(video._id);
     const evicted: AutoReplyEvictedVideo[] = [];
@@ -165,21 +198,23 @@ export class AutoReplyPolicyService {
   }
 
   /**
-   * Keep only the newest N videos by YouTube publishedAt in the active set.
+   * Keep only the newest 10 long videos and the newest 10 Shorts (by YouTube publishedAt) in the active set.
    */
   async rebalanceToNewestUploads(
     channelId: IdLike,
-    maxActive = MAX_ACTIVE_COMMENT_VIDEOS,
   ): Promise<{ evicted: AutoReplyEvictedVideo[]; keptCount: number }> {
     const cId = toObjectId(channelId);
     const active = await this.getActiveSet(cId);
-    if (active.length <= maxActive) {
-      return { evicted: [], keptCount: active.length };
+    const keep: typeof active = [];
+    const evict: typeof active = [];
+    for (const kind of ['long', 'short'] as const) {
+      const ofKind = this.sortByPublishedNewestFirst(active.filter((v) => replyKind(v) === kind));
+      keep.push(...ofKind.slice(0, capFor(kind)));
+      evict.push(...ofKind.slice(capFor(kind)));
     }
-
-    const newestFirst = this.sortByPublishedNewestFirst(active);
-    const keep = newestFirst.slice(0, maxActive);
-    const evict = newestFirst.slice(maxActive);
+    if (!evict.length) {
+      return { evicted: [], keptCount: keep.length };
+    }
 
     for (const victim of evict) {
       await this.videoModel.updateOne(

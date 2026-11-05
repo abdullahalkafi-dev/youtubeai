@@ -30,28 +30,50 @@ import { cn } from '@/lib/utils';
 import Link from 'next/link';
 import { fmtNYTime, fmtNYTimeSec, fmtNYDateTime } from '@/lib/time'
 
+interface ActiveVideo {
+  _id: string;
+  id: string;
+  title: string;
+  youtubeId: string;
+  thumbnailUrl?: string;
+  publishedAt?: string;
+  autoReplyLastRanAt?: string;
+  autoReplyTotalCount?: number;
+  viewCount?: number;
+  commentCount?: number;
+  /** 'long' video or 'short' (reel). */
+  kind?: 'long' | 'short';
+  /** 'top' = the 3 newest long videos (checked every 45 min); 'other' = everything else (about every 4 h). */
+  lane?: 'top' | 'other';
+}
+
 interface CommentStats {
   dailyCommentCap: number;
   todayAutoRepliesCount: number;
   remainingToday: number;
   maxActiveVideos: number;
+  maxLongVideos?: number;
+  maxShortVideos?: number;
+  longVideosCount?: number;
+  shortVideosCount?: number;
+  topLaneSize?: number;
+  otherLaneDailyCap?: number;
   activeVideosCount: number;
-  activeVideos: Array<{
-    _id: string;
-    id: string;
-    title: string;
-    youtubeId: string;
-    thumbnailUrl?: string;
-    publishedAt?: string;
-    autoReplyLastRanAt?: string;
-    autoReplyTotalCount?: number;
-    viewCount?: number;
-    commentCount?: number;
-  }>;
+  activeVideos: Array<ActiveVideo>;
   totalLifetimeReplies: number;
   totalBatches: number;
   scheduleInterval: string;
   channelName: string;
+}
+
+/** The active list as the two round robins see it (lane/kind come from the backend; older payloads fall in "other"). */
+function laneGroups(videos: ActiveVideo[]) {
+  const byNewest = (a: ActiveVideo, b: ActiveVideo) => new Date(b.publishedAt || 0).getTime() - new Date(a.publishedAt || 0).getTime();
+  return [
+    { key: 'top', title: 'Newest 3 long videos', note: 'Checked every 45 min', videos: videos.filter((v) => v.lane === 'top').sort(byNewest) },
+    { key: 'long', title: 'Other long videos', note: 'Checked about every 4 hours', videos: videos.filter((v) => v.lane !== 'top' && v.kind !== 'short').sort(byNewest) },
+    { key: 'short', title: 'Reels', note: 'Checked about every 4 hours', videos: videos.filter((v) => v.lane !== 'top' && v.kind === 'short').sort(byNewest) },
+  ];
 }
 
 export function CommentAutomationTab() {
@@ -116,7 +138,7 @@ export function CommentAutomationTab() {
       await api.toggleVideoAutoReply(videoId, !currentState);
       toast.success(
         !currentState
-          ? 'Auto-Reply enabled for video (Active in 5-min round robin)'
+          ? 'Auto-Reply enabled for video'
           : 'Auto-Reply disabled for video',
       );
       await loadData(true);
@@ -143,11 +165,11 @@ export function CommentAutomationTab() {
             </h2>
             <Badge variant="purple" className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              5-Min Round Robin Active
+              Two Round Robins Active
             </Badge>
           </div>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-gray-400 mt-0.5">
-            Autonomous 10-comment batch reply engine with Unique Mecca Audio street-wise persona & AI spam defense.
+            The 3 newest long videos are checked every 45 minutes. The other long videos and reels are checked about every 4 hours.
           </p>
         </div>
 
@@ -203,12 +225,16 @@ export function CommentAutomationTab() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black text-gray-900 dark:text-white font-heading">
-                {stats?.activeVideosCount || 0}
+                {stats?.longVideosCount ?? stats?.activeVideosCount ?? 0}
               </span>
-              <span className="text-xs text-gray-400 font-medium">/ {stats?.maxActiveVideos || 10} max</span>
+              <span className="text-xs text-gray-400 font-medium">/ {stats?.maxLongVideos || 10} long</span>
+              <span className="text-2xl font-black text-gray-900 dark:text-white font-heading ml-2">
+                {stats?.shortVideosCount ?? 0}
+              </span>
+              <span className="text-xs text-gray-400 font-medium">/ {stats?.maxShortVideos || 10} reels</span>
             </div>
             <span className="text-[11px] text-gray-400 block mt-4">
-                {(stats?.maxActiveVideos || 10) - (stats?.activeVideosCount || 0)} video slots available
+              Separate lists: reels never take a long video&apos;s slot
             </span>
           </CardContent>
         </Card>
@@ -245,12 +271,12 @@ export function CommentAutomationTab() {
             </div>
             <div className="mt-2 flex items-baseline gap-2">
               <span className="text-2xl font-black text-gray-900 dark:text-white font-heading">
-                5 min
+                15 min
               </span>
-              <span className="text-xs text-gray-400 font-medium">round robin</span>
+              <span className="text-xs text-gray-400 font-medium">two lanes per step</span>
             </div>
             <span className="text-[11px] text-gray-400 block mt-4">
-              3s safety gap between replies
+              Other videos stop at {stats?.otherLaneDailyCap ?? 100}/day; the rest is kept for the newest 3
             </span>
           </CardContent>
         </Card>
@@ -263,11 +289,11 @@ export function CommentAutomationTab() {
             <div className="flex items-center gap-2">
               <Sparkles className="w-4 h-4 text-purple-500" />
               <h3 className="text-sm font-bold text-gray-900 dark:text-white font-heading">
-                Active Auto-Reply Videos ({stats?.activeVideosCount || 0} / {stats?.maxActiveVideos || 10})
+                Active Auto-Reply Videos ({stats?.activeVideosCount || 0})
               </h3>
             </div>
             <span className="text-xs text-gray-400">
-              Newest published videos get round-robin priority
+              The 3 newest long videos always have priority
             </span>
           </div>
 
@@ -277,8 +303,17 @@ export function CommentAutomationTab() {
               <span className="text-xs">Loading active videos...</span>
             </div>
           ) : stats?.activeVideos && stats.activeVideos.length > 0 ? (
+            <div className="space-y-5">
+              {laneGroups(stats.activeVideos).filter((g) => g.videos.length > 0).map((group) => (
+            <div key={group.key}>
+              <div className="flex items-baseline justify-between gap-2 mb-1">
+                <h4 className="text-xs font-bold text-gray-800 dark:text-gray-200">
+                  {group.title} <span className="text-gray-400 font-medium">({group.videos.length})</span>
+                </h4>
+                <span className="text-[11px] text-gray-400">{group.note}</span>
+              </div>
             <div className="divide-y divide-gray-100 dark:divide-gray-800">
-              {stats.activeVideos.map((video) => (
+              {group.videos.map((video) => (
                 <div key={video._id || video.id} className="py-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex items-center gap-3 min-w-0">
                     <img
@@ -327,6 +362,9 @@ export function CommentAutomationTab() {
                     </Link>
                   </div>
                 </div>
+              ))}
+            </div>
+            </div>
               ))}
             </div>
           ) : (

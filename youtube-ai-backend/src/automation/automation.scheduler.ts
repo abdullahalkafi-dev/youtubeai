@@ -11,8 +11,11 @@ import { isOpenAiCreditsError, isOpenAiCreditsExhausted } from '../common/errors
 import {
   DEFAULT_DAILY_BATCH_SIZE,
   DEFAULT_COMMENT_DAILY_CAP,
+  COMMENT_OTHER_LANE_DAILY_CAP,
   YOUTUBE_HARD_CAP_CEILING,
 } from './automation.constants';
+import { AutoReplyPolicyService } from '../videos/auto-reply-policy.service';
+import { nextInLane, otherLaneRemaining, splitLanes } from './comment-lanes';
 
 const POSTPONE_CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 const MAX_POSTPONE_DURATION_MS = 30 * 60 * 1000; // Up to 30 minutes (7:30 AM -> 8:00 AM NY time)
@@ -30,6 +33,7 @@ export class AutomationScheduler {
     private readonly automationService: AutomationService,
     private readonly commentsService: CommentsService,
     private readonly quotaService: QuotaService,
+    private readonly autoReplyPolicy: AutoReplyPolicyService,
   ) {}
 
   /**
@@ -116,8 +120,8 @@ export class AutomationScheduler {
 
   /**
    * Autonomous comment auto-reply cron (every 15 minutes — quota-safe pacing).
-   * If 1 video active: processes every 15 min.
-   * If 2-5 videos active: rotates 1 video per tick.
+   * Each tick takes one step in each lane: the 3 newest long videos (every 45 min each) and
+   * the other long videos + Shorts (about every 4 h each). See comment-lanes.ts.
    * Pauses for the rest of the PT day if Google reports Data API quota exceeded.
    */
   @Cron('*/15 * * * *')
@@ -176,50 +180,62 @@ export class AutomationScheduler {
           continue;
         }
 
-        // 3. Find active auto-reply videos
+        // 3. The 3 newest long videos are always on (turns on a new upload that the sync did not add).
+        try {
+          await this.autoReplyPolicy.ensureNewestLongEnabled(channel._id);
+        } catch (err: any) {
+          this.logger.warn(`Could not check the newest long videos for ${channel.name}: ${err.message}`);
+        }
+
+        // 4. Two round robins, each takes one step this tick (see comment-lanes.ts):
+        //    lane A = 3 newest long videos (each every 45 min), lane B = other long videos + Shorts (each ~every 4 h).
         const activeVideos = await this.videoModel
           .find({
             channelId: channel._id,
             autoReplyEnabled: true,
             deletedFromYoutube: { $ne: true },
           })
-          .sort({ autoReplyLastRanAt: 1, publishedAt: -1 });
+          .select('_id title youtubeId publishedAt durationSeconds autoReplyLastRanAt')
+          .lean();
+        if (!activeVideos.length) continue;
+        const lanes = splitLanes(activeVideos);
 
-        if (!activeVideos || activeVideos.length === 0) {
-          continue;
-        }
-
-        const candidateVideo = activeVideos[0];
-
-        // 4. If only 1 video active, enforce 9-10 min cooldown
-        if (activeVideos.length === 1 && candidateVideo.autoReplyLastRanAt) {
-          const elapsedMs = Date.now() - new Date(candidateVideo.autoReplyLastRanAt).getTime();
-          if (elapsedMs < 9 * 60 * 1000) {
+        let stop = false;
+        for (const lane of ['top', 'other'] as const) {
+          const video = nextInLane(lanes[lane]);
+          if (!video) continue;
+          // Re-read today's count: lane A may just have posted replies.
+          const stats = lane === 'top' ? commentStats : await this.automationService.getCommentStats(channelId);
+          const remaining =
+            lane === 'top'
+              ? stats.remainingToday
+              : otherLaneRemaining(stats.todayAutoRepliesCount, DEFAULT_COMMENT_DAILY_CAP, COMMENT_OTHER_LANE_DAILY_CAP);
+          if (remaining <= 0) {
+            if (lane === 'other') {
+              this.logger.log(
+                `[Comment Auto-Reply] Lane B (other videos + Shorts) reached its ${COMMENT_OTHER_LANE_DAILY_CAP}/day share; the rest of the day is kept for the 3 newest long videos.`,
+              );
+            }
             continue;
           }
+
+          this.logger.log(
+            `[Comment Auto-Reply] ${lane === 'top' ? 'Lane A (newest long)' : 'Lane B (other)'}: checking "${video.title}" (${video.youtubeId}) for channel ${channel.name}. Replies left: ${remaining}`,
+          );
+          await this.commentsService.processSingleVideoAutoReplies(video._id, channelId, remaining);
+
+          if (this.quotaService.isDataApiExhausted() || this.quotaService.isCommentsBudgetExhausted()) {
+            this.logger.warn('Stopping comment auto-reply for the rest of the tick — quota/comments budget exhausted.');
+            stop = true;
+            break;
+          }
+          if (isOpenAiCreditsExhausted()) {
+            this.logger.warn('Stopping comment auto-reply for the rest of the tick — OpenAI credits exhausted.');
+            stop = true;
+            break;
+          }
         }
-
-        const remainingDailyCap = commentStats.remainingToday;
-        if (remainingDailyCap <= 0) continue;
-
-        this.logger.log(
-          `[Comment Auto-Reply] Checking video "${candidateVideo.title}" (${candidateVideo.youtubeId}) for channel ${channel.name}. Remaining daily cap: ${remainingDailyCap}`,
-        );
-
-        await this.commentsService.processSingleVideoAutoReplies(
-          candidateVideo._id,
-          channelId,
-          remainingDailyCap,
-        );
-
-        if (this.quotaService.isDataApiExhausted() || this.quotaService.isCommentsBudgetExhausted()) {
-          this.logger.warn('Stopping comment auto-reply for the rest of the tick — quota/comments budget exhausted.');
-          break;
-        }
-        if (isOpenAiCreditsExhausted()) {
-          this.logger.warn('Stopping comment auto-reply for the rest of the tick — OpenAI credits exhausted.');
-          break;
-        }
+        if (stop) break;
       }
     } catch (err: any) {
       if (isOpenAiCreditsError(err)) {

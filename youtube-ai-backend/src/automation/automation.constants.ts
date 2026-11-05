@@ -19,7 +19,15 @@ export const DEFAULT_COMMENT_DAILY_CAP = parseInt(
   process.env.COMMENT_DAILY_CAP || '130',
   10,
 );
+/** Long videos in the auto-reply list (Shorts have their own list, see comment-lanes.ts). */
 export const MAX_ACTIVE_COMMENT_VIDEOS = 10;
+/** Shorts (reels) in the auto-reply list: separate from the long videos, so they never take a long video's slot. */
+export const MAX_ACTIVE_SHORT_COMMENT_VIDEOS = 10;
+/** Replies/day lane B (other long videos + Shorts) may use; the rest of the daily cap is kept for the 3 newest long videos. */
+export const COMMENT_OTHER_LANE_DAILY_CAP = parseInt(
+  process.env.COMMENT_OTHER_LANE_DAILY_CAP || '100',
+  10,
+);
 export const COMMENT_CHUNK_SIZE = 10;
 export const COMMENT_PUSH_SAFETY_GAP_MS = 3000; // 3-second pacing between comment replies
 export const QUOTA_COST_COMMENT_INSERT = 50;

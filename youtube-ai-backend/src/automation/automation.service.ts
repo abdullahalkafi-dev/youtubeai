@@ -34,11 +34,14 @@ import { AutomationGateway } from './automation.gateway';
 import { BatchQueryDto } from './dto/automation.dto';
 import { leanDoc, leanDocs } from '../common/utils/lean';
 import { isOpenAiCreditsError, OPENAI_NO_CREDITS_MESSAGE } from '../common/errors/openai-credits';
+import { replyKind, splitLanes, TOP_LANE_SIZE } from './comment-lanes';
 
 import {
   DEFAULT_DAILY_BATCH_SIZE,
   DEFAULT_COMMENT_DAILY_CAP,
   MAX_ACTIVE_COMMENT_VIDEOS,
+  MAX_ACTIVE_SHORT_COMMENT_VIDEOS,
+  COMMENT_OTHER_LANE_DAILY_CAP,
   YOUTUBE_QUOTA_COST_PER_VIDEO,
   YOUTUBE_HARD_CAP_CEILING,
   PUSH_SAFETY_GAP_MS,
@@ -290,7 +293,7 @@ export class AutomationService implements OnApplicationBootstrap {
           autoReplyEnabled: true,
           deletedFromYoutube: { $ne: true },
         })
-        .select('_id title youtubeId thumbnailUrl publishedAt autoReplyLastRanAt autoReplyTotalCount viewCount commentCount')
+        .select('_id title youtubeId thumbnailUrl publishedAt autoReplyLastRanAt autoReplyTotalCount viewCount commentCount durationSeconds')
         .sort({ autoReplyLastRanAt: 1, publishedAt: -1 })
         .lean(),
       this.videoModel.aggregate([
@@ -318,17 +321,30 @@ export class AutomationService implements OnApplicationBootstrap {
     const totalLifetimeReplies = totalLifetimeRepliesResult[0]?.total || 0;
     const todayCount = todayBatchesAggregation[0]?.totalReplies || 0;
     const commentsBudget = await this.quotaService.getCommentsDailyUsage(channelId);
+    const lanes = splitLanes(activeVideos);
+    const topIds = new Set(lanes.top.map((v) => String(v._id)));
+    const withLane = activeVideos.map((v) => ({
+      ...leanDoc(v),
+      kind: replyKind(v),
+      lane: topIds.has(String(v._id)) ? ('top' as const) : ('other' as const),
+    }));
 
     return {
       dailyCommentCap: DEFAULT_COMMENT_DAILY_CAP,
       todayAutoRepliesCount: todayCount,
       remainingToday: Math.max(0, DEFAULT_COMMENT_DAILY_CAP - todayCount),
-      maxActiveVideos: MAX_ACTIVE_COMMENT_VIDEOS,
+      maxActiveVideos: MAX_ACTIVE_COMMENT_VIDEOS + MAX_ACTIVE_SHORT_COMMENT_VIDEOS,
+      maxLongVideos: MAX_ACTIVE_COMMENT_VIDEOS,
+      maxShortVideos: MAX_ACTIVE_SHORT_COMMENT_VIDEOS,
+      longVideosCount: withLane.filter((v) => v.kind === 'long').length,
+      shortVideosCount: withLane.filter((v) => v.kind === 'short').length,
+      topLaneSize: TOP_LANE_SIZE,
+      otherLaneDailyCap: COMMENT_OTHER_LANE_DAILY_CAP,
       activeVideosCount: activeVideos.length,
-      activeVideos: activeVideos.map(leanDoc),
+      activeVideos: withLane,
       totalLifetimeReplies,
       totalBatches,
-      scheduleInterval: '5 minutes (Round-Robin)',
+      scheduleInterval: 'Every 15 min: newest 3 long videos + one other video',
       channelName: channel?.name || 'Channel',
       commentsQuotaUsed: commentsBudget.used,
       commentsQuotaLimit: commentsBudget.limit,

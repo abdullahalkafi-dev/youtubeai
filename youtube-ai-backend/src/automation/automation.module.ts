@@ -23,6 +23,7 @@ import { SeoModule } from '../seo/seo.module';
 import { YouTubeModule } from '../youtube/youtube.module';
 import { QuotaModule } from '../quota/quota.module';
 import { CommentsModule } from '../comments/comments.module';
+import { VideosModule } from '../videos/videos.module';
 
 @Module({
   imports: [
@@ -38,6 +39,7 @@ import { CommentsModule } from '../comments/comments.module';
     forwardRef(() => CommentsModule),
     YouTubeModule,
     QuotaModule,
+    VideosModule,
   ],
   controllers: [AutomationController],
   providers: [AutomationService, AutomationGateway, AutomationScheduler],
