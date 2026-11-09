@@ -103,7 +103,7 @@ export default function LoginPage() {
                 </Button>
               </form>
 
-              <p className="text-[10px] text-gray-400 text-center mt-5">By signing in, you agree to our Terms of Service and Privacy Policy</p>
+              <p className="text-[10px] text-gray-400 text-center mt-5">By signing in, you agree to our <a href="/terms" className="underline">Terms of Service</a> and <a href="/privacy" className="underline">Privacy Policy</a></p>
             </>
           ) : (
             <div className="text-center py-6">
