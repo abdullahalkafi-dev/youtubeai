@@ -15,6 +15,7 @@ import { api } from '@/lib/api'
 import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 import { YouTubeDownloaderCard } from '@/components/reels/youtube-connect'
+import { MetaConnectCard } from '@/components/settings/meta-connect'
 
 export default function SettingsPage() {
   const [showOpenAI, setShowOpenAI] = useState(false)
@@ -255,6 +256,8 @@ export default function SettingsPage() {
         </Card>
 
         <YouTubeDownloaderCard />
+
+        <MetaConnectCard />
 
         {/* YouTube API Quota */}
         <Card>

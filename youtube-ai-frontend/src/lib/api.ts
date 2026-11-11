@@ -65,6 +65,17 @@ export function setLogoutHandler(handler: () => void) {
   dispatchLogout = handler
 }
 
+export interface MetaAccounts {
+  connected: boolean
+  connectedAt?: string
+  tokenExpiresAt?: string
+  pages: {
+    pageId: string
+    name: string
+    instagram?: { id: string; username?: string; name?: string; followersCount?: number }
+  }[]
+}
+
 export class ApiError extends Error {
   statusCode: number
   code?: string
@@ -794,6 +805,19 @@ class ApiClient {
   // Google OAuth URL
   getGoogleAuthUrl() {
     return `${this.baseUrl}/api/auth/google`
+  }
+
+  // Meta (Facebook Pages + Instagram)
+  async getMetaAuthUrl() {
+    return this.get<{ url: string }>('/api/auth/meta/start')
+  }
+
+  async getMetaAccounts() {
+    return this.get<MetaAccounts>('/api/auth/meta/accounts')
+  }
+
+  async disconnectMeta() {
+    return this.delete<{ disconnected: boolean }>('/api/auth/meta/disconnect')
   }
 
   // Comments
