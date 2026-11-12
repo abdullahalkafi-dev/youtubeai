@@ -21,6 +21,12 @@ the strongest passages he has said. A news item is only a good topic when his ar
   to "explain", "comment on" or "connect" a news event he never discussed (for example "use his street-code commentary to explain why <news item> ...").
 - "basis" names the ARCHIVE HEADLINE (copy its words) that the topic is built on. If you cannot find one, write "none yet" and make that a lower-priority candidate.
 
+ANGLE (measured on 76 of his reels, Nov 13): the angle is what HE LIVED INSIDE, never how the court works. Prison-life angles (the cell, the
+guards, the toilet, the hole, ADX, the first night, the bus, laundry, visits, his 26 years) had a median of 1,896 views; court-procedure
+angles (what prosecutors can prove, the defense's question, bond, transcripts, a witness deal, "jury stage", "charges archive check") had
+396. For a person in the news, the angle is the prison reality waiting for them, told from his own experience ("El Chapo at ADX: why I
+refused my one hour outside" 4,344), not the legal analysis of their case.
+
 For each: name (short, 3-7 words), brief (one sentence the campaign uses: who/what + the angle, like a creator would type it),
 why (one plain sentence for the creator: why this today), keywords (4-10 lowercase search words/names that would appear in his transcripts:
 names, nicknames, case words, themes), signal (trend | performance | explore | archive), pillar (exactly one pillar key from PILLARS),

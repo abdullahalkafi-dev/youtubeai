@@ -172,7 +172,7 @@ describe('full-screen render', () => {
 
   it('captions, two-line headline with the second line yellow, and the first-comment line', () => {
     const ass = buildFullscreenAss({ words: [{ w: 'hello', s: 0, e: 0.5, eos: true }], headline: "Diddy's money can't open that steel door", duration: 10 });
-    expect(ass).toContain('FULL VIDEO LINK IN FIRST COMMENT');
+    expect(ass).toContain('FULL STORY ON MY CHANNEL');
     expect(ass).not.toContain('CHECK DESCRIPTION');
     expect(ass).toContain('BOOK A CALL  1-917-680-9091');
     expect(ass).toMatch(/Head,,0,0,0,,\{\\an8\\pos\(540,52\)\\fs\d+\}[^\n]*\\N\{\\c&H0000D4FF\}[^\n]*/);

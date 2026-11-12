@@ -3,6 +3,7 @@
  * main/explore split. Pure functions (no database, no model), so every choice can be tested and replayed.
  * The model only proposes candidates and writes the brief; this file decides.
  */
+import { TopicKind, topicKind } from '../publishing/appeal-model';
 
 export type DailySignal = 'trend' | 'performance' | 'archive' | 'explore';
 export type Track = 'main' | 'explore';
@@ -61,7 +62,12 @@ export interface ScoreComponents {
   need: number;
   supply: number;
   saturation: number;
+  /** Multiplier for the angle (Nov 13 audit): prison-life 1.15, court procedure 0.6, other 1. Older runs have none. */
+  angle?: number;
 }
+
+/** Score multiplier by the topic's angle (reels: prison-life median 1,896 views, court procedure 396). */
+export const ANGLE_FACTOR: Record<TopicKind, number> = { 'prison-life': 1.15, legal: 0.6, other: 1 };
 
 export interface ScoredCandidate {
   c: BrainCandidate;
@@ -147,6 +153,7 @@ export function scoreCandidate(c: BrainCandidate, ev: CandidateEvidence, ctx: Br
     need: round(coverageNeed(pillar)),
     supply: round(clamp(capacity(ev) / Math.max(1, ctx.targetReels * 2))),
     saturation: round(c.entity ? Math.max(0.25, 1 - 0.18 * entityUses) : 1),
+    angle: ANGLE_FACTOR[topicKind(`${c.name}. ${c.brief}`)],
   };
 
   let reason: string | null = null;
@@ -160,7 +167,7 @@ export function scoreCandidate(c: BrainCandidate, ev: CandidateEvidence, ctx: Br
     WEIGHTS.lift * components.lift +
     WEIGHTS.need * components.need +
     WEIGHTS.supply * components.supply;
-  const score = round(100 * base * components.saturation, 1);
+  const score = round(100 * base * components.saturation * (components.angle ?? 1), 1);
   // Explore ignores the channel's concentration on one story: it wants a fresh pillar with real material.
   const exploreScore = round(100 * (0.4 * components.demand + 0.4 * components.need + 0.2 * components.supply), 1);
 

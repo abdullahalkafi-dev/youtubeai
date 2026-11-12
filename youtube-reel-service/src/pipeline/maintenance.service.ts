@@ -21,6 +21,7 @@ import { removeDir } from './media';
 import { MetricsService } from '../publishing/metrics.service';
 import { PublishService } from '../publishing/publish.service';
 import { YouTubeSessionService } from './youtube-session.service';
+import { AlertService } from './alert.service';
 
 const STALE_CAMPAIGN_MS = 20 * 60_000;
 const STALE_RENDER_MS = 30 * 60_000;
@@ -50,6 +51,7 @@ export class MaintenanceService {
     private readonly learning: LearningService,
     private readonly lanes: LanesService,
     private readonly ops: OpsReportService,
+    private readonly alerts: AlertService,
   ) {}
 
   async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'weekly-review' | 'ops-report') {
@@ -115,9 +117,19 @@ export class MaintenanceService {
       this.logger.warn(`New-upload analysis failed: ${errMsg(err)}`);
     }
     try {
+      await this.lanes.newsReels(); // a same-day reel from each new long video once it is analyzed
+    } catch (err) {
+      this.logger.warn(`News reels failed: ${errMsg(err)}`);
+    }
+    try {
       await this.recoverStuckSources();
     } catch (err) {
       this.logger.warn(`Stuck-video recovery failed: ${errMsg(err)}`);
+    }
+    try {
+      await this.alerts.check(); // developer push alerts (pipeline/alerts.ts), at most once per problem per 12 h
+    } catch (err) {
+      this.logger.warn(`Alert check failed: ${errMsg(err)}`);
     }
     const session = await this.session.state();
     // Re-login happened → release blocked sources.

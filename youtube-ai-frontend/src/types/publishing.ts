@@ -250,7 +250,7 @@ export interface AutoPublishItem {
   slot: string
   runAt: string
   moved: boolean
-  track: 'main' | 'explore' | 'fresh' | 'best' | 'bank' | 'stock'
+  track: 'main' | 'explore' | 'fresh' | 'best' | 'bank' | 'news' | 'stock'
   score: number | null
   status: 'queued' | 'uploading' | 'processing' | 'scheduled' | 'published' | 'failed' | 'cancelled' | 'blocked' | 'removed'
   url: string | null

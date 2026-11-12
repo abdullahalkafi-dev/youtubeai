@@ -67,10 +67,15 @@ const EnvSchema = z.object({
   REEL_CAMPAIGN_CONCURRENCY: int(2),
   REEL_MAX_REELS_PER_CAMPAIGN: int(10),
   /**
-   * Reels the daily run makes per day (the day's floor too). 2 since Nov 6 2026: a test of whether the reels (5 a day from Oct 22)
-   * slowed the long videos. The posting side is the channel's auto-publish slots (11:00 and 21:00 New York).
+   * Reels the daily run makes per day (the day's floor too). 2 from Nov 6 2026 (a test: the reels did not slow the long videos, Nov 13
+   * audit), 3 from Nov 13. The posting side is the channel's auto-publish slots (07:00, 11:00 and 21:00 New York).
    */
-  REEL_DAILY_REELS: int(2),
+  REEL_DAILY_REELS: int(3),
+  /**
+   * Developer alerts (pipeline/alerts.ts) are POSTed here: an ntfy.sh topic URL (push to a phone, plain text) or a Slack/Discord-style
+   * webhook (JSON). Empty: alerts are only logged and kept in reel_settings "ops-alerts" (`ops:alerts`).
+   */
+  ALERT_WEBHOOK_URL: str(''),
   /** The daily run's second "explore" topic (off: the day is the main topic plus the new-video lane). */
   REEL_EXPLORE_ENABLED: bool(false),
   REEL_MAX_SOURCES_PER_CAMPAIGN: int(10),

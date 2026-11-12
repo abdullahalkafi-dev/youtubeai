@@ -15,9 +15,13 @@ import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
 import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, pickBackup, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
+import { nyDate } from '../common/time';
 import { SignalsService } from './signals.service';
 
 const UPLOAD_CHECK_EVERY_MS = 45 * 60_000;
+/** A long video gets its same-day "news" reel when it is analyzed within this many hours of going up. */
+export const NEWS_WINDOW_HOURS = 36;
+export const NEWS_REELS = 1;
 const MAX_KICKS_PER_CHECK = 4;
 /** Videos mined to nothing get this many more passes (the miner is not deterministic: a 17-minute video with 4,800 views once gave zero moments). */
 const MAX_REMINES_PER_CHECK = 2;
@@ -137,10 +141,34 @@ export class LanesService {
     return this.createLane(channelId, date, userId, 'best', picks, bankBrief(picks), Math.max(1, Math.min(5, reels)), 'strongest footage');
   }
 
+  /**
+   * Same-day reel from a new long video (Nov 13 audit: 69% of a reel's 7-day views come in its first 24 h and the news is hottest the
+   * day the long video goes up, but a new video could wait days for a topic run to pick it). Every long video that went up in the last
+   * NEWS_WINDOW_HOURS and is analyzed gets ONE "news" campaign of NEWS_REELS reel, once per video. Called from the 10-minute tick.
+   */
+  async newsReels(now = new Date()) {
+    if (!this.cfg.REELS_ENABLED) return [];
+    if (freeDiskGb(this.cfg.REEL_WORK_DIR) < this.cfg.REEL_MIN_FREE_DISK_GB) return [];
+    const made: Array<{ campaignId: string; youtubeId: string }> = [];
+    for (const channelId of (await this.campaigns.distinct('channelId')) as Types.ObjectId[]) {
+      const since = now.getTime() - NEWS_WINDOW_HOURS * 3_600_000;
+      const fresh = (await this.catalog(channelId)).filter((v) => v.analyzed && v.publishedAt && v.publishedAt.getTime() >= since && v.publishedAt.getTime() <= now.getTime());
+      if (!fresh.length) continue;
+      const owner = await this.campaigns.db.collection('channels').findOne({ _id: channelId }, { projection: { userId: 1 } });
+      for (const v of fresh) {
+        if (await this.campaigns.exists({ channelId, track: 'news', 'settings.seedVideoIds': v.youtubeId })) continue;
+        const one = await this.createLane(channelId, nyDate(now), (owner?.userId as Types.ObjectId) ?? channelId, 'news', [v], freshBrief([v]), NEWS_REELS, 'new video today');
+        if (one) made.push({ campaignId: one.campaignId, youtubeId: v.youtubeId });
+      }
+    }
+    return made;
+  }
+
   /** Creates one footage-first campaign for the day (idempotent per day and track). */
-  private async createLane(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, track: 'fresh' | 'bank' | 'best', picks: LaneVideo[], brief: string, reels: number, tag: string) {
+  private async createLane(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, track: 'fresh' | 'bank' | 'best' | 'news', picks: LaneVideo[], brief: string, reels: number, tag: string) {
     if (!picks.length) return null;
-    if (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track })) return null;
+    // one lane per day and track; a news reel is one per new video instead (checked by the caller)
+    if (track !== 'news' && (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track }))) return null;
     const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const campaign = await this.campaigns.create({
       channelId,

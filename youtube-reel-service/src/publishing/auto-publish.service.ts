@@ -14,6 +14,7 @@ import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument 
 import { nyDate } from '../pipeline/daily.service';
 import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, jitterRunAt, LEGACY_VIEWS_PAUSE, lockAt, MIN_LEAD_MIN, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
+import { AppealModel, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, MAX_POSTS_PER_SOURCE, openerKind, SAME_STORY, SAME_STORY_DAYS, SOURCE_WINDOW_DAYS, topicKind } from './appeal-model';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
 
@@ -38,12 +39,14 @@ const isBrandName = (n: string) => /mecca|^unique$/i.test(n.trim());
 
 /** What the ranking needs about a reel: who it is about, how much of the channel's traffic that person has, and how its source video is doing. */
 export function appealInputs(
-  reel: { entityNames?: string[]; packaging?: { title?: string }; hookText?: string; clips?: Array<{ youtubeId?: string }> },
+  reel: { entityNames?: string[]; packaging?: { title?: string }; hookText?: string; concept?: string; clips?: Array<{ youtubeId?: string }> },
   source: { publishedAt: Date; views: number } | undefined,
   shares: Map<string, number>,
   now = Date.now(),
   recentUses: Map<string, number> = new Map(),
-): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays' | 'concrete' | 'sourceIds' | 'recentSourceUses'> {
+  model: AppealModel = DEFAULT_APPEAL_MODEL,
+  personUses: Map<string, number> = new Map(),
+): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays' | 'concrete' | 'sourceIds' | 'recentSourceUses' | 'lift' | 'recentPersonUses'> {
   const people = (reel.entityNames ?? []).filter((n) => !isBrandName(n)).map((n) => n.toLowerCase());
   const age = source ? (now - source.publishedAt.getTime()) / 86_400_000 : undefined;
   const sourceIds = [...new Set((reel.clips ?? []).map((c) => c.youtubeId).filter((x): x is string => !!x))];
@@ -55,8 +58,13 @@ export function appealInputs(
     concrete: concreteness(`${reel.packaging?.title ?? ''}. ${reel.hookText ?? ''}`),
     sourceIds,
     recentSourceUses: Math.max(0, ...sourceIds.map((id) => recentUses.get(id) ?? 0)),
+    lift: model.opener[openerKind(reel.hookText)] + model.topic[topicKind(reelText(reel))],
+    recentPersonUses: Math.max(0, ...people.map((n) => personUses.get(n) ?? 0)),
   };
 }
+
+/** The words a reel's topic is judged on: its title, idea and opening line. */
+export const reelText = (r: { packaging?: { title?: string }; concept?: string; hookText?: string }) => `${r.packaging?.title ?? ''}. ${r.concept ?? ''}. ${r.hookText ?? ''}`;
 
 /**
  * Auto-publish: after the day's reels are made, the good ones go to YouTube by themselves at New York times the system chooses
@@ -242,6 +250,76 @@ export class AutoPublishService {
     return out;
   }
 
+  /**
+   * What was posted lately, for the repeat rules (Nov 13 audit): the stories of the last SAME_STORY_DAYS days (embeddings), posts per
+   * source video in the last SOURCE_WINDOW_DAYS, and posts per person in the last 7 days.
+   */
+  private async postedHistory(channelId: Types.ObjectId, now: Date) {
+    const since = new Date(now.getTime() - SAME_STORY_DAYS * 86_400_000);
+    const posts = await this.posts.find({ channelId, platform: 'youtube', createdAt: { $gte: since }, status: { $nin: ['cancelled', 'failed'] } }).select('reelId createdAt').lean();
+    const when = new Map(posts.map((p) => [String(p.reelId), new Date(p.createdAt as Date).getTime()]));
+    const reels = posts.length ? await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('+embedding clips.youtubeId entityNames').lean() : [];
+    const stories: number[][] = [];
+    const sourcePosts = new Map<string, number>();
+    const personUses = new Map<string, number>();
+    for (const r of reels) {
+      const at = when.get(String(r._id)) ?? 0;
+      if ((r as any).embedding?.length) stories.push((r as any).embedding);
+      if (at >= now.getTime() - SOURCE_WINDOW_DAYS * 86_400_000) {
+        for (const id of new Set((r.clips ?? []).map((c) => c.youtubeId).filter(Boolean))) sourcePosts.set(id as string, (sourcePosts.get(id as string) ?? 0) + 1);
+      }
+      if (at >= now.getTime() - 7 * 86_400_000) {
+        for (const n of new Set((r.entityNames ?? []).filter((x) => !isBrandName(x)).map((x) => x.toLowerCase()))) personUses.set(n, (personUses.get(n) ?? 0) + 1);
+      }
+    }
+    return { stories, sourcePosts, personUses };
+  }
+
+  /** Why a reel would repeat what the channel just posted (null = it does not). */
+  private repeatReason(r: { embedding?: number[]; clips?: Array<{ youtubeId?: string }> }, h: { stories: number[][]; sourcePosts: Map<string, number> }): string | null {
+    const sim = Math.max(0, ...h.stories.map((e) => cosine(r.embedding, e)));
+    if (sim >= SAME_STORY) return 'Same story as a reel posted in the last 30 days';
+    const used = Math.max(0, ...(r.clips ?? []).map((c) => (c.youtubeId ? h.sourcePosts.get(c.youtubeId) ?? 0 : 0)));
+    if (used >= MAX_POSTS_PER_SOURCE) return `Its video already gave ${used} posts in the last ${SOURCE_WINDOW_DAYS} days`;
+    return null;
+  }
+
+  /** The ranking lifts learned from this channel's own posts (appeal-model.ts); refit at most once a day, defaults until enough posts. */
+  async appealModel(channelId: Types.ObjectId, now = new Date()): Promise<AppealModel> {
+    const k = `appeal-model:${channelId}`;
+    const doc = await this.settingsModel.findOne({ key: k }).lean();
+    const stored = doc?.value as AppealModel | undefined;
+    const cur = stored?.opener && stored?.topic ? stored : undefined;
+    if (cur?.fittedAt && now.getTime() - new Date(cur.fittedAt).getTime() < 24 * 3_600_000) return cur;
+    try {
+      const fitted = await this.refitAppealModel(channelId, now);
+      await this.settingsModel.updateOne({ key: k }, { $set: { value: fitted } }, { upsert: true });
+      if (fitted.n) this.logger.log(`Appeal model refit on ${fitted.n} posts: opener ${JSON.stringify(fitted.opener)}, topic ${JSON.stringify(fitted.topic)}`);
+      return fitted;
+    } catch (err) {
+      this.logger.warn(`Appeal model refit failed: ${errMsg(err)}`);
+      return cur ?? DEFAULT_APPEAL_MODEL;
+    }
+  }
+
+  /** Fits the lifts on every posted YouTube reel's views about 48 hours after posting. */
+  async refitAppealModel(channelId: Types.ObjectId, now = new Date()): Promise<AppealModel> {
+    const posts = await this.posts.find({ channelId, platform: 'youtube', status: 'published', publishedAt: { $lte: new Date(now.getTime() - 48 * 3_600_000) } }).select('_id reelId latestMetrics').lean();
+    if (!posts.length) return { ...DEFAULT_APPEAL_MODEL, fittedAt: now.toISOString() };
+    const at48 = await this.metrics.find({ postId: { $in: posts.map((p) => p._id) }, checkpoint: '48h' }).select('postId views').lean();
+    const v48 = new Map(at48.map((m) => [String(m.postId), m.views ?? 0]));
+    const reels = await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('hookText concept packaging.title').lean();
+    const byId = new Map(reels.map((r) => [String(r._id), r]));
+    const rows = posts
+      .map((p) => {
+        const r = byId.get(String(p.reelId));
+        const views = v48.get(String(p._id)) ?? (p as any).latestMetrics?.views;
+        return r && Number.isFinite(views) ? { hook: r.hookText ?? '', text: reelText(r), views: Number(views) } : null;
+      })
+      .filter((x): x is { hook: string; text: string; views: number } => !!x);
+    return { ...fitAppealModel(rows, now), fittedAt: now.toISOString() };
+  }
+
   /** The channel's own last-3-day traffic share by person (lowercase name -> 0..1), from the latest signal snapshot. */
   private async ownShares(channelId: Types.ObjectId): Promise<Map<string, number>> {
     try {
@@ -317,11 +395,20 @@ export class AutoPublishService {
 
       const shares = await this.ownShares(cid);
       const recentUses = await this.recentSourceUses(cid, now);
+      const model = await this.appealModel(cid, now);
+      const history = await this.postedHistory(cid, now).catch((err) => {
+        this.logger.warn(`Posted history unavailable, repeat rules skipped this pass: ${errMsg(err)}`);
+        return { stories: [] as number[][], sourcePosts: new Map<string, number>(), personUses: new Map<string, number>() };
+      });
+      // Repeats (same story within 30 days, or a video that already gave MAX_POSTS_PER_SOURCE posts in 14 days) are kept aside and
+      // used only when the day cannot be filled otherwise (Nov 13 audit: a re-posted story earned 260 views after 13,148).
+      const repeats: Array<PlanReel & { title: string; campaignId: Types.ObjectId; source: 'fresh' | 'stock'; why: string }> = [];
       const candidates = async (filter: Record<string, unknown>, limit: number, source: 'fresh' | 'stock', want: number) => {
+        // newest first, NOT by critic score: the score does not predict views, the ranking below picks (appeal)
         const rows = await this.reels
           .find({ channelId: cid, status: 'todo', _id: { $nin: [...plannedIds].map((x) => new Types.ObjectId(x)) }, ...filter })
-          .select('campaignId scores.overall critique.verdict packaging.title concept hookText entitySlugs entityNames createdAt clips.youtubeId')
-          .sort({ 'scores.overall': -1, createdAt: -1 })
+          .select('+embedding campaignId scores.overall critique.verdict packaging.title concept hookText entitySlugs entityNames createdAt clips.youtubeId')
+          .sort({ createdAt: -1 })
           .limit(limit)
           .lean();
         const good: Array<PlanReel & { title: string; campaignId: Types.ObjectId }> = [];
@@ -340,14 +427,30 @@ export class AutoPublishService {
             }
             continue;
           }
-          good.push({ id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares, Date.now(), recentUses) });
+          const item = { id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares, Date.now(), recentUses, model, history.personUses) };
+          const why = this.repeatReason(r as any, history);
+          if (why) {
+            repeats.push({ ...item, source, why });
+            continue;
+          }
+          good.push(item);
         }
         return good;
       };
 
-      const fresh = await candidates({ campaignId: { $in: ids } }, 40, 'fresh', empty.length);
+      let fresh = await candidates({ campaignId: { $in: ids } }, 40, 'fresh', empty.length);
       // The stock is only used after the lock, and only for as many slots as are still empty after today's own reels.
-      const stock = !beforeLock && fresh.length < empty.length ? await candidates({ campaignId: { $nin: ids } }, 60, 'stock', empty.length * 2) : [];
+      let stock = !beforeLock && fresh.length < empty.length ? await candidates({ campaignId: { $nin: ids } }, 60, 'stock', empty.length * 2) : [];
+      if (!beforeLock && fresh.length + stock.length < empty.length && repeats.length) {
+        // not enough new stories: a repeat is better than an empty slot (it still loses to every non-repeat)
+        fresh = [...fresh, ...repeats.filter((r) => r.source === 'fresh')];
+        stock = [...stock, ...repeats.filter((r) => r.source === 'stock')];
+      } else {
+        for (const r of repeats) if (r.source === 'fresh' && !heldIds.has(r.id)) {
+          held.push({ reelId: new Types.ObjectId(r.id), title: r.title, reason: r.why });
+          heldIds.add(r.id);
+        }
+      }
       const brandSlug = (slug: string) => /mecca|^unique$/.test(slug);
       const picks = chooseReels({ need: empty.length, fresh, stock, useStock: !beforeLock, plannedEntities: plannedReels.map((r) => r.entitySlugs ?? []), plannedSources: plannedReels.map((r) => (r.clips ?? []).map((c) => c.youtubeId).filter((x): x is string => !!x)), plannedTracks: (existing?.items ?? []).map((i) => i.track), ignore: brandSlug });
 

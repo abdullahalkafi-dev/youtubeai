@@ -15,6 +15,12 @@ import { modelKey } from '../ai/task-routing';
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from './queue.service';
 
+/** A preparing campaign stops waiting for late videos after this long with at least two ready, or PREPARE_GIVE_UP_ONE_MS with one. */
+export const PREPARE_GIVE_UP_MS = 3 * 3_600_000;
+export const PREPARE_GIVE_UP_ONE_MS = 6 * 3_600_000;
+export const givesUpWaiting = (ready: number, waitedMs: number) =>
+  (ready >= 2 && waitedMs >= PREPARE_GIVE_UP_MS) || (ready >= 1 && waitedMs >= PREPARE_GIVE_UP_ONE_MS);
+
 /**
  * Campaign state machine. Every transition is an atomic findOneAndUpdate on the expected
  * current status, so retried / duplicated jobs can never run a step twice.
@@ -133,7 +139,7 @@ export class OrchestratorService {
     const byId = new Map(srcDocs.map((s) => [s.youtubeId, s]));
 
     let blocked = 0;
-    const updated = campaign.sources.map((ref) => {
+    let updated = campaign.sources.map((ref) => {
       const s = byId.get(ref.youtubeId);
       if (ref.status === 'failed') return ref;
       if (s?.stage === 'ready' && s.minedVersion === MINING_VERSION) return { ...ref, status: 'ready' as const, error: undefined };
@@ -142,8 +148,15 @@ export class OrchestratorService {
       return { ...ref, status: 'pending' as const };
     });
 
-    const pending = updated.filter((s) => s.status === 'pending').length;
+    let pending = updated.filter((s) => s.status === 'pending').length;
     const ready = updated.filter((s) => s.status === 'ready').length;
+    // Nov 8, 10, 11 2026: three daily campaigns had 3 of 4 videos ready and waited for days on one blocked download (0 reels).
+    // After a while the campaign goes ahead with what is ready; the late video stays in the pipeline for later campaigns.
+    if (pending > 0 && givesUpWaiting(ready, Date.now() - new Date((campaign as any).createdAt ?? Date.now()).getTime())) {
+      updated = updated.map((s) => (s.status === 'pending' ? { ...s, status: 'failed' as const, error: 'not ready in time: went ahead without it' } : s));
+      await this.log(campaignId, 'info', `Detail: went ahead with ${ready} ready video(s); ${pending} still not ready after waiting`, false);
+      pending = 0;
+    }
     await this.campaigns.updateOne(
       { _id: campaignId },
       {

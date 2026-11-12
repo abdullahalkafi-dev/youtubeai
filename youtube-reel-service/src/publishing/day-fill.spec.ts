@@ -107,14 +107,19 @@ describe('the daily mix', () => {
 describe('stock reels from old videos', () => {
   const s = (id: string, score: number, sourceAgeDays?: number): PlanReel => ({ id, score, entities: [], createdAt: 0, sourceAgeDays });
 
-  it('a recent video wins a leftover slot over a slightly better reel from an old one', () => {
+  it('a recent video wins a leftover slot over a better-scored reel from an old one', () => {
     const out = chooseReels({ need: 2, fresh: [], stock: [s('old', 90, 200), s('new', 80, 10), s('unknown', 70)], useStock: true, plannedEntities: [] });
-    expect(out.map((x) => x.id)).toEqual(['new', 'old']);
+    expect(out.map((x) => x.id)).toEqual(['new', 'unknown']);
   });
 
-  it('a much better old reel still beats a weak recent one', () => {
+  it('the critic score alone no longer rescues an old reel (Nov 13: it does not predict views)', () => {
     const out = chooseReels({ need: 1, fresh: [], stock: [s('old', 95, 200), s('new', 65, 10)], useStock: true, plannedEntities: [] });
-    expect(out.map((x) => x.id)).toEqual(['old']);
+    expect(out.map((x) => x.id)).toEqual(['new']);
+  });
+
+  it('what the opening line and topic did still wins over freshness', () => {
+    const out = chooseReels({ need: 1, fresh: [], stock: [{ ...s('old-first-person', 70, 200), lift: 27 }, { ...s('new-court', 90, 10), lift: -34 }], useStock: true, plannedEntities: [] });
+    expect(out.map((x) => x.id)).toEqual(['old-first-person']);
   });
 });
 

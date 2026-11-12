@@ -176,7 +176,17 @@ describe('concrete stories and varied sources (Oct 30 audit)', () => {
     const base = { score: 70 };
     expect(appeal({ ...base, concrete: 1 })).toBeGreaterThan(appeal({ ...base, concrete: 0 }));
     expect(appeal({ ...base, recentSourceUses: 2 })).toBeLessThan(appeal({ ...base, recentSourceUses: 0 }));
-    expect(appeal(base)).toBeCloseTo(0.35 * 70, 6);
+    // Nov 13: the critic score only breaks ties (it did not predict views)
+    expect(appeal(base)).toBeCloseTo(0.1 * 70, 6);
+  });
+
+  it('ranks by what the opening line and topic did, and pushes the same person down (Nov 13 audit)', () => {
+    const base = { score: 70 };
+    // a first-person prison-life reel with a lower critic score beats a high-scoring court-procedure one
+    expect(appeal({ score: 66, lift: 16 + 11 })).toBeGreaterThan(appeal({ score: 92, lift: 0 - 34 }));
+    expect(appeal({ ...base, recentPersonUses: 3 })).toBeLessThan(appeal({ ...base, recentPersonUses: 0 }));
+    // court words no longer count as concrete events
+    expect(concreteness('Big Thirty: release does not prove anything at trial, bond or plea')).toBe(0);
   });
 
   const reel = (id: string, score: number, sourceIds: string[], entities: string[] = []): PlanReel => ({ id, score, entities, sourceIds, track: 'fresh' });

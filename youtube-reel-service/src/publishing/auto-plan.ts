@@ -160,30 +160,37 @@ export function freeSlots(input: { date: string; now: Date; slots: string[]; ext
 }
 
 /**
- * How likely a reel is to be watched, used to rank reels (the Oct 28 audit found the critic's score had zero correlation with 24h views, r = 0.00
- * over 36 posts, so it stays only as the quality gate and as a small part of this). Starting weights from that audit, to be refit as posts come in:
- * naming a person or case (about 1,200 vs 800 first-day views), the channel's own traffic share for that person, and how fast the source video is growing.
- * A reel with none of those inputs ranks by 0.35 x score, so the order of plain scores is unchanged.
+ * How likely a reel is to be watched, used to rank reels. The critic's score has no relation to views (Oct 28: r = 0.00 over 36 posts;
+ * Nov 13: Spearman -0.07 over 76), so it is the quality gate and only a tie-breaker here. What ranks a reel (Nov 13 audit): `lift` =
+ * what its opening line and its topic did for this channel's reels (appeal-model.ts, refit from real 48-hour views), the channel's own
+ * traffic share for the person, how fast the source video is growing, how concrete the story is, and repeats (same source video in the
+ * last 3 days, same person in the last 7). Naming a person no longer adds points by itself (Nov 13: 1,396 vs 1,273 median).
  */
-export function appeal(r: Pick<PlanReel, 'score' | 'named' | 'demand' | 'sourceVelocity' | 'concrete' | 'recentSourceUses'>): number {
+export function appeal(r: Pick<PlanReel, 'score' | 'demand' | 'sourceVelocity' | 'concrete' | 'recentSourceUses' | 'lift' | 'recentPersonUses'>): number {
   return (
-    0.35 * r.score +
-    (r.named ? 20 : 0) +
+    SCORE_WEIGHT * r.score +
+    (r.lift ?? 0) +
     80 * Math.min(0.3, r.demand ?? 0) +
     3 * Math.log1p(Math.max(0, r.sourceVelocity ?? 0)) +
     CONCRETE_WEIGHT * (r.concrete ?? 0) -
-    REPEAT_PENALTY * Math.min(2, r.recentSourceUses ?? 0)
+    REPEAT_PENALTY * Math.min(2, r.recentSourceUses ?? 0) -
+    PERSON_PENALTY * Math.min(3, r.recentPersonUses ?? 0)
   );
 }
 
+/** The critic score only breaks ties (it does not predict views). */
+export const SCORE_WEIGHT = 0.1;
 /** Up to this many points for a reel about a concrete event (the Oct 30 audit: the 1,500-1,700 view reels were incidents, the 150-300 ones abstract lessons). */
-export const CONCRETE_WEIGHT = 15;
+export const CONCRETE_WEIGHT = 8;
+/** Points off per post about the same person in the last 7 days (Keefe D: 6 reels in two weeks, median 446 views). */
+export const PERSON_PENALTY = 6;
 /** Points off per recent post cut from the same source video (the feed should not show the same picture again and again). */
 export const REPEAT_PENALTY = 8;
 
 const FIRST_PERSON = /\b(i|i'm|i've|i'd|i'll|my|me|we|our)\b/i;
 const EVENT_WORDS =
-  /\b(kill(?:ed|ing)?|murder(?:ed)?|stab(?:bed|bing)?|shot|shooting|fight|fought|arrest(?:ed)?|charged|denied|sentence[ds]?|hospital|escape[ds]?|riot|lockdown|cell|isolation|solitary|strip[- ]?search(?:ed)?|toilet|handcuff(?:ed|s)?|guard|testif(?:y|ied)|snitch(?:ed)?|informant|bail|bond|trial|verdict|plea)\b/i;
+  /\b(kill(?:ed|ing)?|murder(?:ed)?|stab(?:bed|bing)?|shot|shooting|fight|fought|arrest(?:ed)?|charged|denied|sentence[ds]?|hospital|escape[ds]?|riot|lockdown|cell|isolation|solitary|strip[- ]?search(?:ed)?|toilet|handcuff(?:ed|s)?|guard|snitch(?:ed)?|informant|flush|hole|yard|intake|laundry)\b/i;
+// Court words (trial, bond, plea, verdict, testify, bail) are no longer "events": court-procedure reels were the worst (Nov 13: median 396).
 const ABSTRACT_WORDS = /\b(lesson|mindset|mentality|psycholog\w*|accountability|identity|perception|reputation trap|illusion|journey|reflection|discussion|analysis|thoughts? on)\b/i;
 
 /**
@@ -229,6 +236,10 @@ export interface PlanReel {
   sourceIds?: string[];
   /** How many recent posts (last 3 days) were cut from the same source videos. */
   recentSourceUses?: number;
+  /** Ranking points for the opening line and the topic (appeal-model.ts). */
+  lift?: number;
+  /** Posts about the same person in the last 7 days. */
+  recentPersonUses?: number;
 }
 
 /**

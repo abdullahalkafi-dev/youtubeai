@@ -23,6 +23,8 @@ import { LanesService } from '../pipeline/lanes.service';
 import { nyDate } from '../common/time';
 import { OpsReportService } from '../pipeline/ops-report.service';
 import { formatOpsReport } from '../pipeline/ops-report';
+import { AlertService } from '../pipeline/alert.service';
+import { alertsFor } from '../pipeline/alerts';
 
 /**
  * Operator CLI (run inside the reel-worker container):
@@ -32,6 +34,7 @@ import { formatOpsReport } from '../pipeline/ops-report';
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
  *   node dist/cli/reel-cli.js ops:report [days] [--build [YYYY-MM-DD]] [--json]   (developer daily health record; see OPS-AUDIT.md)
+ *   node dist/cli/reel-cli.js ops:alerts [--check]   (what the developer alerts see now, and what was pushed last; --check sends new ones)
  *   node dist/cli/reel-cli.js source:import <youtubeId> <video.mp4>   (manual fallback when YouTube blocks downloads)
  *   node dist/cli/reel-cli.js campaign:create <channelId> <userId> <targetReels> "<brief>"
  *   node dist/cli/reel-cli.js campaign:status <campaignId>
@@ -228,6 +231,15 @@ async function main() {
         if (args.includes('--json')) console.log(JSON.stringify(rows, null, 2));
         else for (const r of rows) console.log(formatOpsReport(r));
         if (!rows.length) console.log('No reports yet. Run: ops:report --build');
+        break;
+      }
+      case 'ops:alerts': {
+        // Developer push alerts: what is wrong right now (`--check` runs the check and sends what is new) and what was sent last.
+        const alerts = app.get(AlertService);
+        if (args.includes('--check')) console.log('sent now:', JSON.stringify(await alerts.check(), null, 2));
+        const ids = (await app.get(OpsReportService).latest(1)).map((r) => r.channelId);
+        for (const id of ids) console.log('current problems for', String(id), JSON.stringify(alertsFor(await alerts.state(id)), null, 2));
+        console.log('last sent:', JSON.stringify(await alerts.latest(), null, 2));
         break;
       }
       default:

@@ -117,14 +117,24 @@ describe('daily brain: portfolio', () => {
     const scored = [
       scoreCandidate(cand('Diddy', 'diddy', 'celebrity'), ev({ trendMatch: 0.9 }), c),
       scoreCandidate(cand('Diddy again', 'diddy', 'solitary'), ev({ trendMatch: 0.3 }), c), // same entity: not allowed as explore
-      scoreCandidate(cand('Intake', 'x', 'intake'), ev({ trendMatch: 0.7 }), c), // covered 2 days ago: not allowed
-      scoreCandidate(cand('Supermax', 'adx', 'solitary'), ev({ trendMatch: 0.2 }), c),
+      scoreCandidate(cand('Arrival', 'x', 'intake'), ev({ trendMatch: 0.7 }), c), // covered 2 days ago: not allowed
+      // an angle-neutral name: a prison-life name ("Supermax") gets the Nov 13 angle bonus, tested separately below
+      scoreCandidate(cand('Long stretch', 'adx', 'solitary'), ev({ trendMatch: 0.2 }), c),
       scoreCandidate(cand('Family', 'y', 'family'), ev({ trendMatch: 0.1 }), c),
     ];
     const p = selectPortfolio(scored, c);
     expect(p.main!.c.name).toBe('Diddy');
-    expect(p.explore!.c.name).toMatch(/Supermax|Family/);
+    expect(p.explore!.c.name).toMatch(/Long stretch|Family/);
     expect(p.mainReels + p.exploreReels).toBe(7);
+  });
+
+  it('a prison-life angle scores above the same topic told as court procedure (Nov 13 audit)', () => {
+    const c = ctx({ pillars: { solitary: { daysSinceCovered: 3, lift: 1, posts: 0 } } });
+    const life = scoreCandidate({ ...cand('Diddy: the first night in a federal cell', 'diddy', 'solitary'), brief: 'what the first night in a cell does to a man' }, ev({ trendMatch: 0.5 }), c);
+    const court = scoreCandidate({ ...cand('Diddy: what prosecutors can prove', 'diddy', 'solitary'), brief: 'the trial evidence and the bond question' }, ev({ trendMatch: 0.5 }), c);
+    expect(life.components.angle).toBe(1.15);
+    expect(court.components.angle).toBe(0.6);
+    expect(life.score).toBeGreaterThan(court.score);
   });
 
   it('with no usable explore topic the whole day goes to the main topic', () => {

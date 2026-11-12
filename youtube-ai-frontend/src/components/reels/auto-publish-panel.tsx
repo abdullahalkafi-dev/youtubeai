@@ -286,9 +286,9 @@ function ScheduleRow({ it, busy, onNow, onMove, onCancel }: { it: AutoPublishIte
               <Compass className="w-3 h-3" /> Explore
             </span>
           )}
-          {(it.track === 'fresh' || it.track === 'best' || it.track === 'bank' || it.track === 'stock') && (
+          {(it.track === 'fresh' || it.track === 'best' || it.track === 'bank' || it.track === 'news' || it.track === 'stock') && (
             <span className="px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-violet-500/10 text-violet-700 dark:text-violet-400">
-              {it.track === 'fresh' ? 'New video' : it.track === 'best' ? 'Best of the old' : it.track === 'bank' ? 'Strong footage' : 'From stock'}
+              {it.track === 'fresh' ? 'New video' : it.track === 'news' ? "Today's video" : it.track === 'best' ? 'Best of the old' : it.track === 'bank' ? 'Strong footage' : 'From stock'}
             </span>
           )}
           {it.score !== null && <span className="text-[10px] text-zinc-500">score {Math.round(it.score)}</span>}

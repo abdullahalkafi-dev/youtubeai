@@ -152,7 +152,7 @@ export interface Reel {
   id: string
   campaignId: string
   /** Daily campaigns: which part of the day this reel belongs to. */
-  track?: 'main' | 'explore' | 'fresh' | 'best' | 'bank'
+  track?: 'main' | 'explore' | 'fresh' | 'best' | 'bank' | 'news'
   index: number
   status: ReelStatus
   shape: ReelShape

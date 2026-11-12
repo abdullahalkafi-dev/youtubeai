@@ -22,7 +22,9 @@ export const FS = {
   stripY: 1818,
   stripH: 84,
   gold: '0xFFD400',
-  tag: 'FULL VIDEO LINK IN FIRST COMMENT',
+  // Was "FULL VIDEO LINK IN FIRST COMMENT": links in Shorts comments and descriptions are not clickable, and long videos got 28 views
+  // from Shorts in 4 weeks (Nov 13 audit). The channel name on a Short IS tappable, so the line points there.
+  tag: 'FULL STORY ON MY CHANNEL',
   phone: 'BOOK A CALL  1-917-680-9091',
 } as const;
 

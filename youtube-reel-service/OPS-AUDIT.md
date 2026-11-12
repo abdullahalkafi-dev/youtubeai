@@ -78,3 +78,29 @@ How to read the result: each report has a `main channel:` line with every long v
 views so far. Compare a video's views at d3 and d7 (from the reports of those days) with the long videos of Oct 22 - Nov 5. Comment
 replies changed the same day (the 3 newest long videos are now checked every 45 min; reels had taken 8 of the 10 reply slots), which
 can also lift the long videos.
+
+## Nov 13, 2026: views audit and the changes it led to
+
+Findings (76 posted reels + YouTube Analytics): the reels did not slow the long videos (long views/day 6,092 with no reels, 6,301 at 5
+reels/day); downloads were dead Nov 5-12 (cookies rejected 38 min after import) and three days made 0 reels while a campaign waited on
+one blocked video; the first spoken line decides the reel (first person: median 2,263 views, general statement: 1,294); court-procedure
+reels median 396, prison-life details 1,896; the critic score has no relation to views (Spearman -0.07); a re-posted story earned 260
+views after 13,148. Best upload hours (NY): 10-11 AM and 7 AM, then 9 PM; 8 AM is the worst.
+
+What changed:
+- yt-dlp 2026.10.26 + bgutil PO tokens (`reel-pot` sidecar, /etc/yt-dlp.conf).
+- A preparing campaign goes ahead after 3 h with 2+ ready videos (6 h with 1): `givesUpWaiting` in queue/orchestrator.service.ts.
+- Developer push alerts (pipeline/alerts.ts, AlertService, every 10 min, once per problem per 12 h): downloads stopped, 0 reels by 4 PM,
+  short day by 8 PM, stuck campaigns, auto-publish paused, failed posts, low stock. Set `ALERT_WEBHOOK_URL` (an ntfy.sh topic URL pushes to
+  a phone) in youtube-reel-service/.env.prod. `ops:alerts [--check]` shows what it sees.
+- Ranking (publishing/appeal-model.ts): lifts for the opening line and the topic, refit daily from real 48-hour views; the critic score is
+  only a gate and a tie-breaker; court words no longer count as concrete; posts about the same person in 7 days push a reel down.
+  Candidates are taken newest first, not by critic score. The model in use: reel_settings `appeal-model:<channelId>`.
+- Repeats are held: the same story (embedding cosine >= 0.68) within 30 days, or a video that already gave 2 posts in 14 days; used only
+  when the day cannot be filled otherwise.
+- Director/critic/topic prompts: the first line must be the host's own experience or a famous name in a concrete moment; no court-procedure
+  reels; topic angle multiplier (prison life x1.15, court procedure x0.6) in daily-brain.
+- "news" lane: every long video analyzed within 36 h of going up gets one reel the same day (LanesService.newsReels).
+- 3 reels a day (`REEL_DAILY_REELS`=3), posted at 7:00, 11:00 and 21:00 NY.
+- The full-screen look's bottom line says "FULL STORY ON MY CHANNEL" (comment links are not clickable on Shorts).
+- Not automatable: YouTube Studio "Related video" on each reel (the only clickable route from a Short to a long video; the API cannot set it).
