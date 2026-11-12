@@ -34,12 +34,24 @@ services:
     networks:
       - youtubeai
 
+  # PO-token server for yt-dlp (bgutil plugin in the reel image; /etc/yt-dlp.conf points at http://reel-pot:4416).
+  # Without it YouTube answers the server with "Sign in to confirm you're not a bot" even with good cookies.
+  reel-pot:
+    image: brainicism/bgutil-ytdlp-pot-provider:2.0.2
+    init: true
+    mem_limit: 512m
+    cpus: 0.5
+    restart: always
+    networks:
+      - youtubeai
+
   reel-worker:
     # Same image as reel-api (built once by reel-api; never pulled from a registry).
     image: youtubeai-reels:latest
     pull_policy: never
     depends_on:
       - reel-api
+      - reel-pot
     command: ['node', 'dist/main.worker.js']
     env_file:
       - ./youtube-reel-service/.env.prod

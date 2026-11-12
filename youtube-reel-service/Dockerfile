@@ -12,7 +12,10 @@ RUN pnpm build && pnpm prune --prod
 
 FROM node:20-bookworm-slim AS runtime
 # Pinned versions: yt-dlp must be refreshed when YouTube changes (rebuild the image with a newer version).
-ARG YTDLP_VERSION=2026.08.19
+# Nov 13 2026: the server got the "confirm you are not a bot" check even with fresh cookies (session rejected 38 min after import).
+# yt-dlp 2026.10.26 + the bgutil PO-token plugin; the token server is the `reel-pot` sidecar (docker-compose.reels.yml).
+ARG YTDLP_VERSION=2026.10.26
+ARG POT_PLUGIN_VERSION=2.0.2
 ARG DENO_VERSION=v2.9.7
 ENV NODE_ENV=production \
     REEL_WORK_DIR=/work \
@@ -21,7 +24,8 @@ ENV NODE_ENV=production \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ffmpeg python3 python3-pip ca-certificates curl unzip tini \
- && pip install --no-cache-dir --break-system-packages "yt-dlp[default]==${YTDLP_VERSION}" \
+ && pip install --no-cache-dir --break-system-packages "yt-dlp[default]==${YTDLP_VERSION}" "bgutil-ytdlp-pot-provider==${POT_PLUGIN_VERSION}" \
+ && printf '%s\n' '# PO tokens from the reel-pot sidecar (see docker-compose.reels.yml)' '--extractor-args "youtubepot-bgutilhttp:base_url=http://reel-pot:4416"' > /etc/yt-dlp.conf \
  && curl -fsSL -o /tmp/deno.zip "https://github.com/denoland/deno/releases/download/${DENO_VERSION}/deno-x86_64-unknown-linux-gnu.zip" \
  && unzip -q /tmp/deno.zip -d /usr/local/bin && rm /tmp/deno.zip && chmod +x /usr/local/bin/deno \
  && apt-get purge -y unzip && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
