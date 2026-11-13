@@ -42,32 +42,75 @@ export function cleanBullets(raw: unknown): string[] {
 const words = (s: string): string[] => s.toLowerCase().match(/[\p{L}\p{N}']+/gu) || [];
 
 /**
- * Pure: did the tidied text keep his words? Most of what he said (words of 4+ letters) must still be
- * there; spelling fixes of a few words are fine, a rewrite is not.
+ * Pure: a bullet with only the basics: a capital letter at the start of each sentence, a capital "I",
+ * and a full stop at the end when it has none. No word is changed.
  */
-export function keepsHisWords(original: string, tidied: string): boolean {
-  const mine = words(original).filter((w) => w.length >= 4);
-  if (mine.length === 0) return true;
-  const kept = new Set(words(tidied));
-  const hits = mine.filter((w) => kept.has(w)).length;
-  return hits / mine.length >= 0.7;
-}
-
-/** Pure: a bullet with no model help: capital letter first, a full stop at the end. */
 export function basicTidy(text: string): string {
-  const t = text.replace(/\s+/g, ' ').trim();
+  let t = text.replace(/\s+/g, ' ').trim();
   if (!t) return t;
-  const cap = t.charAt(0).toUpperCase() + t.slice(1);
-  return /[.?!…]["”']?$/.test(cap) ? cap : `${cap}.`;
+  t = t.replace(/(?<![\p{L}\p{N}'’])i(?![\p{L}\p{N}])/gu, 'I');
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  t = t.replace(/([.?!]["”']?\s+)(\p{Ll})/gu, (_m, a: string, b: string) => a + b.toUpperCase());
+  return /[.?!…]["”']?$/.test(t) ? t : `${t}.`;
 }
 
-/** Pure: a short heading in caps taken from the bullet's own first words. */
+/** Pure: a short label that is his own first words (never invented), so he knows which bullet this is. */
 export function fallbackHeading(text: string): string {
-  return words(text).slice(0, 5).join(' ').toUpperCase() || 'BULLET';
+  const w = words(text);
+  if (!w.length) return 'BULLET';
+  return w.slice(0, 5).join(' ').toUpperCase() + (w.length > 5 ? '…' : '');
 }
 
-/** Pure: reads the model's JSON, or null when it is unusable. */
-export function parseTidy(raw: string, bullets: string[]): TidyResult | null {
+/** One spelling fix the model found: bullet number (1-based), the word as written and its correct spelling. */
+export interface Correction {
+  bullet: number;
+  from: string;
+  to: string;
+}
+
+/**
+ * His voice: slang, dialect and profanity are never "corrected", whatever the model says. The client wants
+ * his own tone, not formal grammar.
+ */
+const PROTECTED = new Set([
+  "ain't", 'aint', 'wanna', 'gonna', 'gotta', 'kinda', 'sorta', 'lemme', 'gimme', 'dunno', "y'all", 'yall', 'ya',
+  'cuz', 'cause', "'cause", "'em", 'em', 'nah', 'yeah', 'yep', 'nope', 'yo', 'bruh', 'bro', 'homie', 'fam',
+  'nobody', 'nothing', 'nowhere', 'shit', 'bullshit', 'damn', 'fuck', 'fucking', 'ass', 'hell', 'bitch', 'nigga',
+  'niggas', 'nigger', 'finna', 'tryna', 'boutta', 'ima', "i'ma", 'imma', 'ion', 'bout', 'til', 'til\'',
+]);
+
+/** Pure: the number of single-letter edits between two words. */
+export function editDistance(a: string, b: string): number {
+  const dp = Array.from({ length: a.length + 1 }, (_, i) => [i, ...Array(b.length).fill(0)]);
+  for (let j = 1; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      dp[i][j] = Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1, dp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+  }
+  return dp[a.length][b.length];
+}
+
+/**
+ * Pure: is this a plain spelling fix of ONE word into ONE word? Capital letters ("adx" to "ADX"), a missing
+ * apostrophe ("dont" to "don't") and a close respelling ("thru" to "through") pass. A different word, a
+ * protected slang word or anything that changes the meaning does not.
+ */
+export function acceptableCorrection(from: string, to: string): boolean {
+  const f = from.trim();
+  const t = to.trim();
+  if (!f || !t || f === t || /\s/.test(f) || /\s/.test(t)) return false;
+  const fl = f.toLowerCase();
+  const tl = t.toLowerCase();
+  if (PROTECTED.has(fl) || PROTECTED.has(fl.replace(/[^a-z']/g, ''))) return false;
+  if (fl === tl) return true;
+  if (fl.replace(/['’]/g, '') === tl.replace(/['’]/g, '')) return true;
+  const d = editDistance(fl, tl);
+  return d <= 3 && d <= Math.ceil(Math.max(fl.length, tl.length) * 0.5);
+}
+
+/** Pure: reads the model's JSON into a list of corrections (empty when unusable). */
+export function parseCorrections(raw: string, bulletCount: number): Correction[] {
   let parsed: any = null;
   try {
     parsed = JSON.parse(raw.replace(/```json/gi, '').replace(/```/g, '').trim());
@@ -81,26 +124,35 @@ export function parseTidy(raw: string, bullets: string[]): TidyResult | null {
       }
     }
   }
-  if (!parsed || !Array.isArray(parsed.items) || parsed.items.length !== bullets.length) return null;
-  const items: TidyItem[] = bullets.map((original, i) => {
-    const it = parsed.items[i] || {};
-    const text = typeof it.text === 'string' ? it.text.trim() : '';
-    const heading = typeof it.heading === 'string' ? it.heading.replace(/[#*_`<>]/g, '').trim().toUpperCase() : '';
-    return {
-      text: text && keepsHisWords(original, text) ? text : basicTidy(original),
-      heading: heading && heading.split(/\s+/).length <= 9 ? heading : fallbackHeading(original),
-    };
-  });
-  const title = typeof parsed.title === 'string' ? parsed.title.replace(/[#*_`<>]/g, '').trim().toUpperCase() : '';
-  return { title: title.slice(0, 90), items };
+  if (!parsed || !Array.isArray(parsed.corrections)) return [];
+  return parsed.corrections
+    .map((c: any) => ({ bullet: Number(c?.bullet), from: String(c?.from ?? '').trim(), to: String(c?.to ?? '').trim() }))
+    .filter((c: Correction) => Number.isInteger(c.bullet) && c.bullet >= 1 && c.bullet <= bulletCount && c.from && c.to);
 }
 
-/** Pure: no model: every bullet as he said it, tidied only by capital letter and full stop. */
-export function plainTidy(bullets: string[]): TidyResult {
-  return {
-    title: '',
-    items: bullets.map((b) => ({ text: basicTidy(b), heading: fallbackHeading(b) })),
-  };
+const escapeRe = (s: string) => s.replace(/[.*+?^$&{}()|[\]\\]/g, '\\$&');
+
+/**
+ * Pure: applies the accepted spelling fixes to his words and touches nothing else. If the model asks for
+ * far more fixes than a few misspellings (more than 15% of the words), none of them is applied.
+ */
+export function applyCorrections(text: string, corrections: Correction[]): { text: string; applied: number } {
+  let out = text;
+  let applied = 0;
+  for (const c of corrections) {
+    if (!acceptableCorrection(c.from, c.to)) continue;
+    const re = new RegExp(String.raw`(?<![\p{L}\p{N}'’])${escapeRe(c.from)}(?![\p{L}\p{N}'’])`, 'giu');
+    out = out.replace(re, (m) => {
+      applied++;
+      // Keep a capital at the start of a sentence: "Thru" becomes "Through".
+      return m[0] !== m[0].toLowerCase() && c.to[0] === c.to[0].toLowerCase() && m.toLowerCase() !== c.to.toLowerCase()
+        ? c.to[0].toUpperCase() + c.to.slice(1)
+        : c.to;
+    });
+  }
+  const total = words(text).length;
+  if (applied > Math.max(3, Math.ceil(total * 0.15))) return { text, applied: 0 };
+  return { text: out, applied };
 }
 
 /** A line must not end on one of these: it would leave the reader hanging on "and" or "the". */
@@ -125,7 +177,7 @@ const bare = (w: string) => w.toLowerCase().replace(/[^a-z']/g, '');
  * word like "and" or "the". Every line but the last ends in punctuation (a comma where the cut left
  * none) so he can tell the thought goes on. The words are exactly the sentence's words.
  */
-export function wrapLines(sentence: string, max: number = LINE_WORDS): string[] {
+export function wrapLines(sentence: string, max: number = LINE_WORDS, carryCommas: boolean = true): string[] {
   const w = sentence.split(/\s+/).filter(Boolean);
   if (w.length <= max) return [w.join(' ')];
   const lines: string[][] = [];
@@ -161,7 +213,7 @@ export function wrapLines(sentence: string, max: number = LINE_WORDS): string[] 
   }
   return lines.map((l, k) => {
     const text = l.join(' ');
-    return k < lines.length - 1 && !/[,;:—–.?!…]$/.test(text) ? `${text},` : text;
+    return carryCommas && k < lines.length - 1 && !/[,;:—–.?!…]$/.test(text) ? `${text},` : text;
   });
 }
 
@@ -174,7 +226,8 @@ export function bulletBlocks(text: string): string[][] {
   const sentences = text.match(/[^.?!…]+[.?!…]+["”']?|[^.?!…]+$/g) || [text];
   const blocks: string[][] = [];
   for (const sentence of sentences.map((s) => s.trim()).filter(Boolean)) {
-    const lines = wrapLines(sentence);
+    // His own bullets get no commas of ours at the line breaks: only the punctuation he said.
+    const lines = wrapLines(sentence, LINE_WORDS, false);
     const count = Math.ceil(lines.length / LINES_PER_BLOCK);
     const base = Math.floor(lines.length / count);
     const extra = lines.length % count;
@@ -189,8 +242,8 @@ export function bulletBlocks(text: string): string[][] {
 }
 
 /**
- * Pure: his bullets as a teleprompter card. Every bullet is a numbered section with a wide gap before
- * the next one, so he can see where he left off when he looks back at the screen.
+ * Pure: his bullets as a teleprompter card, his words only. Every bullet is a numbered section with a wide
+ * gap before the next one, so he can see where he left off when he looks back at the screen.
  */
 export function ownBulletsCard(title: string, items: TidyItem[]): string {
   const out: string[] = [BULLET_SCRIPT_START, `# SCRIPT TITLE: ${title || 'MY BULLETS'}`, '**MY OWN BULLETS | UMA OUTLAW STORY-FLOW BULLETS**', ''];
@@ -199,21 +252,18 @@ export function ownBulletsCard(title: string, items: TidyItem[]): string {
     for (const block of bulletBlocks(item.text)) {
       out.push(...block.map((l) => `> ${l}`), '');
     }
-    out.push('[PAUSE]', '');
   });
   out.push(BULLET_SCRIPT_END);
   return out.join('\n');
 }
 
-const TIDY_SYSTEM = `You tidy a speaker's own dictated talking points. He spoke them into a microphone, so they may have wrong or missing punctuation, spelling mistakes from speech-to-text and stumbles.
+const TIDY_SYSTEM = `You are a spelling checker for a speaker's dictated talking points (speech-to-text output). The speaker talks street: slang, dialect, double negatives and bad grammar are HIS VOICE and must stay exactly as he said them.
 
-RULES
-- Keep EVERY idea, name, fact and number he said, in HIS words and HIS order. Fix only spelling (including a name or place the speech-to-text clearly misspelled), grammar and punctuation, and drop filler ("um", "uh", "you know") and repeated false starts.
-- Never add a fact, a feeling or a sentence he did not say. Never merge, split, reorder or drop bullets.
-- "heading": 3 to 7 words in caps, taken from the bullet's own words, that tell him which bullet this is at a glance.
-- "title": 3 to 8 words in caps that name what all the bullets are about, in his words.
+List ONLY words that are misspelled, or that the speech-to-text clearly spelled wrong (a place, a name, a number or a common word). Each correction replaces ONE word with ONE word and changes its spelling only, for example "thru" to "through", "adx" to "ADX", "dont" to "don't".
 
-Return ONLY JSON: {"title":"...","items":[{"heading":"...","text":"..."}]} with exactly as many items as bullets, in the same order.`;
+NEVER list: slang or dialect (ain't, wanna, gonna, gotta, nobody, y'all, finna), profanity, grammar, word choice, filler words (um, uh, you know), repeated words, or a real word used in a way you would not. If you are not sure a word is wrong, leave it out. An empty list is a normal answer.
+
+Return ONLY JSON: {"corrections":[{"bullet":1,"from":"thru","to":"through"}]}`;
 
 /** Pure: the request for the full script built on his bullets. */
 export function buildDictationScriptRequest(bullets: string[], title?: string): string {
@@ -251,22 +301,32 @@ export class DictationService {
     return { text };
   }
 
-  /** His bullets tidied (spelling, grammar, punctuation) with a heading each; never loses his words. */
+  /**
+   * His bullets with only their spelling fixed. The model lists the misspelled words; the code applies the
+   * plain spelling fixes and leaves every other word, his grammar and his slang as he said them.
+   */
   async tidy(bullets: string[]): Promise<TidyResult> {
+    let corrections: Correction[] = [];
     try {
       const raw = await this.openai.chatFast({
         systemPrompt: TIDY_SYSTEM,
         userMessage: `BULLETS (${bullets.length}):\n${bullets.map((b, i) => `${i + 1}. ${b}`).join('\n')}`,
         temperature: 0,
-        maxCompletionTokens: 6000,
+        maxCompletionTokens: 3000,
       });
-      const parsed = parseTidy(raw, bullets);
-      if (parsed) return parsed;
-      this.logger.warn('Dictation tidy: unusable model answer, using his bullets as spoken');
+      corrections = parseCorrections(raw, bullets.length);
     } catch (err: any) {
-      this.logger.warn(`Dictation tidy failed (${err?.message || err}), using his bullets as spoken`);
+      this.logger.warn(`Dictation spelling check failed (${err?.message || err}); using his bullets as spoken`);
     }
-    return plainTidy(bullets);
+    let applied = 0;
+    const items = bullets.map((b, i) => {
+      const r = applyCorrections(b, corrections.filter((c) => c.bullet === i + 1));
+      applied += r.applied;
+      const text = basicTidy(r.text);
+      return { text, heading: fallbackHeading(text) };
+    });
+    this.logger.log(`Dictation: ${bullets.length} bullets, ${applied} spelling fixes applied`);
+    return { title: '', items };
   }
 
   /** Bullets in, his bullet card out (the words stay his). */
@@ -274,7 +334,7 @@ export class DictationService {
     const bullets = cleanBullets(rawBullets);
     if (!bullets.length) throw new BadRequestException('Dictate at least one bullet first.');
     const tidy = await this.tidy(bullets);
-    const finalTitle = (title || '').trim().toUpperCase() || tidy.title || 'MY BULLETS';
+    const finalTitle = (title || '').trim().toUpperCase() || 'MY BULLETS';
     return { title: finalTitle, bulletCard: ownBulletsCard(finalTitle, tidy.items), bullets };
   }
 

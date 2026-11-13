@@ -274,7 +274,7 @@ export function DictateBulletsModal({ isOpen, onClose, channelId, mode, onGenera
               <Mic className="w-4 h-4 text-indigo-500" /> Dictate my bullets
             </h2>
             <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
-              Talk one bullet at a time. Each one is written down and kept. When you are done, press Generate.
+              Talk one bullet at a time. Each one is written down and kept. Only spelling is fixed: your words and your way of talking stay yours.
             </p>
           </div>
           <button onClick={onClose} disabled={recording === 'recording'} className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 rounded-lg disabled:opacity-40" aria-label="Close">
@@ -346,10 +346,10 @@ export function DictateBulletsModal({ isOpen, onClose, channelId, mode, onGenera
           {/* Results (library mode) */}
           {mode === 'library' && (generating || bulletCard || scriptPending || fullScript || scriptError) && (
             <div className="space-y-3 pt-1">
-              {bulletCard ? resultCard('bullets', 'My bullets', bulletCard) : generating ? (
+              {bulletCard ? resultCard('bullets', 'Your bullets (your words)', bulletCard) : generating ? (
                 <p className="text-xs text-zinc-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Laying out your bullets...</p>
               ) : null}
-              {fullScript ? resultCard('script', 'Full script', fullScript) : scriptPending ? (
+              {fullScript ? resultCard('script', 'Full script (AI, built on your bullets)', fullScript) : scriptPending ? (
                 <p className="text-xs text-zinc-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Writing the full script from your bullets (about a minute)...</p>
               ) : null}
               {scriptError && <p className="text-xs text-red-500">{scriptError}</p>}
@@ -363,8 +363,8 @@ export function DictateBulletsModal({ isOpen, onClose, channelId, mode, onGenera
           </button>
           <span className="text-[11px] text-zinc-400 flex-1">
             {mode === 'chat'
-              ? 'Generate puts your bullets and the full script into the chat.'
-              : 'Your bullets stay exactly yours. The full script is built on them.'}
+              ? 'Generate puts your bullets (your words) and a separate AI full script into the chat.'
+              : 'Your bullets: only spelling fixed, your words stay yours. The full script is written by AI from them.'}
           </span>
           <button
             onClick={handleGenerate}

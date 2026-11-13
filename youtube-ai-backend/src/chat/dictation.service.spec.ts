@@ -1,15 +1,16 @@
 import { BadRequestException } from '@nestjs/common';
 import {
   DictationService,
+  acceptableCorrection,
+  applyCorrections,
   basicTidy,
   buildDictationScriptRequest,
   bulletBlocks,
   cleanBullets,
+  editDistance,
   fallbackHeading,
-  keepsHisWords,
   ownBulletsCard,
-  parseTidy,
-  plainTidy,
+  parseCorrections,
   wrapLines,
 } from './dictation.service';
 
@@ -23,56 +24,137 @@ describe('cleanBullets', () => {
   });
 });
 
-describe('keepsHisWords', () => {
-  it('accepts spelling and punctuation fixes, refuses a rewrite', () => {
-    expect(keepsHisWords('i went to the diddy trial and seen it', 'I went to the Diddy trial and saw it.')).toBe(true);
-    expect(keepsHisWords('i went to the diddy trial and seen it', 'Fame changes how loyalty looks from a distance.')).toBe(false);
-    expect(keepsHisWords('a b c', 'anything')).toBe(true);
-  });
-});
-
-describe('basicTidy and fallbackHeading', () => {
-  it('capital first, full stop last, nothing else touched', () => {
+describe('basicTidy: only the basics, no word changes', () => {
+  it('capital first, capital I, capital after a full stop, a full stop at the end', () => {
     expect(basicTidy('  he was alone ')).toBe('He was alone.');
     expect(basicTidy('Was he alone?')).toBe('Was he alone?');
-    expect(fallbackHeading('the first thing is when I got to ADX they put me')).toBe('THE FIRST THING IS WHEN');
-    expect(plainTidy(['a b c']).items[0]).toEqual({ text: 'A b c.', heading: 'A B C' });
+    expect(basicTidy("i said it. then i left and i'm done")).toBe("I said it. Then I left and I'm done.");
+  });
+  it('leaves his grammar and slang exactly as he said it', () => {
+    const said = "i ain't talk to nobody and they was gonna wanna see me, you know";
+    expect(basicTidy(said).toLowerCase()).toBe(said.toLowerCase() + '.');
+    expect(basicTidy(said)).toContain("ain't talk to nobody");
+    expect(basicTidy(said)).toContain('they was gonna wanna');
+    expect(basicTidy(said)).toContain('you know');
   });
 });
 
-describe('parseTidy', () => {
-  const bullets = ['when i got to adx they put me in a cell alone', 'i did not talk to nobody for weeks'];
+describe('fallbackHeading: his own first words, never invented', () => {
+  it('uses the first five words and marks that the bullet goes on', () => {
+    expect(fallbackHeading('The first thing is when I got to ADX')).toBe('THE FIRST THING IS WHEN…');
+    expect(fallbackHeading('Alone in a cell.')).toBe('ALONE IN A CELL');
+    expect(fallbackHeading('')).toBe('BULLET');
+  });
+});
 
-  it('reads the model answer and keeps one item per bullet', () => {
-    const raw = JSON.stringify({
-      title: 'my adx story',
-      items: [
-        { heading: 'Alone in the cell', text: 'When I got to ADX, they put me in a cell alone.' },
-        { heading: 'Weeks of silence', text: 'I did not talk to nobody for weeks.' },
-      ],
-    });
-    const r = parseTidy('```json\n' + raw + '\n```', bullets)!;
-    expect(r.title).toBe('MY ADX STORY');
-    expect(r.items[0]).toEqual({ heading: 'ALONE IN THE CELL', text: 'When I got to ADX, they put me in a cell alone.' });
-    expect(r.items).toHaveLength(2);
+describe('acceptableCorrection: spelling fixes only', () => {
+  it('accepts capitals, a missing apostrophe and a close respelling', () => {
+    expect(acceptableCorrection('adx', 'ADX')).toBe(true);
+    expect(acceptableCorrection('dont', "don't")).toBe(true);
+    expect(acceptableCorrection('thru', 'through')).toBe(true);
+    expect(acceptableCorrection('recieve', 'receive')).toBe(true);
+    expect(acceptableCorrection('wrecks', 'rec')).toBe(true);
+  });
+  it('refuses his slang and profanity, whatever the model says', () => {
+    expect(acceptableCorrection("ain't", "isn't")).toBe(false);
+    expect(acceptableCorrection('wanna', 'want')).toBe(false);
+    expect(acceptableCorrection('gotta', 'got')).toBe(false);
+    expect(acceptableCorrection('nobody', 'anybody')).toBe(false);
+    expect(acceptableCorrection('gonna', 'going')).toBe(false);
+    expect(acceptableCorrection('shit', 'ship')).toBe(false);
+    expect(acceptableCorrection("y'all", 'you all')).toBe(false);
+  });
+  it('refuses a different word, many words and a no-op', () => {
+    expect(acceptableCorrection('cell', 'prison')).toBe(false);
+    expect(acceptableCorrection('was', 'were')).toBe(false);
+    expect(acceptableCorrection('a dx', 'ADX')).toBe(false);
+    expect(acceptableCorrection('same', 'same')).toBe(false);
+    expect(acceptableCorrection('', 'x')).toBe(false);
+  });
+  it('measures the edit distance', () => {
+    expect(editDistance('thru', 'through')).toBe(3);
+    expect(editDistance('same', 'same')).toBe(0);
+  });
+});
+
+describe('parseCorrections', () => {
+  it('reads the model JSON and drops entries for bullets that do not exist', () => {
+    const raw = '```json\n{"corrections":[{"bullet":1,"from":"thru","to":"through"},{"bullet":9,"from":"a","to":"b"},{"bullet":2,"from":"","to":"x"}]}\n```';
+    expect(parseCorrections(raw, 2)).toEqual([{ bullet: 1, from: 'thru', to: 'through' }]);
+  });
+  it('is empty for anything unusable', () => {
+    expect(parseCorrections('', 2)).toEqual([]);
+    expect(parseCorrections('sorry', 2)).toEqual([]);
+    expect(parseCorrections('{"corrections":"none"}', 2)).toEqual([]);
+  });
+});
+
+describe('applyCorrections: his words stay his', () => {
+  it('fixes the spelling of the listed words and nothing else', () => {
+    const said = "when i got to adx they put me thru the slot and i dont know why";
+    const r = applyCorrections(said, [
+      { bullet: 1, from: 'adx', to: 'ADX' },
+      { bullet: 1, from: 'thru', to: 'through' },
+      { bullet: 1, from: 'dont', to: "don't" },
+    ]);
+    expect(r.text).toBe("when i got to ADX they put me through the slot and i don't know why");
+    expect(r.applied).toBe(3);
   });
 
-  it('falls back to his own words for a bullet the model rewrote', () => {
-    const raw = JSON.stringify({
-      title: 't',
-      items: [
-        { heading: 'x', text: 'Isolation reshapes a man in ways he cannot predict.' },
-        { heading: 'y', text: 'I did not talk to nobody for weeks.' },
-      ],
-    });
-    const r = parseTidy(raw, bullets)!;
-    expect(r.items[0].text).toBe('When i got to adx they put me in a cell alone.');
-    expect(r.items[1].text).toBe('I did not talk to nobody for weeks.');
+  it('keeps a capital at the start of a sentence', () => {
+    expect(applyCorrections('Thru the door.', [{ bullet: 1, from: 'thru', to: 'through' }]).text).toBe('Through the door.');
   });
 
-  it('is null when the count does not match or the answer is not JSON', () => {
-    expect(parseTidy(JSON.stringify({ items: [{ heading: 'a', text: 'b' }] }), bullets)).toBeNull();
-    expect(parseTidy('sorry', bullets)).toBeNull();
+  it('refuses a correction that touches his slang, even when the model asks for it', () => {
+    const said = "i ain't talk to nobody and i wanna go";
+    const r = applyCorrections(said, [
+      { bullet: 1, from: "ain't", to: "didn't" },
+      { bullet: 1, from: 'nobody', to: 'anybody' },
+      { bullet: 1, from: 'wanna', to: 'want to' },
+    ]);
+    expect(r.text).toBe(said);
+    expect(r.applied).toBe(0);
+  });
+
+  it('only whole words are changed, never part of another word', () => {
+    expect(applyCorrections('thrust it thru', [{ bullet: 1, from: 'thru', to: 'through' }]).text).toBe('thrust it through');
+  });
+
+  it('throws away a model that wants to "fix" far more than a few misspellings', () => {
+    const said = 'one two three four five six seven eight nine ten';
+    const many = ['one', 'two', 'three', 'four', 'five'].map((w) => ({ bullet: 1, from: w, to: w.toUpperCase() }));
+    const r = applyCorrections(said, many);
+    expect(r.text).toBe(said);
+    expect(r.applied).toBe(0);
+  });
+});
+
+describe('wrapLines', () => {
+  const DANGLE = /\b(?:and|or|but|so|because|that|to|of|in|on|at|for|with|the|a|an|my|your|you|i|they|is|was)[,]?$/i;
+
+  it('never ends a line on "and", "the", "with" and the like, and keeps every word', () => {
+    const s = "You're out for one hour and then they come back again with the same stuff and put on all these chains because that is the whole procedure.";
+    const lines = wrapLines(s);
+    expect(lines.length).toBeGreaterThan(1);
+    for (const l of lines.slice(0, -1)) expect(l.replace(/[,;:—–.?!…]$/, '')).not.toMatch(DANGLE);
+    expect(lines.join(' ').replace(/,/g, '')).toBe(s.replace(/,/g, ''));
+  });
+
+  it('breaks after punctuation first and before a turn of thought second', () => {
+    expect(wrapLines('When I got to ADX, they put me in a cell alone.')).toEqual(['When I got to ADX,', 'they put me in a cell alone.']);
+    const lines = wrapLines('They come back again with the same chains and the whole procedure starts over again today.');
+    expect(lines[0]).toBe('They come back again with the same chains,');
+  });
+
+  it('a short sentence stays one line and a short tail is not left alone', () => {
+    expect(wrapLines('He was alone.')).toEqual(['He was alone.']);
+    expect(wrapLines('one two three four five six seven eight nine')).toHaveLength(1);
+  });
+
+  it('every line but the last ends in punctuation', () => {
+    const lines = wrapLines('They take you out to rec then they take all the chains off you and you walk around by yourself for one hour.');
+    for (const l of lines.slice(0, -1)) expect(l).toMatch(/[,;:—–.?!…]$/);
+    expect(lines[lines.length - 1]).toMatch(/\.$/);
   });
 });
 
@@ -96,11 +178,11 @@ describe('bulletBlocks', () => {
     expect(Math.min(...sizes)).toBeGreaterThanOrEqual(2);
   });
 
-  it('every line that is not the end of its sentence hands the thought on with a comma', () => {
-    const blocks = bulletBlocks(basicTidy(SPOKEN));
-    const lines = blocks.flat();
-    for (const l of lines.slice(0, -1)) expect(l).toMatch(/[,;:—–.?!]$/);
-    expect(lines[lines.length - 1]).toMatch(/\.$/);
+  it('adds no commas of its own: the card carries exactly his punctuation', () => {
+    const said = 'Me and big mike was at the Florida state prison when this dude named Tyrone come up to us talking bout he finna put hands on somebody and I told him ion care.';
+    const lines = bulletBlocks(said).flat();
+    expect(lines.length).toBeGreaterThan(2);
+    expect(lines.join(' ')).toBe(said);
   });
 
   it('a short bullet is one block of one line; two sentences are two blocks', () => {
@@ -109,50 +191,20 @@ describe('bulletBlocks', () => {
   });
 });
 
-describe('wrapLines', () => {
-  const DANGLE = /\b(?:and|or|but|so|because|that|to|of|in|on|at|for|with|the|a|an|my|your|you|i|they|is|was)[,]?$/i;
-
-  it('never ends a line on "and", "the", "with" and the like, and keeps every word', () => {
-    const s = "You're out for one hour and then they come back again with the same stuff and put on all these chains because that is the whole procedure.";
-    const lines = wrapLines(s);
-    expect(lines.length).toBeGreaterThan(1);
-    for (const l of lines.slice(0, -1)) expect(l.replace(/[,;:—–.?!…]$/, '')).not.toMatch(DANGLE);
-    expect(lines.join(' ').replace(/,/g, '')).toBe(s.replace(/,/g, ''));
-  });
-
-  it('breaks after punctuation first and before a turn of thought second', () => {
-    expect(wrapLines('When I got to ADX, they put me in a cell alone.')).toEqual(['When I got to ADX,', 'they put me in a cell alone.']);
-    const lines = wrapLines('They come back again with the same chains and the whole procedure starts over again today.');
-    expect(lines[0]).toBe('They come back again with the same chains,');
-  });
-
-  it('a short sentence stays one line and a short tail is not left alone', () => {
-    expect(wrapLines('He was alone.')).toEqual(['He was alone.']);
-    const nine = wrapLines('one two three four five six seven eight nine');
-    expect(nine).toHaveLength(1);
-  });
-
-  it('every line but the last ends in punctuation', () => {
-    const lines = wrapLines('They take you out to rec then they take all the chains off you and you walk around by yourself for one hour.');
-    for (const l of lines.slice(0, -1)) expect(l).toMatch(/[,;:—–.?!…]$/);
-    expect(lines[lines.length - 1]).toMatch(/\.$/);
-  });
-});
-
 describe('ownBulletsCard', () => {
-  const card = ownBulletsCard('MY ADX STORY', [
-    { heading: 'ALONE IN THE CELL', text: 'When I got to ADX, they put me in a cell alone.' },
-    { heading: 'WEEKS OF SILENCE', text: 'I did not talk to nobody for weeks.' },
+  const card = ownBulletsCard('MY BULLETS', [
+    { heading: 'WHEN I GOT TO ADX…', text: 'When I got to ADX, they put me in a cell alone.' },
+    { heading: 'I DID NOT TALK TO…', text: 'I did not talk to nobody for weeks.' },
   ]);
 
-  it('is a bullet card with numbered sections, a wide gap and a pause between his bullets', () => {
+  it('is a bullet card with numbered sections and a wide gap, and no added cue', () => {
     expect(card.startsWith('<!-- BULLET_SCRIPT_START -->')).toBe(true);
     expect(card.trimEnd().endsWith('<!-- BULLET_SCRIPT_END -->')).toBe(true);
-    expect(card).toContain('# SCRIPT TITLE: MY ADX STORY');
-    expect(card).toContain('## 1. ALONE IN THE CELL');
-    expect(card).toContain('## 2. WEEKS OF SILENCE');
-    expect(card.match(/\[PAUSE\]/g)).toHaveLength(2);
-    expect(card).toMatch(/\n> When I got to ADX,\n> they put me in a cell alone\.\n\n\[PAUSE\]/);
+    expect(card).toContain('# SCRIPT TITLE: MY BULLETS');
+    expect(card).toContain('## 1. WHEN I GOT TO ADX…');
+    expect(card).toContain('## 2. I DID NOT TALK TO…');
+    expect(card).not.toContain('[PAUSE]');
+    expect(card).not.toContain('[BEAT]');
   });
 
   it('carries every word he said and nothing else', () => {
@@ -201,11 +253,30 @@ describe('DictationService', () => {
     await expect(svc.transcribe({ buffer: Buffer.alloc(0), mimetype: 'audio/webm' })).rejects.toBeInstanceOf(BadRequestException);
   });
 
-  it('still gives his bullets back as a card when the tidy step is down', async () => {
+  it('applies only the spelling fixes the model lists and keeps his slang and grammar', async () => {
+    const chatFast = jest.fn().mockResolvedValue(
+      JSON.stringify({
+        corrections: [
+          { bullet: 1, from: 'adx', to: 'ADX' },
+          { bullet: 1, from: 'thru', to: 'through' },
+          { bullet: 1, from: "ain't", to: "didn't" },
+          { bullet: 1, from: 'nobody', to: 'anybody' },
+        ],
+      }),
+    );
+    const { svc } = make({ chatFast });
+    const r = await svc.bulletsCard(["when i got to adx i ain't talk to nobody they put me thru the slot"]);
+    const lines = r.bulletCard.split('\n').filter((l) => l.startsWith('> ')).map((l) => l.slice(2)).join(' ');
+    expect(lines.replace(/,/g, '')).toBe("When I got to ADX I ain't talk to nobody they put me through the slot.");
+    expect(r.title).toBe('MY BULLETS');
+    expect(r.bulletCard).toContain('## 1. WHEN I GOT TO ADX…');
+  });
+
+  it('still gives his bullets back as a card, untouched, when the spelling check is down', async () => {
     const { svc } = make();
     const r = await svc.bulletsCard(['the first thing i did was nothing', 'then i waited']);
-    expect(r.bulletCard).toContain('## 1. THE FIRST THING I DID');
-    expect(r.bulletCard).toContain('> The first thing i did was nothing.');
+    expect(r.bulletCard).toContain('## 1. THE FIRST THING I DID…');
+    expect(r.bulletCard).toContain('> The first thing I did was nothing.');
     expect(r.title).toBe('MY BULLETS');
   });
 
