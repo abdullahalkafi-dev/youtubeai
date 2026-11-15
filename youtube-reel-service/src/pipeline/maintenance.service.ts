@@ -65,7 +65,7 @@ export class MaintenanceService {
     if (task === 'cleanup') return this.cleanup();
   }
 
-  private async pendingJobIds(queue: 'campaign' | 'render' | 'analyze', key: 'campaignId' | 'reelId' | 'youtubeId'): Promise<Set<string>> {
+  private async pendingJobIds(queue: 'campaign' | 'render' | 'analyze' | 'download' | 'ingest', key: 'campaignId' | 'reelId' | 'youtubeId'): Promise<Set<string>> {
     const jobs = await this.queues.q[queue].getJobs(['waiting', 'active', 'delayed', 'paused']);
     return new Set(jobs.filter(Boolean).map((j) => String(j.data?.[key])));
   }
@@ -98,6 +98,36 @@ export class MaintenanceService {
     }
   }
 
+  /**
+   * The same for downloads (Nov 12-16 2026: the Big Meech & 50 Cent video, 22.6k views, and a Tory Lanez video sat in "downloading" for
+   * 3+ days after their job was lost, and the stuck-video check above only looked at analysis stages). A video queued or downloading
+   * for STUCK_SOURCE_MS with no download job is re-queued (lock cleared), at most MAX_SOURCE_RECOVERIES times, then marked failed.
+   * Skipped while the YouTube session needs a login: those videos are parked as "blocked" and released on reconnect.
+   */
+  private async recoverStuckDownloads() {
+    if ((await this.session.state()).status === 'needs_login') return;
+    const cutoff = new Date(Date.now() - STUCK_SOURCE_MS);
+    const stuck = await this.sources
+      .find({ stage: { $in: ['queued', 'downloading'] }, updatedAt: { $lt: cutoff }, $or: [{ downloadLockAt: null }, { downloadLockAt: { $lt: cutoff } }] })
+      .select('youtubeId stage recoveries')
+      .limit(3)
+      .lean();
+    if (!stuck.length) return;
+    const pending = new Set([...(await this.pendingJobIds('download', 'youtubeId')), ...(await this.pendingJobIds('ingest', 'youtubeId'))]);
+    for (const s of stuck) {
+      if (pending.has(s.youtubeId)) continue;
+      if ((s.recoveries ?? 0) >= MAX_SOURCE_RECOVERIES) {
+        await this.sources.updateOne({ youtubeId: s.youtubeId }, { $set: { stage: 'failed', downloadLockAt: null, error: `stuck in ${s.stage} after ${s.recoveries} restarts` } });
+        await this.orchestrator.onSourceSettled(s.youtubeId);
+        this.logger.warn(`Video ${s.youtubeId} stayed stuck in ${s.stage} after ${s.recoveries} restarts: marked failed`);
+        continue;
+      }
+      await this.sources.updateOne({ youtubeId: s.youtubeId }, { $inc: { recoveries: 1 }, $set: { downloadLockAt: null } });
+      await this.queues.download(s.youtubeId);
+      this.logger.log(`Video ${s.youtubeId} was stuck in ${s.stage}: download restarted (${(s.recoveries ?? 0) + 1} of ${MAX_SOURCE_RECOVERIES})`);
+    }
+  }
+
   async recover() {
     // Publishing housekeeping first; it must never stop campaign recovery below.
     try {
@@ -125,6 +155,11 @@ export class MaintenanceService {
       await this.recoverStuckSources();
     } catch (err) {
       this.logger.warn(`Stuck-video recovery failed: ${errMsg(err)}`);
+    }
+    try {
+      await this.recoverStuckDownloads();
+    } catch (err) {
+      this.logger.warn(`Stuck-download recovery failed: ${errMsg(err)}`);
     }
     try {
       await this.alerts.check(); // developer push alerts (pipeline/alerts.ts), at most once per problem per 12 h

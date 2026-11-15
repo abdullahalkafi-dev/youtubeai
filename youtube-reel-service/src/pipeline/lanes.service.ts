@@ -13,7 +13,7 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
-import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, pickBackup, pickBank, pickFresh, STOCK_TARGET } from './lanes';
+import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, newsRetryBrief, newsRetryPicks, pickBackup, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
 import { nyDate } from '../common/time';
 import { SignalsService } from './signals.service';
@@ -22,6 +22,8 @@ const UPLOAD_CHECK_EVERY_MS = 45 * 60_000;
 /** A long video gets its same-day "news" reel when it is analyzed within this many hours of going up. */
 export const NEWS_WINDOW_HOURS = 36;
 export const NEWS_REELS = 1;
+/** A new video's reel is tried at most this many times: once on the video alone, then once with related older videos (newsRetryPicks). */
+export const NEWS_TRIES = 2;
 const MAX_KICKS_PER_CHECK = 4;
 /** Videos mined to nothing get this many more passes (the miner is not deterministic: a 17-minute video with 4,800 views once gave zero moments). */
 const MAX_REMINES_PER_CHECK = 2;
@@ -152,13 +154,24 @@ export class LanesService {
     const made: Array<{ campaignId: string; youtubeId: string }> = [];
     for (const channelId of (await this.campaigns.distinct('channelId')) as Types.ObjectId[]) {
       const since = now.getTime() - NEWS_WINDOW_HOURS * 3_600_000;
-      const fresh = (await this.catalog(channelId)).filter((v) => v.analyzed && v.publishedAt && v.publishedAt.getTime() >= since && v.publishedAt.getTime() <= now.getTime());
+      const catalog = await this.catalog(channelId);
+      const fresh = catalog.filter((v) => v.analyzed && v.publishedAt && v.publishedAt.getTime() >= since && v.publishedAt.getTime() <= now.getTime());
       if (!fresh.length) continue;
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: channelId }, { projection: { userId: 1 } });
+      const userId = (owner?.userId as Types.ObjectId) ?? channelId;
       for (const v of fresh) {
-        if (await this.campaigns.exists({ channelId, track: 'news', 'settings.seedVideoIds': v.youtubeId })) continue;
-        const one = await this.createLane(channelId, nyDate(now), (owner?.userId as Types.ObjectId) ?? channelId, 'news', [v], freshBrief([v]), NEWS_REELS, 'new video today');
-        if (one) made.push({ campaignId: one.campaignId, youtubeId: v.youtubeId });
+        const tries = await this.campaigns.find({ channelId, track: 'news', 'settings.seedVideoIds.0': v.youtubeId }).sort({ createdAt: 1 }).select('status').lean();
+        if (!tries.length) {
+          const one = await this.createLane(channelId, nyDate(now), userId, 'news', [v], freshBrief([v]), NEWS_REELS, 'new video today');
+          if (one) made.push({ campaignId: one.campaignId, youtubeId: v.youtubeId });
+          continue;
+        }
+        // one second try when the first made nothing: the new video plus older videos about the same person
+        if (tries.length >= NEWS_TRIES || tries[0].status !== 'failed') continue;
+        const picks = newsRetryPicks(v, catalog);
+        if (!picks.length) continue;
+        const two = await this.createLane(channelId, nyDate(now), userId, 'news', picks, newsRetryBrief(v, picks.slice(1)), NEWS_REELS, 'new video today, 2nd try');
+        if (two) made.push({ campaignId: two.campaignId, youtubeId: v.youtubeId });
       }
     }
     return made;

@@ -18,6 +18,7 @@ import { QueueService } from '../queue/queue.service';
 import { BrainCandidate, CandidateEvidence, entityPattern, MAX_FALLBACKS, MIN_MAIN_MOMENTS, pickAnchors, scoreCandidate, ScoredCandidate, selectPortfolio } from './daily-brain';
 import { freeDiskGb } from './media';
 import { LanesService } from './lanes.service';
+import { needsEarlyBackup } from './lanes';
 import { isBrandEntity, PillarService } from './pillars.service';
 import { matchTrend, SignalsService, TREND_USABLE_HOURS, velocityShareFor } from './signals.service';
 
@@ -206,6 +207,7 @@ export class DailyService {
             })
           : [];
       this.logger.log(`Daily ${date} for ${channelId}: main "${main.c.name}" (${mainReels} reels, score ${main.score})${explore ? `, explore "${explore.c.name}" (${exploreReels} reels, ${explore.exploreScore})` : ''} → campaign ${campaign._id}${lanes.length ? `; lanes: ${lanes.map((l) => l.track).join(', ')}` : ''}`);
+      await this.earlyBackup(run._id, cid, date, owner?.userId ?? cid).catch((err) => this.logger.warn(`Daily ${date}: early backup failed: ${errMsg(err)}`));
       return this.runs.findById(run._id).lean();
     } catch (err) {
       await this.runs.updateOne({ _id: run._id }, { $set: { status: 'failed', reason: errMsg(err).slice(0, 300) } });
@@ -271,6 +273,23 @@ export class DailyService {
     const backup = await this.lanes.backupForDay(run.channelId, run.date, owner?.userId ?? run.channelId, short);
     await this.runs.updateOne({ _id: run._id }, { $set: { backupCampaignId: backup ? new Types.ObjectId(backup.campaignId) : null } });
     this.logger.log(`Daily ${run.date}: ${made} reels so far; ${backup ? `backup campaign ${backup.campaignId} (${backup.videos.length} videos, ${short} reels)` : 'no older video had enough strong footage for a backup'}`);
+  }
+
+  /**
+   * Low stock: the backup campaign starts with the day instead of after it fell short (Nov 13-15 2026: about one day of finished reels
+   * left each day, and the backup only began in the evening, so a slot could go empty if the day failed). When fewer than
+   * EARLY_BACKUP_DAYS days of unqueued finished reels are left, one backup of REEL_DAILY_REELS reels starts now; the floor in
+   * superviseDay then only tops up (one backup per day).
+   */
+  private async earlyBackup(runId: Types.ObjectId, cid: Types.ObjectId, date: string, userId: Types.ObjectId) {
+    const db = this.campaigns.db;
+    const todo = await db.collection('reels').countDocuments({ channelId: cid, status: 'todo', deletedAt: null });
+    const queued = await db.collection('reel_posts').countDocuments({ channelId: cid, status: 'queued' });
+    if (!needsEarlyBackup(todo - queued, this.cfg.REEL_DAILY_REELS)) return;
+    const backup = await this.lanes.backupForDay(cid, date, userId, this.cfg.REEL_DAILY_REELS);
+    if (!backup) return;
+    await this.runs.updateOne({ _id: runId }, { $set: { backupCampaignId: new Types.ObjectId(backup.campaignId) } });
+    this.logger.log(`Daily ${date}: stock is ${todo - queued} reel(s), so the backup campaign ${backup.campaignId} started with the day`);
   }
 
   private async rescueRun(run: ReelDailyRun & { _id: Types.ObjectId }) {

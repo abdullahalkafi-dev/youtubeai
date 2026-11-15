@@ -1,4 +1,4 @@
-import { isSourceable, ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, entityOf, needsAnalysis, pickBank, pickFresh, recencyWeight } from './lanes';
+import { isSourceable, ageDays, bankBrief, freshBrief, freshnessBonus, LaneVideo, entityOf, needsAnalysis, needsEarlyBackup, newsRetryBrief, newsRetryPicks, pickBank, pickFresh, recencyWeight } from './lanes';
 
 const now = new Date('2026-10-26T12:00:00Z');
 const daysAgo = (d: number) => new Date(now.getTime() - d * 86_400_000);
@@ -130,5 +130,33 @@ describe('stale "upcoming" flag (Oct 30 audit)', () => {
     expect(isSourceable({ liveBroadcastContent: 'live', viewCount: 5_000, publishedAt: daysAgo(0) }, now)).toBe(false);
     expect(isSourceable({ liveBroadcastContent: 'none', viewCount: 10, publishedAt: daysAgo(1) }, now)).toBe(true);
     expect(isSourceable({}, now)).toBe(true);
+  });
+});
+
+describe('news reel second try (Nov 12 and 14 2026: one video held too few strong moments)', () => {
+  const fresh = v('new', { analyzed: true, strongMoments: 1, entity: 'yella beezy', title: 'Yella Beezy gets life' });
+  it('joins the new video with the strongest older videos about the same person, new video first', () => {
+    const out = newsRetryPicks(fresh, [
+      fresh,
+      v('weak', { analyzed: true, strongMoments: 2, entity: 'yella beezy' }),
+      v('strong', { analyzed: true, strongMoments: 9, entity: 'yella beezy' }),
+      v('mid', { analyzed: true, strongMoments: 5, entity: 'yella beezy' }),
+      v('other', { analyzed: true, strongMoments: 12, entity: 'diddy' }),
+      v('raw', { analyzed: false, strongMoments: 0, entity: 'yella beezy' }),
+    ]);
+    expect(out.map((x) => x.youtubeId)).toEqual(['new', 'strong', 'mid']);
+    expect(newsRetryBrief(fresh, out.slice(1))).toContain('"Yella Beezy gets life"');
+  });
+  it('no retry without a known person or related footage (unrelated footage would not be about the new video)', () => {
+    expect(newsRetryPicks({ ...fresh, entity: null }, [v('x', { analyzed: true, strongMoments: 9 })])).toEqual([]);
+    expect(newsRetryPicks(fresh, [v('x', { analyzed: true, strongMoments: 9, entity: 'diddy' })])).toEqual([]);
+  });
+});
+
+describe('early backup when stock is low (Nov 13-15 2026: about one day of reels left)', () => {
+  it('starts with the day below two days of unqueued reels', () => {
+    expect(needsEarlyBackup(5, 3)).toBe(true);
+    expect(needsEarlyBackup(6, 3)).toBe(false);
+    expect(needsEarlyBackup(-2, 3)).toBe(true);
   });
 });

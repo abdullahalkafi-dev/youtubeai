@@ -77,6 +77,10 @@ export function pickFresh(videos: LaneVideo[], now: Date, take = 3, rested: Set<
 export const NEW_UPLOAD_DAYS = 3;
 export const NEW_UPLOAD_BOOST = 1.5;
 
+/** Days of finished, not yet queued reels below which the day's backup campaign starts with the day (DailyService.earlyBackup). */
+export const EARLY_BACKUP_DAYS = 2;
+export const needsEarlyBackup = (unqueuedStock: number, perDay: number) => Math.max(0, unqueuedStock) < EARLY_BACKUP_DAYS * Math.max(1, perDay);
+
 /** The day's backup: analyzed videos of any age with the most strong unused footage, not already used today. */
 export function pickBackup(videos: LaneVideo[], usedToday: Set<string>, take = 3): LaneVideo[] {
   return videos
@@ -85,6 +89,33 @@ export function pickBackup(videos: LaneVideo[], usedToday: Set<string>, take = 3
     .sort((a, b) => b.score - a.score)
     .slice(0, take)
     .map((x) => x.v);
+}
+
+/**
+ * Second try for a new video's same-day reel (Nov 12 and Nov 14 2026: the news reel failed after one round because a single video held
+ * too few strong moments, 23 and 40). The new video is kept first and joined by up to `take` analyzed videos about the same person with
+ * the most strong unused footage, so the director can cut across them. Without a known person (or no other video about them) there is
+ * no retry: unrelated footage would make a reel that is not about the new video.
+ */
+export function newsRetryPicks(fresh: LaneVideo, videos: LaneVideo[], take = 2): LaneVideo[] {
+  const others = videos.filter((v) => v.youtubeId !== fresh.youtubeId && v.analyzed && v.strongMoments >= 2);
+  const same = fresh.entity ? others.filter((v) => v.entity === fresh.entity) : [];
+  const rank = (list: LaneVideo[]) =>
+    list
+      .map((v) => ({ v, score: Math.min(v.strongMoments, 12) * Math.sqrt(Math.log1p(v.views) + 1) }))
+      .sort((a, b) => b.score - a.score)
+      .map((x) => x.v);
+  const picks = rank(same).slice(0, take);
+  if (!picks.length) return [];
+  return [fresh, ...picks];
+}
+
+export function newsRetryBrief(fresh: LaneVideo, related: LaneVideo[]): string {
+  return (
+    `Make one reel tied to the host's new video "${fresh.title}". Use its footage first; the host's earlier videos on the same person ` +
+    `(${related.map((v) => `"${v.title}"`).join('; ')}) may supply the strongest moment or complete the story. The first line must be the host's own ` +
+    `experience or the person's name in a concrete moment, and the reel must stand alone for a viewer who has not seen the full video.`
+  );
 }
 
 export const MAX_PER_ENTITY = 2;
