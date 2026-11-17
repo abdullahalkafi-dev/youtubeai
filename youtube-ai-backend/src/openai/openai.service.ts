@@ -1180,6 +1180,258 @@ export class OpenAIService {
       );
   }
 
+  /** THUMBNAIL_SAFETY_FALLBACK=off switches the fallback below off without a code change. */
+  private isSafetyFallbackEnabled(): boolean {
+    return (
+      String(
+        this.configService.get<string>('THUMBNAIL_SAFETY_FALLBACK', 'on'),
+      ).toLowerCase() !== 'off'
+    );
+  }
+
+  private isSafetyRejection(error: any): boolean {
+    const message = String(error?.message || '').toLowerCase();
+    return (
+      message.includes('safety system') ||
+      (error?.status === 400 && message.includes('rejected'))
+    );
+  }
+
+  private async loadPhotoBuffer(url: string): Promise<Buffer> {
+    if (url.includes('/api/assets/minio/')) {
+      try {
+        const rawKey = url.split('/api/assets/minio/')[1];
+        const cleanKey = rawKey ? rawKey.split('?')[0].split('#')[0] : null;
+        if (cleanKey) {
+          return await this.minioService.getFileBuffer(
+            decodeURIComponent(cleanKey),
+          );
+        }
+      } catch {
+        /* fall through to a normal fetch */
+      }
+    }
+    return this.composerService.fetchBufferFromUrl(url);
+  }
+
+  /** Stores a PNG in MinIO, or on local disk when MinIO is unavailable (same as the normal path). */
+  private async storeThumbnailPng(
+    buffer: Buffer,
+    prefix: string,
+  ): Promise<string> {
+    const filename = `${prefix}_${Date.now()}.png`;
+    const ready = await this.minioService.isAvailable().catch(() => false);
+    if (ready) {
+      try {
+        return await this.minioService.uploadThumbnail(
+          'system',
+          filename,
+          buffer,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `MinIO upload failed for fallback image (${err.message}), saving locally...`,
+        );
+      }
+    }
+    const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+    if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+    fs.writeFileSync(path.join(genDir, filename), buffer);
+    return `/api/assets/generated/${filename}`;
+  }
+
+  /**
+   * Last resort after OpenAI's safety filter refused a thumbnail request (it blocks a few well-known
+   * deceased figures, by name, by face and by any lettering that names them). The filter accepts a
+   * plain picture with no text, so: (1) ask for the subject's photo-based portrait with no text and
+   * no name, up to 3 times; (2) if that is still refused, a symbolic empty-chair scene; then draw the
+   * client's exact headline, the logo and the host photo locally. Returns null when nothing worked.
+   */
+  private async generateSafetyFallbackThumbnail(
+    params: Parameters<OpenAIService['generateThumbnailImage']>[0],
+    styleBlock: string,
+  ): Promise<{
+    imageUrl: string;
+    cleanBackgroundUrl?: string;
+    revisedPrompt: string;
+    safetyFallback: 'photo' | 'symbolic';
+  } | null> {
+    const vertical = params.aspectRatio === '9:16';
+    const size = vertical ? '864x1536' : '1536x864';
+    const model = this.configService.get<string>(
+      'OPENAI_IMAGE_MODEL',
+      'gpt-image-2.5-sunburst',
+    );
+    const quality = this.resolveQuality(model);
+    const faceZone = vertical
+      ? 'in the upper half of the frame'
+      : 'on the right side of the frame';
+    const clearZone = vertical
+      ? 'The lower 40% of the frame is a dark, plain, low-detail area.'
+      : 'The left half of the frame is a dark, plain, low-detail area.';
+    const opening = `Create a maximum-impact ${vertical ? '9:16 vertical YouTube Shorts' : '16:9 YouTube'} thumbnail photograph.\n\nSTYLE & LIGHTING:\n${styleBlock}\n\n`;
+    const layout = `LAYOUT (strict):
+- No text anywhere in the image.
+- MAIN SUBJECT: place it ${faceZone}.
+- RESERVED CORNER (85%–100% from the left, 0%–27% from the top): plain, low-detail background only. NO text, NO letters, NO faces, NO graphics here.
+- RESERVED CORNER (70%–100% from the left, 55%–100% from the top): plain, low-detail background only. NO text, NO letters, NO faces, NO people here.`;
+    const photoPrompt = `${opening}SCENE STAGING & COMPOSITION:
+- People: the person in the supplied photo, shown as a close-up portrait with clearly visible eyes and a serious, engaged face.
+- Setting: a clean portrait against a dark, uncluttered charcoal background.
+- Composition: the face is large ${faceZone}. ${clearZone}
+
+${layout}
+
+IMPORTANT RULES:
+1. Remove any existing channel logos, watermarks, or corner portrait host stickers from the canvas before generating the new composition.
+2. IDENTITY ONLY: the supplied photo shows WHO the person is (face shape, age, skin tone, hair, facial hair). Recreate that same person but build a brand-new scene exactly as described above.
+3. HOST ANCHOR ZONE: Do NOT paint any channel host portrait or corner sticker. Keep the lower corner clean so it can be composited separately.`;
+    const symbolicPrompt = `${opening}SCENE STAGING & COMPOSITION:
+- A single empty wooden chair lit by a warm shaft of golden light in a dark, quiet room, soft dust in the air, no people.
+- Composition: the chair is ${faceZone}. ${clearZone}
+
+${layout}`;
+
+    let b64: string | undefined;
+    let kind: 'photo' | 'symbolic' | null = null;
+    let usedPrompt = photoPrompt;
+
+    const photoUrl = params.referenceImageUrls?.[0];
+    if (photoUrl) {
+      const { toFile } = await import('openai');
+      let photo: Buffer | null = null;
+      try {
+        photo = await this.loadPhotoBuffer(photoUrl);
+      } catch (err: any) {
+        this.logger.warn(
+          `[Thumbnail Safety Fallback] Could not load the subject photo: ${err.message}`,
+        );
+      }
+      for (let attempt = 1; photo && !b64 && attempt <= 3; attempt++) {
+        try {
+          const file = await toFile(photo, 'image_0.png', {
+            type: 'image/png',
+          });
+          const res: any = await retryWithBackoff(
+            () =>
+              this.client.images.edit({
+                model,
+                image: file,
+                prompt: photoPrompt,
+                quality,
+                size,
+              } as any),
+            { operationName: 'OpenAI Image Edit (Safety Fallback photo)' },
+          );
+          b64 = res?.data?.[0]?.b64_json;
+          if (b64) kind = 'photo';
+        } catch (err: any) {
+          this.logger.warn(
+            `[Thumbnail Safety Fallback] Text-free photo attempt ${attempt}/3 failed: ${err.message}`,
+          );
+          if (!this.isSafetyRejection(err)) break;
+        }
+      }
+    }
+
+    if (!b64) {
+      usedPrompt = symbolicPrompt;
+      for (let attempt = 1; !b64 && attempt <= 3; attempt++) {
+        try {
+          const res: any = await retryWithBackoff(
+            () =>
+              this.client.images.generate({
+                model,
+                prompt: symbolicPrompt,
+                quality,
+                size,
+              } as any),
+            { operationName: 'OpenAI Image Generate (Safety Fallback scene)' },
+          );
+          b64 = res?.data?.[0]?.b64_json;
+          if (b64) kind = 'symbolic';
+        } catch (err: any) {
+          this.logger.warn(
+            `[Thumbnail Safety Fallback] Symbolic scene attempt ${attempt}/3 failed: ${err.message}`,
+          );
+          if (!this.isSafetyRejection(err)) break;
+        }
+      }
+    }
+
+    if (!b64 || !kind) return null;
+
+    try {
+      const background = Buffer.from(b64, 'base64');
+      const cleanBackgroundUrl = await this.storeThumbnailPng(
+        background,
+        'clean_edit',
+      ).catch(() => undefined);
+
+      const suppressHost =
+        params.excludeHost === true || params.selectedHostImage === 'none';
+      const logoPosition = params.excludeLogo
+        ? 'none'
+        : params.logoPosition || 'top-right';
+      let customHostBuffer: Buffer | undefined;
+      if (params.customHostUrl && !suppressHost) {
+        try {
+          customHostBuffer = await this.composerService.fetchBufferFromUrl(
+            params.customHostUrl,
+          );
+        } catch (err: any) {
+          this.logger.warn(
+            `[Thumbnail Safety Fallback] Custom host photo not loaded: ${err.message}`,
+          );
+        }
+      }
+      const aspectRatio = vertical ? '9:16' : '16:9';
+      let finalBuffer: Buffer;
+      if (params.concept.text?.trim()) {
+        const composed = await this.composerService.composeStudioThumbnail({
+          backgroundInput: background,
+          text: params.concept.text,
+          textSide: 'left',
+          aspectRatio,
+          excludeHost: suppressHost,
+          excludeLogo: logoPosition === 'none',
+          logoPosition,
+          selectedHostImage: suppressHost ? 'none' : params.selectedHostImage,
+          customHostBuffer,
+          colors: params.concept.colors,
+        });
+        finalBuffer = composed.buffer;
+      } else {
+        finalBuffer = Buffer.from(
+          await this.composerService.composeThumbnail({
+            backgroundInput: background,
+            selectedHostImage: suppressHost ? 'none' : params.selectedHostImage,
+            customHostBuffer,
+            excludeHost: suppressHost,
+            logoPosition,
+            excludeLogo: logoPosition === 'none',
+            aspectRatio,
+          }),
+        );
+      }
+      const imageUrl = await this.storeThumbnailPng(finalBuffer, 'edited');
+      this.logger.log(
+        `[Thumbnail Safety Fallback] Made a ${kind} thumbnail with the headline drawn locally.`,
+      );
+      return {
+        imageUrl,
+        cleanBackgroundUrl: cleanBackgroundUrl || imageUrl,
+        revisedPrompt: usedPrompt,
+        safetyFallback: kind,
+      };
+    } catch (err: any) {
+      this.logger.error(
+        `[Thumbnail Safety Fallback] Composing the fallback image failed: ${err.message}`,
+      );
+      return null;
+    }
+  }
+
   private deepSanitizeForSafety(prompt: string): string {
     return this.desensitizeImagePrompt(prompt)
       .replace(
@@ -1493,6 +1745,8 @@ export class OpenAIService {
     imageUrl: string;
     cleanBackgroundUrl?: string;
     revisedPrompt: string;
+    /** Set only when OpenAI refused the normal request and the safety fallback made the image. */
+    safetyFallback?: 'photo' | 'symbolic';
   }> {
     const bold = params.variant === 'bold';
     let cleanDescription = params.concept.description || '';
@@ -1635,6 +1889,20 @@ ${params.concept.colors ? `COLOR PALETTE: ${params.concept.colors}.` : ''}`;
             `Thumbnail with subject references failed (attempt ${attempt + 1}): ${err.message}`,
           );
         }
+      }
+      // Rare case: OpenAI's safety filter refuses some well-known people outright. The normal
+      // attempts above are untouched; only after they all failed on a safety rejection do we try
+      // a text-free picture and draw the exact headline ourselves.
+      if (this.isSafetyFallbackEnabled() && this.isSafetyRejection(refError)) {
+        const rescued = await this.generateSafetyFallbackThumbnail(
+          params,
+          styleBlock,
+        );
+        if (rescued) return rescued;
+        throw new Error(
+          'OpenAI’s image safety filter refused to draw this person, even with the safer method. ' +
+            'This happens with a few well-known figures. Please try again in a moment.',
+        );
       }
       throw new Error(
         'Could not generate the thumbnail from the real photos (' +

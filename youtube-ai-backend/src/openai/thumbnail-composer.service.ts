@@ -153,8 +153,10 @@ export class ThumbnailComposerService {
 
   /** Render exact text locally; the scene model never owns the headline. */
   async composeStudioThumbnail(options: {
-    backgroundInput: string; text: string; textSide: 'left' | 'right'; aspectRatio: '16:9' | '9:16';
+    backgroundInput: string | Buffer; text: string; textSide: 'left' | 'right'; aspectRatio: '16:9' | '9:16';
     excludeHost?: boolean; excludeLogo?: boolean; compact?: boolean; colors?: string;
+    /** Optional pass-throughs so the safety fallback keeps the host photo and logo choices of the normal path. */
+    selectedHostImage?: string; customHostBuffer?: Buffer; logoPosition?: 'top-left' | 'top-right' | 'none';
     tag?: string; label?: string;
     /** False when the image model already drew the headline: only overlays are added. */
     renderHeadline?: boolean;
@@ -182,7 +184,7 @@ export class ThumbnailComposerService {
     };
     if (options.renderHeadline === false) {
       // The AI drew the headline (and any tag); add logo, host and the disclosure label only.
-      const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : 'top-right' });
+      const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : (options.logoPosition || 'top-right'), selectedHostImage: options.selectedHostImage, customHostBuffer: options.customHostBuffer });
       const label = options.label?.trim() ? await chip(options.label.trim(), 'rgba(0,0,0,0.72)', vertical ? 30 : 24) : null;
       return {
         buffer: label ? await sharp(base).composite([{ input: label.input, left: margin, top: height - margin - label.height }]).png().toBuffer() : base,
@@ -200,7 +202,7 @@ export class ThumbnailComposerService {
     const metadata = await sharp(layer).metadata();
     const issues: string[] = [];
     if ((metadata.height || 0) > boxHeight || text.length / Math.max(1, text.split(/\s+/).length) > 25) issues.push('Headline layout needs attention');
-    const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : 'top-right' });
+    const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : (options.logoPosition || 'top-right'), selectedHostImage: options.selectedHostImage, customHostBuffer: options.customHostBuffer });
     const x = options.textSide === 'right' && !vertical ? width - boxWidth - margin : margin;
     const y = (vertical ? Math.round(height * .58) : margin) + tagSpace;
     const layers: any[] = [];

@@ -3385,7 +3385,10 @@ Hard rules:
     // Bold lets the model change the expression, so confirm it is still the same person:
     // one retry with stronger identity wording, then keep the image and say so.
     let likenessNote: string | undefined;
-    if (variant === 'bold' && referenceImageUrls?.length && this.openaiService.isBoldV2Enabled()) {
+    // A safety-fallback image (headline drawn locally) skips the AI reviews below: they would send
+    // the person's name and photo back to OpenAI, which refused them already.
+    const usedSafetyFallback = !!result.safetyFallback;
+    if (!usedSafetyFallback && variant === 'bold' && referenceImageUrls?.length && this.openaiService.isBoldV2Enabled()) {
       let likeness = await this.openaiService.reviewThumbnailLikeness({
         imageUrl: result.imageUrl,
         referenceUrl: referenceImageUrls[0],
@@ -3419,7 +3422,14 @@ Hard rules:
     // The AI renders the headline: check spelling and that it is clear of the logo and
     // host photo. One automatic fix edits the same image; remaining issues are shown.
     let reviewIssues: string[] = likenessNote ? [likenessNote] : [];
-    if (dto.text?.trim()) {
+    if (usedSafetyFallback) {
+      reviewIssues.push(
+        result.safetyFallback === 'symbolic'
+          ? 'OpenAI’s safety filter refused this person, so this is a symbolic scene with your exact headline.'
+          : 'OpenAI’s safety filter refused the usual method for this person, so this was made a safer way: your exact headline is drawn on top of the photo-based image.',
+      );
+    }
+    if (!usedSafetyFallback && dto.text?.trim()) {
       const check = await this.openaiService.reviewThumbnailText({
         imageUrl: result.imageUrl,
         headline: dto.text,
