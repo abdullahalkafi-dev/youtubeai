@@ -117,7 +117,7 @@ What `REEL_HOT_MODE` (default on) does (pipeline/hot.ts):
 - A video is **hot** for 15 days (full weight for 7, fading to 0.55): analyzed, long, at least 150 views/day, 3+ strong unused moments.
   Priority = views per day x the audience share of its person x recency x footage left (`hotScore`).
 - The day's target (3) minus the reels the new-video lane already made is shared among hot **groups** (videos about the same person,
-  up to 3 videos per campaign so the director can cut across them): `planHot`. A big story gets more reels, a second story still gets one;
+  up to 5 videos per campaign so the director can cut across them): `planHot`. A big story gets more reels, a second story still gets one;
   a video under 30k views gives at most 1 reel a day, a bigger one 2. One `fresh` campaign per group (`settings.hot = true`).
 - The topic brain only makes what the hot videos cannot (under 6 strong moments in total = the old way). The old lanes and the early
   backup stay off while hot campaigns exist. Backup (`best` lane) takes hot videos first.

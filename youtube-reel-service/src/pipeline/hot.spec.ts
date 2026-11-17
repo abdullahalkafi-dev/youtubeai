@@ -49,10 +49,10 @@ describe('hot videos: who is hot', () => {
 });
 
 describe('hot videos: how the day is shared (Nov 17 catalog)', () => {
-  it('groups by person and builds each campaign on up to 3 videos, best first', () => {
+  it('groups by person and builds each campaign on up to 5 videos, best first', () => {
     const groups = hotGroups(catalog(), now);
     const yella = groups.find((g) => g.key === 'yella beezy')!;
-    expect(yella.videos.length).toBe(3);
+    expect(yella.videos.length).toBe(4); // all four Yella Beezy videos (up to HOT_MAX_SEEDS), so the 42k and 36k lives are not left out
     expect(yella.videos.map((x) => x.youtubeId)).toContain('IE0g');
     expect(groups[0].key).toBe('yella beezy');
   });

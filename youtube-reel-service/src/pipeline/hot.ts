@@ -21,9 +21,9 @@ export const HOT_MIN_SUPPLY = 6;
 export const HOT_MIN_VELOCITY = 150;
 /** A group scoring under this share of the best group does not take a slot from the archive topic. */
 export const HOT_MIN_RELATIVE = 0.3;
-/** Reels one hot campaign makes at most, and videos it is built from. */
+/** Reels one hot campaign makes at most, and videos it is built from (the director reviews the best moments, so more videos cost little). */
 export const HOT_MAX_GROUP_REELS = 3;
-export const HOT_MAX_SEEDS = 3;
+export const HOT_MAX_SEEDS = 5;
 /** Strong moments one reel is assumed to use up. */
 const MOMENTS_PER_REEL = 2;
 /** Each extra reel given to the same group is worth this much less (variety across stories). */
