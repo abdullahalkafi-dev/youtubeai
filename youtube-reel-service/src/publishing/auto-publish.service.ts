@@ -15,7 +15,7 @@ import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument 
 import { nyDate } from '../pipeline/daily.service';
 import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, jitterRunAt, LEGACY_VIEWS_PAUSE, lockAt, MIN_LEAD_MIN, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
-import { AppealModel, ageTier, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, openerKind, SAME_STORY, SAME_STORY_DAYS, SOURCE_WINDOW_DAYS, sourcePostCap, topicKind, withAge } from './appeal-model';
+import { AppealModel, ageTier, cosine, hotCheck, DEFAULT_APPEAL_MODEL, fitAppealModel, openerKind, SAME_STORY, SAME_STORY_DAYS, SOURCE_WINDOW_DAYS, sourcePostCap, topicKind, withAge } from './appeal-model';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
 
@@ -334,7 +334,7 @@ export class AutoPublishService {
     if (!posts.length) return { ...DEFAULT_APPEAL_MODEL, fittedAt: now.toISOString() };
     const at48 = await this.metrics.find({ postId: { $in: posts.map((p) => p._id) }, checkpoint: '48h' }).select('postId views').lean();
     const v48 = new Map(at48.map((m) => [String(m.postId), m.views ?? 0]));
-    const reels = await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('hookText concept packaging.title clips.youtubeId').lean();
+    const reels = await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('hookText concept packaging.title clips.youtubeId openingMode').lean();
     const byId = new Map(reels.map((r) => [String(r._id), r]));
     const info = await this.sourceInfo(reels.flatMap((r) => (r.clips ?? []).map((c) => c.youtubeId)));
     const rows = posts
@@ -350,9 +350,19 @@ export class AutoPublishService {
           views: Number(views),
           ageDays: src && at ? (at - src.publishedAt.getTime()) / 86_400_000 : null,
           postedDaysAgo: at ? (now.getTime() - at) / 86_400_000 : undefined,
+          relaxed: (r as any).openingMode === 'relaxed',
+          srcViews: src?.views,
         };
       })
       .filter((x): x is NonNullable<typeof x> => !!x);
+    // the self-check of the new-video system (hotCheck): the lanes read it when they make a campaign
+    try {
+      const check = { ...hotCheck(rows), at: now.toISOString() };
+      await this.settingsModel.updateOne({ key: `hot-check:${channelId}` }, { $set: { value: check } }, { upsert: true });
+      if (!check.relaxedEnabled) this.logger.warn(`Relaxed opening rules are OFF for ${channelId}: ${check.relaxed.n} relaxed reels have median ${check.relaxed.median} views against ${check.strict.median} for ${check.strict.n} strict ones`);
+    } catch (err) {
+      this.logger.warn(`Hot check failed: ${errMsg(err)}`);
+    }
     return { ...fitAppealModel(rows, now), fittedAt: now.toISOString() };
   }
 

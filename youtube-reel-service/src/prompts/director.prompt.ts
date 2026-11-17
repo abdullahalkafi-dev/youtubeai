@@ -70,6 +70,22 @@ HARD RULES
 - hookText and payoffText must be copied word-for-word from the lines you chose.
 - If the material can't support the requested number of STRONG reels, return fewer. Never pad with weak reels.`;
 
+/**
+ * Added to the director's system prompt for campaigns built on a video under 7 days old (Nov 17 2026). Live-stream and fresh-upload
+ * talk rarely opens a passage on a named person, and the strict first-line rule left the director returning one idea a round (the
+ * three live streams gave 1 reel of 3 asked). The story is current, the viewer already knows who it is about, and the title names him.
+ */
+export const RELAXED_DIRECTOR = `
+
+NEW-VIDEO MODE (these reels come from the host's newest videos; the story is current and the title of the reel names the person):
+- Rule 1 above is relaxed: the first line does NOT have to name the person or be first person. It must be a COMPLETE sentence about a
+  concrete incident, claim or moment of this video that makes sense without the sentence before it. A general lesson or a disclaimer as
+  the first line is still weak.
+- Up to 15 seconds of setup are fine when they carry the story.
+- If the best passage opens mid-thought, start at the first complete sentence of it, or use a cold_open with a later line.
+- Do not return fewer ideas because the openings are plain: return the strongest ones the material allows.
+- Everything about accuracy is unchanged: no unproven accusation stated as fact, no splice that changes what he meant.`;
+
 export const ClipPlanSchema = z.object({
   video: z.string().describe('Video key, e.g. "V1".'),
   startLine: z.number().int(),

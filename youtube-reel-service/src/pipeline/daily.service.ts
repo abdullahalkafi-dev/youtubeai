@@ -283,15 +283,15 @@ export class DailyService {
   }
 
   /**
-   * The hot allocation of one day: the day's target minus the reels the new-video lane already made today is shared among the hot
-   * videos (LanesService.hotForDay). `already` = reels the day already has coming (new-video lane + hot campaigns).
+   * The hot allocation of one day: two of the day's reels (three when something is strongly hot), the new-video lane's reels included,
+   * are shared among the hot videos (LanesService.hotForDay). `already` = reels the day already has coming (new-video lane + hot campaigns).
    */
   private async startHot(cid: Types.ObjectId, date: string) {
     const news = await this.campaigns.find({ channelId: cid, origin: 'daily', dailyDate: date, track: 'news', status: { $nin: ['failed', 'cancelled'] } }).select('settings.targetReels').lean();
     const newsReels = news.reduce((a, c) => a + (c.settings?.targetReels ?? 1), 0);
     const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
     try {
-      const r = await this.lanes.hotForDay(cid, date, owner?.userId ?? cid, this.cfg.REEL_DAILY_REELS - newsReels);
+      const r = await this.lanes.hotForDay(cid, date, owner?.userId ?? cid, { target: this.cfg.REEL_DAILY_REELS, newsReels });
       this.logger.log(`Daily ${date}: hot videos gave ${r.reels} reel(s) in ${r.campaigns.length} campaign(s) (${newsReels} from the new-video lane)`);
       return { ...r, newsReels, already: newsReels + r.reels };
     } catch (err) {

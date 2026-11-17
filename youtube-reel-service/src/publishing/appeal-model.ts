@@ -150,3 +150,56 @@ export function sourcePostCap(views: number | undefined, ageDays: number | undef
   const v = views ?? 0;
   return v >= 30_000 ? 4 : v >= 10_000 ? 3 : MAX_POSTS_PER_SOURCE;
 }
+
+/**
+ * The weekly self-check of the new-video system (Nov 17 2026), recomputed with every refit from the reels posted in the last
+ * HOT_CHECK_DAYS days. Two questions, both answered by the channel's own views:
+ * 1. Do the relaxed-opening reels (made from videos under 7 days old) do at least as well as the strict ones? If they have enough
+ *    posts and their median falls under RELAXED_FLOOR of the strict median, relaxation switches itself off until the evidence ages out.
+ * 2. Do reels from recent videos whose long video had few views do worse than those from high-view videos? If so, the long video's views
+ *    count for more when ranking hot videos (interestWeight 0.7 instead of 0.4); if not, the topic's recency and trend lead.
+ */
+export const HOT_CHECK_DAYS = 30;
+export const RELAXED_MIN_POSTS = 12;
+export const STRICT_MIN_POSTS = 8;
+export const RELAXED_FLOOR = 0.7;
+export const LOW_VIEW_LONG = 8_000;
+export const VIEWS_MIN_POSTS = 8;
+export const LOW_VIEW_FLOOR = 0.6;
+export const INTEREST_WEIGHT_DEFAULT = 0.4;
+export const INTEREST_WEIGHT_VIEWS = 0.7;
+
+export interface HotCheck {
+  relaxedEnabled: boolean;
+  interestWeight: number;
+  relaxed: { n: number; median: number };
+  strict: { n: number; median: number };
+  lowViewLong: { n: number; median: number };
+  highViewLong: { n: number; median: number };
+  at?: string;
+}
+
+export const DEFAULT_HOT_CHECK: HotCheck = {
+  relaxedEnabled: true,
+  interestWeight: INTEREST_WEIGHT_DEFAULT,
+  relaxed: { n: 0, median: 0 },
+  strict: { n: 0, median: 0 },
+  lowViewLong: { n: 0, median: 0 },
+  highViewLong: { n: 0, median: 0 },
+};
+
+export function hotCheck(rows: Array<{ views: number; relaxed?: boolean; srcViews?: number; ageDays?: number | null; postedDaysAgo?: number }>): HotCheck {
+  const recent = rows.filter((r) => (r.postedDaysAgo ?? 0) <= HOT_CHECK_DAYS && Number.isFinite(r.views));
+  const stat = (x: typeof recent) => ({ n: x.length, median: median(x.map((r) => r.views)) });
+  const relaxed = stat(recent.filter((r) => r.relaxed));
+  // the strict reels it is compared with: those from recent videos when there are enough of them, otherwise all strict reels
+  const strictAll = recent.filter((r) => !r.relaxed);
+  const strictRecent = strictAll.filter((r) => r.ageDays !== undefined && r.ageDays !== null && r.ageDays <= 15);
+  const strict = stat(strictRecent.length >= STRICT_MIN_POSTS ? strictRecent : strictAll);
+  const relaxedEnabled = !(relaxed.n >= RELAXED_MIN_POSTS && strict.n >= STRICT_MIN_POSTS && relaxed.median < RELAXED_FLOOR * strict.median);
+  const young = recent.filter((r) => r.ageDays !== undefined && r.ageDays !== null && r.ageDays <= 15 && r.srcViews !== undefined);
+  const lowViewLong = stat(young.filter((r) => (r.srcViews ?? 0) < LOW_VIEW_LONG));
+  const highViewLong = stat(young.filter((r) => (r.srcViews ?? 0) >= LOW_VIEW_LONG));
+  const viewsMatter = lowViewLong.n >= VIEWS_MIN_POSTS && highViewLong.n >= VIEWS_MIN_POSTS && lowViewLong.median < LOW_VIEW_FLOOR * highViewLong.median;
+  return { relaxedEnabled, interestWeight: viewsMatter ? INTEREST_WEIGHT_VIEWS : INTEREST_WEIGHT_DEFAULT, relaxed, strict, lowViewLong, highViewLong };
+}

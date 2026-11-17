@@ -33,6 +33,11 @@ export interface CampaignSettings {
   lane?: 'fresh' | 'bank' | 'best' | 'news';
   /** Made by the hot-video allocation of the daily run (pipeline/hot.ts): several of these can exist on one day. */
   hot?: boolean;
+  /**
+   * Relaxed opening rules (prompts/director.prompt.ts RELAXED_DIRECTOR, critic.prompt.ts RELAXED_CRITIC): the campaign is built on a video
+   * under 7 days old, whose story is current. Accuracy and safety rules stay as strict as ever.
+   */
+  relaxed?: boolean;
 }
 
 export interface CandidateLedgerEntry {

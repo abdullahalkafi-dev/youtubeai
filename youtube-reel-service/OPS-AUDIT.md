@@ -132,3 +132,26 @@ Check it: `node dist/cli/reel-cli.js hot:preview <channelId> [reels]` (read-only
 Turn it off with `REEL_HOT_MODE=false` in youtube-reel-service/.env.prod and `docker compose -f docker-compose.reels.yml up -d`: the day
 runs as before Nov 17 and the age lift stops counting. The age tiers (3 and 15 days) are only priors: read the fitted lifts in
 reel_settings `appeal-model:<channelId>` (`age`) after two weeks; if "recent" falls to 0 or below, the 15-day window is not helping.
+
+### Nov 17, 2026 (later): revised - recency decides, the topic trends, openings relax on their own
+
+The client's point: a trending topic is not a long video with many views; a recent video with normal views may do better as a reel because
+its topic is current. The data does not prove it yet (reels from recent videos whose long video had under 8k views: median 763 over 10
+reels; from 8k+ views: 1,430; correlation of reel views with the source's long-video views 0.29), so the system now learns it.
+
+What changed (this section replaces the scoring and mode described above):
+- **Eligibility is recency only**: every analyzed long video of the last 15 days with 3+ strong unused moments. The 150-views-a-day floor is gone.
+- **Ranking** (`hotScore`): recency (full for 7 days, x1.3 under 3 days) x attention x footage left x fair share. Attention (`interest`) is the best
+  of views per day, the audience's share for the person (channel traffic) and a match with a current trend (`signals.matchTrend`), so a
+  normal-view video on a trending topic counts as hot. A video with no reel yet goes first (`coverage`).
+- **Two of the three daily reels are reserved** for hot videos (the new-video lane's reel counts); a third too when something is strongly hot
+  (attention >= 0.75, about 1,000 views a day or an audience-share topic). The rest goes to the topic brain (`planHotDay`).
+- **Relaxed opening rules** for every campaign whose best video is under 7 days old (`settings.relaxed`, `reel.openingMode`): the first line
+  need not name the person or be first person, up to 15 s of setup, a mid-thought start is allowed when clear (`RELAXED_DIRECTOR`,
+  `RELAXED_CRITIC` are appended to the prompts). Accuracy/safety are unchanged. Topic campaigns stay strict.
+- **Self-check** (`hotCheck`, stored in reel_settings `hot-check:<channelId>`, refit daily from posts of the last 30 days): relaxed reels with
+  12+ posts and a median under 70% of the strict reels switch the relaxed rules off (they come back when the evidence ages out); if reels
+  from recent videos with a low-view long video (under 8k) do under 60% of those with a high-view one, views count for more
+  (interest weight 0.7 instead of 0.4). Read the stored value to see why a switch happened.
+- The ops line says how many reels came from videos under 15 days old and how many used the relaxed rules.
+- `hot:preview <channelId> [reels] [newVideoReelsAlreadyMade]` shows the allocation, the relaxed switch and the views weight.

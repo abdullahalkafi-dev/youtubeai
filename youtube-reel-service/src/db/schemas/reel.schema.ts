@@ -104,6 +104,8 @@ export class Reel {
   /** How the render paced the reel: speed/voice and the pauses cut (reel-timeline seconds). */
   @Prop({ type: Object }) timing?: { speed: number; voice: string; semitones?: number; cuts: Array<[number, number]>; plannedSec: number; fx?: { punch: boolean; join: boolean; whoosh: boolean; bar: boolean } | null; realign?: { ok: boolean; coverage?: number; maxShiftSec?: number; reason?: string } | null; sfx?: { name: string; tail: number } | null };
   /** Which look the last render used, and (full-screen) the studio shots it was cropped with, for audit. `lookNote` says why a reel fell back to classic. */
+  /** Which opening rules the reel was made under (relaxed = a new-video campaign, see CampaignSettings.relaxed). Compared by views in hotCheck. */
+  @Prop() openingMode?: 'strict' | 'relaxed';
   @Prop() look?: 'classic' | 'fullscreen';
   @Prop() lookNote?: string;
   @Prop({ type: [Object], default: undefined }) layoutShots?: Array<{ youtubeId: string; at: number; to: number; kind: string; host: object; picture: object }>;

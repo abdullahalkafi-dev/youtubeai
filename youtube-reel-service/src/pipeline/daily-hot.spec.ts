@@ -57,7 +57,7 @@ describe('the daily run with hot videos first (Nov 17 2026)', () => {
   it('the new-video lane counts: its reel is taken off what the hot videos and the topic have to make', async () => {
     const { svc } = make({ hot: { reels: 2, campaigns: [hotCamp(2)] }, news: 1 });
     await svc.runForChannel(String(oid()), 'schedule');
-    expect(svc.lanes.hotForDay).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.anything(), 2);
+    expect(svc.lanes.hotForDay).toHaveBeenCalledWith(expect.anything(), expect.any(String), expect.anything(), { target: 3, newsReels: 1 });
     expect(svc.decide).not.toHaveBeenCalled(); // 1 news + 2 hot = 3
   });
 

@@ -44,3 +44,24 @@ describe('which campaigns stop after a weak first round', () => {
     expect(stopsEarly({ origin: 'manual', settings: {} }, 1, 0, weak)).toBe(false);
   });
 });
+
+describe('the relaxed prompts keep the safety rules (Nov 17 2026)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { RELAXED_DIRECTOR, DIRECTOR_SYSTEM } = require('../prompts/director.prompt');
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { RELAXED_CRITIC, CRITIC_SYSTEM } = require('../prompts/critic.prompt');
+
+  it('relax only the opening and the setup, and say that accuracy is unchanged', () => {
+    expect(RELAXED_DIRECTOR).toContain('NEW-VIDEO MODE');
+    expect(RELAXED_DIRECTOR).toMatch(/does NOT have to name the person/);
+    expect(RELAXED_DIRECTOR).toMatch(/no unproven accusation stated as fact/);
+    expect(RELAXED_CRITIC).toMatch(/hook cap of 5/);
+    expect(RELAXED_CRITIC).toMatch(/unproven accusations stated as fact/);
+  });
+
+  it('are appended to, never replacing, the strict prompts', () => {
+    expect((DIRECTOR_SYSTEM + RELAXED_DIRECTOR).startsWith(DIRECTOR_SYSTEM)).toBe(true);
+    expect((CRITIC_SYSTEM + RELAXED_CRITIC).startsWith(CRITIC_SYSTEM)).toBe(true);
+    expect(CRITIC_SYSTEM).toMatch(/hook\s+5 at most/); // the strict rule is still there for the topic campaigns
+  });
+});

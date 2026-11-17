@@ -29,6 +29,8 @@ export interface LaneVideo {
   entity?: string | null;
   /** 0..1: the share of the channel's last-3-day views that went to that person. */
   demand?: number;
+  /** 0..1: how well the person matches a current trend (signals.matchTrend), when a trend is known. */
+  trend?: number;
 }
 
 const DAY = 86_400_000;

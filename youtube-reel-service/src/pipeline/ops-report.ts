@@ -27,7 +27,7 @@ export interface OpsReportBody {
    */
   mainChannel?: Array<{ youtubeId: string; title: string; ageDays: number; views: number; viewsPerDay: number }>;
   /** Hot videos first (Nov 17 2026): how many of the day's reels were cut from a video under 15 days old (youngest source of each reel). */
-  hot?: { fromHot: number; made: number };
+  hot?: { fromHot: number; made: number; relaxed?: number };
 }
 
 /** Posts per day the stock has to cover when the auto-publish slots are unknown (2 slots since Nov 6 2026). */
@@ -94,7 +94,7 @@ export function formatOpsReport(r: { date: string; issues: string[]; body: OpsRe
   return [
     `=== ${r.date}: ${b.made}/${b.target} reels | ${lanes}`,
     `    topic: ${b.run.topic ?? '-'} | stock ${b.stock.todo} (~${b.stock.daysLeft}d) | posted ${b.posting.published} | downloads ${heights}`,
-    ...(b.hot ? [`    newest videos: ${b.hot.fromHot} of ${b.hot.made} reels cut from videos under 15 days old`] : []),
+    ...(b.hot ? [`    newest videos: ${b.hot.fromHot} of ${b.hot.made} reels cut from videos under 15 days old${b.hot.relaxed ? ` (${b.hot.relaxed} with the relaxed opening rules)` : ''}`] : []),
     ...(main ? [`    main channel: ${main}`] : []),
     ...(r.issues.length ? r.issues.map((i) => `    ! ${i}`) : ['    ok: no issues']),
   ].join('\n');

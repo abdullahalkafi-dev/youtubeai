@@ -17,10 +17,11 @@ import {
   DIRECTOR_SYSTEM,
   DirectorSchema,
   ReelPlan,
+  RELAXED_DIRECTOR,
   REVISION_SYSTEM,
   RevisionSchema,
 } from '../prompts/director.prompt';
-import { buildCriticUser, CRITIC_SYSTEM, CriticReview, CriticSchema, overallScore, passesBar, worthSecondLook } from '../prompts/critic.prompt';
+import { buildCriticUser, CRITIC_SYSTEM, CriticReview, CriticSchema, overallScore, passesBar, RELAXED_CRITIC, worthSecondLook } from '../prompts/critic.prompt';
 import { buildPackagingUser, PACKAGING_SYSTEM, PackagingResult, PackagingSchema } from '../prompts/packaging.prompt';
 import { OrchestratorService } from '../queue/orchestrator.service';
 import { QueueService } from '../queue/queue.service';
@@ -114,6 +115,7 @@ export class ComposerService {
 
     const usage = this.orchestrator.usageSink(campaignId);
     const s = campaign.settings;
+    const relaxed = !!s.relaxed; // a campaign on a video under 7 days old: relaxed opening rules (prompts), safety unchanged
     const rules: AssembleRules = { minSec: s.minSec, maxSec: s.maxSec, allowCrossVideo: s.allowCrossVideo };
     const research = (campaign.research ?? {}) as ResearchResult;
     this.assertBudget(campaign);
@@ -210,7 +212,7 @@ export class ComposerService {
           const groupRefs = new Map([...momentRefs].filter(([, m]) => g.some((x) => x.m === m)));
           return this.ai.generateJson({
             task: `director:${campaignId}:r${rounds}g${gi + 1}`,
-            system: DIRECTOR_SYSTEM,
+            system: relaxed ? DIRECTOR_SYSTEM + RELAXED_DIRECTOR : DIRECTOR_SYSTEM,
             user: buildDirectorUser({
               brief: campaign.brief,
               targetReels: remaining,
@@ -260,7 +262,7 @@ export class ComposerService {
         try {
           const revised = await this.ai.generateJson({
             task: `revise:${campaignId}:r${rounds}`,
-            system: REVISION_SYSTEM,
+            system: relaxed ? REVISION_SYSTEM + RELAXED_DIRECTOR : REVISION_SYSTEM,
             user: buildRevisionUser({
               header: [
                 `Campaign brief: "${campaign.brief}"`,
@@ -353,6 +355,7 @@ export class ComposerService {
         concept: c.plan.concept,
         angle: c.plan.angle,
         hookText: c.plan.hookText,
+        openingMode: relaxed ? 'relaxed' : 'strict',
         payoffText: c.plan.payoffText,
         whyItWorks: c.plan.whyItWillPerform,
         clips: c.asm.clips.map((x) => ({
@@ -482,7 +485,7 @@ export class ComposerService {
     );
     const res = await this.ai.generateJson({
       task: `critic:${campaign._id}`,
-      system: CRITIC_SYSTEM,
+      system: campaign.settings?.relaxed ? CRITIC_SYSTEM + RELAXED_CRITIC : CRITIC_SYSTEM,
       user: buildCriticUser(campaign.brief, blocks),
       schema: CriticSchema,
       schemaName: 'reel_reviews',

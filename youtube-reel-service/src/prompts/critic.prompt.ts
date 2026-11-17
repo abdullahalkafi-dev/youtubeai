@@ -31,6 +31,21 @@ VERDICT
 - drop: weak material, or a splice that misrepresents him. Do not try to rescue weak reels.
 issues: the specific problems, short.`;
 
+/**
+ * Added to the critic's system prompt for campaigns built on a video under 7 days old (see RELAXED_DIRECTOR). Only the opening and
+ * setup judgement is relaxed; accuracy and safety are not.
+ */
+export const RELAXED_CRITIC = `
+
+NEW-VIDEO MODE (the reel comes from the host's newest video; the story is current and the title names the person):
+- The hook cap of 5 for a general first line does not apply. Judge the hook on whether the first sentence is complete, concrete and
+  makes the viewer want the next one.
+- Up to 15 seconds of setup are not a fault when they carry the story. A name or term is a clarity fault only if the reel never
+  explains it.
+- A first line that opens in the middle of the host's story is fine when the meaning is still clear.
+- Unchanged and strict: unproven accusations stated as fact (safety), splices that change the meaning, a missing payoff, an ending
+  that trails off.`;
+
 export const CriticSchema = z.object({
   reviews: z.array(
     z.object({

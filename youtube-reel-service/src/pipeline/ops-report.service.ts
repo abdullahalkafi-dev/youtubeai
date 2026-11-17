@@ -117,7 +117,7 @@ export class OpsReportService {
     });
 
     // how many of the day's reels come from the newest videos (youngest source of each reel, under 15 days at the end of the day)
-    const madeReels = await db.collection('reels').find({ campaignId: { $in: camps.map((c) => c._id) }, deletedAt: null, status: { $in: MADE_STATUSES } }).project({ 'clips.youtubeId': 1 }).toArray();
+    const madeReels = await db.collection('reels').find({ campaignId: { $in: camps.map((c) => c._id) }, deletedAt: null, status: { $in: MADE_STATUSES } }).project({ 'clips.youtubeId': 1, openingMode: 1 }).toArray();
     const srcDates = new Map<string, number>();
     for (const v of await db.collection('videos').find({ youtubeId: { $in: [...new Set(madeReels.flatMap((r) => (r.clips ?? []).map((c: { youtubeId?: string }) => c.youtubeId)).filter(Boolean))] } }).project({ youtubeId: 1, publishedAt: 1 }).toArray()) {
       if (v.publishedAt) srcDates.set(v.youtubeId, new Date(v.publishedAt).getTime());
@@ -160,7 +160,7 @@ export class OpsReportService {
         sttMinutes: Math.round(empty.reduce((a, c) => a + (c.usage?.sttSeconds ?? 0), 0) / 60),
       },
       mainChannel,
-      hot: { fromHot, made: madeReels.length },
+      hot: { fromHot, made: madeReels.length, relaxed: madeReels.filter((r) => r.openingMode === 'relaxed').length },
     };
     const issues = opsIssues(body, now);
     await this.reports.updateOne({ channelId, date }, { $set: { generatedAt: now, issues, body } }, { upsert: true });

@@ -30,7 +30,7 @@ import { alertsFor } from '../pipeline/alerts';
  * Operator CLI (run inside the reel-worker container):
  *   node dist/cli/reel-cli.js template:upload <dir> [name]
  *   node dist/cli/reel-cli.js cookies:import <cookies.txt>
- *   node dist/cli/reel-cli.js hot:preview <channelId> [reels]   (the newest videos and how the day's reels would be shared)
+ *   node dist/cli/reel-cli.js hot:preview <channelId> [reels] [newVideoReelsAlreadyMade]   (the newest videos and how the day's reels would be shared)
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
@@ -83,9 +83,10 @@ async function main() {
         const show = (v: any) => `${v.publishedAt?.toISOString().slice(0, 10)} ${String(v.views).padStart(7)} views, ${v.strongMoments} strong, entity ${v.entity ?? '-'}: ${v.title}`;
         console.log('HOT VIDEOS (best first)');
         for (const v of hotVideos(await lanes.catalog(cid), now)) console.log('  ' + show(v));
-        console.log('ALLOCATION of ' + (Number(args[1]) || 3) + ' reels');
-        for (const g of await lanes.hotPreview(cid, Number(args[1]) || 3)) {
-          console.log(`  ${g.reels} reel(s) -> ${g.key} (score ${g.score.toFixed(1)}, capacity ${g.capacity})`);
+        const day = await lanes.hotPreview(cid, Number(args[1]) || 3, Number(args[2]) || 0);
+        console.log(`ALLOCATION of the day's ${Number(args[1]) || 3} reels: ${day.hotTarget} from hot videos (strongly hot: ${day.strong}); relaxed rules ${day.settings.relaxedEnabled ? 'ON' : 'OFF (self-check)'}, views weight ${day.settings.interestWeight}`);
+        for (const g of day.groups) {
+          console.log(`  ${g.reels} reel(s) -> ${g.key} (score ${g.score.toFixed(2)}, capacity ${g.capacity})`);
           for (const v of g.videos) console.log('      ' + show(v));
         }
         break;

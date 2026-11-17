@@ -109,7 +109,7 @@ describe('hot videos in the lanes (Nov 17 2026)', () => {
 
   it('hotForDay makes one campaign per group, marked hot, on the newest videos', async () => {
     const { svc, created } = hotSvc([hv('a'), hv('b', { views: 36_000 }), hv('durk', { entity: 'lil durk', views: 9_000, publishedAt: new Date(now - 3_600_000 * 12) }), lv('old', { publishedAt: new Date('2024-01-01'), analyzed: true, strongMoments: 99 })]);
-    const r = await svc.hotForDay(channel, '2026-11-17', oid(), 3);
+    const r = await svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 });
     expect(r.reels).toBe(3);
     expect(created.length).toBe(r.campaigns.length);
     for (const c of created) expect(c).toMatchObject({ origin: 'daily', track: 'fresh', dailyDate: '2026-11-17', settings: { lane: 'fresh', hot: true } });
@@ -120,14 +120,14 @@ describe('hot videos in the lanes (Nov 17 2026)', () => {
 
   it('a retried run does not make the hot campaigns twice', async () => {
     const { svc, created } = hotSvc([hv('a'), hv('b')], { hot: [{ _id: oid(), name: 'x', settings: { targetReels: 2, seedVideoIds: ['a'] } }] });
-    const r = await svc.hotForDay(channel, '2026-11-17', oid(), 3);
+    const r = await svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 });
     expect(created).toHaveLength(0);
     expect(r.reels).toBe(2);
   });
 
   it('makes nothing when the hot videos hold too little footage, or no budget is left', async () => {
-    expect((await hotSvc([hv('a', { strongMoments: 3 })]).svc.hotForDay(channel, '2026-11-17', oid(), 3)).reels).toBe(0);
-    expect((await hotSvc([hv('a'), hv('b')]).svc.hotForDay(channel, '2026-11-17', oid(), 0)).reels).toBe(0);
+    expect((await hotSvc([hv('a', { strongMoments: 3 })]).svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 })).reels).toBe(0);
+    expect((await hotSvc([hv('a'), hv('b')]).svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 3 })).reels).toBe(0);
   });
 
   it('the new-video lane starts with the video plus related hot videos, not the video alone', async () => {
@@ -167,5 +167,55 @@ describe('hot videos in the lanes (Nov 17 2026)', () => {
     const seeds = created[0].settings.seedVideoIds;
     expect(seeds).toContain('a');
     expect(seeds).not.toContain('b');
+  });
+});
+
+describe('relaxed opening rules on campaigns (Nov 17 2026)', () => {
+  const channel = oid();
+  const now = Date.now();
+  const hv = (id: string, ageDays: number, over: Partial<LaneVideo> = {}): LaneVideo => lv(id, { analyzed: true, strongMoments: 10, views: 40_000, publishedAt: new Date(now - ageDays * 86_400_000), entity: 'yella beezy', demand: 0.3, ...over });
+  function svcWith(catalog: LaneVideo[], check?: { relaxedEnabled: boolean; interestWeight: number }) {
+    const { svc, created } = make({ catalog, stock: 20 });
+    svc.cfg = { ...svc.cfg, REEL_HOT_MODE: true };
+    svc.campaigns.db = { collection: () => ({ findOne: async () => ({ userId: oid() }) }) };
+    svc.campaigns.find = jest.fn(() => {
+      const chain: any = { sort: () => chain, select: () => chain, lean: async () => [] };
+      return chain;
+    });
+    svc.settings = { findOne: () => ({ lean: async () => (check ? { value: check } : null) }), updateOne: jest.fn() };
+    return { svc, created };
+  }
+
+  it('a hot campaign on a video under 7 days old is relaxed', async () => {
+    const { svc, created } = svcWith([hv('a', 2), hv('b', 3)]);
+    await svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 });
+    expect(created.length).toBeGreaterThan(0);
+    for (const c of created) expect(c.settings.relaxed).toBe(true);
+  });
+
+  it('a campaign whose best video is 10 days old keeps the strict rules', async () => {
+    const { svc, created } = svcWith([hv('a', 10), hv('b', 11)]);
+    await svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 });
+    expect(created.length).toBeGreaterThan(0);
+    for (const c of created) expect(c.settings.relaxed).toBeUndefined();
+  });
+
+  it('when the self-check turned the relaxed rules off, new campaigns are strict again', async () => {
+    const { svc, created } = svcWith([hv('a', 2), hv('b', 3)], { relaxedEnabled: false, interestWeight: 0.4 });
+    await svc.hotForDay(channel, '2026-11-17', oid(), { target: 3, newsReels: 0 });
+    expect(created.length).toBeGreaterThan(0);
+    for (const c of created) expect(c.settings.relaxed).toBeUndefined();
+  });
+
+  it('hot mode off: nothing is relaxed', async () => {
+    const { svc, created } = svcWith([hv('a', 2)]);
+    svc.cfg = { ...svc.cfg, REEL_HOT_MODE: false };
+    await svc.createForDay(channel, '2026-11-17', oid());
+    for (const c of created) expect(c.settings.relaxed).toBeUndefined();
+  });
+
+  it('the self-check settings are read, with safe defaults when none exist', async () => {
+    expect(await svcWith([hv('a', 2)]).svc.hotSettings(channel)).toEqual({ relaxedEnabled: true, interestWeight: 0.4 });
+    expect(await svcWith([hv('a', 2)], { relaxedEnabled: false, interestWeight: 0.7 }).svc.hotSettings(channel)).toEqual({ relaxedEnabled: false, interestWeight: 0.7 });
   });
 });

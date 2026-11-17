@@ -1,4 +1,4 @@
-import { AGE_FIT_MIN, ageTier, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, MIN_FIT_POSTS, openerKind, SAME_STORY, sourcePostCap, topicKind, withAge } from './appeal-model';
+import { AGE_FIT_MIN, ageTier, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, hotCheck, MIN_FIT_POSTS, openerKind, SAME_STORY, sourcePostCap, topicKind, withAge } from './appeal-model';
 
 /** Built from the real opening lines and titles of the Nov 13 2026 audit (76 posted reels). */
 describe('opening line (Nov 13 audit)', () => {
@@ -110,5 +110,38 @@ describe('age of the source video (Nov 17 audit)', () => {
     expect(sourcePostCap(4_000, 3)).toBe(2);
     expect(sourcePostCap(50_000, 40)).toBe(2);
     expect(sourcePostCap(undefined, undefined)).toBe(2);
+  });
+});
+
+describe('the self-check of the new-video system (hotCheck)', () => {
+  const rel = (views: number, n: number) => Array.from({ length: n }, () => ({ views, relaxed: true, ageDays: 2, srcViews: 20_000, postedDaysAgo: 5 }));
+  const str = (views: number, n: number) => Array.from({ length: n }, () => ({ views, relaxed: false, ageDays: 5, srcViews: 20_000, postedDaysAgo: 5 }));
+
+  it('starts on: relaxed rules enabled, views count 0.4, until there is evidence', () => {
+    const c = hotCheck([...rel(500, 5), ...str(2000, 5)]);
+    expect(c.relaxedEnabled).toBe(true);
+    expect(c.interestWeight).toBe(0.4);
+  });
+
+  it('turns the relaxed rules off when enough relaxed reels do clearly worse than the strict ones', () => {
+    expect(hotCheck([...rel(500, 12), ...str(2000, 8)]).relaxedEnabled).toBe(false);
+  });
+
+  it('keeps them on when relaxed reels do as well, or only slightly worse', () => {
+    expect(hotCheck([...rel(1800, 12), ...str(2000, 8)]).relaxedEnabled).toBe(true);
+    expect(hotCheck([...rel(1500, 15), ...str(2000, 10)]).relaxedEnabled).toBe(true); // 0.75 of the strict median is above the 0.7 floor
+  });
+
+  it('old posts do not count (30 days)', () => {
+    const old = rel(300, 20).map((r) => ({ ...r, postedDaysAgo: 60 }));
+    expect(hotCheck([...old, ...str(2000, 10)]).relaxedEnabled).toBe(true);
+  });
+
+  it('when reels from low-view long videos do clearly worse the long views count for more; otherwise the topic leads', () => {
+    const low = (views: number, n = 9) => Array.from({ length: n }, () => ({ views, relaxed: false, ageDays: 3, srcViews: 2_000, postedDaysAgo: 5 }));
+    const high = (views: number) => Array.from({ length: 9 }, () => ({ views, relaxed: false, ageDays: 3, srcViews: 30_000, postedDaysAgo: 5 }));
+    expect(hotCheck([...low(600), ...high(1800)]).interestWeight).toBe(0.7);
+    expect(hotCheck([...low(1500), ...high(1800)]).interestWeight).toBe(0.4);
+    expect(hotCheck([...low(600, 4), ...high(1800)]).interestWeight).toBe(0.4); // too few to say
   });
 });
