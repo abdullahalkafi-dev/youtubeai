@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { errMsg } from '../common/errors';
+import { AppConfig, CONFIG } from '../config/config';
 import { AutoDayItem, ReelAutoDay, ReelAutoDayDocument } from '../db/schemas/reel-autopublish.schema';
 import { ReelCampaign, ReelCampaignDocument, ReelTrack, TERMINAL_CAMPAIGN_STATUSES } from '../db/schemas/reel-campaign.schema';
 import { MAX_FALLBACKS } from '../pipeline/daily-brain';
@@ -14,7 +15,7 @@ import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument 
 import { nyDate } from '../pipeline/daily.service';
 import { assignRotation, AutoSettings, autoBaseline, chooseReels, concreteness, DEFAULT_AUTO_SETTINGS, freeSlots, gateReason, jitterRunAt, LEGACY_VIEWS_PAUSE, lockAt, MIN_LEAD_MIN, parseSlot, PlanReel, platformTrouble, SLOW_DAYS, SLOW_POSTS, slowSlots, validSlot, viewsCollapse } from './auto-plan';
 import { assignBandit, banditReady, DayPost, posteriors, rankObservations } from './slot-bandit';
-import { AppealModel, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, MAX_POSTS_PER_SOURCE, openerKind, SAME_STORY, SAME_STORY_DAYS, SOURCE_WINDOW_DAYS, topicKind } from './appeal-model';
+import { AppealModel, ageTier, cosine, DEFAULT_APPEAL_MODEL, fitAppealModel, openerKind, SAME_STORY, SAME_STORY_DAYS, SOURCE_WINDOW_DAYS, sourcePostCap, topicKind, withAge } from './appeal-model';
 import { PublishService } from './publish.service';
 import { PublisherRegistry } from './registry';
 
@@ -46,6 +47,8 @@ export function appealInputs(
   recentUses: Map<string, number> = new Map(),
   model: AppealModel = DEFAULT_APPEAL_MODEL,
   personUses: Map<string, number> = new Map(),
+  /** Hot mode: a reel from a newer source video gets the model's age lift. Off: age does not count. */
+  hot = true,
 ): Pick<PlanReel, 'named' | 'demand' | 'sourceVelocity' | 'sourceAgeDays' | 'concrete' | 'sourceIds' | 'recentSourceUses' | 'lift' | 'recentPersonUses'> {
   const people = (reel.entityNames ?? []).filter((n) => !isBrandName(n)).map((n) => n.toLowerCase());
   const age = source ? (now - source.publishedAt.getTime()) / 86_400_000 : undefined;
@@ -58,9 +61,22 @@ export function appealInputs(
     concrete: concreteness(`${reel.packaging?.title ?? ''}. ${reel.hookText ?? ''}`),
     sourceIds,
     recentSourceUses: Math.max(0, ...sourceIds.map((id) => recentUses.get(id) ?? 0)),
-    lift: model.opener[openerKind(reel.hookText)] + model.topic[topicKind(reelText(reel))],
+    lift: model.opener[openerKind(reel.hookText)] + model.topic[topicKind(reelText(reel))] + (hot ? (model.age ?? DEFAULT_APPEAL_MODEL.age)[ageTier(age)] : 0),
     recentPersonUses: Math.max(0, ...people.map((n) => personUses.get(n) ?? 0)),
   };
+}
+
+/**
+ * The source of a reel that sets its age: the YOUNGEST video among its clips (a reel mixing a new live with an old clip is a new-video
+ * reel). Videos unknown to the catalog (uploads) are skipped; undefined when none is known.
+ */
+export function youngestSource<T extends { publishedAt: Date }>(clips: Array<{ youtubeId?: string }> | undefined, info: Map<string, T>): T | undefined {
+  let best: T | undefined;
+  for (const c of clips ?? []) {
+    const s = c.youtubeId ? info.get(c.youtubeId) : undefined;
+    if (s && (!best || s.publishedAt.getTime() > best.publishedAt.getTime())) best = s;
+  }
+  return best;
 }
 
 /** The words a reel's topic is judged on: its title, idea and opening line. */
@@ -77,6 +93,7 @@ export class AutoPublishService {
   private readonly logger = new Logger(AutoPublishService.name);
 
   constructor(
+    @Inject(CONFIG) private readonly cfg: AppConfig,
     @InjectModel(ReelSetting.name) private readonly settingsModel: Model<ReelSettingDocument>,
     @InjectModel(ReelAutoDay.name) private readonly days: Model<ReelAutoDayDocument>,
     @InjectModel(ReelDailyRun.name) private readonly runs: Model<ReelDailyRunDocument>,
@@ -276,11 +293,20 @@ export class AutoPublishService {
   }
 
   /** Why a reel would repeat what the channel just posted (null = it does not). */
-  private repeatReason(r: { embedding?: number[]; clips?: Array<{ youtubeId?: string }> }, h: { stories: number[][]; sourcePosts: Map<string, number> }): string | null {
+  private repeatReason(
+    r: { embedding?: number[]; clips?: Array<{ youtubeId?: string }> },
+    h: { stories: number[][]; sourcePosts: Map<string, number> },
+    info: Map<string, { publishedAt: Date; views: number }> = new Map(),
+  ): string | null {
     const sim = Math.max(0, ...h.stories.map((e) => cosine(r.embedding, e)));
     if (sim >= SAME_STORY) return 'Same story as a reel posted in the last 30 days';
-    const used = Math.max(0, ...(r.clips ?? []).map((c) => (c.youtubeId ? h.sourcePosts.get(c.youtubeId) ?? 0 : 0)));
-    if (used >= MAX_POSTS_PER_SOURCE) return `Its video already gave ${used} posts in the last ${SOURCE_WINDOW_DAYS} days`;
+    for (const id of new Set((r.clips ?? []).map((c) => c.youtubeId).filter((x): x is string => !!x))) {
+      const used = h.sourcePosts.get(id) ?? 0;
+      const s = info.get(id);
+      // a big video that is still new may give more posts (sourcePostCap); hot mode off: the old limit of 2
+      const cap = this.cfg.REEL_HOT_MODE && s ? sourcePostCap(s.views, (Date.now() - s.publishedAt.getTime()) / 86_400_000) : sourcePostCap(undefined, undefined);
+      if (used >= cap) return `Its video already gave ${used} posts in the last ${SOURCE_WINDOW_DAYS} days`;
+    }
     return null;
   }
 
@@ -289,12 +315,12 @@ export class AutoPublishService {
     const k = `appeal-model:${channelId}`;
     const doc = await this.settingsModel.findOne({ key: k }).lean();
     const stored = doc?.value as AppealModel | undefined;
-    const cur = stored?.opener && stored?.topic ? stored : undefined;
+    const cur = stored?.opener && stored?.topic ? withAge(stored) : undefined; // a model stored before the age tiers keeps its lifts
     if (cur?.fittedAt && now.getTime() - new Date(cur.fittedAt).getTime() < 24 * 3_600_000) return cur;
     try {
       const fitted = await this.refitAppealModel(channelId, now);
       await this.settingsModel.updateOne({ key: k }, { $set: { value: fitted } }, { upsert: true });
-      if (fitted.n) this.logger.log(`Appeal model refit on ${fitted.n} posts: opener ${JSON.stringify(fitted.opener)}, topic ${JSON.stringify(fitted.topic)}`);
+      if (fitted.n) this.logger.log(`Appeal model refit on ${fitted.n} posts: opener ${JSON.stringify(fitted.opener)}, topic ${JSON.stringify(fitted.topic)}, age ${JSON.stringify(fitted.age)}`);
       return fitted;
     } catch (err) {
       this.logger.warn(`Appeal model refit failed: ${errMsg(err)}`);
@@ -304,19 +330,29 @@ export class AutoPublishService {
 
   /** Fits the lifts on every posted YouTube reel's views about 48 hours after posting. */
   async refitAppealModel(channelId: Types.ObjectId, now = new Date()): Promise<AppealModel> {
-    const posts = await this.posts.find({ channelId, platform: 'youtube', status: 'published', publishedAt: { $lte: new Date(now.getTime() - 48 * 3_600_000) } }).select('_id reelId latestMetrics').lean();
+    const posts = await this.posts.find({ channelId, platform: 'youtube', status: 'published', publishedAt: { $lte: new Date(now.getTime() - 48 * 3_600_000) } }).select('_id reelId latestMetrics publishedAt').lean();
     if (!posts.length) return { ...DEFAULT_APPEAL_MODEL, fittedAt: now.toISOString() };
     const at48 = await this.metrics.find({ postId: { $in: posts.map((p) => p._id) }, checkpoint: '48h' }).select('postId views').lean();
     const v48 = new Map(at48.map((m) => [String(m.postId), m.views ?? 0]));
-    const reels = await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('hookText concept packaging.title').lean();
+    const reels = await this.reels.find({ _id: { $in: posts.map((p) => p.reelId) } }).select('hookText concept packaging.title clips.youtubeId').lean();
     const byId = new Map(reels.map((r) => [String(r._id), r]));
+    const info = await this.sourceInfo(reels.flatMap((r) => (r.clips ?? []).map((c) => c.youtubeId)));
     const rows = posts
       .map((p) => {
         const r = byId.get(String(p.reelId));
         const views = v48.get(String(p._id)) ?? (p as any).latestMetrics?.views;
-        return r && Number.isFinite(views) ? { hook: r.hookText ?? '', text: reelText(r), views: Number(views) } : null;
+        if (!r || !Number.isFinite(views)) return null;
+        const src = youngestSource(r.clips, info);
+        const at = p.publishedAt ? new Date(p.publishedAt as Date).getTime() : null;
+        return {
+          hook: r.hookText ?? '',
+          text: reelText(r),
+          views: Number(views),
+          ageDays: src && at ? (at - src.publishedAt.getTime()) / 86_400_000 : null,
+          postedDaysAgo: at ? (now.getTime() - at) / 86_400_000 : undefined,
+        };
       })
-      .filter((x): x is { hook: string; text: string; views: number } => !!x);
+      .filter((x): x is NonNullable<typeof x> => !!x);
     return { ...fitAppealModel(rows, now), fittedAt: now.toISOString() };
   }
 
@@ -413,7 +449,7 @@ export class AutoPublishService {
           .lean();
         const good: Array<PlanReel & { title: string; campaignId: Types.ObjectId }> = [];
         // what ranks a reel: the age and speed of its source video and the channel's own traffic for the person it is about (see appeal)
-        const info = await this.sourceInfo(rows.map((r) => r.clips?.[0]?.youtubeId));
+        const info = await this.sourceInfo(rows.flatMap((r) => (r.clips ?? []).map((c) => c.youtubeId)));
         for (const r of rows) {
           if (good.length >= Math.max(want * 3, 12)) break; // a wider pool than the slots, so the ranking (not the critic's order) picks
           const title = r.packaging?.title || r.concept || 'Reel';
@@ -427,8 +463,8 @@ export class AutoPublishService {
             }
             continue;
           }
-          const item = { id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, info.get(r.clips?.[0]?.youtubeId ?? ''), shares, Date.now(), recentUses, model, history.personUses) };
-          const why = this.repeatReason(r as any, history);
+          const item = { id: String(r._id), score: r.scores?.overall ?? 0, entities: r.entitySlugs ?? [], createdAt: new Date(r.createdAt as Date).getTime(), title, campaignId: r.campaignId as Types.ObjectId, track: source === 'fresh' ? trackOf.get(String(r.campaignId)) : undefined, ...appealInputs(r, youngestSource(r.clips, info), shares, Date.now(), recentUses, model, history.personUses, this.cfg.REEL_HOT_MODE) };
+          const why = this.repeatReason(r as any, history, info);
           if (why) {
             repeats.push({ ...item, source, why });
             continue;

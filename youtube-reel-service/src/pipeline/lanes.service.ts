@@ -13,6 +13,7 @@ import { SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly'
 import { MINING_VERSION } from '../prompts/mining.prompt';
 import { QueueService } from '../queue/queue.service';
 import { CampaignRunnerService } from './campaign-runner.service';
+import { hotBrief, HotGroup, pickHotBackup, planHot } from './hot';
 import { bankBrief, entityOf, FRESH_LANE_REELS, freshBrief, isSourceable, LaneVideo, needsAnalysis, newsRetryBrief, newsRetryPicks, pickBackup, pickBank, pickFresh, STOCK_TARGET } from './lanes';
 import { freeDiskGb } from './media';
 import { nyDate } from '../common/time';
@@ -137,9 +138,11 @@ export class LanesService {
    * out the videos today's other lanes already used. Null when no video has enough strong footage left.
    */
   async backupForDay(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, reels: number) {
-    const today = await this.campaigns.find({ channelId, origin: 'daily', dailyDate: date }).select('sources.youtubeId settings.seedVideoIds').lean();
-    const used = new Set(today.flatMap((c) => [...(c.settings?.seedVideoIds ?? []), ...(c.sources ?? []).map((s) => s.youtubeId)]));
-    const picks = pickBackup(await this.catalog(channelId), used, 3);
+    const today = await this.campaigns.find({ channelId, origin: 'daily', dailyDate: date }).select('status sources.youtubeId settings.seedVideoIds').lean();
+    const idsOf = (list: typeof today) => new Set(list.flatMap((c) => [...(c.settings?.seedVideoIds ?? []), ...(c.sources ?? []).map((s) => s.youtubeId)]));
+    const catalog = await this.catalog(channelId);
+    // hot mode: the newest videos first, even when today already used them (only a failed campaign's videos are left out, they would fail again)
+    const picks = this.cfg.REEL_HOT_MODE ? pickHotBackup(catalog, idsOf(today.filter((c) => c.status === 'failed')), new Date(), 3) : pickBackup(catalog, idsOf(today), 3);
     return this.createLane(channelId, date, userId, 'best', picks, bankBrief(picks), Math.max(1, Math.min(5, reels)), 'strongest footage');
   }
 
@@ -160,15 +163,19 @@ export class LanesService {
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: channelId }, { projection: { userId: 1 } });
       const userId = (owner?.userId as Types.ObjectId) ?? channelId;
       for (const v of fresh) {
-        const tries = await this.campaigns.find({ channelId, track: 'news', 'settings.seedVideoIds.0': v.youtubeId }).sort({ createdAt: 1 }).select('status').lean();
+        const tries = await this.campaigns.find({ channelId, track: 'news', 'settings.seedVideoIds.0': v.youtubeId }).sort({ createdAt: 1 }).select('status settings.seedVideoIds').lean();
         if (!tries.length) {
-          const one = await this.createLane(channelId, nyDate(now), userId, 'news', [v], freshBrief([v]), NEWS_REELS, 'new video today');
+          // hot mode: straight to the new video plus the related videos the audience is watching (a single video failed the critic 4 of 6 times)
+          const related = this.cfg.REEL_HOT_MODE ? newsRetryPicks(v, catalog, 2, now) : [];
+          const one = related.length
+            ? await this.createLane(channelId, nyDate(now), userId, 'news', related, newsRetryBrief(v, related.slice(1)), NEWS_REELS, 'new video today')
+            : await this.createLane(channelId, nyDate(now), userId, 'news', [v], freshBrief([v]), NEWS_REELS, 'new video today');
           if (one) made.push({ campaignId: one.campaignId, youtubeId: v.youtubeId });
           continue;
         }
-        // one second try when the first made nothing: the new video plus older videos about the same person
-        if (tries.length >= NEWS_TRIES || tries[0].status !== 'failed') continue;
-        const picks = newsRetryPicks(v, catalog);
+        // one second try when a single-video first try made nothing: the new video plus videos about the same person
+        if (tries.length >= NEWS_TRIES || tries[0].status !== 'failed' || (tries[0].settings?.seedVideoIds?.length ?? 1) > 1) continue;
+        const picks = newsRetryPicks(v, catalog, 2, now);
         if (!picks.length) continue;
         const two = await this.createLane(channelId, nyDate(now), userId, 'news', picks, newsRetryBrief(v, picks.slice(1)), NEWS_REELS, 'new video today, 2nd try');
         if (two) made.push({ campaignId: two.campaignId, youtubeId: v.youtubeId });
@@ -178,10 +185,10 @@ export class LanesService {
   }
 
   /** Creates one footage-first campaign for the day (idempotent per day and track). */
-  private async createLane(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, track: 'fresh' | 'bank' | 'best' | 'news', picks: LaneVideo[], brief: string, reels: number, tag: string) {
+  private async createLane(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, track: 'fresh' | 'bank' | 'best' | 'news', picks: LaneVideo[], brief: string, reels: number, tag: string, many = false) {
     if (!picks.length) return null;
-    // one lane per day and track; a news reel is one per new video instead (checked by the caller)
-    if (track !== 'news' && (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track }))) return null;
+    // one lane per day and track; a news reel is one per new video, and the hot campaigns are several a day (checked by the callers)
+    if (track !== 'news' && !many && (await this.campaigns.exists({ channelId, origin: 'daily', dailyDate: date, track }))) return null;
     const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     const campaign = await this.campaigns.create({
       channelId,
@@ -193,13 +200,42 @@ export class LanesService {
       name: truncate(`Daily ${label} (${tag}): ${picks[0].title}`, 80),
       brief,
       status: 'queued',
-      settings: { targetReels: reels, minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: picks.map((p) => p.youtubeId), lane: track },
+      settings: { targetReels: reels, minSec: 30, maxSec: 60, allowCrossVideo: true, templateName: 'default', seedVideoIds: picks.map((p) => p.youtubeId), lane: track, ...(many ? { hot: true } : {}) },
       progress: { stage: 'queued', message: `Daily ${tag} — starting` },
       log: [{ at: new Date(), level: 'info', msg: `Daily ${track} lane for ${date}: ${picks.map((p) => p.title).join(' | ')}` }],
     });
     await this.queues.campaign('research', String(campaign._id));
     this.logger.log(`Daily ${date}: ${track} lane campaign ${campaign._id} (${picks.length} video(s), ${reels} reels)`);
     return { track: track as ReelTrack, campaignId: String(campaign._id), videos: picks.map((p) => p.youtubeId) };
+  }
+
+  /**
+   * The hot allocation of the daily run (pipeline/hot.ts): the newest videos get the day's reels first. `budget` reels are shared among
+   * the hot groups and one footage-first campaign is made per group. Nothing is created when the hot videos hold too little strong
+   * footage (the day then runs the old way), or when hot campaigns already exist today (a retried run does not duplicate them).
+   */
+  async hotForDay(channelId: Types.ObjectId, date: string, userId: Types.ObjectId, budget: number) {
+    if (!this.cfg.REELS_ENABLED || budget <= 0) return { groups: [] as HotGroup[], campaigns: [] as Array<{ campaignId: string; name: string; reels: number; videos: string[]; entity: string | null }>, reels: 0 };
+    const existing = await this.campaigns.find({ channelId, origin: 'daily', dailyDate: date, 'settings.hot': true }).select('name settings.targetReels settings.seedVideoIds').lean();
+    if (existing.length) {
+      return {
+        groups: [] as HotGroup[],
+        campaigns: existing.map((c) => ({ campaignId: String(c._id), name: c.name, reels: c.settings.targetReels, videos: c.settings.seedVideoIds ?? [], entity: null })),
+        reels: existing.reduce((a, c) => a + (c.settings.targetReels ?? 0), 0),
+      };
+    }
+    const groups = planHot(await this.catalog(channelId), new Date(), budget);
+    const campaigns: Array<{ campaignId: string; name: string; reels: number; videos: string[]; entity: string | null }> = [];
+    for (const g of groups) {
+      const made = await this.createLane(channelId, date, userId, 'fresh', g.videos, hotBrief(g), g.reels, 'newest videos', true);
+      if (made) campaigns.push({ campaignId: made.campaignId, name: g.videos[0].title, reels: g.reels, videos: made.videos, entity: g.key === g.videos[0].youtubeId ? null : g.key });
+    }
+    return { groups, campaigns, reels: campaigns.reduce((a, c) => a + c.reels, 0) };
+  }
+
+  /** What the hot allocation would do right now, without creating anything. */
+  async hotPreview(channelId: Types.ObjectId, budget: number) {
+    return planHot(await this.catalog(channelId), new Date(), budget);
   }
 
   /** Videos become reel material: anything published in the last 30 days that is not downloaded yet is queued, the most-watched first. */

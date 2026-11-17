@@ -10,20 +10,39 @@
 export type OpenerKind = 'first-person' | 'named' | 'you' | 'general';
 export type TopicKind = 'prison-life' | 'legal' | 'other';
 
+/** How old the reel's youngest source video was when the reel was posted: under 3 days, 3 to 15 days, older. */
+export type AgeTier = 'new' | 'recent' | 'older';
+
 export interface AppealModel {
   opener: Record<OpenerKind, number>;
   topic: Record<TopicKind, number>;
+  /** Lift for the age of the source video (Nov 17 audit: under 3 days 2,289 views at 48 h against about 1,200 for older footage). */
+  age: Record<AgeTier, number>;
   /** Posts the lifts were fitted on (0 = the audit defaults). */
   n: number;
   fittedAt?: string;
 }
 
-/** The Nov 13 audit's numbers (overall median 1,306): first-person +16, named +6, you -2, general 0; prison-life +11, legal -34. */
+/** The Nov 13 audit's numbers (overall median 1,306): first-person +16, named +6, you -2, general 0; prison-life +11, legal -34. Age (Nov 17): new +12, recent +6. */
 export const DEFAULT_APPEAL_MODEL: AppealModel = {
   opener: { 'first-person': 16, named: 6, you: -2, general: 0 },
   topic: { 'prison-life': 11, legal: -34, other: 0 },
+  age: { new: 12, recent: 6, older: 0 },
   n: 0,
 };
+
+export const NEW_TIER_DAYS = 3;
+export const RECENT_TIER_DAYS = 15;
+/** The tier of a source video of this age in days (unknown age = older: no lift). */
+export function ageTier(ageDays: number | null | undefined): AgeTier {
+  if (ageDays === null || ageDays === undefined || !Number.isFinite(ageDays) || ageDays < 0) return 'older';
+  return ageDays < NEW_TIER_DAYS ? 'new' : ageDays <= RECENT_TIER_DAYS ? 'recent' : 'older';
+}
+
+/** A stored model from before the age tiers keeps its lifts and gets the default age lifts. */
+export function withAge(m: Partial<AppealModel> & Pick<AppealModel, 'opener' | 'topic'>): AppealModel {
+  return { n: 0, ...m, age: { ...DEFAULT_APPEAL_MODEL.age, ...(m.age ?? {}) } } as AppealModel;
+}
 
 const FAMOUS = /\b(diddy|combs|chapo|el mayo|keefe|durk|tory lanez|mutulu|50 cent|fifty|yella beezy|tupac|foolio|gotti|pooh shiesty|big ?30|rick ross|big meech|irv gotti|suge|boosie|kai cenat|young thug|ybn|nba youngboy|tekashi|6ix9ine|r\. kelly|meek mill)\b/i;
 const FIRST_PERSON_START = /^\s*(?:["“]?\s*)?(?:and |but |so |now |man,? )?(i|i'm|i've|i'd|i was|my|me|we|we had|our)\b/i;
@@ -78,14 +97,26 @@ const lift = (levelViews: number[], overall: number, prior: number) => {
  * Under MIN_FIT_POSTS posts the defaults are kept.
  */
 export const MIN_FIT_POSTS = 20;
-export function fitAppealModel(rows: Array<{ hook: string; text: string; views: number }>, now = new Date()): AppealModel {
+/**
+ * The age lifts are fitted only on posts of the last AGE_FIT_DAYS days (the weeks before Nov 13 were weak for every reel, which would
+ * make "recent" look bad) and only when there are AGE_FIT_MIN of them; otherwise the defaults stay.
+ */
+export const AGE_FIT_DAYS = 21;
+export const AGE_FIT_MIN = 15;
+export function fitAppealModel(rows: Array<{ hook: string; text: string; views: number; ageDays?: number | null; postedDaysAgo?: number }>, now = new Date()): AppealModel {
   if (rows.length < MIN_FIT_POSTS) return DEFAULT_APPEAL_MODEL;
   const overall = Math.max(1, median(rows.map((r) => r.views)));
   const opener = { ...DEFAULT_APPEAL_MODEL.opener };
   for (const k of Object.keys(opener) as OpenerKind[]) opener[k] = lift(rows.filter((r) => openerKind(r.hook) === k).map((r) => r.views), overall, DEFAULT_APPEAL_MODEL.opener[k]);
   const topic = { ...DEFAULT_APPEAL_MODEL.topic };
   for (const k of Object.keys(topic) as TopicKind[]) topic[k] = lift(rows.filter((r) => topicKind(r.text) === k).map((r) => r.views), overall, DEFAULT_APPEAL_MODEL.topic[k]);
-  return { opener, topic, n: rows.length, fittedAt: now.toISOString() };
+  const age = { ...DEFAULT_APPEAL_MODEL.age };
+  const recent = rows.filter((r) => r.ageDays !== undefined && r.ageDays !== null && (r.postedDaysAgo ?? 0) <= AGE_FIT_DAYS);
+  if (recent.length >= AGE_FIT_MIN) {
+    const o = Math.max(1, median(recent.map((r) => r.views)));
+    for (const k of Object.keys(age) as AgeTier[]) age[k] = lift(recent.filter((r) => ageTier(r.ageDays) === k).map((r) => r.views), o, DEFAULT_APPEAL_MODEL.age[k]);
+  }
+  return { opener, topic, age, n: rows.length, fittedAt: now.toISOString() };
 }
 
 /** Cosine similarity of two embeddings (0 when either is missing). */
@@ -110,3 +141,12 @@ export const SAME_STORY_DAYS = 30;
 /** Posts per source video within SOURCE_WINDOW_DAYS before it is rested (Keefe D's "His Own Words": 5 reels, 4 under 450 views). */
 export const MAX_POSTS_PER_SOURCE = 2;
 export const SOURCE_WINDOW_DAYS = 14;
+/**
+ * Posts a source video may give within SOURCE_WINDOW_DAYS: a big video that is still new has far more to say (the Nov 11-15 live streams
+ * held 25-50 moments each), so it gets more; any other video keeps the old limit.
+ */
+export function sourcePostCap(views: number | undefined, ageDays: number | undefined): number {
+  if (ageDays === undefined || ageDays > RECENT_TIER_DAYS) return MAX_POSTS_PER_SOURCE;
+  const v = views ?? 0;
+  return v >= 30_000 ? 4 : v >= 10_000 ? 3 : MAX_POSTS_PER_SOURCE;
+}

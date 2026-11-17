@@ -31,6 +31,8 @@ export interface CampaignSettings {
   uploadSourceId?: string;
   /** Footage-first daily lanes: the videos in seedVideoIds ARE the sources (no web research, no topic search). */
   lane?: 'fresh' | 'bank' | 'best' | 'news';
+  /** Made by the hot-video allocation of the daily run (pipeline/hot.ts): several of these can exist on one day. */
+  hot?: boolean;
 }
 
 export interface CandidateLedgerEntry {

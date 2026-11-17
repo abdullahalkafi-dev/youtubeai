@@ -1,5 +1,5 @@
-import { appeal, chooseReels, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, freeSlots, lockAt, nyToUtc, PlanReel } from './auto-plan';
-import { appealInputs } from './auto-publish.service';
+import { appeal, chooseReels, personRelief, DEFAULT_EXTRA_SLOTS, DEFAULT_SLOTS, freeSlots, lockAt, nyToUtc, PlanReel } from './auto-plan';
+import { appealInputs, youngestSource } from './auto-publish.service';
 
 describe('free slots (the day can be filled again and again)', () => {
   const date = '2026-10-26';
@@ -145,5 +145,38 @@ describe('ranking by appeal, not by the critic score alone', () => {
     const got = appealInputs({ entityNames: ['Unique Mecca Audio', 'Diddy'] }, { publishedAt: new Date(now - 10 * 86_400_000), views: 50_000 }, shares, now);
     expect(got).toMatchObject({ named: true, demand: 0.24, sourceVelocity: 5000 });
     expect(appealInputs({ entityNames: ['Unique Mecca Audio'] }, undefined, shares, now)).toMatchObject({ named: false, demand: 0 });
+  });
+});
+
+describe('hot mode in the posting plan (Nov 17)', () => {
+  const day = 86_400_000;
+  const now = Date.parse('2026-11-17T12:00:00Z');
+  const reel = { entityNames: ['Yella Beezy'], hookText: 'I did 26 years.', clips: [{ youtubeId: 'a' }] };
+
+  it('a reel from a new video ranks above the same reel from an old one, and hot mode off removes the difference', () => {
+    const fresh = appealInputs(reel, { publishedAt: new Date(now - 1 * day), views: 40_000 }, new Map(), now);
+    const old = appealInputs(reel, { publishedAt: new Date(now - 200 * day), views: 40_000 }, new Map(), now);
+    expect((fresh.lift ?? 0) - (old.lift ?? 0)).toBe(12);
+    const recent = appealInputs(reel, { publishedAt: new Date(now - 9 * day), views: 40_000 }, new Map(), now);
+    expect((recent.lift ?? 0) - (old.lift ?? 0)).toBe(6);
+    const off = appealInputs(reel, { publishedAt: new Date(now - 1 * day), views: 40_000 }, new Map(), now, new Map(), undefined, new Map(), false);
+    expect(off.lift).toBe(old.lift);
+  });
+
+  it('the youngest source of a reel sets its age', () => {
+    const info = new Map([['old', { publishedAt: new Date(now - 300 * day), views: 1 }], ['new', { publishedAt: new Date(now - 1 * day), views: 2 }]]);
+    expect(youngestSource([{ youtubeId: 'old' }, { youtubeId: 'new' }], info)?.views).toBe(2);
+    expect(youngestSource([{ youtubeId: 'up_x' }], info)).toBeUndefined();
+    expect(youngestSource(undefined, info)).toBeUndefined();
+  });
+
+  it('a person the audience is watching is not held back by recent posts about them', () => {
+    const base = { score: 80, concrete: 0.5, lift: 10 };
+    const watched = appeal({ ...base, demand: 0.3, recentPersonUses: 3 });
+    const unwatched = appeal({ ...base, demand: 0, recentPersonUses: 3 });
+    expect(watched - unwatched).toBeGreaterThan(10); // the penalty of 18 shrinks to 4.5, and the demand itself adds points
+    expect(personRelief(0)).toBe(1);
+    expect(personRelief(0.3)).toBeCloseTo(0.25);
+    expect(personRelief(0.9)).toBeCloseTo(0.25);
   });
 });

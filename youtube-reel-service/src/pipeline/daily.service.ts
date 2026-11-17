@@ -140,13 +140,20 @@ export class DailyService {
     if (freeDiskGb(this.cfg.REEL_WORK_DIR) < this.cfg.REEL_MIN_FREE_DISK_GB) return skip('Server disk is almost full');
 
     try {
+      // Hot videos first (pipeline/hot.ts): the newest videos get the day's reels; the topic brain below only fills what they cannot give.
+      const hot = this.cfg.REEL_HOT_MODE ? await this.startHot(cid, date) : null;
+      const remaining = hot ? Math.max(0, this.cfg.REEL_DAILY_REELS - hot.already) : this.cfg.REEL_DAILY_REELS;
+      if (hot && remaining === 0) return this.finishHot(run._id, hot);
       const decision = await this.decide(cid, date);
       if (!decision.main) {
         // No topic has real footage today: the footage-first lanes still run, so the day is not left without reels.
         const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
-        await this.lanes
-          .createForDay(cid, date, owner?.userId ?? cid, { reels: this.cfg.REEL_DAILY_REELS, bank: false })
-          .catch((err) => this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`));
+        if (!this.cfg.REEL_HOT_MODE) {
+          await this.lanes
+            .createForDay(cid, date, owner?.userId ?? cid, { reels: this.cfg.REEL_DAILY_REELS, bank: false })
+            .catch((err) => this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`));
+        }
+        if (hot && hot.campaigns.length) return this.finishHot(run._id, hot);
         return skip(NO_TOPIC_REASON, { candidates: decision.candidates, degraded: decision.degraded });
       }
       // The topic lanes are capped (the footage-first lanes below add to them): about three reels on the main topic and two on a second one.
@@ -154,7 +161,7 @@ export class DailyService {
       const { main } = decision;
       const explore = this.cfg.REEL_EXPLORE_ENABLED ? decision.explore : null;
       // The day makes REEL_DAILY_REELS reels (2 since Nov 6 2026), all on the main topic.
-      const mainReels = Math.min(explore ? Math.min(decision.mainReels, MAIN_TOPIC_REELS) : MAIN_TOPIC_REELS, this.cfg.REEL_DAILY_REELS);
+      const mainReels = Math.min(explore ? Math.min(decision.mainReels, MAIN_TOPIC_REELS) : MAIN_TOPIC_REELS, remaining);
       const exploreReels = explore ? Math.min(decision.exploreReels, EXPLORE_TOPIC_REELS) : 0;
       const label = new Date(`${date}T12:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
       const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
@@ -200,14 +207,14 @@ export class DailyService {
       // Footage-first lanes only while the day aims above the main topic's share (5 a day before Nov 6 2026). At 2 a day the main topic
       // makes them all; a short day is filled by the floor (top-up, then one backup campaign) in superviseDay.
       const lanes =
-        this.cfg.REEL_DAILY_REELS > mainReels
+        !this.cfg.REEL_HOT_MODE && this.cfg.REEL_DAILY_REELS > mainReels
           ? await this.lanes.createForDay(cid, date, owner?.userId ?? cid).catch((err) => {
               this.logger.warn(`Daily ${date}: footage-first lanes failed: ${errMsg(err)}`);
               return [];
             })
           : [];
       this.logger.log(`Daily ${date} for ${channelId}: main "${main.c.name}" (${mainReels} reels, score ${main.score})${explore ? `, explore "${explore.c.name}" (${exploreReels} reels, ${explore.exploreScore})` : ''} → campaign ${campaign._id}${lanes.length ? `; lanes: ${lanes.map((l) => l.track).join(', ')}` : ''}`);
-      await this.earlyBackup(run._id, cid, date, owner?.userId ?? cid).catch((err) => this.logger.warn(`Daily ${date}: early backup failed: ${errMsg(err)}`));
+      if (!hot?.campaigns.length) await this.earlyBackup(run._id, cid, date, owner?.userId ?? cid).catch((err) => this.logger.warn(`Daily ${date}: early backup failed: ${errMsg(err)}`));
       return this.runs.findById(run._id).lean();
     } catch (err) {
       await this.runs.updateOne({ _id: run._id }, { $set: { status: 'failed', reason: errMsg(err).slice(0, 300) } });
@@ -276,6 +283,53 @@ export class DailyService {
   }
 
   /**
+   * The hot allocation of one day: the day's target minus the reels the new-video lane already made today is shared among the hot
+   * videos (LanesService.hotForDay). `already` = reels the day already has coming (new-video lane + hot campaigns).
+   */
+  private async startHot(cid: Types.ObjectId, date: string) {
+    const news = await this.campaigns.find({ channelId: cid, origin: 'daily', dailyDate: date, track: 'news', status: { $nin: ['failed', 'cancelled'] } }).select('settings.targetReels').lean();
+    const newsReels = news.reduce((a, c) => a + (c.settings?.targetReels ?? 1), 0);
+    const owner = await this.campaigns.db.collection('channels').findOne({ _id: cid }, { projection: { userId: 1 } });
+    try {
+      const r = await this.lanes.hotForDay(cid, date, owner?.userId ?? cid, this.cfg.REEL_DAILY_REELS - newsReels);
+      this.logger.log(`Daily ${date}: hot videos gave ${r.reels} reel(s) in ${r.campaigns.length} campaign(s) (${newsReels} from the new-video lane)`);
+      return { ...r, newsReels, already: newsReels + r.reels };
+    } catch (err) {
+      this.logger.warn(`Daily ${date}: hot allocation failed, the topic brain runs the day: ${errMsg(err)}`);
+      return { groups: [], campaigns: [], reels: 0, newsReels, already: newsReels };
+    }
+  }
+
+  /** The day is made of hot campaigns (and the new-video lane): the run record names them in place of a topic. */
+  private async finishHot(runId: Types.ObjectId, hot: { campaigns: Array<{ campaignId: string; name: string; reels: number; entity: string | null }>; reels: number; newsReels: number }) {
+    const names = hot.campaigns.map((c) => c.name).join(' | ');
+    await this.runs.updateOne(
+      { _id: runId },
+      {
+        $set: {
+          status: 'started',
+          topic: {
+            name: truncate(`Newest videos: ${names || 'the new-video lane'}`, 120),
+            brief: 'The day is cut from the newest videos the audience is watching right now.',
+            why: `${hot.reels} reel(s) from hot videos and ${hot.newsReels} from the new-video lane`,
+            signal: 'trend',
+            keywords: [],
+            pillar: null,
+            entity: hot.campaigns[0]?.entity ?? null,
+            score: 0,
+          },
+          mainReels: hot.reels,
+          exploreReels: 0,
+          campaignId: hot.campaigns[0] ? new Types.ObjectId(hot.campaigns[0].campaignId) : undefined,
+          candidates: [],
+          degraded: [],
+        },
+      },
+    );
+    return this.runs.findById(runId).lean();
+  }
+
+  /**
    * Low stock: the backup campaign starts with the day instead of after it fell short (Nov 13-15 2026: about one day of finished reels
    * left each day, and the backup only began in the evening, so a slot could go empty if the day failed). When fewer than
    * EARLY_BACKUP_DAYS days of unqueued finished reels are left, one backup of REEL_DAILY_REELS reels starts now; the floor in
@@ -283,7 +337,8 @@ export class DailyService {
    */
   private async earlyBackup(runId: Types.ObjectId, cid: Types.ObjectId, date: string, userId: Types.ObjectId) {
     const db = this.campaigns.db;
-    const todo = await db.collection('reels').countDocuments({ channelId: cid, status: 'todo', deletedAt: null });
+    // reels older than 10 days are leftovers the plan never picks: they are not stock (Nov 17: 3 of 7 'stock' reels were 2-4 weeks old)
+    const todo = await db.collection('reels').countDocuments({ channelId: cid, status: 'todo', deletedAt: null, createdAt: { $gte: new Date(Date.now() - 10 * 86_400_000) } });
     const queued = await db.collection('reel_posts').countDocuments({ channelId: cid, status: 'queued' });
     if (!needsEarlyBackup(todo - queued, this.cfg.REEL_DAILY_REELS)) return;
     const backup = await this.lanes.backupForDay(cid, date, userId, this.cfg.REEL_DAILY_REELS);

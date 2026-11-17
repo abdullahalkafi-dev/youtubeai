@@ -104,3 +104,31 @@ What changed:
 - 3 reels a day (`REEL_DAILY_REELS`=3), posted at 7:00, 11:00 and 21:00 NY.
 - The full-screen look's bottom line says "FULL STORY ON MY CHANNEL" (comment links are not clickable on Shorts).
 - Not automatable: YouTube Studio "Related video" on each reel (the only clickable route from a Short to a long video; the API cannot set it).
+
+## Nov 17, 2026: hot videos first
+
+The client asked (Nov 17) for every reel to come from his three new live streams (51k, 42k, 36k views) and "forget the old videos". The
+audit found the live videos were ready (downloaded, mined, 100 unused moments) but got 1-2 reels each: the daily topic was chosen from
+the whole archive on how much footage it had (5 of 6 main-topic reels came from older videos, median 2,177 views against 4,564 for
+reels from videos under 7 days old), the footage-first "fresh" lane had been off since 3 reels a day, and the new-video lane gave one
+reel per upload. Reels from a source under 3 days old: median 2,289 views at 48 h against about 1,200 for older footage.
+
+What `REEL_HOT_MODE` (default on) does (pipeline/hot.ts):
+- A video is **hot** for 15 days (full weight for 7, fading to 0.55): analyzed, long, at least 150 views/day, 3+ strong unused moments.
+  Priority = views per day x the audience share of its person x recency x footage left (`hotScore`).
+- The day's target (3) minus the reels the new-video lane already made is shared among hot **groups** (videos about the same person,
+  up to 3 videos per campaign so the director can cut across them): `planHot`. A big story gets more reels, a second story still gets one;
+  a video under 30k views gives at most 1 reel a day, a bigger one 2. One `fresh` campaign per group (`settings.hot = true`).
+- The topic brain only makes what the hot videos cannot (under 6 strong moments in total = the old way). The old lanes and the early
+  backup stay off while hot campaigns exist. Backup (`best` lane) takes hot videos first.
+- The new-video lane starts with the new video plus related hot videos (a single video failed the critic 4 of 6 times); a failed
+  single-video first try still gets one second try.
+- Posting plan: the appeal model has an **age lift** (new < 3 days +12, recent 3-15 days +6, older 0), refit daily from real 48-hour views of
+  the last 21 days (`fitAppealModel`, needs 15 posts, otherwise the defaults stay). The same-person penalty shrinks with the audience's
+  traffic share for that person (`personRelief`). A big video that is still new may give 3-4 posts in 14 days (`sourcePostCap`).
+- Ops report: a line "newest videos: N of M reels cut from videos under 15 days old".
+
+Check it: `node dist/cli/reel-cli.js hot:preview <channelId> [reels]` (read-only: the hot videos and how the reels would be shared).
+Turn it off with `REEL_HOT_MODE=false` in youtube-reel-service/.env.prod and `docker compose -f docker-compose.reels.yml up -d`: the day
+runs as before Nov 17 and the age lift stops counting. The age tiers (3 and 15 days) are only priors: read the fitted lifts in
+reel_settings `appeal-model:<channelId>` (`age`) after two weeks; if "recent" falls to 0 or below, the 15-day window is not helping.

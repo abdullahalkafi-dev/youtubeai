@@ -28,6 +28,7 @@ function setup(opts: { date: string; todayCamp: Types.ObjectId; campStatus?: str
   const dayUpdates: any[] = [];
   const svc: any = Object.create(AutoPublishService.prototype);
   svc.logger = { log: jest.fn(), warn: jest.fn() };
+  svc.cfg = { REEL_HOT_MODE: true };
   svc.settingsModel = { findOne: () => ({ lean: async () => ({ value: settings }) }) };
   svc.days = {
     findOne: () => ({ lean: async () => day }),

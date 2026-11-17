@@ -78,6 +78,12 @@ const EnvSchema = z.object({
   ALERT_WEBHOOK_URL: str(''),
   /** The daily run's second "explore" topic (off: the day is the main topic plus the new-video lane). */
   REEL_EXPLORE_ENABLED: bool(false),
+  /**
+   * Hot videos first (pipeline/hot.ts, Nov 17 2026): the day's reels are cut from the newest long videos (last 15 days) in proportion to
+   * how fast they are being watched; the topic brain only fills what they cannot give. Off (false): the daily run works as before Nov 17,
+   * and the posting plan stops counting the age of the source video.
+   */
+  REEL_HOT_MODE: bool(true),
   REEL_MAX_SOURCES_PER_CAMPAIGN: int(10),
   REEL_TOKEN_BUDGET: int(3_000_000),
   REEL_RANGE_COOLDOWN_DAYS: int(120),

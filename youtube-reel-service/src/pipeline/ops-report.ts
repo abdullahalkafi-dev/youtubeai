@@ -26,6 +26,8 @@ export interface OpsReportBody {
    * views as of this report; one report a day, so a video's day-3 and day-7 views can be read off the reports of those days.
    */
   mainChannel?: Array<{ youtubeId: string; title: string; ageDays: number; views: number; viewsPerDay: number }>;
+  /** Hot videos first (Nov 17 2026): how many of the day's reels were cut from a video under 15 days old (youngest source of each reel). */
+  hot?: { fromHot: number; made: number };
 }
 
 /** Posts per day the stock has to cover when the auto-publish slots are unknown (2 slots since Nov 6 2026). */
@@ -92,6 +94,7 @@ export function formatOpsReport(r: { date: string; issues: string[]; body: OpsRe
   return [
     `=== ${r.date}: ${b.made}/${b.target} reels | ${lanes}`,
     `    topic: ${b.run.topic ?? '-'} | stock ${b.stock.todo} (~${b.stock.daysLeft}d) | posted ${b.posting.published} | downloads ${heights}`,
+    ...(b.hot ? [`    newest videos: ${b.hot.fromHot} of ${b.hot.made} reels cut from videos under 15 days old`] : []),
     ...(main ? [`    main channel: ${main}`] : []),
     ...(r.issues.length ? r.issues.map((i) => `    ! ${i}`) : ['    ok: no issues']),
   ].join('\n');

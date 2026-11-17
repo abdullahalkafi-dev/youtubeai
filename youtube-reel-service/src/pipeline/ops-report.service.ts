@@ -116,6 +116,17 @@ export class OpsReportService {
       return { youtubeId: v.youtubeId, title: v.title ?? '', ageDays: Math.floor(age), views: v.viewCount ?? 0, viewsPerDay: Math.round((v.viewCount ?? 0) / age) };
     });
 
+    // how many of the day's reels come from the newest videos (youngest source of each reel, under 15 days at the end of the day)
+    const madeReels = await db.collection('reels').find({ campaignId: { $in: camps.map((c) => c._id) }, deletedAt: null, status: { $in: MADE_STATUSES } }).project({ 'clips.youtubeId': 1 }).toArray();
+    const srcDates = new Map<string, number>();
+    for (const v of await db.collection('videos').find({ youtubeId: { $in: [...new Set(madeReels.flatMap((r) => (r.clips ?? []).map((c: { youtubeId?: string }) => c.youtubeId)).filter(Boolean))] } }).project({ youtubeId: 1, publishedAt: 1 }).toArray()) {
+      if (v.publishedAt) srcDates.set(v.youtubeId, new Date(v.publishedAt).getTime());
+    }
+    const fromHot = madeReels.filter((r) => {
+      const newest = Math.max(0, ...(r.clips ?? []).map((c: { youtubeId?: string }) => srcDates.get(c.youtubeId ?? '') ?? 0));
+      return newest > 0 && (Math.min(now.getTime(), end.getTime()) - newest) / 86_400_000 <= 15;
+    }).length;
+
     const empty = camps.filter((c) => !reelsBy.get(String(c._id)));
     const body: OpsReportBody = {
       target: this.cfg.REEL_DAILY_REELS,
@@ -149,6 +160,7 @@ export class OpsReportService {
         sttMinutes: Math.round(empty.reduce((a, c) => a + (c.usage?.sttSeconds ?? 0), 0) / 60),
       },
       mainChannel,
+      hot: { fromHot, made: madeReels.length },
     };
     const issues = opsIssues(body, now);
     await this.reports.updateOne({ channelId, date }, { $set: { generatedAt: now, issues, body } }, { upsert: true });

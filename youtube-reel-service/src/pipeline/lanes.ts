@@ -97,12 +97,13 @@ export function pickBackup(videos: LaneVideo[], usedToday: Set<string>, take = 3
  * the most strong unused footage, so the director can cut across them. Without a known person (or no other video about them) there is
  * no retry: unrelated footage would make a reel that is not about the new video.
  */
-export function newsRetryPicks(fresh: LaneVideo, videos: LaneVideo[], take = 2): LaneVideo[] {
+export function newsRetryPicks(fresh: LaneVideo, videos: LaneVideo[], take = 2, now: Date = new Date()): LaneVideo[] {
   const others = videos.filter((v) => v.youtubeId !== fresh.youtubeId && v.analyzed && v.strongMoments >= 2);
   const same = fresh.entity ? others.filter((v) => v.entity === fresh.entity) : [];
+  // a video from the last 15 days counts double: the new video is joined by what the audience is watching now before older footage
   const rank = (list: LaneVideo[]) =>
     list
-      .map((v) => ({ v, score: Math.min(v.strongMoments, 12) * Math.sqrt(Math.log1p(v.views) + 1) }))
+      .map((v) => ({ v, score: Math.min(v.strongMoments, 12) * Math.sqrt(Math.log1p(v.views) + 1) * (ageDays(v, now) <= 15 ? 2 : 1) }))
       .sort((a, b) => b.score - a.score)
       .map((x) => x.v);
   const picks = rank(same).slice(0, take);

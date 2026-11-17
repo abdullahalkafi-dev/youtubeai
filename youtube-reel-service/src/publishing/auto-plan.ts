@@ -174,9 +174,16 @@ export function appeal(r: Pick<PlanReel, 'score' | 'demand' | 'sourceVelocity' |
     3 * Math.log1p(Math.max(0, r.sourceVelocity ?? 0)) +
     CONCRETE_WEIGHT * (r.concrete ?? 0) -
     REPEAT_PENALTY * Math.min(2, r.recentSourceUses ?? 0) -
-    PERSON_PENALTY * Math.min(3, r.recentPersonUses ?? 0)
+    PERSON_PENALTY * personRelief(r.demand) * Math.min(3, r.recentPersonUses ?? 0)
   );
 }
+
+/**
+ * A person the audience is watching right now is not "the same person again": the penalty for recent posts about them shrinks with
+ * the channel's own traffic share for them (0.3 share or more = a quarter of the penalty). Nov 17: three live streams about Yella Beezy
+ * earned 36-51k views, and the penalty would have held back the reels about them.
+ */
+export const personRelief = (demand?: number) => 1 - 0.75 * Math.min(1, Math.max(0, demand ?? 0) / 0.3);
 
 /** The critic score only breaks ties (it does not predict views). */
 export const SCORE_WEIGHT = 0.1;
