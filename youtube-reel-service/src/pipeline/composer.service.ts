@@ -66,6 +66,16 @@ export function thinMaterial(round: number, kept: number, cands: Array<{ asm: { 
   return round === 1 && kept === 0 && cands.every((c) => !c.asm.ok || !c.review || c.review.verdict === 'drop');
 }
 
+/**
+ * Whether composing stops after a weak first round. Only for TOPIC campaigns: DailyService.rescue has a replacement topic waiting for
+ * them. The footage-first lanes (new-video, hot, backup: settings.lane) have none, so a weak first round used to end them with no reel
+ * (Nov 12-17 2026: the new-video lane failed after "1 round(s)" 4 times in 6, and the 3-live-videos campaign failed the same way).
+ * They get all their rounds.
+ */
+export function stopsEarly(campaign: { origin?: string; settings?: { lane?: string } }, round: number, kept: number, cands: Array<{ asm: { ok: boolean }; review?: { verdict: string } }>): boolean {
+  return campaign.origin === 'daily' && !campaign.settings?.lane && thinMaterial(round, kept, cands);
+}
+
 @Injectable()
 export class ComposerService {
   private readonly logger = new Logger(ComposerService.name);
@@ -295,7 +305,7 @@ export class ComposerService {
       );
       await this.campaigns.updateOne({ _id: campaign._id }, { $push: { candidates: { $each: cands.map((c) => this.ledgerEntry(c)) } } });
       // Daily campaigns have a replacement topic waiting (DailyService.rescue): when the best moments gave nothing worth fixing, more rounds over the weaker tail only burn tokens.
-      if (campaign.origin === 'daily' && thinMaterial(rounds, finals.length, cands)) {
+      if (stopsEarly(campaign, rounds, finals.length, cands)) {
         await this.orchestrator.log(campaignId, 'warn', 'The best footage for this topic gave nothing usable, so composing stopped early (a replacement topic can be tried)');
         break;
       }

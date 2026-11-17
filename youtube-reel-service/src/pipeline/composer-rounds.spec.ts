@@ -1,4 +1,4 @@
-import { askForIdeas, roundWidth, thinMaterial } from './composer.service';
+import { askForIdeas, roundWidth, stopsEarly, thinMaterial } from './composer.service';
 
 describe('composer: a wide first round', () => {
   it('round 1 shows 40-60 moments, later rounds fewer', () => {
@@ -29,5 +29,18 @@ describe('composer: stop early when the best footage gave nothing', () => {
     expect(thinMaterial(1, 0, [cand(true, 'drop'), cand(true, 'revise')])).toBe(false);
     expect(thinMaterial(1, 2, [cand(true, 'drop')])).toBe(false);
     expect(thinMaterial(2, 0, [cand(true, 'drop')])).toBe(false);
+  });
+});
+
+describe('which campaigns stop after a weak first round', () => {
+  const weak = [{ asm: { ok: true }, review: { verdict: 'drop' } }];
+  it('a topic campaign does (a replacement topic is waiting)', () => {
+    expect(stopsEarly({ origin: 'daily', settings: {} }, 1, 0, weak)).toBe(true);
+  });
+  it('a footage-first lane never does: it has no replacement and gets all its rounds', () => {
+    for (const lane of ['fresh', 'news', 'best', 'bank']) expect(stopsEarly({ origin: 'daily', settings: { lane } }, 1, 0, weak)).toBe(false);
+  });
+  it('a campaign made by hand never does', () => {
+    expect(stopsEarly({ origin: 'manual', settings: {} }, 1, 0, weak)).toBe(false);
   });
 });
