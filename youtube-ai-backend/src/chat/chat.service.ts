@@ -3496,6 +3496,8 @@ Hard rules:
       aspectRatio: resolvedAspectRatio,
       mode: 'thumbnail',
       reviewIssues,
+      // Safety-fallback images: the headline is live text over a text-free picture (see recompose/reword).
+      ...(usedSafetyFallback ? { localHeadline: true } : {}),
       createdAt: new Date(),
     };
 
@@ -4127,6 +4129,22 @@ Hard rules:
         : 'top-right');
     const excludeLogo = logoPosition === 'none';
     const base = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+    // Safety-fallback image (headline is live text over a text-free picture): reword it locally.
+    if (matchedImg?.localHeadline === true && !dto.photoUrl) {
+      return this.redrawLocalHeadline(threadId, matchedImg, {
+        text: newText,
+        base,
+        aspectRatio,
+        selectedHost,
+        excludeHost,
+        excludeLogo,
+        logoPosition,
+        customHostUrl: dto.customHostUrl,
+        conceptTitle: matchedImg?.conceptTitle ? `${matchedImg.conceptTitle} (reworded)` : 'Reworded',
+        message: `Reworded thumbnail: ${newText}`,
+        extra: { rewordedFrom: matchedImg?.id },
+      });
+    }
     const zones = layoutZones({ aspectRatio, logoPosition, excludeLogo, excludeHost });
     const editOptions = {
       referenceImageUrls: dto.photoUrl ? [dto.photoUrl] : ([] as string[]),
@@ -4254,6 +4272,22 @@ Hard rules:
       (['top-left', 'top-right', 'none'].includes(matchedImg?.logoPosition) ? matchedImg.logoPosition : 'top-right');
     const excludeLogo = logoPosition === 'none';
     const base = matchedImg?.cleanBackgroundUrl || dto.baseImageUrl;
+    // Safety-fallback image: the words are live text over a text-free picture, so just draw it without them.
+    if (matchedImg?.localHeadline === true && !dto.photoUrl) {
+      return this.redrawLocalHeadline(threadId, matchedImg, {
+        text: '',
+        base,
+        aspectRatio,
+        selectedHost,
+        excludeHost,
+        excludeLogo,
+        logoPosition,
+        customHostUrl: dto.customHostUrl,
+        conceptTitle: matchedImg?.conceptTitle ? `${matchedImg.conceptTitle} (no words)` : 'No words',
+        message: 'Thumbnail without words',
+        extra: { textRemovedFrom: matchedImg?.id },
+      });
+    }
     const zones = layoutZones({ aspectRatio, logoPosition, excludeLogo, excludeHost });
 
     const result = await this.openaiService.editImageWithReference(
@@ -4302,6 +4336,116 @@ Hard rules:
       $set: { updatedAt: new Date() },
     });
     return { imageUrl: result.imageUrl, image: imageObj };
+  }
+
+  /** Stores a composed PNG in MinIO, or on local disk when MinIO is unavailable (same as the other image paths). */
+  private async storeComposedPng(buffer: Buffer, prefix: string): Promise<string> {
+    const filename = `${prefix}_${Date.now()}.png`;
+    const ready = await this.minioService.isAvailable().catch(() => false);
+    if (ready) {
+      try {
+        return await this.minioService.uploadThumbnail('system', filename, buffer);
+      } catch {
+        /* save locally below */
+      }
+    }
+    const genDir = path.join(process.cwd(), 'src', 'assets', 'generated');
+    if (!fs.existsSync(genDir)) fs.mkdirSync(genDir, { recursive: true });
+    fs.writeFileSync(path.join(genDir, filename), buffer);
+    return `/api/assets/generated/${filename}`;
+  }
+
+  /**
+   * Safety-fallback images keep their headline as live text over a text-free picture, so rewording or
+   * removing the words is drawn locally with no AI call (the AI would refuse the person's face again).
+   */
+  private async redrawLocalHeadline(
+    threadId: string,
+    matchedImg: any,
+    o: {
+      text: string;
+      base: string;
+      aspectRatio: '16:9' | '9:16';
+      selectedHost: string;
+      excludeHost: boolean;
+      excludeLogo: boolean;
+      logoPosition: 'top-left' | 'top-right' | 'none';
+      customHostUrl?: string;
+      conceptTitle: string;
+      message: string;
+      extra: Record<string, any>;
+    },
+  ) {
+    let customHostBuffer: Buffer | undefined;
+    if (o.customHostUrl && !o.excludeHost) {
+      try {
+        customHostBuffer = await this.composerService.fetchBufferFromUrl(o.customHostUrl);
+      } catch (e: any) {
+        this.logger.warn(`Failed to fetch custom host buffer for local headline: ${e.message}`);
+      }
+    }
+    const logoPosition = o.excludeLogo ? 'none' : o.logoPosition;
+    const host = o.excludeHost ? 'none' : o.selectedHost;
+    const hasText = !!o.text.trim();
+    let buffer: Buffer;
+    let issues: string[] = [];
+    if (hasText) {
+      const composed = await this.composerService.composeStudioThumbnail({
+        backgroundInput: o.base,
+        text: o.text,
+        textSide: 'left',
+        aspectRatio: o.aspectRatio,
+        excludeHost: o.excludeHost,
+        excludeLogo: o.excludeLogo,
+        logoPosition,
+        selectedHostImage: host,
+        customHostBuffer,
+      });
+      buffer = composed.buffer;
+      issues = composed.issues;
+    } else {
+      buffer = Buffer.from(
+        await this.composerService.composeThumbnail({
+          backgroundInput: o.base,
+          selectedHostImage: host,
+          customHostBuffer,
+          excludeHost: o.excludeHost,
+          logoPosition,
+          excludeLogo: o.excludeLogo,
+          aspectRatio: o.aspectRatio,
+        }),
+      );
+    }
+    const imageUrl = await this.storeComposedPng(buffer, hasText ? 'reworded' : 'no_words');
+    const imageObj = {
+      id: new Types.ObjectId().toString(),
+      url: imageUrl,
+      cleanBackgroundUrl: o.base,
+      prompt: matchedImg?.prompt || 'Local headline',
+      conceptTitle: o.conceptTitle,
+      textOverlay: o.text,
+      visualDescription: matchedImg?.visualDescription || '',
+      selectedHostImage: host,
+      logoPosition,
+      aspectRatio: o.aspectRatio,
+      mode: 'thumbnail',
+      reviewIssues: issues,
+      ...(hasText ? { localHeadline: true } : {}),
+      ...o.extra,
+      createdAt: new Date(),
+    };
+    await this.threadModel.findByIdAndUpdate(threadId, {
+      $push: {
+        messages: {
+          role: 'assistant',
+          content: o.message,
+          metadata: { category: 'image', images: [imageObj] },
+          createdAt: new Date(),
+        } as Message,
+      },
+      $set: { updatedAt: new Date() },
+    });
+    return { imageUrl, image: imageObj };
   }
 
   /**
@@ -4484,15 +4628,33 @@ Hard rules:
       ? 'none'
       : dto.selectedHostImage || matchedImg?.selectedHostImage || 'default';
 
-    const composedBuffer = await this.composerService.composeThumbnail({
-      backgroundInput: cleanCanvas,
-      selectedHostImage: resolvedHostImage,
-      customHostBuffer,
-      excludeHost,
-      logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
-      excludeLogo,
-      aspectRatio: finalAspectRatio,
-    });
+    // Safety-fallback images carry their headline as live text over a text-free picture, so a new
+    // host/logo layout must draw it again. Every other image takes the original path below.
+    const keepLocalHeadline =
+      matchedImg?.localHeadline === true && !!String(matchedImg?.textOverlay || '').trim();
+    const composedBuffer = keepLocalHeadline
+      ? (
+          await this.composerService.composeStudioThumbnail({
+            backgroundInput: cleanCanvas,
+            text: matchedImg.textOverlay,
+            textSide: 'left',
+            aspectRatio: finalAspectRatio,
+            excludeHost,
+            excludeLogo,
+            logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
+            selectedHostImage: resolvedHostImage,
+            customHostBuffer,
+          })
+        ).buffer
+      : await this.composerService.composeThumbnail({
+          backgroundInput: cleanCanvas,
+          selectedHostImage: resolvedHostImage,
+          customHostBuffer,
+          excludeHost,
+          logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
+          excludeLogo,
+          aspectRatio: finalAspectRatio,
+        });
 
     let finalUrl: string;
     const filename = `recomposed_${Date.now()}.png`;
@@ -4531,6 +4693,7 @@ Hard rules:
       logoPosition: excludeLogo ? 'none' : dto.logoPosition || 'top-right',
       aspectRatio: finalAspectRatio,
       mode: matchedImg?.mode || 'thumbnail',
+      ...(keepLocalHeadline ? { localHeadline: true } : {}),
       createdAt: new Date(),
     };
 

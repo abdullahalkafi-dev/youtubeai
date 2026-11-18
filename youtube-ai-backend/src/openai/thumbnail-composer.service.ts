@@ -197,22 +197,112 @@ export class ThumbnailComposerService {
     boxHeight -= tagSpace;
     const lines = text.split(/\n|\s+\/\s+/);
     const accent = /\bred\b|#ff0000|#e[0-9a-f]{5}/i.test(options.colors || '') ? '#FF2020' : '#FFE600';
-    const markup = lines.map((line, i) => '<span foreground="' + (i === lines.length - 1 ? accent : '#FFFFFF') + '">' + escape(line) + '</span>').join('\n');
-    const layer = await sharp({ text: { text: markup, font: 'Anton', fontfile: font, width: boxWidth - 24, height: boxHeight - 24, align: 'left', rgba: true, wrap: 'word-char', spacing: 5 } }).png().toBuffer();
-    const metadata = await sharp(layer).metadata();
+    // Each line is sized to fit the box, with a true black outline and a soft shadow so it stays readable on any picture.
+    const stack = await this.renderHeadlineStack(lines, accent, boxWidth - 24, boxHeight - 24, font);
     const issues: string[] = [];
-    if ((metadata.height || 0) > boxHeight || text.length / Math.max(1, text.split(/\s+/).length) > 25) issues.push('Headline layout needs attention');
+    if (stack.overflow || text.length / Math.max(1, text.split(/\s+/).length) > 25) issues.push('Headline layout needs attention');
     const base = await this.composeThumbnail({ backgroundInput: options.backgroundInput, width, height, aspectRatio: options.aspectRatio, excludeHost: options.excludeHost, excludeLogo: options.excludeLogo, logoPosition: options.excludeLogo ? 'none' : (options.logoPosition || 'top-right'), selectedHostImage: options.selectedHostImage, customHostBuffer: options.customHostBuffer });
     const x = options.textSide === 'right' && !vertical ? width - boxWidth - margin : margin;
-    const y = (vertical ? Math.round(height * .58) : margin) + tagSpace;
-    const layers: any[] = [];
-    // An opaque alpha-derived outline keeps letters readable on a detailed scene.
-    const outline = await sharp(layer).tint('#000000').png().toBuffer();
-    for (const [dx, dy] of [[-4,0],[4,0],[0,-4],[0,4],[-3,-3],[3,3]]) layers.push({ input: outline, left: x + dx, top: y + dy });
-    layers.push({ input: layer, left: x, top: y });
+    const boxTop = (vertical ? Math.round(height * .58) : margin) + tagSpace;
+    // Centre the lettering in its box (16:9 only), unless a tag chip sits directly above it. On 9:16 the
+    // box sits above the host photo, so the lettering stays at the top of it.
+    const y = boxTop + (tagChip || vertical ? 0 : Math.max(0, Math.round((boxHeight - stack.glyphHeight) / 2)));
+    const layers: any[] = [{ input: stack.input, left: x - stack.pad, top: y - stack.pad }];
     if (tagChip) layers.push({ input: tagChip.input, left: x, top: y - tagSpace });
     if (labelChip) layers.push({ input: labelChip.input, left: margin, top: height - margin - labelChip.height });
     return { buffer: await sharp(base).composite(layers).png().toBuffer(), issues };
+  }
+
+  /**
+   * Draws the headline lines as one transparent image: every line sized to fit the box width (a very
+   * long line is split in two), white letters with a true black rounded outline and a soft drop shadow.
+   * `pad` is the transparent margin around the letters, `glyphHeight` the height of the letters alone.
+   */
+  private async renderHeadlineStack(
+    lines: string[],
+    accent: string,
+    maxW: number,
+    maxH: number,
+    font: string,
+  ): Promise<{ input: Buffer; pad: number; glyphHeight: number; overflow: boolean }> {
+    const escape = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const glyph = async (value: string, color: string) => {
+      const raw = await sharp({ text: { text: '<span foreground="' + color + '">' + escape(value) + '</span>', font: 'Anton 260', fontfile: font, rgba: true } }).png().toBuffer();
+      const trimmed = await sharp(raw).trim().png().toBuffer();
+      const meta = await sharp(trimmed).metadata();
+      return { trimmed, w: meta.width || 1, h: meta.height || 1 };
+    };
+    // sharp always runs blur before threshold whatever the call order, so every step below is its own pipeline.
+    const black = async (mask: Buffer, w: number, h: number, opacity = 1) => {
+      let alpha: Buffer = await sharp(mask).extractChannel(0).png().toBuffer();
+      if (opacity !== 1) alpha = await sharp(alpha).linear(opacity, 0).png().toBuffer();
+      return sharp({ create: { width: w, height: h, channels: 3, background: '#000000' } }).joinChannel(alpha).png().toBuffer();
+    };
+
+    const entries = lines.map((value, i) => ({ value: value.trim(), color: i === lines.length - 1 ? accent : '#FFFFFF' })).filter((e) => e.value);
+    const gap = Math.round(maxH * 0.05);
+    const capFor = (count: number) => Math.max(40, Math.min(Math.round(maxH * 0.3), Math.floor((maxH - gap * (count - 1)) / count)));
+
+    // A line that would have to shrink to a sliver is split into two balanced lines.
+    let prepared: Array<{ value: string; color: string; g: Awaited<ReturnType<typeof glyph>> }> = [];
+    for (const e of entries) {
+      const g = await glyph(e.value, e.color);
+      const natural = (g.h * maxW) / g.w;
+      const words = e.value.split(/\s+/);
+      if (natural < 0.45 * capFor(entries.length) && words.length >= 3) {
+        let best = 1, bestDiff = Infinity;
+        for (let k = 1; k < words.length; k++) {
+          const diff = Math.abs(words.slice(0, k).join(' ').length - words.slice(k).join(' ').length);
+          if (diff < bestDiff) { best = k; bestDiff = diff; }
+        }
+        for (const part of [words.slice(0, best).join(' '), words.slice(best).join(' ')]) {
+          prepared.push({ value: part, color: e.color, g: await glyph(part, e.color) });
+        }
+      } else prepared.push({ ...e, g });
+    }
+
+    const cap = capFor(prepared.length);
+    let sized = prepared.map((p) => {
+      let w = maxW, h = Math.round((p.g.h * w) / p.g.w);
+      if (h > cap) { h = cap; w = Math.round((p.g.w * h) / p.g.h); }
+      return { ...p, w, h };
+    });
+    const totalHeight = (items: Array<{ h: number }>) => items.reduce((sum, item) => sum + item.h, 0) + gap * (items.length - 1);
+    let overflow = false;
+    if (totalHeight(sized) > maxH) {
+      const scale = maxH / totalHeight(sized);
+      overflow = scale < 0.5;
+      sized = sized.map((s) => ({ ...s, w: Math.max(1, Math.round(s.w * scale)), h: Math.max(1, Math.round(s.h * scale)) }));
+    }
+
+    const radii = sized.map((s) => Math.max(5, Math.round(s.h * 0.075)));
+    const pad = Math.max(...radii) + 14;
+    const stackWidth = Math.max(...sized.map((s) => s.w)) + pad * 2 + 14;
+    const stackHeight = totalHeight(sized) + pad * 2 + 14;
+    const composites: any[] = [];
+    let cursor = 0;
+    for (let i = 0; i < sized.length; i++) {
+      const s = sized[i], r = radii[i];
+      const glyphs = await sharp(s.g.trimmed).resize(s.w, s.h).png().toBuffer();
+      const cw = s.w + pad * 2, ch = s.h + pad * 2;
+      const padded = await sharp(glyphs).extend({ top: pad, bottom: pad, left: pad, right: pad, background: { r: 0, g: 0, b: 0, alpha: 0 } }).png().toBuffer();
+      const alpha = await sharp(padded).ensureAlpha().extractChannel(3).png().toBuffer();
+      // Grow the letter shape by about r pixels (blur, then cut at a low level), then soften the edge a little.
+      const grown = await sharp(alpha).blur(r / 2.2).png().toBuffer();
+      const hard = await sharp(grown).threshold(14).png().toBuffer();
+      const dilated = await sharp(hard).blur(0.9).png().toBuffer();
+      const outline = await black(dilated, cw, ch);
+      const shadowMask = await sharp(dilated).blur(6).png().toBuffer();
+      const shadow = await black(shadowMask, cw, ch, 0.65);
+      const top = cursor;
+      composites.push({ input: shadow, left: 12, top: top + 14 }, { input: outline, left: 0, top }, { input: padded, left: 0, top });
+      cursor += s.h + gap;
+    }
+    const input = await sharp({ create: { width: stackWidth, height: stackHeight, channels: 4, background: { r: 0, g: 0, b: 0, alpha: 0 } } })
+      .composite(composites)
+      .png()
+      .toBuffer();
+    return { input, pad, glyphHeight: totalHeight(sized), overflow };
   }
 
   public async fetchBufferFromUrl(url: string): Promise<Buffer> {
