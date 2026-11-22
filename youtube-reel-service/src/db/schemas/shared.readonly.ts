@@ -79,6 +79,22 @@ export type SharedUserDocument = HydratedDocument<SharedUser>;
 export const SharedUserSchema = SchemaFactory.createForClass(SharedUser);
 lockWrites(SharedUserSchema, 'users');
 
+/**
+ * The main app's Facebook login (one document per app user): the Pages he shared and their Page access tokens.
+ * Mapped READ-ONLY. `pages` carries the tokens, so it is `select: false` and only `MetaTokenProvider` ever loads it.
+ */
+@Schema({ collection: 'meta_connections', strict: false, versionKey: false, autoIndex: false, autoCreate: false })
+export class SharedMetaConnection {
+  @Prop({ type: MongooseSchema.Types.ObjectId }) userId: Types.ObjectId;
+  @Prop() metaUserId?: string;
+  @Prop({ select: false, type: [Object] }) pages?: Array<{ pageId: string; name: string; accessToken: string; instagram?: { id: string; username?: string } }>;
+  @Prop() userTokenExpiresAt?: Date;
+  @Prop() connectedAt?: Date;
+}
+export type SharedMetaConnectionDocument = HydratedDocument<SharedMetaConnection>;
+export const SharedMetaConnectionSchema = SchemaFactory.createForClass(SharedMetaConnection);
+lockWrites(SharedMetaConnectionSchema, 'meta_connections');
+
 /** Daily per-video performance rows written by the main app's Reporting API sync (read-only here). */
 @Schema({ collection: 'video_daily_stats', strict: false, versionKey: false, autoIndex: false, autoCreate: false })
 export class SharedVideoDailyStat {

@@ -283,7 +283,8 @@ export class PublishService {
     const channelId = String(post.channelId);
 
     // A brand-new upload must fit today's cap; resuming an existing session does not use a new slot.
-    if (!post.uploadSessionUri && !(await this.quota.hasRoom('yt'))) {
+    // The cap is YouTube's own quota ('yt'); other platforms have their own limits (checked in their preflight).
+    if (post.platform === 'youtube' && !post.uploadSessionUri && !(await this.quota.hasRoom('yt'))) {
       return this.block(post, 'daily_cap', `Today's upload limit (${this.quota.dailyCap}) is reached; it will continue after midnight Pacific time.`, msUntilPacificMidnight());
     }
     if (!post.assetKey) return this.fail(post, 'missing_asset', 'The rendered video file is missing.');

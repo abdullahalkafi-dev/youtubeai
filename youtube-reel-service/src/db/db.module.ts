@@ -21,6 +21,8 @@ import { ReelPillarSet, ReelPillarSetSchema, ReelVideoPillar, ReelVideoPillarSch
 import {
   SharedChannel,
   SharedChannelSchema,
+  SharedMetaConnection,
+  SharedMetaConnectionSchema,
   SharedUser,
   SharedUserSchema,
   SharedVideoDailyStat,
@@ -53,6 +55,7 @@ const models = MongooseModule.forFeature([
   { name: SharedVideoDailyStat.name, schema: SharedVideoDailyStatSchema },
   { name: SharedChannel.name, schema: SharedChannelSchema },
   { name: SharedUser.name, schema: SharedUserSchema },
+  { name: SharedMetaConnection.name, schema: SharedMetaConnectionSchema },
 ]);
 
 @Global()

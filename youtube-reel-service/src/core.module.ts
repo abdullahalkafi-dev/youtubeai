@@ -35,6 +35,8 @@ import { AutoPublishService } from './publishing/auto-publish.service';
 import { LearningService } from './publishing/learning.service';
 import { PublisherRegistry } from './publishing/registry';
 import { YouTubePublisher } from './publishing/youtube.publisher';
+import { MetaTokenProvider } from './publishing/meta-token.provider';
+import { FacebookPublisher } from './publishing/facebook.publisher';
 
 const providers = [
   StorageService,
@@ -67,6 +69,8 @@ const providers = [
   GoogleTokenProvider,
   PublishQuotaService,
   YouTubePublisher,
+  MetaTokenProvider,
+  FacebookPublisher, // registers itself with the PublisherRegistry on module init
   PublishService,
   AutoPublishService,
   LearningService,
