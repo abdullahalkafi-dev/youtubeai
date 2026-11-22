@@ -3,7 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as fs from 'fs';
 import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
-import { buildFacebookCaption } from './facebook-caption';
+import { buildFacebookCaption, fullVideoComment } from './facebook-caption';
 import { MetaTokenProvider } from './meta-token.provider';
 import { preflightChecks } from './preflight';
 import { PublisherRegistry } from './registry';
@@ -240,7 +240,27 @@ export class FacebookPublisher implements Publisher, OnModuleInit {
       }
       throw err;
     }
-    return { externalId: videoId!, url: reelUrl(videoId!), warnings: [] };
+    const warnings = await this.addLinkComment(videoId!, accessToken, metadata);
+    return { externalId: videoId!, url: reelUrl(videoId!), warnings };
+  }
+
+  /**
+   * First comment with the clickable YouTube link. Facebook only accepts comments once the reel has finished processing
+   * (about 1.5 minutes), so this retries for up to 2 minutes. It never fails the post: a miss is returned as a warning.
+   */
+  private async addLinkComment(videoId: string, token: string, metadata: PostMetadata): Promise<string[]> {
+    const message = fullVideoComment(metadata.description);
+    if (!message) return [];
+    for (let attempt = 0; attempt < 12; attempt++) {
+      await this.sleep(10_000);
+      try {
+        await this.post(`${GRAPH}/${encodeURIComponent(videoId)}/comments`, { message, access_token: token });
+        return [];
+      } catch (err) {
+        if (err instanceof PublishError && err.kind === 'auth') break;
+      }
+    }
+    return ['The reel is out, but the "full video" link comment could not be added. Add it by hand.'];
   }
 
   /** One POST with the bytes from `startOffset` to the end (a reel is small); retries ask Facebook how much it already has. */

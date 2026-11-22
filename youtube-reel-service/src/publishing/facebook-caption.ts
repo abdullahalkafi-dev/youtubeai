@@ -24,6 +24,8 @@ const clean = (s: string) =>
   s
     .replace(URL_RE, '')
     .replace(/[<>]/g, '')
+    // Client decision 2026-11-23: no long dashes in captions ("apple—and" reads like AI text); a comma keeps the beat.
+    .replace(/\s*[—–]\s*/g, ', ')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -60,6 +62,20 @@ export function facebookHashtags(tags: string[] | null | undefined, limit = HASH
     if (out.length >= limit) break;
   }
   return out;
+}
+
+const YOUTUBE_URL_RE = /https?:\/\/(?:www\.)?(?:youtu\.be|youtube\.com)\/[^\s"'<>)]+/i;
+
+/** The full-video link from the YouTube description ("🎥 FULL VIDEO: … → https://youtu.be/…?t=5377"), or null. */
+export function fullVideoLink(description: string | null | undefined): string | null {
+  const m = YOUTUBE_URL_RE.exec(String(description ?? ''));
+  return m ? m[0].replace(/[.,;]+$/, '') : null;
+}
+
+/** First comment on the reel. Links in a reel caption are not tappable on Facebook, but links in comments are. */
+export function fullVideoComment(description: string | null | undefined): string | null {
+  const url = fullVideoLink(description);
+  return url ? `Watch the full video on YouTube: ${url}` : null;
 }
 
 export function buildFacebookCaption(input: CaptionInput): string {

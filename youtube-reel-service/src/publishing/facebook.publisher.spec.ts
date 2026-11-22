@@ -24,11 +24,21 @@ class FakeFacebook {
   insights: Record<string, any> = {};
   node: any = { likes: { summary: { total_count: 7 } }, comments: { summary: { total_count: 2 } } };
   nodeError: Response | null = null;
+  /** How many comment attempts fail first (Facebook refuses comments while the reel is still processing). */
+  commentFailures = 0;
 
   fetch = async (input: any, init: any = {}): Promise<Response> => {
     const url = String(input);
     const method = init.method ?? 'GET';
     this.calls.push({ method, url, headers: init.headers ?? {}, body: init.body });
+
+    if (url === `${GRAPH}/555/comments` && method === 'POST') {
+      if (this.commentFailures > 0) {
+        this.commentFailures--;
+        return gerr(400, 100, { message: 'Unsupported post request' });
+      }
+      return json({ id: '555_9' });
+    }
 
     if (url === `${GRAPH}/${PAGE}/video_reels` && method === 'POST') {
       const p = init.body as URLSearchParams;
@@ -125,6 +135,37 @@ describe('FacebookPublisher.publish', () => {
     expect(finish.get('description')).toBe('What leaving a prison cell is worth\n\nA man recalls the first night home.\n\n#prison #harlem');
     expect(finish.get('description')).not.toMatch(/https?:\/\//);
     expect(c.saved).toEqual([[SESSION, 0], [SESSION, SIZE]]);
+  });
+
+  it('adds the full-video YouTube link as the first comment (links in the caption are not tappable)', async () => {
+    const { p, fb } = setup();
+    await p.publish({ channelId: 'c1', metadata: meta(), ctx: ctx().ctx });
+    const comment = fb.calls.find((x) => x.url === `${GRAPH}/555/comments`)!;
+    expect((comment.body as URLSearchParams).get('message')).toBe('Watch the full video on YouTube: https://youtu.be/abc');
+  });
+
+  it('keeps retrying the comment while Facebook still processes the reel, then succeeds with no warning', async () => {
+    const { p, fb } = setup();
+    fb.commentFailures = 3;
+    const out = await p.publish({ channelId: 'c1', metadata: meta(), ctx: ctx().ctx });
+    expect(out.warnings).toEqual([]);
+    expect(fb.calls.filter((x) => x.url === `${GRAPH}/555/comments`)).toHaveLength(4);
+  });
+
+  it('a comment that never goes through is a warning, not a failed post', async () => {
+    const { p, fb } = setup();
+    fb.commentFailures = 99;
+    const out = await p.publish({ channelId: 'c1', metadata: meta(), ctx: ctx().ctx });
+    expect(out.externalId).toBe('555');
+    expect(out.warnings).toHaveLength(1);
+    expect(out.warnings![0]).toMatch(/link comment could not be added/);
+    expect(fb.calls.filter((x) => x.url === `${GRAPH}/555/comments`)).toHaveLength(12);
+  });
+
+  it('posts no comment when the description has no YouTube link', async () => {
+    const { p, fb } = setup();
+    await p.publish({ channelId: 'c1', metadata: meta({ description: 'A man recalls the first night home.' }), ctx: ctx().ctx });
+    expect(fb.calls.some((x) => x.url === `${GRAPH}/555/comments`)).toBe(false);
   });
 
   it('never puts the token in a URL', async () => {

@@ -1,4 +1,34 @@
-import { buildFacebookCaption, contextLine, facebookHashtags, FACEBOOK_CAPTION_MAX } from './facebook-caption';
+import { buildFacebookCaption, contextLine, facebookHashtags, FACEBOOK_CAPTION_MAX, fullVideoComment, fullVideoLink } from './facebook-caption';
+
+describe('no long dashes in the caption (client decision 2026-11-23)', () => {
+  it('turns an em dash into a comma in the hook and in the context line', () => {
+    const c = buildFacebookCaption({
+      title: 'Yella Beezy: What leaving a prison cell is worth—Unique recalls a man',
+      description: '🎥 FULL VIDEO: "x" → https://youtu.be/abc\n\nAt Lewisburg, I bit a frozen apple—and my dentures stayed in it.',
+      hashtags: ['prison'],
+    });
+    expect(c).not.toMatch(/[—–]/);
+    expect(c).toContain('worth, Unique recalls a man');
+    expect(c).toContain('a frozen apple, and my dentures stayed in it.');
+  });
+  it('treats an en dash and spaced dashes the same way', () => {
+    expect(contextLine('He waited – and waited — then left the building, finally.')).toBe('He waited, and waited, then left the building, finally.');
+  });
+});
+
+describe('fullVideoLink / fullVideoComment', () => {
+  const d = '🎥 FULL VIDEO: "Yella Beezy Gets Life" → https://youtu.be/IE0g7tIQGL4?t=5377\n\nAt Lewisburg, I bit a frozen apple.';
+  it('finds the YouTube link, keeping the timestamp', () => {
+    expect(fullVideoLink(d)).toBe('https://youtu.be/IE0g7tIQGL4?t=5377');
+    expect(fullVideoLink('see https://www.youtube.com/watch?v=abc123.')).toBe('https://www.youtube.com/watch?v=abc123');
+  });
+  it('builds the comment text, and nothing without a YouTube link', () => {
+    expect(fullVideoComment(d)).toBe('Watch the full video on YouTube: https://youtu.be/IE0g7tIQGL4?t=5377');
+    expect(fullVideoComment('no link here')).toBeNull();
+    expect(fullVideoComment('https://example.com/x')).toBeNull();
+    expect(fullVideoComment(null)).toBeNull();
+  });
+});
 
 describe('facebookHashtags', () => {
   it('keeps at most 5 clean, de-duplicated tags and never invents any', () => {
