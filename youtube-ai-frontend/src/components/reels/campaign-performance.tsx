@@ -8,7 +8,7 @@ import type { CampaignPerformance as Perf, PlatformId } from '@/types/publishing
 import { compact, PLATFORM_LABEL, timeAgo } from './reel-ui'
 
 const ALL_PLATFORMS: PlatformId[] = ['youtube', 'instagram', 'facebook', 'x', 'linkedin']
-const LIVE: PlatformId[] = ['youtube']
+const LIVE: PlatformId[] = ['youtube', 'facebook']
 
 const VERDICT = {
   better: { icon: TrendingUp, cls: 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-emerald-500/20', title: 'Doing better than your other campaigns', hint: 'Worth making more reels on this topic.' },

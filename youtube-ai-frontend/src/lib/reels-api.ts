@@ -10,6 +10,7 @@ import type {
   DailyPreview,
   AutoPublishOverview,
   AutoPublishSettings,
+  FacebookOverview,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -195,6 +196,8 @@ export const reelsApi = {
     for (const [k, v] of Object.entries(params)) if (v !== undefined && v !== '') q.set(k, String(v))
     return request<{ total: number; items: ReelPost[] }>(`/channels/${channelId}/posts?${q.toString()}`)
   },
+
+  facebookOverview: (channelId: string) => request<FacebookOverview>(`/channels/${channelId}/facebook/overview`),
 
   coverage: (channelId: string) => request<Coverage>(`/channels/${channelId}/coverage`),
   insights: (channelId: string, period: 'week' | 'month') => request<Insights>(`/channels/${channelId}/insights?period=${period}`),

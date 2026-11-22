@@ -131,7 +131,7 @@ export function PostsPanel({
         <p className="text-xs text-zinc-500">Not published anywhere yet. Use <b>Publish</b> to upload it to YouTube.</p>
       ) : (
         <ul className="space-y-2">
-          {posts.map((p) => (
+          {posts.filter((p) => !(p.platform === 'facebook' && ['failed', 'cancelled', 'removed'].includes(p.status))).map((p) => (
             <li key={p.id} className="p-3 rounded-xl bg-zinc-50 dark:bg-zinc-800/50 border border-zinc-200 dark:border-zinc-800 space-y-1.5">
               <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-bold text-zinc-800 dark:text-zinc-100">{PLATFORM_LABEL[p.platform]}</span>
@@ -146,13 +146,14 @@ export function PostsPanel({
                   <div className="h-full bg-amber-500 transition-all" style={{ width: `${Math.round(p.progress * 100)}%` }} />
                 </div>
               )}
-              {p.error && p.status !== 'published' && (
+              {/* Facebook problems and rights notes are ops matters (developer report), never shown to the client. */}
+              {p.platform !== 'facebook' && p.error && p.status !== 'published' && (
                 <p className="text-[11px] text-red-500">
                   {p.error}
                   {p.status === 'blocked' && p.blockedUntil ? ` (resumes ${fmtNYDateTime(p.blockedUntil)})` : ''}
                 </p>
               )}
-              {p.warnings.map((w, i) => (
+              {(p.platform === 'facebook' ? [] : p.warnings).map((w, i) => (
                 <p key={i} className="text-[11px] text-amber-600 dark:text-amber-400">{w}</p>
               ))}
 

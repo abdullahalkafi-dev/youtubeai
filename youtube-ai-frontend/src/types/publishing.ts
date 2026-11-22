@@ -93,6 +93,37 @@ export interface ReelPost {
   createdAt: string
 }
 
+/** GET /channels/:id/facebook/overview — the client's Facebook Page view (no tokens, no technical reasons). */
+export interface FacebookOverview {
+  connected: boolean
+  state: 'ok' | 'needs_reconnect' | 'missing'
+  page: { id: string; name: string; followers: number | null; fetchedAt: string } | null
+  lanes: {
+    enabled: boolean
+    paused: boolean
+    /** For the developer report only: never shown to the client. */
+    pausedReason: string | null
+    newPerDay: number
+    backlogPerDay: number
+    backlogRemaining: number
+    postedToday: number
+    dailyCap: number
+  }
+  totals: { posts: number; views: number; likes: number; comments: number }
+  recent: Array<{
+    postId: string
+    reelId: string
+    title: string
+    url: string | null
+    status: PostStatus
+    source: string
+    publishedAt: string | null
+    views: number | null
+    likes: number | null
+    comments: number | null
+  }>
+}
+
 export interface AnalyticsOverview {
   period: string
   posts: number

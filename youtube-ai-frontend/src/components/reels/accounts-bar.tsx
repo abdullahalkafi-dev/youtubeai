@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import Link from 'next/link'
 import { AlertTriangle, CheckCircle2, Hand, Lock } from 'lucide-react'
 import api from '@/lib/api'
 import { errorMessage, reelsApi } from '@/lib/reels-api'
@@ -47,11 +48,16 @@ export function AccountsBar({ channelId, refreshKey = 0 }: { channelId: string; 
             <span className="font-semibold text-zinc-800 dark:text-zinc-200">{PLATFORM_LABEL[a.platform]}</span>
             {a.displayName && <span className="text-zinc-500">{a.displayName}</span>}
             {a.quota && (
-              <span className="text-[11px] text-zinc-400" title="Uploads today (resets at midnight Pacific time)">
+              <span className="text-[11px] text-zinc-400" title={a.platform === 'youtube' ? 'Uploads today (resets at midnight Pacific time)' : 'Posts in the last 24 hours'}>
                 {a.quota.usedToday}/{a.quota.dailyCap} today
               </span>
             )}
-            {!ok && (
+            {!ok && a.platform === 'facebook' && (
+              <Link href="/settings" className="ml-1 px-2 py-0.5 rounded-md bg-amber-500 text-black font-bold text-[11px] hover:bg-amber-400">
+                Reconnect Facebook
+              </Link>
+            )}
+            {!ok && a.platform !== 'facebook' && (
               <button
                 onClick={() => (window.location.href = api.getGoogleAuthUrl())}
                 title={a.message}

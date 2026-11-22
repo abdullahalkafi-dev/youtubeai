@@ -127,7 +127,7 @@ export function PerformancePanel({ channelId }: { channelId: string }) {
       <div className="flex items-center justify-between gap-3">
         <div>
           <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">Reel performance</h3>
-          <p className="text-[11px] text-zinc-500">Numbers come from YouTube and appear within about an hour of publishing. Views count when a play starts.</p>
+          <p className="text-[11px] text-zinc-500">Numbers come from YouTube and Facebook and appear within about an hour of publishing. Views count when a play starts.</p>
         </div>
         <div className="flex rounded-lg bg-zinc-100 dark:bg-zinc-800 p-0.5">
           {PERIODS.map(([id, label]) => (

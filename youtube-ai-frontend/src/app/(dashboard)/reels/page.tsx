@@ -13,10 +13,11 @@ import { CoveragePanel } from '@/components/reels/coverage-panel'
 import { AccountsBar } from '@/components/reels/accounts-bar'
 import { PerformancePanel } from '@/components/reels/performance-panel'
 import { DailyPanel } from '@/components/reels/daily-panel'
+import { FacebookPanel } from '@/components/reels/facebook-panel'
 import { DeleteCampaignDialog } from '@/components/reels/delete-campaign-dialog'
 import { CampaignStatusBadge, campaignStatusLine, compact, timeAgo } from '@/components/reels/reel-ui'
 
-type Tab = 'campaigns' | 'daily' | 'library' | 'performance' | 'coverage'
+type Tab = 'campaigns' | 'daily' | 'library' | 'performance' | 'facebook' | 'coverage'
 const LIBRARY_FILTERS: Array<{ id: ReelStatus | 'all'; label: string }> = [
   { id: 'todo', label: 'To-do' },
   { id: 'posted', label: 'Posted' },
@@ -125,6 +126,7 @@ export default function ReelsPage() {
             ['daily', 'Daily reels'],
             ['library', 'Reel library'],
             ['performance', 'Performance'],
+            ['facebook', 'Facebook'],
             ['coverage', 'Coverage & insights'],
           ] as Array<[Tab, string]>
         ).map(([id, label]) => (
@@ -246,6 +248,8 @@ export default function ReelsPage() {
       {tab === 'daily' && channelId && <DailyPanel channelId={channelId} />}
 
       {tab === 'performance' && channelId && <PerformancePanel channelId={channelId} />}
+
+      {tab === 'facebook' && channelId && <FacebookPanel channelId={channelId} />}
 
       {tab === 'coverage' && channelId && (
         <CoveragePanel
