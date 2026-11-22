@@ -1,7 +1,7 @@
 import type { ReelTrack } from './reel-campaign.schema';
 import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { HydratedDocument, Schema as MongooseSchema, Types } from 'mongoose';
-import { NormalizedMetrics, PLATFORMS, POST_STATUSES, PlatformId, PostMetadata, PostStatus, Privacy } from '../../publishing/types';
+import { NormalizedMetrics, PLATFORMS, POST_SOURCES, POST_STATUSES, PlatformId, PostMetadata, PostSource, PostStatus, Privacy } from '../../publishing/types';
 
 /**
  * One row per (reel × platform × account × attempt): what we published where, its state, and its latest numbers.
@@ -16,8 +16,11 @@ export class ReelPost {
   /** Platform-side account id (YouTube channel id). */
   @Prop() accountExternalId?: string;
   @Prop() accountName?: string;
-  /** api: a person pressed Publish; manual: a link recorded by hand; auto: the Daily auto-publish (only while its switch is on). */
-  @Prop({ type: String, enum: ['api', 'manual', 'auto'], default: 'api' }) source: 'api' | 'manual' | 'auto';
+  /**
+   * api: a person pressed Publish; manual: a link recorded by hand; auto: the Daily auto-publish (only while its switch is on);
+   * fb-mirror / fb-extra / fb-backlog: the Facebook lanes (never read by the YouTube auto-publish guards and learning).
+   */
+  @Prop({ type: String, enum: POST_SOURCES, default: 'api' }) source: PostSource;
   /** Auto posts: when the upload is planned to start, in which New York slot, and how the slot was chosen. Kept for learning which times work. */
   @Prop({ type: Object }) autoPlan?: { slot: string; runAt: Date; planDate: string; mode: 'rotation' | 'bandit'; track: ReelTrack; score: number | null; movedByClient?: boolean };
   @Prop({ type: String, enum: POST_STATUSES, default: 'queued', index: true }) status: PostStatus;

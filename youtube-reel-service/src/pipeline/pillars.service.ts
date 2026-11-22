@@ -237,7 +237,7 @@ saying what belongs in it and what does not. Never create a pillar for the chann
 
     // learned: our own posts of this pillar against the median of all our posts (shrunk until about 8 posts)
     const posted = await this.posts
-      .find({ channelId, status: 'published', 'latestMetrics.views': { $gte: 0 } })
+      .find({ channelId, platform: 'youtube', status: 'published', 'latestMetrics.views': { $gte: 0 } })
       .select('reelId latestMetrics.views')
       .lean();
     if (posted.length >= 6) {

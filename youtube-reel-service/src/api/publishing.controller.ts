@@ -3,6 +3,7 @@ import { AnalyticsService } from '../publishing/analytics.service';
 import { MetricsService } from '../publishing/metrics.service';
 import { PublishService } from '../publishing/publish.service';
 import { PublisherRegistry } from '../publishing/registry';
+import { FacebookLaneService } from '../publishing/facebook-lane.service';
 import { AuthedRequest, ReelAuthGuard } from './auth.guard';
 import { AnalyticsQuery, ManualPostDto, parse, PostsQuery, PreflightDto, PublishDto } from './dto';
 import { Inject } from '@nestjs/common';
@@ -21,6 +22,7 @@ export class PublishingController {
     private readonly registry: PublisherRegistry,
     private readonly metrics: MetricsService,
     private readonly analytics: AnalyticsService,
+    private readonly facebookLane: FacebookLaneService,
   ) {}
 
   @Get('accounts')
@@ -78,15 +80,22 @@ export class PublishingController {
     return this.metrics.refreshOne(channelId, postId);
   }
 
+  /** The Facebook tab: the Page, the lanes' state, totals and the newest Facebook posts. Never contains a token. */
+  @Get('facebook/overview')
+  facebookOverview(@Param('channelId') channelId: string) {
+    return this.facebookLane.overview(channelId);
+  }
+
   @Get('analytics/overview')
   overview(@Param('channelId') channelId: string, @Query() query: Record<string, string>) {
-    return this.analytics.overview(channelId, parse(AnalyticsQuery, query).period);
+    const q = parse(AnalyticsQuery, query);
+    return this.analytics.overview(channelId, q.period, q.platform);
   }
 
   @Get('analytics/breakdown')
   breakdown(@Param('channelId') channelId: string, @Query() query: Record<string, string>) {
     const q = parse(AnalyticsQuery, query);
-    return this.analytics.breakdown(channelId, q.by, q.period);
+    return this.analytics.breakdown(channelId, q.by, q.period, q.platform);
   }
 
   @Get('analytics/posts/:postId/series')

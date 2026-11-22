@@ -41,10 +41,10 @@ export class AlertService {
       downloadsPaused: await this.queues.q.download.isPaused(),
       today: { made, target: this.cfg.REEL_DAILY_REELS, working: camps.some((c) => !TERMINAL_CAMPAIGN_STATUSES.includes(c.status)), runStatus: (run as any)?.status ?? null },
       autoPublish: { enabled: !!auto.enabled, pausedReason: auto.pausedReason ?? null },
-      failedPostsToday: await db.collection('reel_posts').countDocuments({ channelId, status: 'failed', updatedAt: { $gte: start, $lt: end } }),
+      failedPostsToday: await db.collection('reel_posts').countDocuments({ channelId, platform: 'youtube', status: 'failed', updatedAt: { $gte: start, $lt: end } }),
       stock: {
         todo: await db.collection('reels').countDocuments({ channelId, status: 'todo', deletedAt: null }),
-        queuedPosts: await db.collection('reel_posts').countDocuments({ channelId, status: 'queued' }),
+        queuedPosts: await db.collection('reel_posts').countDocuments({ channelId, platform: 'youtube', status: 'queued' }),
         postsPerDay: Math.max(1, auto.slots?.length ?? this.cfg.REEL_DAILY_REELS),
       },
       stuckCampaigns: await this.campaigns.countDocuments({ channelId, origin: 'daily', status: 'preparing', createdAt: { $lt: new Date(now.getTime() - 6 * 3_600_000) } }),

@@ -26,6 +26,7 @@ import {
  */
 export const META_GRAPH_VERSION = 'v26.0';
 const GRAPH = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
+const FOLLOWERS_TTL_MS = 10 * 60_000;
 const RUPLOAD = `https://rupload.facebook.com/video-upload/${META_GRAPH_VERSION}`;
 
 /** Meta: "Reels API is limited to 30 API-published posts within a 24-hour moving period" (Reels Publishing API guide). */
@@ -147,6 +148,29 @@ export class FacebookPublisher implements Publisher, OnModuleInit {
           : undefined,
       quota: { usedToday: await this.postsLast24h(channelId), dailyCap: FACEBOOK_REELS_PER_24H },
     };
+  }
+
+  private readonly followersCache = new Map<string, { at: number; value: number | null }>();
+
+  /**
+   * The Page's follower count for the app's Facebook overview. Cached for 10 minutes, and a Facebook problem gives null instead of
+   * an error (the overview must still load).
+   */
+  async pageFollowers(channelId: string): Promise<{ followers: number | null; fetchedAt: Date }> {
+    const hit = this.followersCache.get(channelId);
+    if (hit && Date.now() - hit.at < FOLLOWERS_TTL_MS) return { followers: hit.value, fetchedAt: new Date(hit.at) };
+    let value: number | null = null;
+    try {
+      const { pageId, accessToken } = await this.tokens.page(channelId);
+      const data = await this.get(`${GRAPH}/${encodeURIComponent(pageId)}`, { fields: 'followers_count,fan_count', access_token: accessToken });
+      const n = Number(data?.followers_count ?? data?.fan_count);
+      value = Number.isFinite(n) ? n : null;
+    } catch {
+      value = null;
+    }
+    const at = Date.now();
+    this.followersCache.set(channelId, { at, value });
+    return { followers: value, fetchedAt: new Date(at) };
   }
 
   /** Facebook counts a moving 24 hours, not a calendar day. */

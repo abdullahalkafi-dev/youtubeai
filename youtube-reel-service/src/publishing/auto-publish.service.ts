@@ -167,7 +167,7 @@ export class AutoPublishService {
    */
   async shortsBaseline(channelId: string): Promise<number | null> {
     const rows = await this.posts
-      .find({ channelId: new Types.ObjectId(channelId), source: 'auto', status: 'published', publishedAt: { $gte: new Date(Date.now() - 18 * 86_400_000) } })
+      .find({ channelId: new Types.ObjectId(channelId), platform: 'youtube', source: 'auto', status: 'published', publishedAt: { $gte: new Date(Date.now() - 18 * 86_400_000) } })
       .select('publishedAt')
       .lean();
     // views after about a day for every post, so a week-old post is not measured by a week of views against a new post's first day
@@ -180,7 +180,7 @@ export class AutoPublishService {
   async slotPosts(channelId: string, days = 90): Promise<DayPost[]> {
     const cid = new Types.ObjectId(channelId);
     const posts = await this.posts
-      .find({ channelId: cid, source: 'auto', status: 'published', 'autoPlan.slot': { $exists: true }, publishedAt: { $gte: new Date(Date.now() - days * 86_400_000) } })
+      .find({ channelId: cid, platform: 'youtube', source: 'auto', status: 'published', 'autoPlan.slot': { $exists: true }, publishedAt: { $gte: new Date(Date.now() - days * 86_400_000) } })
       .select('autoPlan publishedAt latestMetrics.views')
       .lean();
     const snaps = await this.metrics.find({ postId: { $in: posts.map((p) => p._id) }, checkpoint: '24h' }).select('postId views').lean();
@@ -211,7 +211,7 @@ export class AutoPublishService {
     if (!s.enabled || (s.pausedReason && !legacyViewsPause)) return null;
     const cid = new Types.ObjectId(channelId);
     const recent = await this.posts
-      .find({ channelId: cid, source: 'auto', createdAt: { $gte: new Date(Date.now() - 10 * 86_400_000) } })
+      .find({ channelId: cid, platform: 'youtube', source: 'auto', createdAt: { $gte: new Date(Date.now() - 10 * 86_400_000) } })
       .sort({ createdAt: -1 })
       .select('status publishedAt latestMetrics.views warnings errorCode')
       .lean();
@@ -244,7 +244,7 @@ export class AutoPublishService {
   async pause(channelId: string, reason: string) {
     const cur = await this.settings(channelId);
     await this.settingsModel.updateOne({ key: key(channelId) }, { $set: { value: { ...cur, pausedReason: reason, pausedAt: new Date(), updatedAt: new Date() } } }, { upsert: true });
-    const queued = await this.posts.find({ channelId: new Types.ObjectId(channelId), source: 'auto', status: 'queued' }).select('_id').lean();
+    const queued = await this.posts.find({ channelId: new Types.ObjectId(channelId), platform: 'youtube', source: 'auto', status: 'queued' }).select('_id').lean();
     for (const p of queued) await this.publish.cancel(channelId, String(p._id)).catch(() => undefined);
     this.logger.warn(`Auto-publish paused for ${channelId}: ${reason} (${queued.length} waiting posts cancelled)`);
   }

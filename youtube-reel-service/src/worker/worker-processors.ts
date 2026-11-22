@@ -99,6 +99,8 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     // Monday 8:30 AM New York: the weekly "what worked" review (needs enough settled posts; otherwise it just records how many are missing).
     await q.maintenance.add({ task: 'weekly-review' } satisfies MaintenanceJob, { repeat: { cron: '30 8 * * 1', tz: 'America/New_York' }, jobId: 'weekly-review', attempts: 1 });
     await q.maintenance.add({ task: 'auto-publish' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'auto-publish', attempts: 1 });
+    // Facebook lanes (extra + backlog slots, and the stop-by-itself check). The mirror needs no timer: it fires when a YouTube post goes live.
+    await q.maintenance.add({ task: 'facebook-lane' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'facebook-lane', attempts: 1 });
     // Daily automatic campaign: 4:00 AM New York, with a 6:00 AM retry for a failed day (runs are idempotent per NY date).
     await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 4 * * *', tz: 'America/New_York' }, jobId: 'daily', attempts: 1 });
     await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 6 * * *', tz: 'America/New_York' }, jobId: 'daily-retry', attempts: 1 });

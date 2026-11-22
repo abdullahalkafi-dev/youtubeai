@@ -134,6 +134,17 @@ const EnvSchema = z.object({
   PUBLISH_CHUNK_MB: int(8),
   PUBLISH_DEFAULT_PRIVACY: z.enum(['private', 'unlisted', 'public']).default('unlisted'),
   METRICS_MAX_AGE_DAYS: int(90),
+
+  // Facebook Page Reels lanes (client decision 2026-11-23). Safe defaults: the lanes run without any of these set.
+  // FACEBOOK_AUTO=off is the kill switch for the whole Facebook lane (YouTube is never affected by it).
+  FACEBOOK_AUTO: z.enum(['on', 'off']).default('on'),
+  FACEBOOK_NEW_PER_DAY: int(3), // mirror + extra new reels
+  FACEBOOK_BACKLOG_PER_DAY: int(2), // reels already on YouTube, not yet on Facebook
+  FACEBOOK_BACKLOG_DAYS: int(30),
+  FACEBOOK_EXTRA_SLOT_ET: str('15:00'),
+  FACEBOOK_BACKLOG_SLOTS_ET: str('12:30,18:30'),
+  /** ISO time before which a YouTube post is NOT mirrored. Empty = the moment the lane first runs (stored in reel_settings). */
+  FACEBOOK_AUTO_SINCE: str(''),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & {

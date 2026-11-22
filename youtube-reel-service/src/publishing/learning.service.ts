@@ -50,7 +50,7 @@ export class LearningService {
 
   /** Weekly job: one review per channel per week, only for channels that publish. */
   async runWeekly() {
-    const channels = (await this.posts.distinct('channelId', { status: 'published' })) as Types.ObjectId[];
+    const channels = (await this.posts.distinct('channelId', { platform: 'youtube', status: 'published' })) as Types.ObjectId[];
     for (const c of channels) {
       try {
         await this.review(String(c));
@@ -67,11 +67,12 @@ export class LearningService {
 
     const tables: NonNullable<ReelReview['tables']> = {};
     for (const by of SECTIONS) {
-      const r = await this.analytics.breakdown(channelId, by, '30d').catch(() => null);
+      // The review is about YouTube Shorts (its prompt says so): Facebook numbers never enter it.
+      const r = await this.analytics.breakdown(channelId, by, '30d', 'youtube').catch(() => null);
       const rows = (r?.rows ?? []).filter((x) => x.posts >= MIN_POSTS_FOR_CLAIM).map((x) => ({ key: x.key, posts: x.posts, avgViews: x.avgViews, avgViewPct: x.avgViewPct }));
       if (rows.length >= 2) tables[by] = rows; // a single group has nothing to compare against
     }
-    const total = await this.posts.countDocuments({ channelId: cid, status: 'published', publishedAt: { $gte: new Date(Date.now() - 30 * 86_400_000) } });
+    const total = await this.posts.countDocuments({ channelId: cid, platform: 'youtube', status: 'published', publishedAt: { $gte: new Date(Date.now() - 30 * 86_400_000) } });
     if (total < MIN_POSTS_FOR_REVIEW || !Object.keys(tables).length) {
       await this.reviews.create({ channelId: cid, weekOf, posts: total, enoughData: false, summary: `Not enough posts yet to say what works (${total} of ${MIN_POSTS_FOR_REVIEW} needed). Every claim needs at least ${MIN_POSTS_FOR_CLAIM} posts behind it.`, findings: [], tables });
       return this.latest(cid);

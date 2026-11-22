@@ -24,6 +24,7 @@ import { nyDate } from '../common/time';
 import { OpsReportService } from '../pipeline/ops-report.service';
 import { formatOpsReport } from '../pipeline/ops-report';
 import { AlertService } from '../pipeline/alert.service';
+import { FacebookLaneService } from '../publishing/facebook-lane.service';
 import { alertsFor } from '../pipeline/alerts';
 
 /**
@@ -31,6 +32,8 @@ import { alertsFor } from '../pipeline/alerts';
  *   node dist/cli/reel-cli.js template:upload <dir> [name]
  *   node dist/cli/reel-cli.js cookies:import <cookies.txt>
  *   node dist/cli/reel-cli.js hot:preview <channelId> [reels] [newVideoReelsAlreadyMade]   (the newest videos and how the day's reels would be shared)
+ *   node dist/cli/reel-cli.js fb:preview <channelId>   (read-only: what the Facebook lanes would post in the next 24 hours, with the YouTube link of each reel, and the backlog size)
+ *   node dist/cli/reel-cli.js fb:resume <channelId>   (clears a pause the Facebook lane put on itself; YouTube is never paused by it)
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
@@ -89,6 +92,22 @@ async function main() {
           console.log(`  ${g.reels} reel(s) -> ${g.key} (score ${g.score.toFixed(2)}, capacity ${g.capacity})`);
           for (const v of g.videos) console.log('      ' + show(v));
         }
+        break;
+      }
+      case 'fb:preview': {
+        // Read-only: nothing is created. node dist/cli/reel-cli.js fb:preview <channelId>
+        const lane = app.get(FacebookLaneService);
+        const p = await lane.preview(args[0]);
+        console.log(`FACEBOOK LANES: ${p.enabled ? 'on' : 'OFF (FACEBOOK_AUTO=off)'}${p.paused ? ` | PAUSED: ${p.paused}` : ''} | go-live ${p.goLiveAt ? new Date(p.goLiveAt).toISOString() : '(not started yet)'}`);
+        console.log(`today so far: mirror ${p.todayCounts.mirror}, extra ${p.todayCounts.extra}, backlog ${p.todayCounts.backlog} (cap ${lane.lane.dailyCap}) | backlog waiting: ${p.backlogSize} reel(s) from the last ${lane.lane.backlogDays} days`);
+        console.log('NEXT 24 HOURS (mirrors are not listed: each YouTube post that goes live is mirrored at once)');
+        for (const i of p.items) console.log(`  ${i.date} ${i.time} ET  ${i.kind.padEnd(7)} ${i.reelId ? `${i.title.slice(0, 70)}  [${i.youtubeUrl ?? 'not on YouTube yet'}]` : `- ${i.note}`}`);
+        if (!p.items.length) console.log('  (nothing due in the next 24 hours)');
+        break;
+      }
+      case 'fb:resume': {
+        await app.get(FacebookLaneService).resume(args[0]);
+        console.log('Facebook lane resumed.');
         break;
       }
       case 'lanes:create': {

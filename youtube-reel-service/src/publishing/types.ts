@@ -5,6 +5,12 @@ export type PlatformId = (typeof PLATFORMS)[number];
 /** Platforms we will add later; shown in the UI as "coming soon". */
 export const PLANNED_PLATFORMS: PlatformId[] = ['x', 'linkedin', 'instagram', 'facebook'];
 
+/** Posts made by the Facebook lanes. Distinct from 'auto' so nothing that learns from or guards the YouTube auto posts ever sees them. */
+export const FACEBOOK_LANE_SOURCES = ['fb-mirror', 'fb-extra', 'fb-backlog'] as const;
+export type FacebookLaneSource = (typeof FACEBOOK_LANE_SOURCES)[number];
+export type PostSource = 'api' | 'manual' | 'auto' | FacebookLaneSource;
+export const POST_SOURCES: PostSource[] = ['api', 'manual', 'auto', ...FACEBOOK_LANE_SOURCES];
+
 export const POST_STATUSES = ['queued', 'uploading', 'processing', 'scheduled', 'published', 'failed', 'cancelled', 'blocked', 'removed'] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];
 /** Posts that still count as "this reel is already going out on this account". */

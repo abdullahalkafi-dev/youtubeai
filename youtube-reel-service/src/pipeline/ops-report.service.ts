@@ -92,13 +92,26 @@ export class OpsReportService {
     }));
 
     const todo = await db.collection('reels').countDocuments({ channelId, status: 'todo', deletedAt: null });
-    const queuedPosts = await db.collection('reel_posts').countDocuments({ channelId, status: 'queued' });
-    const published = await db.collection('reel_posts').countDocuments({ channelId, status: 'published', publishedAt: { $gte: start, $lt: end } });
-    const failedPosts = (await db.collection('reel_posts').find({ channelId, status: 'failed', updatedAt: { $gte: start, $lt: end } }).project({ errorCode: 1, error: 1 }).toArray()).map((p) => ({
+    // YouTube health only: Facebook posts have their own section below, so a Facebook problem never reads as a YouTube one.
+    const queuedPosts = await db.collection('reel_posts').countDocuments({ channelId, platform: 'youtube', status: 'queued' });
+    const published = await db.collection('reel_posts').countDocuments({ channelId, platform: 'youtube', status: 'published', publishedAt: { $gte: start, $lt: end } });
+    const failedPosts = (await db.collection('reel_posts').find({ channelId, platform: 'youtube', status: 'failed', updatedAt: { $gte: start, $lt: end } }).project({ errorCode: 1, error: 1 }).toArray()).map((p) => ({
       postId: String(p._id),
       errorCode: p.errorCode ?? null,
       error: String(p.error ?? ''),
     }));
+
+    // Facebook lanes: this day's lane posts and whether the lane stopped by itself (reel_settings facebook-lane:<channel>)
+    const fbState = ((await db.collection('reel_settings').findOne({ key: `facebook-lane:${channelId}` })) as any)?.value ?? {};
+    const fbToday = await db.collection('reel_posts').find({ channelId, platform: 'facebook', source: { $in: ['fb-mirror', 'fb-extra', 'fb-backlog'] }, createdAt: { $gte: start, $lt: end } }).project({ status: 1, source: 1, errorCode: 1, error: 1 }).toArray();
+    const facebook: OpsReportBody['facebook'] = {
+      enabled: this.cfg.FACEBOOK_AUTO !== 'off',
+      paused: !!fbState.pausedReason,
+      pausedReason: fbState.pausedReason ?? null,
+      posted: fbToday.filter((p) => p.status !== 'cancelled').length,
+      published: fbToday.filter((p) => p.status === 'published').length,
+      failed: fbToday.filter((p) => p.status === 'failed').map((p) => ({ postId: String(p._id), source: String(p.source), errorCode: p.errorCode ?? null, error: String(p.error ?? '') })),
+    };
 
     // posts a day = the channel's auto-publish slots (2 since Nov 6 2026)
     const auto = ((await db.collection('reel_settings').findOne({ key: `autopublish:${channelId}` })) as any)?.value;
@@ -160,6 +173,7 @@ export class OpsReportService {
         sttMinutes: Math.round(empty.reduce((a, c) => a + (c.usage?.sttSeconds ?? 0), 0) / 60),
       },
       mainChannel,
+      facebook,
       hot: { fromHot, made: madeReels.length, relaxed: madeReels.filter((r) => r.openingMode === 'relaxed').length },
     };
     const issues = opsIssues(body, now);

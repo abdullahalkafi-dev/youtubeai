@@ -20,9 +20,14 @@ import { msUntilPacificMidnight, PublishQuotaService } from './publish-quota.ser
 import { PublisherRegistry } from './registry';
 import { buildEngagementComment, fullVideoLinkOf } from './description';
 import { YouTubePublisher } from './youtube.publisher';
-import { ACTIVE_POST_STATUSES, AccountStatus, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
+import { ACTIVE_POST_STATUSES, AccountStatus, FacebookLaneSource, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
 
 const MAX_UPLOAD_ATTEMPTS = 5;
+const PLATFORM_LABEL: Partial<Record<PlatformId, string>> = { youtube: 'YouTube', facebook: 'Facebook', instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' };
+const labelOf = (p: PlatformId) => PLATFORM_LABEL[p] ?? p;
+
+/** Called (fire and forget) when a YouTube post has just gone live. The Facebook mirror lane uses it; it can never slow or fail the YouTube path. */
+export type YoutubePublishedHook = (post: { id: string; reelId: string; channelId: string; publishedAt: Date }) => Promise<void>;
 const VERIFY_DELAYS_MS = [90_000, 3 * 60_000, 6 * 60_000, 12 * 60_000, 20 * 60_000, 30 * 60_000, 45 * 60_000, 60 * 60_000];
 
 export interface PublishInput {
@@ -48,6 +53,22 @@ export class PublishService {
     private readonly youtube: YouTubePublisher, // injected so the adapter registers itself at startup
     private readonly thumbnails: ThumbnailService,
   ) {}
+
+  private readonly youtubePublishedHooks: YoutubePublishedHook[] = [];
+
+  /** Register a listener for "a YouTube post went live" (see YoutubePublishedHook). */
+  onYoutubePublished(hook: YoutubePublishedHook) {
+    this.youtubePublishedHooks.push(hook);
+  }
+
+  private notifyYoutubePublished(post: { _id: unknown; reelId: unknown; channelId: unknown }, publishedAt: Date) {
+    for (const hook of this.youtubePublishedHooks) {
+      // Detached on purpose: a slow or failing listener must never delay or fail the YouTube post.
+      void Promise.resolve()
+        .then(() => hook({ id: String(post._id), reelId: String(post.reelId), channelId: String(post.channelId), publishedAt }))
+        .catch((err) => this.logger.warn(`Post ${String(post._id)}: after-publish listener failed (${errMsg(err)})`));
+    }
+  }
 
   // ------------------------------------------------------------------ helpers
 
@@ -211,6 +232,45 @@ export class PublishService {
     return this.serialize(post.toObject());
   }
 
+  /**
+   * A post made by a Facebook lane (mirror / extra / backlog): only ever called by FacebookLaneService, which exists only behind
+   * FACEBOOK_AUTO. Same queue, upload, verify and metrics path as every other post; the upload starts shortly before `runAt` from OUR queue,
+   * so a post can be cancelled before it starts at no cost. It never changes the reel's own status (that is YouTube's).
+   */
+  async createFacebookPost(
+    channelId: string,
+    ownerUserId: string,
+    reelId: string,
+    o: { source: FacebookLaneSource; runAt: Date; slot: string; planDate: string; metadata: Partial<PostMetadata>; score: number | null },
+  ) {
+    const pre = await this.preflight(channelId, reelId, 'facebook', { ...o.metadata, privacy: 'public', scheduleAt: null, notifySubscribers: false });
+    if (!pre.canPublish) throw new BadRequestException({ message: 'The reel cannot be published yet', issues: pre.issues.filter((i) => i.level === 'error') });
+    const reel = await this.loadReel(channelId, reelId);
+    const stat = reel.assets.videoKey ? await this.storage.stat(BUCKETS.reels, reel.assets.videoKey) : null;
+    if (!stat) throw new BadRequestException('The rendered video file is missing. Re-render the reel first.');
+    const post = await this.posts.create({
+      reelId: reel._id,
+      campaignId: reel.campaignId,
+      channelId: reel.channelId,
+      platform: 'facebook',
+      accountExternalId: pre.account.externalId,
+      accountName: pre.account.displayName,
+      source: o.source,
+      status: 'queued',
+      metadata: pre.metadata,
+      approvedBy: new Types.ObjectId(ownerUserId),
+      approvedAt: new Date(),
+      assetKey: reel.assets.videoKey,
+      assetSizeBytes: stat.size,
+      requestedPrivacy: 'public',
+      // As for YouTube auto posts: `warnings` is what the platform itself reports, so the standing rights advisory is not copied here.
+      warnings: [],
+      autoPlan: { slot: o.slot, runAt: o.runAt, planDate: o.planDate, mode: 'rotation', track: 'main', score: o.score },
+    });
+    await this.queues.publish(String(post._id), 'upload', Math.max(0, o.runAt.getTime() - Date.now() - UPLOAD_LEAD_MS));
+    return this.serialize(post.toObject());
+  }
+
   /** Remove the waiting timer(s) of a post that has not started uploading. */
   private async dropWaitingJobs(postId: string) {
     const jobs = await this.queues.q.publish.getJobs(['delayed', 'waiting']);
@@ -255,7 +315,7 @@ export class PublishService {
       // Only YouTube has an adapter to pull numbers from; other platforms are tracked without numbers for now.
       nextMetricsAt: externalId ? firstCheckpointAt(publishedAt) : undefined,
     });
-    await this.markReelPosted(String(reel._id), publishedAt, input.url);
+    await this.markReelPosted(String(reel._id), publishedAt, input.url, input.platform);
     return this.serialize(post.toObject());
   }
 
@@ -392,13 +452,13 @@ export class PublishService {
     }
     await this.posts.updateOne({ _id: postId }, { $inc: { unitsSpent: 1 } });
 
-    if (result.state === 'failed') return this.fail(post, 'rejected', result.error ?? 'YouTube could not publish the video.');
+    if (result.state === 'failed') return this.fail(post, 'rejected', result.error ?? `${labelOf(post.platform)} could not publish the video.`);
     if (result.state === 'processing') {
       if (attempt + 1 < VERIFY_DELAYS_MS.length) {
         await this.queues.publish(postId, 'verify', VERIFY_DELAYS_MS[attempt + 1], attempt + 1);
         return;
       }
-      result.warnings.push('YouTube is still processing this video; check YouTube Studio.');
+      result.warnings.push(post.platform === 'youtube' ? 'YouTube is still processing this video; check YouTube Studio.' : `${labelOf(post.platform)} is still processing this reel; check the page.`);
     }
 
     const now = new Date();
@@ -416,12 +476,18 @@ export class PublishService {
         },
       },
     );
-    await this.markReelPosted(String(post.reelId), publishedAt, post.url ?? '');
+    await this.markReelPosted(String(post.reelId), publishedAt, post.url ?? '', post.platform);
     this.logger.log(`Post ${postId}: ${scheduled ? 'scheduled' : 'published'} (${result.actualPrivacy ?? '?'})`);
+    if (post.platform === 'youtube' && !scheduled) this.notifyYoutubePublished(post, publishedAt);
   }
 
-  /** The reel's overall state: it has gone out (or is booked to). Does not touch rejected/failed reels. */
-  private async markReelPosted(reelId: string, at: Date, url: string) {
+  /**
+   * The reel's overall state: it has gone out (or is booked to). Does not touch rejected/failed reels.
+   * A Facebook post never changes it: `posted` is what keeps a reel out of YouTube's picker, so a reel that only went to Facebook
+   * must stay `todo` for YouTube.
+   */
+  private async markReelPosted(reelId: string, at: Date, url: string, platform: PlatformId = 'youtube') {
+    if (platform === 'facebook') return;
     await this.reels.updateOne(
       { _id: reelId, status: 'todo' },
       { $set: { status: 'posted', postedAt: at, ...(url ? { postedUrl: url } : {}) } },

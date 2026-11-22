@@ -26,6 +26,8 @@ export interface OpsReportBody {
    * views as of this report; one report a day, so a video's day-3 and day-7 views can be read off the reports of those days.
    */
   mainChannel?: Array<{ youtubeId: string; title: string; ageDays: number; views: number; viewsPerDay: number }>;
+  /** Facebook lanes (Nov 23 2026): what the day's Facebook posts did, and whether the lane stopped by itself. Developer only. */
+  facebook?: { enabled: boolean; paused: boolean; pausedReason: string | null; posted: number; published: number; failed: Array<{ postId: string; source: string; errorCode: string | null; error: string }> };
   /** Hot videos first (Nov 17 2026): how many of the day's reels were cut from a video under 15 days old (youngest source of each reel). */
   hot?: { fromHot: number; made: number; relaxed?: number };
 }
@@ -67,6 +69,8 @@ export function opsIssues(b: OpsReportBody, now: Date = new Date()): string[] {
 
   if (b.stock.daysLeft < 2) out.push(`Low stock: ${b.stock.todo} finished reels (${b.stock.queuedPosts} already queued), about ${b.stock.daysLeft} day(s) of posts`);
   if (b.posting.failed.length) out.push(`${b.posting.failed.length} post(s) failed: ${b.posting.failed.map((p) => p.errorCode ?? cut(p.error, 60)).join(', ')}`);
+  if (b.facebook?.paused) out.push(`Facebook lane is PAUSED: ${cut(b.facebook.pausedReason ?? 'no reason recorded', 160)} (YouTube is not affected; resume with the fb:resume command)`);
+  if (b.facebook?.failed.length) out.push(`${b.facebook.failed.length} Facebook post(s) failed: ${b.facebook.failed.map((p) => `${p.source} ${p.errorCode ?? cut(p.error, 60)}`).join(', ')}`);
   if (b.wasted.promptTokens >= 200_000) out.push(`${Math.round(b.wasted.promptTokens / 1000)}k prompt tokens and ${b.wasted.sttMinutes} min of speech-to-text went into campaigns that made nothing`);
   return out;
 }
@@ -94,6 +98,7 @@ export function formatOpsReport(r: { date: string; issues: string[]; body: OpsRe
   return [
     `=== ${r.date}: ${b.made}/${b.target} reels | ${lanes}`,
     `    topic: ${b.run.topic ?? '-'} | stock ${b.stock.todo} (~${b.stock.daysLeft}d) | posted ${b.posting.published} | downloads ${heights}`,
+    ...(b.facebook ? [`    facebook: ${b.facebook.enabled ? (b.facebook.paused ? 'PAUSED' : 'on') : 'off'} | posted ${b.facebook.posted}, live ${b.facebook.published}, failed ${b.facebook.failed.length}`] : []),
     ...(b.hot ? [`    newest videos: ${b.hot.fromHot} of ${b.hot.made} reels cut from videos under 15 days old${b.hot.relaxed ? ` (${b.hot.relaxed} with the relaxed opening rules)` : ''}`] : []),
     ...(main ? [`    main channel: ${main}`] : []),
     ...(r.issues.length ? r.issues.map((i) => `    ! ${i}`) : ['    ok: no issues']),

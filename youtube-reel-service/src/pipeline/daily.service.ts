@@ -339,7 +339,7 @@ export class DailyService {
     const db = this.campaigns.db;
     // reels older than 10 days are leftovers the plan never picks: they are not stock (Nov 17: 3 of 7 'stock' reels were 2-4 weeks old)
     const todo = await db.collection('reels').countDocuments({ channelId: cid, status: 'todo', deletedAt: null, createdAt: { $gte: new Date(Date.now() - 10 * 86_400_000) } });
-    const queued = await db.collection('reel_posts').countDocuments({ channelId: cid, status: 'queued' });
+    const queued = await db.collection('reel_posts').countDocuments({ channelId: cid, platform: 'youtube', status: 'queued' });
     if (!needsEarlyBackup(todo - queued, this.cfg.REEL_DAILY_REELS)) return;
     const backup = await this.lanes.backupForDay(cid, date, userId, this.cfg.REEL_DAILY_REELS);
     if (!backup) return;

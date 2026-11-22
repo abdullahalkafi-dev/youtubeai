@@ -5,6 +5,7 @@ import { Reel, ReelDocument } from '../db/schemas/reel.schema';
 import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelPostMetric, ReelPostMetricDocument } from '../db/schemas/reel-post-metric.schema';
 import { parsePeriodDays } from './publish.service';
+import type { PlatformId } from './types';
 
 export const BREAKDOWNS = ['platform', 'shape', 'theme', 'entity', 'duration', 'weekday', 'campaign', 'voice', 'look', 'slot', 'pillar', 'track', 'signal'] as const;
 export type Breakdown = (typeof BREAKDOWNS)[number];
@@ -26,11 +27,15 @@ export class AnalyticsService {
     return period === 'all' ? new Date(0) : new Date(Date.now() - parsePeriodDays(period) * 86_400_000);
   }
 
-  /** Headline numbers for the period (posts published in it). */
-  async overview(channelId: string, period: string) {
+  /**
+   * Headline numbers for the period (posts published in it). `platform` narrows every number to one platform; without it all
+   * platforms are counted together and `byPlatform` splits them.
+   */
+  async overview(channelId: string, period: string, platform?: PlatformId) {
     const cid = new Types.ObjectId(channelId);
     const since = this.since(period);
-    const published = { channelId: cid, status: { $in: ['published', 'scheduled', 'removed'] }, publishedAt: { $gte: since } };
+    const only = platform ? { platform } : {};
+    const published = { channelId: cid, ...only, status: { $in: ['published', 'scheduled', 'removed'] }, publishedAt: { $gte: since } };
 
     const [totals, byPlatform, statusAgg, top] = await Promise.all([
       this.posts.aggregate<{ posts: number; views: number; likes: number; comments: number; watchMinutes: number }>([
@@ -52,7 +57,7 @@ export class AnalyticsService {
         { $sort: { views: -1 } },
       ]),
       this.posts.aggregate<{ _id: string; n: number }>([
-        { $match: { channelId: cid, createdAt: { $gte: since } } },
+        { $match: { channelId: cid, ...only, createdAt: { $gte: since } } },
         { $group: { _id: '$status', n: { $sum: 1 } } },
       ]),
       this.posts
@@ -87,11 +92,11 @@ export class AnalyticsService {
   }
 
   /** Which kinds of reels perform: group published posts by a property of their reel. */
-  async breakdown(channelId: string, by: Breakdown, period: string) {
+  async breakdown(channelId: string, by: Breakdown, period: string, platform?: PlatformId) {
     if (!BREAKDOWNS.includes(by)) throw new BadRequestException(`Unknown breakdown "${by}"`);
     const cid = new Types.ObjectId(channelId);
     const pipeline: PipelineStage[] = [
-      { $match: { channelId: cid, status: 'published', publishedAt: { $gte: this.since(period) }, 'latestMetrics.views': { $exists: true } } },
+      { $match: { channelId: cid, ...(platform ? { platform } : {}), status: 'published', publishedAt: { $gte: this.since(period) }, 'latestMetrics.views': { $exists: true } } },
       { $lookup: { from: 'reels', localField: 'reelId', foreignField: '_id', as: 'reel' } },
       { $unwind: '$reel' },
     ];
@@ -314,7 +319,9 @@ export class AnalyticsService {
       .sort((a, b) => b.views - a.views);
 
     const views = sum(published, 'views');
-    const comparison = await this.compareWithChannel(cid, family, published.map((p) => p._id as Types.ObjectId), published.length ? views / published.length : 0);
+    // The verdict compares YouTube with YouTube: a Facebook post's numbers never decide whether a campaign beat the channel.
+    const ytPublished = published.filter((p) => p.platform === 'youtube');
+    const comparison = await this.compareWithChannel(cid, family, ytPublished.map((p) => p._id as Types.ObjectId), ytPublished.length ? sum(ytPublished, 'views') / ytPublished.length : 0);
     const lastUpdated = published.reduce<Date | null>((d, p) => {
       const at = p.latestMetrics?.capturedAt ? new Date(p.latestMetrics.capturedAt) : null;
       return at && (!d || at > d) ? at : d;
@@ -342,7 +349,7 @@ export class AnalyticsService {
 
   private async compareWithChannel(channelId: Types.ObjectId, family: Types.ObjectId[], ownPostIds: Types.ObjectId[], ownLifetimeAvg: number) {
     const others = await this.posts
-      .find({ channelId, campaignId: { $nin: family }, status: 'published' })
+      .find({ channelId, platform: 'youtube', campaignId: { $nin: family }, status: 'published' })
       .select('_id campaignId latestMetrics.views')
       .lean();
     const otherCampaigns = new Set(others.map((p) => String(p.campaignId))).size;

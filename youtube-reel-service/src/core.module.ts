@@ -37,6 +37,7 @@ import { PublisherRegistry } from './publishing/registry';
 import { YouTubePublisher } from './publishing/youtube.publisher';
 import { MetaTokenProvider } from './publishing/meta-token.provider';
 import { FacebookPublisher } from './publishing/facebook.publisher';
+import { FacebookLaneService } from './publishing/facebook-lane.service';
 
 const providers = [
   StorageService,
@@ -73,6 +74,7 @@ const providers = [
   FacebookPublisher, // registers itself with the PublisherRegistry on module init
   PublishService,
   AutoPublishService,
+  FacebookLaneService, // the Facebook mirror / extra / backlog lanes (does nothing with FACEBOOK_AUTO=off)
   LearningService,
   MetricsService,
   AnalyticsService,
