@@ -6,6 +6,8 @@ import { QuotaService } from '../quota/quota.service';
 
 const MAX_RESULTS_PER_PAGE = 100;
 const MAX_ITERATIONS = 50;
+/** Video ids per filtered analytics query (the API's own limit is higher; 200 keeps maxResults within its cap for the video dimension). */
+const VIDEO_ID_BATCH = 200;
 
 export interface VideoAnalytics {
   videoId: string;
@@ -101,6 +103,48 @@ export class YoutubeAnalyticsService {
       }
     }
     return analyticsMap;
+  }
+
+  /**
+   * Lifetime analytics for specific videos. getChannelVideoAnalytics above only returns the channel's top ~100 videos by lifetime
+   * views, so new reels never appear in it. A `video==id1,id2` filter has no such cap (the API accepts a few hundred ids per query).
+   * A batch that fails is skipped and logged; the rest still come back.
+   */
+  async getVideosAnalyticsByIds(userId: string, youtubeChannelId: string, videoIds: string[]): Promise<Map<string, VideoAnalytics>> {
+    const out = new Map<string, VideoAnalytics>();
+    const ids = [...new Set(videoIds.filter(Boolean))];
+    if (!ids.length) return out;
+
+    const accessToken = await this.youtubeService.getValidAccessToken(userId);
+    const oauth2Client = new google.auth.OAuth2();
+    oauth2Client.setCredentials({ access_token: accessToken });
+    const youtubeAnalytics = google.youtubeAnalytics('v2');
+    const startDate = '2005-01-01';
+    const endDate = new Date().toISOString().split('T')[0];
+
+    for (let i = 0; i < ids.length; i += VIDEO_ID_BATCH) {
+      const batch = ids.slice(i, i + VIDEO_ID_BATCH);
+      try {
+        const response = await retryWithBackoff(() => youtubeAnalytics.reports.query({
+          auth: oauth2Client, ids: `channel==${youtubeChannelId}`, startDate, endDate,
+          metrics: 'views,estimatedMinutesWatched,averageViewDuration,averageViewPercentage,estimatedRevenue',
+          dimensions: 'video', sort: '-views', maxResults: VIDEO_ID_BATCH, filters: `video==${batch.join(',')}`,
+        }), { operationName: 'YouTube Analytics Query (by video ids)' });
+        await this.quotaService.logAnalyticsCall({ channelId: youtubeChannelId, endpoint: 'analytics.reports.query (videos-by-id)', success: true });
+        for (const row of response.data.rows || []) {
+          out.set(row[0] as string, {
+            videoId: row[0] as string, views: (row[1] as number) || 0,
+            estimatedMinutesWatched: (row[2] as number) || 0, averageViewDuration: (row[3] as number) || 0,
+            averageViewPercentage: (row[4] as number) || 0, estimatedRevenue: (row[5] as number) || 0,
+          });
+        }
+      } catch (error: any) {
+        this.logger.warn(`Analytics by-id batch ${i / VIDEO_ID_BATCH + 1} failed: ${error.message}`);
+        await this.quotaService.logAnalyticsCall({ channelId: youtubeChannelId, endpoint: 'analytics.reports.query (videos-by-id)', success: false, errorMessage: error.message });
+      }
+    }
+    this.logger.log(`Analytics by video ids: ${out.size}/${ids.length} videos returned`);
+    return out;
   }
 
   async getSingleVideoAnalytics(userId: string, youtubeChannelId: string, youtubeVideoId: string): Promise<VideoAnalytics | null> {

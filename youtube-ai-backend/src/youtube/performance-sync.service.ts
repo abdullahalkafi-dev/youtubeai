@@ -16,6 +16,8 @@ const LIFETIME_WINDOW_DAYS = 35;
 const MIN_IMPRESSIONS = 100;
 /** Daily snapshots only for videos published within this window OR actively measured. */
 const SNAPSHOT_MAX_AGE_DAYS = 120;
+/** Most recent-video ids asked for per sync run (5 queries at 200 per query). */
+const RECENT_BY_ID_MAX = 1000;
 const CHUNK = 500;
 
 export interface RunReport {
@@ -372,6 +374,20 @@ export class PerformanceSyncService {
         for (const [ytId, a] of map) analyticsByYt.set(ytId, a);
       } catch (e: any) {
         errors.push(`analytics: ${e?.message || e}`);
+      }
+      // The bulk call above only returns the top ~100 videos by lifetime views, so new reels and other recent videos were never
+      // filled in (revenue, watch time, retention). Ask for those by id; cheap (one query per 200 videos).
+      try {
+        const missing = videoDocs
+          .filter((v) => v.publishedAt && new Date(v.publishedAt).getTime() >= publishCutoff && !analyticsByYt.has(v.youtubeId))
+          .map((v) => v.youtubeId as string)
+          .slice(0, RECENT_BY_ID_MAX);
+        if (missing.length) {
+          const extra = await this.analytics.getVideosAnalyticsByIds(uid, ytChannelId, missing);
+          for (const [ytId, a] of extra) analyticsByYt.set(ytId, a);
+        }
+      } catch (e: any) {
+        errors.push(`analytics by id: ${e?.message || e}`);
       }
 
       // Compose per-video updates -------------------------------------------
