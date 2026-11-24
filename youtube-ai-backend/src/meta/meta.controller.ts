@@ -1,4 +1,4 @@
-import { Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { BadRequestException, Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Response } from 'express';
 import { MetaService } from './meta.service';
@@ -45,10 +45,14 @@ export class MetaController {
     return this.metaService.listAccounts(userId);
   }
 
-  /** DELETE /auth/meta/disconnect — delete stored Meta tokens and data. */
+  /** DELETE /auth/meta/disconnect — delete all stored Meta logins, or only `?loginId=<Meta account id>`. */
   @Delete('disconnect')
   @UseGuards(JwtAuthGuard)
-  disconnect(@CurrentUser('id') userId: string) {
-    return this.metaService.disconnect(userId);
+  disconnect(@CurrentUser('id') userId: string, @Query('loginId') loginId?: string) {
+    // A query value can be an object/array (?loginId[$ne]=x): only a plain id string may reach the database filter.
+    if (loginId !== undefined && !(typeof loginId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(loginId))) {
+      throw new BadRequestException('loginId is not valid');
+    }
+    return this.metaService.disconnect(userId, loginId);
   }
 }

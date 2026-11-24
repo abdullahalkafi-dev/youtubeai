@@ -80,7 +80,8 @@ export const SharedUserSchema = SchemaFactory.createForClass(SharedUser);
 lockWrites(SharedUserSchema, 'users');
 
 /**
- * The main app's Facebook login (one document per app user): the Pages he shared and their Page access tokens.
+ * The main app's Facebook logins (one document per app user AND Meta account, so an owner can hold several): the Pages each
+ * account shared and their Page access tokens.
  * Mapped READ-ONLY. `pages` carries the tokens, so it is `select: false` and only `MetaTokenProvider` ever loads it.
  */
 @Schema({ collection: 'meta_connections', strict: false, versionKey: false, autoIndex: false, autoCreate: false })

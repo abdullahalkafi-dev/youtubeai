@@ -20,10 +20,14 @@ export interface MetaPage {
   instagram?: MetaInstagramAccount;
 }
 
-/** One Facebook login per app user: the Pages he shared and the Instagram accounts linked to them. */
+/**
+ * One Facebook login per (app user, Meta account): the Pages that account shared and the Instagram accounts linked to them.
+ * An app user can hold several logins side by side (e.g. the account that runs the reels Page and the account that runs the
+ * Instagram Page); reconnecting one account replaces only that account's document.
+ */
 @Schema({ timestamps: true, collection: 'meta_connections' })
 export class MetaConnection {
-  @Prop({ type: Types.ObjectId, ref: 'User', required: true, unique: true })
+  @Prop({ type: Types.ObjectId, ref: 'User', required: true })
   userId: Types.ObjectId;
 
   @Prop({ required: true })
@@ -44,3 +48,5 @@ export class MetaConnection {
 }
 
 export const MetaConnectionSchema = SchemaFactory.createForClass(MetaConnection);
+// The old single-field unique index on userId is dropped at startup by MetaService.ensureIndexes (Mongoose never drops indexes itself).
+MetaConnectionSchema.index({ userId: 1, metaUserId: 1 }, { unique: true });

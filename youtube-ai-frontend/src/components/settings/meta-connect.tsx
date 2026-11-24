@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { CheckCircle2, Loader2, Link2, Unplug } from 'lucide-react'
-import { api, type MetaAccounts } from '@/lib/api'
+import { api, type MetaAccounts, type MetaLogin } from '@/lib/api'
 import { showApiErrorToast } from '@/lib/error-handler'
 import { toast } from 'sonner'
 
@@ -14,6 +14,12 @@ const ERROR_TEXT: Record<string, string> = {
   missing_code: 'Facebook did not return a login code. Please try again.',
   exchange_failed: 'Facebook login could not be completed. Please try again.',
   not_configured: 'Facebook / Instagram login is not configured on the server.',
+}
+
+/** The connected Facebook accounts. An older server answers with only the flat `pages` list: show it as one account. */
+function loginsOf(accounts: MetaAccounts): MetaLogin[] {
+  if (accounts.logins?.length) return accounts.logins
+  return [{ loginId: 'default', connectedAt: accounts.connectedAt, tokenExpiresAt: accounts.tokenExpiresAt, pages: accounts.pages }]
 }
 
 export function MetaConnectCard() {
@@ -53,11 +59,13 @@ export function MetaConnectCard() {
     }
   }
 
-  const disconnect = async () => {
+  const disconnect = async (loginId?: string) => {
+    const what = loginId ? 'this Facebook account' : 'every connected Facebook account'
+    if (!window.confirm(`Disconnect ${what}? Its stored access is deleted.`)) return
     try {
       setBusy(true)
-      await api.disconnectMeta()
-      toast.success('Facebook / Instagram disconnected and stored data deleted')
+      await api.disconnectMeta(loginId)
+      toast.success(loginId ? 'Facebook account disconnected' : 'Facebook / Instagram disconnected and stored data deleted')
       await load()
     } catch (err) {
       showApiErrorToast(err, 'Could not disconnect')
@@ -67,6 +75,8 @@ export function MetaConnectCard() {
   }
 
   const connected = Boolean(accounts?.connected)
+  const logins = accounts ? loginsOf(accounts) : []
+  const pageCount = logins.reduce((n, l) => n + l.pages.length, 0)
 
   return (
     <Card>
@@ -85,27 +95,47 @@ export function MetaConnectCard() {
 
         {connected ? (
           <div className="space-y-3">
-            {accounts!.pages.length === 0 && (
+            {pageCount === 0 && (
               <p className="text-xs text-amber-600 dark:text-amber-400">
-                Logged in, but no Facebook Page was shared. Reconnect and tick the Page on Facebook&apos;s screen.
+                Logged in, but no Facebook Page was shared. Connect again and tick the Page on Facebook&apos;s screen.
               </p>
             )}
-            {accounts!.pages.map((p) => (
+            {logins.map((login, i) => (
               <div
-                key={p.pageId}
-                className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3.5 border border-gray-200 dark:border-gray-700"
+                key={login.loginId}
+                className="bg-gray-50 dark:bg-gray-800 rounded-xl p-3.5 border border-gray-200 dark:border-gray-700 space-y-2.5"
               >
-                <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{p.name}</p>
-                <p className="text-xs text-gray-400">Facebook Page</p>
-                <p className="text-xs mt-1.5 text-gray-600 dark:text-gray-300">
-                  {p.instagram
-                    ? `Instagram: @${p.instagram.username || p.instagram.id}${
-                        p.instagram.followersCount ? ` · ${p.instagram.followersCount.toLocaleString()} followers` : ''
-                      }`
-                    : 'No Instagram account linked to this Page'}
-                </p>
+                {logins.length > 1 && (
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-wider text-gray-400">Facebook account {i + 1}</p>
+                    <button
+                      onClick={() => disconnect(login.loginId === 'default' ? undefined : login.loginId)}
+                      disabled={busy}
+                      className="text-[11px] text-gray-400 hover:text-red-500 transition disabled:opacity-50"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
+                {login.pages.length === 0 && <p className="text-xs text-gray-400">No Page shared from this account.</p>}
+                {login.pages.map((p) => (
+                  <div key={p.pageId}>
+                    <p className="text-sm font-semibold text-gray-900 dark:text-white truncate">{p.name}</p>
+                    <p className="text-xs text-gray-400">Facebook Page</p>
+                    <p className="text-xs mt-1 text-gray-600 dark:text-gray-300">
+                      {p.instagram
+                        ? `Instagram: @${p.instagram.username || p.instagram.id}${
+                            p.instagram.followersCount ? ` · ${p.instagram.followersCount.toLocaleString()} followers` : ''
+                          }`
+                        : 'No Instagram account linked to this Page'}
+                    </p>
+                  </div>
+                ))}
               </div>
             ))}
+            <p className="text-[11px] text-gray-400">
+              Connecting another Facebook account adds it here. It does not replace the ones already connected.
+            </p>
             <div className="flex gap-2 pt-1">
               <button
                 onClick={connect}
@@ -113,15 +143,15 @@ export function MetaConnectCard() {
                 className="flex-1 py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition disabled:opacity-50"
               >
                 {busy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Link2 className="w-3.5 h-3.5" />}
-                Reconnect
+                Connect a Facebook account
               </button>
               <button
-                onClick={disconnect}
+                onClick={() => disconnect()}
                 disabled={busy}
                 className="py-2.5 px-4 border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-300 rounded-xl text-xs font-semibold flex items-center justify-center gap-2 transition disabled:opacity-50"
               >
                 <Unplug className="w-3.5 h-3.5" />
-                Disconnect
+                Disconnect all
               </button>
             </div>
           </div>

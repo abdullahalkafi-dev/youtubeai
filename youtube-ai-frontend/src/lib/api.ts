@@ -65,15 +65,35 @@ export function setLogoutHandler(handler: () => void) {
   dispatchLogout = handler
 }
 
+export interface MetaInstagram {
+  id: string
+  username?: string
+  name?: string
+  followersCount?: number
+}
+
+export interface MetaPageInfo {
+  pageId: string
+  name: string
+  instagram?: MetaInstagram | null
+}
+
+/** One connected Facebook account (an app user can hold several side by side). */
+export interface MetaLogin {
+  loginId: string
+  connectedAt?: string
+  tokenExpiresAt?: string
+  pages: MetaPageInfo[]
+}
+
 export interface MetaAccounts {
   connected: boolean
   connectedAt?: string
   tokenExpiresAt?: string
-  pages: {
-    pageId: string
-    name: string
-    instagram?: { id: string; username?: string; name?: string; followersCount?: number }
-  }[]
+  /** Every Page of every login in one list (kept for older callers); each carries the login it belongs to. */
+  pages: (MetaPageInfo & { loginId?: string })[]
+  /** Per Facebook account detail. Missing on an older server. */
+  logins?: MetaLogin[]
 }
 
 export class ApiError extends Error {
@@ -816,8 +836,10 @@ class ApiClient {
     return this.get<MetaAccounts>('/api/auth/meta/accounts')
   }
 
-  async disconnectMeta() {
-    return this.delete<{ disconnected: boolean }>('/api/auth/meta/disconnect')
+  /** Without a loginId every connected Facebook account is removed; with one, only that account. */
+  async disconnectMeta(loginId?: string) {
+    const q = loginId ? `?loginId=${encodeURIComponent(loginId)}` : ''
+    return this.delete<{ disconnected: boolean }>(`/api/auth/meta/disconnect${q}`)
   }
 
   // Comments

@@ -4,14 +4,16 @@ import { SharedMetaConnectionSchema } from '../db/schemas/shared.readonly';
 
 const SECRET_PAGE_TOKEN = 'PAGE_TOKEN_SECRET_123';
 
+/** `conn` is one login document, a list of logins (oldest first), or null for "nothing connected". */
 function harness(conn: any) {
   const ownerId = new Types.ObjectId();
   const seen: any = { connQuery: null, writes: 0 };
+  const logins = conn === null || conn === undefined ? [] : Array.isArray(conn) ? conn : [conn];
   const channels: any = { findById: () => ({ select: () => ({ lean: async () => ({ userId: ownerId }) }) }) };
   const connections: any = {
-    findOne: (q: any) => {
+    find: (q: any) => {
       seen.connQuery = q;
-      return { select: () => ({ lean: async () => conn }) };
+      return { select: () => ({ sort: () => ({ lean: async () => logins }) }) };
     },
     updateOne: () => void seen.writes++,
     findOneAndUpdate: () => void seen.writes++,
@@ -51,6 +53,71 @@ describe('MetaTokenProvider with a pinned Page', () => {
 
     const missing = new MetaTokenProvider((h.provider as any).channels, (h.provider as any).connections, { FACEBOOK_PAGE_ID: '999' } as any);
     await expect(missing.page('c1')).rejects.toMatchObject({ kind: 'auth', code: 'no_meta_connection' });
+  });
+});
+
+describe('MetaTokenProvider with two Facebook logins side by side', () => {
+  const future = new Date(Date.now() + 86_400_000);
+  const past = new Date(Date.now() - 1000);
+  // login A runs the reels Page, login B runs the Instagram Page (the real setup)
+  const loginA = (over: any = {}) => ({ metaUserId: 'A', userTokenExpiresAt: future, pages: [page()], ...over });
+  const loginB = (over: any = {}) => ({
+    metaUserId: 'B',
+    userTokenExpiresAt: future,
+    pages: [page({ pageId: '777', name: 'Unique Mecca Audio', accessToken: 'TOKEN_B', instagram: { id: 'ig9', username: 'uniquemeccaaudio' } })],
+    ...over,
+  });
+  const withPin = (h: ReturnType<typeof harness>, pin?: string) =>
+    new MetaTokenProvider((h.provider as any).channels, (h.provider as any).connections, pin ? ({ FACEBOOK_PAGE_ID: pin } as any) : undefined);
+
+  it('with no pin the first Page of the first (oldest) login is used, and the others count as extra', async () => {
+    const h = harness([loginA(), loginB()]);
+    expect(await h.provider.page('c1')).toMatchObject({ pageId: '219', accessToken: SECRET_PAGE_TOKEN });
+    expect(await h.provider.identity('c1')).toMatchObject({ pageId: '219', extraPages: 1 });
+  });
+
+  it('the pinned Page is found in whichever login holds it and its own token is used', async () => {
+    const h = harness([loginA(), loginB()]);
+    expect(await withPin(h, '777').page('c1')).toEqual({ pageId: '777', name: 'Unique Mecca Audio', accessToken: 'TOKEN_B' });
+    expect(await withPin(h, '219').page('c1')).toMatchObject({ pageId: '219', accessToken: SECRET_PAGE_TOKEN });
+    // the pin lives in the SECOND login even though the first one comes first
+    const second = harness([loginB(), loginA()]);
+    expect((await withPin(second, '219').page('c1')).accessToken).toBe(SECRET_PAGE_TOKEN);
+  });
+
+  it('a pinned Page that no login holds still stops publishing (no fallback to another Page)', async () => {
+    const h = harness([loginA(), loginB()]);
+    await expect(withPin(h, '999').page('c1')).rejects.toMatchObject({ kind: 'auth', code: 'no_meta_connection' });
+    expect(await withPin(h, '999').identity('c1')).toBeNull();
+  });
+
+  it('an expired login only affects its own Pages', async () => {
+    const h = harness([loginA(), loginB({ userTokenExpiresAt: past })]);
+    expect((await withPin(h, '219').page('c1')).pageId).toBe('219'); // reels keep going
+    await expect(withPin(h, '777').page('c1')).rejects.toMatchObject({ kind: 'auth', code: 'meta_token_expired' });
+
+    const aExpired = harness([loginA({ userTokenExpiresAt: past }), loginB()]);
+    await expect(withPin(aExpired, '219').page('c1')).rejects.toMatchObject({ code: 'meta_token_expired' });
+    expect((await withPin(aExpired, '777').page('c1')).pageId).toBe('777');
+  });
+
+  it('when the same Page sits in two logins the one with a valid login is used', async () => {
+    const h = harness([loginA({ userTokenExpiresAt: past }), loginB({ pages: [page({ accessToken: 'FRESH' })] })]);
+    expect((await withPin(h, '219').page('c1')).accessToken).toBe('FRESH');
+  });
+
+  it('identity reports the Instagram of the chosen Page and never any token', async () => {
+    const h = harness([loginA(), loginB()]);
+    const id = await withPin(h, '777').identity('c1');
+    expect(id).toMatchObject({ pageId: '777', instagramId: 'ig9', extraPages: 1 });
+    expect(JSON.stringify(id)).not.toMatch(/TOKEN_B|PAGE_TOKEN_SECRET/);
+  });
+
+  it('queries every login of the channel OWNER and writes nothing', async () => {
+    const h = harness([loginA(), loginB()]);
+    await h.provider.page('c1');
+    expect(h.seen.connQuery.userId.toString()).toBe(h.ownerId.toString());
+    expect(h.seen.writes).toBe(0);
   });
 });
 

@@ -1,4 +1,4 @@
-import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -55,8 +55,11 @@ interface GraphPage {
   };
 }
 
+/** The index the collection had while it held one login per app user. It must go before a second login can be stored. */
+const LEGACY_USER_INDEX = 'userId_1';
+
 @Injectable()
-export class MetaService {
+export class MetaService implements OnModuleInit {
   private readonly logger = new Logger(MetaService.name);
 
   constructor(
@@ -64,6 +67,33 @@ export class MetaService {
     private readonly connectionModel: Model<MetaConnectionDocument>,
     private readonly configService: ConfigService,
   ) {}
+
+  async onModuleInit() {
+    await this.ensureIndexes();
+  }
+
+  /**
+   * One-time, idempotent: drop the old UNIQUE single-field `userId_1` index (it would reject a second Meta login of the same
+   * app user), then make sure the schema's unique (userId, metaUserId) index exists. Only that one index is ever dropped, never
+   * data and never other indexes. It must not stop the app from booting, so any failure is logged and swallowed.
+   */
+  async ensureIndexes(): Promise<void> {
+    try {
+      const indexes = (await this.connectionModel.collection.indexes()) as Array<{ name?: string; unique?: boolean; key?: Record<string, number> }>;
+      const legacy = indexes.find((i) => i.name === LEGACY_USER_INDEX && i.unique && Object.keys(i.key ?? {}).join() === 'userId');
+      if (legacy) {
+        await this.connectionModel.collection.dropIndex(LEGACY_USER_INDEX);
+        this.logger.log('Dropped the old one-login-per-user index on meta_connections');
+      }
+    } catch (err) {
+      this.logger.warn(`Could not check or drop the old meta_connections index: ${(err as Error).message}`);
+    }
+    try {
+      await this.connectionModel.createIndexes();
+    } catch (err) {
+      this.logger.warn(`Could not create the meta_connections indexes: ${(err as Error).message}`);
+    }
+  }
 
   private get appId(): string {
     return this.configService.get<string>('META_APP_ID') || '';
@@ -137,13 +167,15 @@ export class MetaService {
       const metaUserId = await this.fetchMetaUserId(long.token);
       const pages = await this.fetchPages(long.token);
 
+      // One document per Meta account: reconnecting the same account renews it, a different account is stored next to it.
       await this.connectionModel.findOneAndUpdate(
-        { userId: new Types.ObjectId(userId) },
+        { userId: new Types.ObjectId(userId), metaUserId },
         {
           userId: new Types.ObjectId(userId),
           metaUserId,
           userAccessToken: long.token,
-          userTokenExpiresAt: long.expiresAt,
+          // null (not undefined) so a login Meta gives no expiry for does not keep the previous login's old date.
+          userTokenExpiresAt: long.expiresAt ?? null,
           pages,
           connectedAt: new Date(),
         },
@@ -158,31 +190,55 @@ export class MetaService {
     }
   }
 
-  /** Connected Pages and Instagram accounts. Tokens are never included. */
+  /**
+   * Connected Pages and Instagram accounts of every Facebook login of this app user. Tokens are never included.
+   * `pages` is every Page of every login in one list (each tagged with its `loginId`), `connectedAt` the newest login and
+   * `tokenExpiresAt` the soonest expiry, so callers written for a single login keep working; `logins` has the per-account detail.
+   */
   async listAccounts(userId: string) {
-    const doc = await this.connectionModel.findOne({ userId: new Types.ObjectId(userId) }).lean();
-    if (!doc) return { connected: false, pages: [] };
+    const docs = await this.connectionModel.find({ userId: new Types.ObjectId(userId) }).sort({ connectedAt: 1 }).lean();
+    if (!docs.length) return { connected: false, pages: [], logins: [] };
+
+    const logins = docs.map((d) => ({
+      loginId: d.metaUserId,
+      connectedAt: d.connectedAt,
+      tokenExpiresAt: d.userTokenExpiresAt,
+      pages: (d.pages || []).map((p) => ({ pageId: p.pageId, name: p.name, instagram: p.instagram })),
+    }));
+    const times = (xs: Array<Date | undefined>) => xs.filter(Boolean).map((x) => new Date(x as Date).getTime());
+    const connected = times(logins.map((l) => l.connectedAt));
+    const expiries = times(logins.map((l) => l.tokenExpiresAt));
     return {
       connected: true,
-      connectedAt: doc.connectedAt,
-      tokenExpiresAt: doc.userTokenExpiresAt,
-      pages: (doc.pages || []).map((p) => ({
-        pageId: p.pageId,
-        name: p.name,
-        instagram: p.instagram,
-      })),
+      connectedAt: connected.length ? new Date(Math.max(...connected)) : undefined,
+      tokenExpiresAt: expiries.length ? new Date(Math.min(...expiries)) : undefined,
+      pages: logins.flatMap((l) => l.pages.map((p) => ({ ...p, loginId: l.loginId }))),
+      logins,
     };
   }
 
-  /** Removes the stored tokens and data, and asks Meta to revoke the app's access (best effort). */
-  async disconnect(userId: string): Promise<{ disconnected: boolean }> {
-    const doc = await this.connectionModel.findOneAndDelete({ userId: new Types.ObjectId(userId) }).lean();
-    if (!doc) return { disconnected: false };
-    try {
-      const url = `${this.graphBase}/me/permissions?${new URLSearchParams({ access_token: doc.userAccessToken })}`;
-      await fetch(url, { method: 'DELETE' });
-    } catch {
-      this.logger.warn('Meta permission revoke failed; stored data was deleted anyway');
+  /**
+   * Removes stored tokens and data and asks Meta to revoke the app's access (best effort). Without `loginId` every login of the
+   * user goes (the Data Deletion page promises this); with it only that Meta account's login.
+   */
+  async disconnect(userId: string, loginId?: string): Promise<{ disconnected: boolean }> {
+    const owner = new Types.ObjectId(userId);
+    let docs: Array<{ userAccessToken: string }>;
+    if (loginId) {
+      const one = await this.connectionModel.findOneAndDelete({ userId: owner, metaUserId: loginId }).lean();
+      docs = one ? [one] : [];
+    } else {
+      docs = await this.connectionModel.find({ userId: owner }).lean();
+      if (docs.length) await this.connectionModel.deleteMany({ userId: owner });
+    }
+    if (!docs.length) return { disconnected: false };
+    for (const doc of docs) {
+      try {
+        const url = `${this.graphBase}/me/permissions?${new URLSearchParams({ access_token: doc.userAccessToken })}`;
+        await fetch(url, { method: 'DELETE' });
+      } catch {
+        this.logger.warn('Meta permission revoke failed; stored data was deleted anyway');
+      }
     }
     return { disconnected: true };
   }
