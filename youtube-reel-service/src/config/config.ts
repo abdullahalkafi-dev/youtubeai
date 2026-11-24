@@ -145,6 +145,11 @@ const EnvSchema = z.object({
   FACEBOOK_BACKLOG_SLOTS_ET: str('12:30,18:30'),
   /** ISO time before which a YouTube post is NOT mirrored. Empty = the moment the lane first runs (stored in reel_settings). */
   FACEBOOK_AUTO_SINCE: str(''),
+  /**
+   * The ONE Facebook Page reels are published to. Set it when a login shares more than one Page (e.g. a second Page that only
+   * carries the Instagram link). Empty = the first Page in the login. When set but absent from the login, publishing stops.
+   */
+  FACEBOOK_PAGE_ID: str(''),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & {

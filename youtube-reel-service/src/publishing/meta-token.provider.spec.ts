@@ -26,10 +26,31 @@ describe('pickPage', () => {
   it('uses the first Page that has an id and a token', () => {
     expect(pickPage([{ pageId: '', name: 'x', accessToken: 't' }, page(), page({ pageId: '2' })] as any)?.pageId).toBe('219');
   });
+  it('uses the pinned Page even when it is not first', () => {
+    const pages = [page({ pageId: '2', name: 'Instagram-only Page' }), page()] as any;
+    expect(pickPage(pages, '219')?.name).toBe('Mecca Audio Entertainment');
+    expect(pickPage(pages)?.pageId).toBe('2');
+  });
+  it('never falls back to another Page when the pinned one is missing', () => {
+    expect(pickPage([page({ pageId: '2' })] as any, '219')).toBeNull();
+  });
   it('is null when there is nothing usable', () => {
     expect(pickPage([])).toBeNull();
     expect(pickPage(undefined)).toBeNull();
     expect(pickPage([{ pageId: '1', name: 'x', accessToken: '' }] as any)).toBeNull();
+  });
+});
+
+describe('MetaTokenProvider with a pinned Page', () => {
+  it('publishes to the pinned Page even though another Page comes first, and refuses when it is not shared', async () => {
+    const conn = { pages: [page({ pageId: '2', name: 'Instagram-only Page', accessToken: 'OTHER' }), page()] };
+    const h = harness(conn);
+    const pinned = new MetaTokenProvider((h.provider as any).channels, (h.provider as any).connections, { FACEBOOK_PAGE_ID: '219' } as any);
+    expect(await pinned.page('c1')).toEqual({ pageId: '219', name: 'Mecca Audio Entertainment', accessToken: SECRET_PAGE_TOKEN });
+    expect((await pinned.identity('c1'))?.pageId).toBe('219');
+
+    const missing = new MetaTokenProvider((h.provider as any).channels, (h.provider as any).connections, { FACEBOOK_PAGE_ID: '999' } as any);
+    await expect(missing.page('c1')).rejects.toMatchObject({ kind: 'auth', code: 'no_meta_connection' });
   });
 });
 

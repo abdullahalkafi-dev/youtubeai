@@ -1,4 +1,5 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { AppConfig, CONFIG } from '../config/config';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import {
@@ -26,8 +27,10 @@ export interface MetaPageIdentity {
  * The Page we publish to for a channel: the first Page in the login (assumption, see MetaTokenProvider).
  * Pure so it can be tested without a database.
  */
-export function pickPage(pages: StoredPage[] | undefined | null): StoredPage | null {
+export function pickPage(pages: StoredPage[] | undefined | null, preferredId?: string): StoredPage | null {
   const usable = (pages ?? []).filter((p) => p && p.pageId && p.accessToken);
+  // A pinned Page is the only one ever used: if it is missing from the login we stop, never post to another Page.
+  if (preferredId) return usable.find((p) => String(p.pageId) === preferredId) ?? null;
   return usable[0] ?? null;
 }
 
@@ -45,7 +48,13 @@ export class MetaTokenProvider {
   constructor(
     @InjectModel(SharedChannel.name) private readonly channels: Model<SharedChannelDocument>,
     @InjectModel(SharedMetaConnection.name) private readonly connections: Model<SharedMetaConnectionDocument>,
+    @Optional() @Inject(CONFIG) private readonly cfg?: AppConfig,
   ) {}
+
+  /** The pinned Page (FACEBOOK_PAGE_ID), or undefined to use the first Page of the login. */
+  private get pinned(): string | undefined {
+    return this.cfg?.FACEBOOK_PAGE_ID?.trim() || undefined;
+  }
 
   private async load(channelId: string) {
     const channel = await this.channels.findById(channelId).select('userId').lean();
@@ -59,7 +68,7 @@ export class MetaTokenProvider {
   /** The connected Page without any token, or null when Facebook is not connected. */
   async identity(channelId: string): Promise<MetaPageIdentity | null> {
     const conn = await this.load(channelId);
-    const page = pickPage(conn?.pages);
+    const page = pickPage(conn?.pages, this.pinned);
     if (!conn || !page) return null;
     return {
       pageId: page.pageId,
@@ -73,7 +82,7 @@ export class MetaTokenProvider {
   /** The Page id and its access token for publishing. Throws an `auth` error (the app must be reconnected) when there is none. */
   async page(channelId: string): Promise<{ pageId: string; name: string; accessToken: string }> {
     const conn = await this.load(channelId);
-    const page = pickPage(conn?.pages);
+    const page = pickPage(conn?.pages, this.pinned);
     if (!conn || !page) {
       throw new PublishError('auth', 'No Facebook Page is connected. Connect Facebook in the app Settings.', 'no_meta_connection');
     }
