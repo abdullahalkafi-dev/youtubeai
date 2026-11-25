@@ -13,8 +13,10 @@ RUN pnpm build && pnpm prune --prod
 FROM node:20-bookworm-slim AS runtime
 # Pinned versions: yt-dlp must be refreshed when YouTube changes (rebuild the image with a newer version).
 # Nov 13 2026: the server got the "confirm you are not a bot" check even with fresh cookies (session rejected 38 min after import).
-# yt-dlp 2026.10.26 + the bgutil PO-token plugin; the token server is the `reel-pot` sidecar (docker-compose.reels.yml).
-ARG YTDLP_VERSION=2026.10.26
+# yt-dlp 2026.11.23 + the bgutil PO-token plugin; the token server is the `reel-pot` sidecar (docker-compose.reels.yml).
+# Nov 26 2026: 2026.10.26 stopped getting video formats (only storyboards, "Requested format is not available", so the Settings
+# "Test & connect" check failed). 2026.11.23 returns all formats again (verified with the same deno, yt-dlp-ejs and bgutil versions).
+ARG YTDLP_VERSION=2026.11.23
 ARG POT_PLUGIN_VERSION=2.0.2
 ARG DENO_VERSION=v2.9.7
 ENV NODE_ENV=production \
