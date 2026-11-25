@@ -16,6 +16,8 @@ export interface LaneConfig {
   backlogDays: number;
   extraSlot: string;
   backlogSlots: string[];
+  /** Which old reel goes next: 'retention' = the ones YouTube viewers watched most first; 'newest' = newest first (the original order). */
+  backlogOrder: 'newest' | 'retention';
   /** Hard cap on lane posts per New York day (new + backlog). */
   dailyCap: number;
 }
@@ -27,6 +29,7 @@ export function laneConfig(env: {
   FACEBOOK_BACKLOG_DAYS?: number;
   FACEBOOK_EXTRA_SLOT_ET?: string;
   FACEBOOK_BACKLOG_SLOTS_ET?: string;
+  FACEBOOK_BACKLOG_ORDER?: string;
 }): LaneConfig {
   const clamp = (n: number | undefined, def: number, max: number) => (Number.isFinite(n) ? Math.max(0, Math.min(max, Math.round(n as number))) : def);
   const newPerDay = clamp(env.FACEBOOK_NEW_PER_DAY, 3, 10);
@@ -41,6 +44,7 @@ export function laneConfig(env: {
     backlogDays: Math.max(1, clamp(env.FACEBOOK_BACKLOG_DAYS, 30, 365)),
     extraSlot: validSlot(extra) ? extra : '15:00',
     backlogSlots: backlogSlots.length ? backlogSlots : ['12:30', '18:30'],
+    backlogOrder: env.FACEBOOK_BACKLOG_ORDER === 'newest' ? 'newest' : 'retention',
     dailyCap: newPerDay + backlogPerDay,
   };
 }
@@ -101,16 +105,27 @@ export function dueSlots(date: string, now: Date, slots: LaneSlot[], claimed: It
 export interface BacklogRow {
   reelId: string;
   publishedAt: Date;
+  /** YouTube's lifetime average view percentage for the reel; null/undefined when YouTube has no usable numbers for it yet. */
+  retention?: number | null;
 }
 
+/** A reel below this share of its length watched on YouTube goes to the END of the backlog (still used once the rest is gone). */
+export const RETENTION_FLOOR_PCT = 60;
+/** Fewer YouTube views than this and the retention number is noise: the reel counts as "no numbers yet". */
+export const RETENTION_MIN_VIEWS = 300;
+
 /**
- * The backlog in the order it will be used: reels with a YouTube post published inside the window, newest first, each reel once,
- * leaving out reels that already have a Facebook post of any kind.
+ * The backlog in the order it will be used: reels with a YouTube post published inside the window, each reel once, leaving out reels
+ * that already have a Facebook post of any kind.
+ *  - 'newest' (the original order): newest first.
+ *  - 'retention': reels YouTube viewers watched most first (average view % at or above the floor, highest first, newest first on ties),
+ *    then reels with no usable numbers yet (newest first), then clearly weak reels (below the floor) last. It is a tilt, not a filter:
+ *    nothing is ever dropped, and with no numbers at all it behaves exactly like 'newest'.
  */
-export function backlogOrder<T extends BacklogRow>(rows: T[], onFacebook: Set<string>, now: Date, days: number): T[] {
+export function backlogOrder<T extends BacklogRow>(rows: T[], onFacebook: Set<string>, now: Date, days: number, mode: 'newest' | 'retention' = 'newest'): T[] {
   const since = now.getTime() - days * 86_400_000;
   const seen = new Set<string>();
-  return [...rows]
+  const newestFirst = [...rows]
     .filter((r) => r.publishedAt.getTime() >= since && r.publishedAt.getTime() <= now.getTime() + 60_000)
     .sort((a, b) => b.publishedAt.getTime() - a.publishedAt.getTime())
     .filter((r) => {
@@ -118,6 +133,12 @@ export function backlogOrder<T extends BacklogRow>(rows: T[], onFacebook: Set<st
       seen.add(r.reelId);
       return true;
     });
+  if (mode !== 'retention') return newestFirst;
+  const known = (r: T): r is T & { retention: number } => typeof r.retention === 'number' && Number.isFinite(r.retention);
+  const strong = newestFirst.filter((r) => known(r) && r.retention >= RETENTION_FLOOR_PCT).sort((a, b) => (b.retention as number) - (a.retention as number));
+  const unknown = newestFirst.filter((r) => !known(r));
+  const weak = newestFirst.filter((r) => known(r) && r.retention < RETENTION_FLOOR_PCT);
+  return [...strong, ...unknown, ...weak];
 }
 
 export interface LanePostRow {

@@ -141,6 +141,8 @@ const EnvSchema = z.object({
   FACEBOOK_NEW_PER_DAY: int(3), // mirror + extra new reels
   FACEBOOK_BACKLOG_PER_DAY: int(2), // reels already on YouTube, not yet on Facebook
   FACEBOOK_BACKLOG_DAYS: int(30),
+  /** Which old reel goes next: 'retention' (YouTube average view % first, weak ones last) or 'newest' (the original order). */
+  FACEBOOK_BACKLOG_ORDER: z.enum(['retention', 'newest']).default('retention'),
   FACEBOOK_EXTRA_SLOT_ET: str('15:00'),
   FACEBOOK_BACKLOG_SLOTS_ET: str('12:30,18:30'),
   /** ISO time before which a YouTube post is NOT mirrored. Empty = the moment the lane first runs (stored in reel_settings). */

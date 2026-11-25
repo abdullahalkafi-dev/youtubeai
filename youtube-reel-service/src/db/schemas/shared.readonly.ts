@@ -43,6 +43,10 @@ export class SourceVideo {
   @Prop() deletedFromYoutube?: boolean;
   @Prop() categoryId?: string;
   @Prop() commentCount?: number;
+  /** YouTube Analytics lifetime average view percentage (0-100+, Shorts that loop go above 100); set by the main app's hourly sync. */
+  @Prop() retentionPercent?: number;
+  @Prop() avgWatchTime?: number;
+  @Prop() lastAnalyticsSync?: Date;
   @Prop() lastSyncedAt?: Date;
   @Prop() transcriptText?: string;
   @Prop({ type: [Object] }) transcriptSegments?: Array<{ text: string; startSeconds: number; timestamp: string }>;

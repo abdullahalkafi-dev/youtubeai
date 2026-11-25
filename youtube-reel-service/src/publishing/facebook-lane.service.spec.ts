@@ -69,6 +69,7 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
   const now = o.now ?? at('13:00');
   const posts: any[] = [];
   const reels: any[] = [];
+  const videos: any[] = [];
   const settings: any[] = [];
   const cancelled: string[] = [];
   const created: any[] = [];
@@ -93,6 +94,7 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
     findById: async (id: any) => reels.find((r) => same(r._id, id)) ?? null,
     distinct: async () => [CH],
   };
+  svc.videos = { find: (q: any) => query(videos.filter((v) => match(v, q))) };
   svc.channels = { findOne: () => ({ select: () => ({ lean: async () => ({ _id: CH, userId: oid() }) }) }) };
   svc.settings = {
     findOne: (q: any) => query(settings.filter((d) => match(d, q))).limit(1) && { lean: async () => settings.find((d) => match(d, q)) ?? null },
@@ -146,7 +148,7 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
   if (o.goLive !== null) settings.push({ key: `facebook-lane:${CHID}`, value: { goLiveAt: o.goLive ?? day(now, 1), pausedReason: null, pausedAt: null } });
 
   const youtube = (reelId: Types.ObjectId, ageDays: number, over: any = {}) => {
-    const p = { _id: oid(), reelId, channelId: CH, platform: 'youtube', status: 'published', source: 'auto', createdAt: day(now, ageDays), updatedAt: day(now, ageDays), publishedAt: day(now, ageDays), url: `https://www.youtube.com/shorts/${String(reelId).slice(-6)}`, metadata: { title: `Reel ${String(reelId).slice(-4)}`, description: 'x', hashtags: ['#shorts', '#story'], tags: [], categoryId: '24' }, ...over };
+    const p = { _id: oid(), reelId, channelId: CH, platform: 'youtube', status: 'published', source: 'auto', externalId: `yt-${String(reelId)}`, createdAt: day(now, ageDays), updatedAt: day(now, ageDays), publishedAt: day(now, ageDays), url: `https://www.youtube.com/shorts/${String(reelId).slice(-6)}`, metadata: { title: `Reel ${String(reelId).slice(-4)}`, description: 'x', hashtags: ['#shorts', '#story'], tags: [], categoryId: '24' }, ...over };
     posts.push(p);
     return p;
   };
@@ -160,7 +162,13 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
     posts.push(p);
     return p;
   };
-  return { svc, now, posts, reels, settings, cancelled, created, failFor, youtube, reel, fbPost };
+  /** The main app's hourly analytics for the reel's YouTube video (retentionPercent = average view %). */
+  const video = (reelId: Types.ObjectId, retentionPercent: number | undefined, over: any = {}) => {
+    const v = { _id: oid(), youtubeId: `yt-${String(reelId)}`, retentionPercent, viewCount: 1000, lastAnalyticsSync: now, ...over };
+    videos.push(v);
+    return v;
+  };
+  return { svc, now, posts, reels, settings, cancelled, created, failFor, youtube, reel, fbPost, video, videos };
 }
 
 const lanePosts = (w: ReturnType<typeof world>, source?: string) => w.posts.filter((p) => p.platform === 'facebook' && String(p.source).startsWith('fb-') && (!source || p.source === source));
@@ -246,6 +254,55 @@ describe('FacebookLaneService.plan: backlog lane', () => {
     expect(w.created).toHaveLength(1);
     expect(w.created[0]).toMatchObject({ source: 'fb-backlog', reelId: String(b._id) });
     expect(w.created[0].runAt.getTime()).toBeGreaterThanOrEqual(w.now.getTime() + 3 * 60_000);
+  });
+
+  describe('order by YouTube retention (FACEBOOK_BACKLOG_ORDER)', () => {
+    const order = async (w: ReturnType<typeof world>) => (await w.svc.backlogPool(CHID, w.now)).map((c: any) => c.reelId);
+
+    it('puts the reels YouTube viewers watched most first, no-number reels next, clearly weak reels last', async () => {
+      const w = world();
+      const [newestUnknown, high, mid, weak, noViews] = [w.reel(), w.reel(), w.reel(), w.reel(), w.reel()];
+      w.youtube(newestUnknown._id, 1); // no analytics yet
+      w.youtube(high._id, 5);
+      w.video(high._id, 130);
+      w.youtube(mid._id, 2);
+      w.video(mid._id, 95);
+      w.youtube(weak._id, 3);
+      w.video(weak._id, 49);
+      w.youtube(noViews._id, 4);
+      w.video(noViews._id, 140, { viewCount: 120 }); // too few views to trust: counts as "no numbers"
+      expect(await order(w)).toEqual([high, mid, newestUnknown, noViews, weak].map((r) => String(r._id)));
+    });
+
+    it('is the original newest-first order with FACEBOOK_BACKLOG_ORDER=newest, and the pool reports the retention as its score', async () => {
+      const w = world({ env: { FACEBOOK_BACKLOG_ORDER: 'newest' } });
+      const [a, b] = [w.reel(), w.reel()];
+      w.youtube(a._id, 4);
+      w.video(a._id, 140);
+      w.youtube(b._id, 1);
+      w.video(b._id, 70);
+      expect(await order(w)).toEqual([b, a].map((r) => String(r._id)));
+
+      const r = world();
+      const x = r.reel();
+      r.youtube(x._id, 2);
+      r.video(x._id, 111);
+      expect((await r.svc.backlogPool(CHID, r.now))[0].score).toBe(111);
+    });
+
+    it('ignores a video with no analytics sync, and falls back to newest-first when the lookup fails (never blocks a post)', async () => {
+      const w = world();
+      const [a, b] = [w.reel(), w.reel()];
+      w.youtube(a._id, 4);
+      w.video(a._id, 140, { lastAnalyticsSync: undefined });
+      w.youtube(b._id, 1);
+      expect(await order(w)).toEqual([b, a].map((r) => String(r._id)));
+
+      w.video(a._id, 140);
+      w.svc.videos = { find: () => { throw new Error('mongo down'); } };
+      expect(await order(w)).toEqual([b, a].map((r) => String(r._id)));
+      expect(w.svc.logger.warn).toHaveBeenCalled();
+    });
   });
 
   it('a slot is claimed atomically: planning again does not create a second post', async () => {

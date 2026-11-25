@@ -1,4 +1,4 @@
-import { backlogOrder, countsOf, dueSlots, facebookMetadata, laneCaps, laneConfig, laneSlots, laneTrouble, totalOf } from './facebook-lane';
+import { backlogOrder, RETENTION_FLOOR_PCT, countsOf, dueSlots, facebookMetadata, laneCaps, laneConfig, laneSlots, laneTrouble, totalOf } from './facebook-lane';
 import { nyToUtc } from './auto-plan';
 
 const at = (date: string, hhmm: string) => nyToUtc(date, hhmm);
@@ -90,6 +90,29 @@ describe('backlogOrder', () => {
   });
   it('is empty when everything is on Facebook already (the backlog is used up)', () => {
     expect(backlogOrder(rows, new Set(rows.map((r) => r.reelId)), now, 30)).toEqual([]);
+  });
+
+  describe('retention order', () => {
+    const r = (reelId: string, ageDays: number, retention?: number | null) => ({ reelId, publishedAt: day(ageDays), retention });
+    it('strong reels by retention (newest first on a tie), then no-number reels newest first, then weak reels', () => {
+      const rs = [r('weak', 1, 40), r('unk-old', 8), r('b', 3, 110), r('a', 2, 110), r('top', 9, 135), r('unk-new', 0.5, null), r('edge', 4, RETENTION_FLOOR_PCT)];
+      expect(backlogOrder(rs, new Set(), now, 30, 'retention').map((x) => x.reelId)).toEqual(['top', 'a', 'b', 'edge', 'unk-new', 'unk-old', 'weak']);
+    });
+    it('never drops a reel: same set as newest-first, and with no numbers at all it IS newest-first', () => {
+      const rs = [r('x', 5, 20), r('y', 1), r('z', 3, 100)];
+      expect([...backlogOrder(rs, new Set(), now, 30, 'retention')].map((x) => x.reelId).sort()).toEqual(['x', 'y', 'z']);
+      const none = [r('x', 5), r('y', 1), r('z', 3)];
+      expect(backlogOrder(none, new Set(), now, 30, 'retention').map((x) => x.reelId)).toEqual(backlogOrder(none, new Set(), now, 30).map((x) => x.reelId));
+    });
+    it('still respects the window, the one-per-reel rule and reels already on Facebook', () => {
+      const rs = [r('old', 40, 140), r('dup', 2, 100), r('dup', 1, 100), r('onfb', 1, 150), r('ok', 2, 90)];
+      expect(backlogOrder(rs, new Set(['onfb']), now, 30, 'retention').map((x) => x.reelId)).toEqual(['dup', 'ok']);
+    });
+    it('laneConfig defaults to retention and accepts newest', () => {
+      expect(laneConfig({}).backlogOrder).toBe('retention');
+      expect(laneConfig({ FACEBOOK_BACKLOG_ORDER: 'newest' }).backlogOrder).toBe('newest');
+      expect(laneConfig({ FACEBOOK_BACKLOG_ORDER: 'junk' }).backlogOrder).toBe('retention');
+    });
   });
 });
 

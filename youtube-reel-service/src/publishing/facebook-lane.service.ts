@@ -7,10 +7,10 @@ import { AppConfig, CONFIG } from '../config/config';
 import { ReelPost, ReelPostDocument } from '../db/schemas/reel-post.schema';
 import { ReelSetting, ReelSettingDocument } from '../db/schemas/reel-misc.schema';
 import { Reel, ReelDocument } from '../db/schemas/reel.schema';
-import { SharedChannel, SharedChannelDocument } from '../db/schemas/shared.readonly';
+import { SharedChannel, SharedChannelDocument, SourceVideo, SourceVideoDocument } from '../db/schemas/shared.readonly';
 import { nyDayRange } from '../pipeline/ops-report';
 import { DEFAULT_AUTO_SETTINGS, gateReason, jitterRunAt, MIN_GAP_MIN, nyToUtc } from './auto-plan';
-import { backlogOrder, BacklogRow, countsOf, DayCounts, dueSlots, facebookMetadata, laneCaps, LaneConfig, laneConfig, LanePostRow, laneSlots, laneTrouble, LaneSlot, totalOf } from './facebook-lane';
+import { backlogOrder, BacklogRow, RETENTION_MIN_VIEWS, countsOf, DayCounts, dueSlots, facebookMetadata, laneCaps, LaneConfig, laneConfig, LanePostRow, laneSlots, laneTrouble, LaneSlot, totalOf } from './facebook-lane';
 import { FacebookPublisher } from './facebook.publisher';
 import { PublishService } from './publish.service';
 import { FACEBOOK_LANE_SOURCES, FacebookLaneSource, PostMetadata } from './types';
@@ -54,6 +54,7 @@ export class FacebookLaneService implements OnModuleInit {
     @InjectModel(ReelPost.name) private readonly posts: Model<ReelPostDocument>,
     @InjectModel(Reel.name) private readonly reels: Model<ReelDocument>,
     @InjectModel(SharedChannel.name) private readonly channels: Model<SharedChannelDocument>,
+    @InjectModel(SourceVideo.name) private readonly videos: Model<SourceVideoDocument>,
     private readonly publish: PublishService,
     private readonly facebook: FacebookPublisher,
   ) {
@@ -170,7 +171,26 @@ export class FacebookLaneService implements OnModuleInit {
 
   // ------------------------------------------------------------------ candidates
 
-  /** Reels with a YouTube post published inside the window and nothing on Facebook yet, newest first. */
+  /**
+   * YouTube's lifetime average view percentage per YouTube video id, from the main app's hourly analytics sync (read-only). A video
+   * without a sync, without a number, or with too few views to trust is simply absent: it counts as "no numbers yet".
+   */
+  private async youtubeRetention(youtubeIds: Array<string | undefined | null>): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    const ids = [...new Set(youtubeIds.filter((x): x is string => Boolean(x)))];
+    if (!ids.length || this.lane.backlogOrder !== 'retention') return out;
+    try {
+      const vids = await this.videos.find({ youtubeId: { $in: ids }, lastAnalyticsSync: { $exists: true } }).select('youtubeId retentionPercent viewCount').lean();
+      for (const v of vids) {
+        if (typeof v.retentionPercent === 'number' && Number.isFinite(v.retentionPercent) && (v.viewCount ?? 0) >= RETENTION_MIN_VIEWS) out.set(String(v.youtubeId), v.retentionPercent);
+      }
+    } catch (err) {
+      this.logger.warn(`YouTube retention lookup failed, using newest-first: ${errMsg(err)}`); // ordering only: never blocks a post
+    }
+    return out;
+  }
+
+  /** Reels with a YouTube post published inside the window and nothing on Facebook yet (see FACEBOOK_BACKLOG_ORDER for the order). */
   async backlogPool(channelId: string, now = new Date(), exclude: Set<string> = new Set()): Promise<Candidate[]> {
     const cid = new Types.ObjectId(channelId);
     const since = new Date(now.getTime() - this.lane.backlogDays * 86_400_000);
@@ -178,15 +198,22 @@ export class FacebookLaneService implements OnModuleInit {
       .find({ channelId: cid, platform: 'youtube', status: 'published', publishedAt: { $gte: since } })
       .sort({ publishedAt: -1 })
       .limit(500)
-      .select('reelId publishedAt metadata url')
+      .select('reelId publishedAt metadata url externalId')
       .lean();
+    const retentionByYoutubeId = await this.youtubeRetention(yt.map((p) => p.externalId));
     const ids = [...new Set(yt.map((p) => String(p.reelId)))];
     const onFb = ids.length ? await this.posts.find({ reelId: { $in: ids.map((i) => new Types.ObjectId(i)) }, platform: 'facebook', status: { $ne: 'cancelled' } }).select('reelId').lean() : [];
     const blocked = new Set([...onFb.map((p) => String(p.reelId)), ...exclude]);
-    const rows: Array<BacklogRow & { metadata: PostMetadata; url: string | null }> = yt.map((p) => ({ reelId: String(p.reelId), publishedAt: new Date(p.publishedAt as Date), metadata: p.metadata, url: p.url ?? null }));
-    return backlogOrder(rows, blocked, now, this.lane.backlogDays).map((r) => ({
+    const rows: Array<BacklogRow & { metadata: PostMetadata; url: string | null }> = yt.map((p) => ({
+      reelId: String(p.reelId),
+      publishedAt: new Date(p.publishedAt as Date),
+      metadata: p.metadata,
+      url: p.url ?? null,
+      retention: retentionByYoutubeId.get(String(p.externalId)) ?? null,
+    }));
+    return backlogOrder(rows, blocked, now, this.lane.backlogDays, this.lane.backlogOrder).map((r) => ({
       reelId: r.reelId,
-      score: null,
+      score: r.retention ?? null,
       metadata: facebookMetadata(r.metadata),
       title: r.metadata?.title ?? 'Reel',
       youtubeUrl: r.url,
