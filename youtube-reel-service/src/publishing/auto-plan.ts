@@ -117,10 +117,11 @@ export function pickSlots(input: { date: string; now: Date; count: number; slots
  * The moment a post in `slot` goes out: a random time within JITTER_MIN either side of the slot, never earlier than `earliest` and never within
  * MIN_GAP_MIN of another post (`others`, epoch ms). Reproducible from `seed`, so a day's plan can be replayed.
  */
-export function jitterRunAt(input: { date: string; slot: string; seed: string; earliest: number; others: number[] }): Date {
+export function jitterRunAt(input: { date: string; slot: string; seed: string; earliest: number; others: number[]; jitterMin?: number }): Date {
   const centre = nyToUtc(input.date, input.slot).getTime();
-  const lo = Math.max(centre - JITTER_MIN * 60_000, input.earliest);
-  const hi = Math.max(centre + JITTER_MIN * 60_000, lo);
+  const jit = (input.jitterMin ?? JITTER_MIN) * 60_000; // the Instagram lane uses a tighter window (2 minutes) than YouTube's 30
+  const lo = Math.max(centre - jit, input.earliest);
+  const hi = Math.max(centre + jit, lo);
   const rnd = seededRandom(input.seed);
   const gap = MIN_GAP_MIN * 60_000;
   const clearance = (t: number) => Math.min(Infinity, ...input.others.map((o) => Math.abs(o - t)));

@@ -98,6 +98,34 @@ export class MetaTokenProvider {
     };
   }
 
+  /**
+   * The Instagram account to publish to, found through the Facebook Page it is linked to (any login of the channel owner; the account
+   * can sit on a different Page and login than the Facebook reels). INSTAGRAM_ACCOUNT_ID pins one; without it the first account is used.
+   * The Page token is what Instagram's publishing API takes with Facebook Login. Never logged.
+   */
+  async instagram(channelId: string): Promise<{ igId: string; username: string; pageId: string; pageName: string; accessToken: string; tokenExpiresAt?: Date } | null> {
+    const pinned = this.cfg?.INSTAGRAM_ACCOUNT_ID?.trim() || undefined;
+    const logins = await this.load(channelId);
+    const found: Array<{ login: StoredLogin; page: StoredPage }> = [];
+    for (const login of logins) {
+      for (const page of login.pages ?? []) {
+        if (!page?.pageId || !page.accessToken || !page.instagram?.id) continue;
+        if (pinned && String(page.instagram.id) !== pinned) continue;
+        found.push({ login, page });
+      }
+    }
+    const chosen = found.find((c) => !isExpired(c.login)) ?? found[0];
+    if (!chosen) return null;
+    return {
+      igId: String(chosen.page.instagram!.id),
+      username: chosen.page.instagram!.username ?? '',
+      pageId: chosen.page.pageId,
+      pageName: chosen.page.name,
+      accessToken: chosen.page.accessToken,
+      tokenExpiresAt: chosen.login.userTokenExpiresAt ? new Date(chosen.login.userTokenExpiresAt) : undefined,
+    };
+  }
+
   /** The Page id and its access token for publishing. Throws an `auth` error (the app must be reconnected) when there is none. */
   async page(channelId: string): Promise<{ pageId: string; name: string; accessToken: string }> {
     const { chosen } = await this.resolve(channelId);

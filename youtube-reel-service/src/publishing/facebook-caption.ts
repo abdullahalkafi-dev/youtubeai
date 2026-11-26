@@ -20,7 +20,7 @@ export interface CaptionInput {
   hashtags?: string[] | null;
 }
 
-const clean = (s: string) =>
+export const clean = (s: string) =>
   s
     .replace(URL_RE, '')
     .replace(/[<>]/g, '')
@@ -30,7 +30,7 @@ const clean = (s: string) =>
     .trim();
 
 /** Cut at a word boundary, ending on "…" when something was dropped. */
-function clip(s: string, max: number): string {
+export function clip(s: string, max: number): string {
   if (s.length <= max) return s;
   const cut = s.slice(0, max - 1);
   const at = cut.lastIndexOf(' ');

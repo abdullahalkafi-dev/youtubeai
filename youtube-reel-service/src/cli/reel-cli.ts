@@ -25,6 +25,7 @@ import { OpsReportService } from '../pipeline/ops-report.service';
 import { formatOpsReport } from '../pipeline/ops-report';
 import { AlertService } from '../pipeline/alert.service';
 import { FacebookLaneService } from '../publishing/facebook-lane.service';
+import { InstagramLaneService } from '../publishing/instagram-lane.service';
 import { alertsFor } from '../pipeline/alerts';
 
 /**
@@ -34,6 +35,8 @@ import { alertsFor } from '../pipeline/alerts';
  *   node dist/cli/reel-cli.js hot:preview <channelId> [reels] [newVideoReelsAlreadyMade]   (the newest videos and how the day's reels would be shared)
  *   node dist/cli/reel-cli.js fb:preview <channelId>   (read-only: what the Facebook lanes would post in the next 24 hours, with the YouTube link of each reel, and the backlog size)
  *   node dist/cli/reel-cli.js fb:resume <channelId>   (clears a pause the Facebook lane put on itself; YouTube is never paused by it)
+ *   node dist/cli/reel-cli.js ig:preview <channelId>   (read-only: what the Instagram lanes would post in the next 24 hours)
+ *   node dist/cli/reel-cli.js ig:resume <channelId>   (clears a pause the Instagram lane put on itself)
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
@@ -103,6 +106,20 @@ async function main() {
         console.log('NEXT 24 HOURS (mirrors are not listed: each YouTube post that goes live is mirrored at once)');
         for (const i of p.items) console.log(`  ${i.date} ${i.time} ET  ${i.kind.padEnd(7)} ${i.reelId ? `${i.title.slice(0, 70)}  [${i.youtubeUrl ?? 'not on YouTube yet'}]` : `- ${i.note}`}`);
         if (!p.items.length) console.log('  (nothing due in the next 24 hours)');
+        break;
+      }
+      case 'ig:preview': {
+        const lane = app.get(InstagramLaneService);
+        const p = await lane.preview(args[0]);
+        console.log(`INSTAGRAM LANES: ${p.enabled ? 'on' : 'OFF (INSTAGRAM_AUTO=off)'}${p.paused ? ` | PAUSED: ${p.paused}` : ''} | go-live ${p.goLiveAt ? new Date(p.goLiveAt).toISOString() : '(not started yet)'}`);
+        console.log(`today so far: mirror ${p.todayCounts.mirror}, extra ${p.todayCounts.extra}, backlog ${p.todayCounts.backlog} (cap ${lane.lane.dailyCap}) | backlog waiting: ${p.backlogSize} reel(s)`);
+        for (const i of p.items) console.log(`  ${i.date} ${i.time} ET  ${i.kind.padEnd(7)} ${i.reelId ? `${i.title.slice(0, 70)}  [${i.youtubeUrl ?? 'not on YouTube yet'}]` : `- ${i.note}`}`);
+        if (!p.items.length) console.log('  (nothing due in the next 24 hours)');
+        break;
+      }
+      case 'ig:resume': {
+        await app.get(InstagramLaneService).resume(args[0]);
+        console.log('Instagram lane resumed.');
         break;
       }
       case 'fb:resume': {

@@ -152,6 +152,22 @@ const EnvSchema = z.object({
    * carries the Instagram link). Empty = the first Page in the login. When set but absent from the login, publishing stops.
    */
   FACEBOOK_PAGE_ID: str(''),
+
+  // Instagram Reels lanes (client decision 2026-11-26): the same reels as Facebook, 3 new + 2 backlog a day, each at a random time within
+  // 2 minutes of its slot. INSTAGRAM_AUTO=off is the kill switch (default off: it is switched on in the server env once the first post is checked).
+  INSTAGRAM_AUTO: z.enum(['on', 'off']).default('off'),
+  INSTAGRAM_NEW_PER_DAY: int(3),
+  INSTAGRAM_BACKLOG_PER_DAY: int(2),
+  INSTAGRAM_BACKLOG_DAYS: int(30),
+  INSTAGRAM_BACKLOG_ORDER: z.enum(['retention', 'newest']).default('retention'),
+  INSTAGRAM_EXTRA_SLOT_ET: str('16:30'),
+  INSTAGRAM_BACKLOG_SLOTS_ET: str('13:30,19:30'),
+  /** Random posting time: within this many minutes either side of the slot (YouTube uses 30). */
+  INSTAGRAM_JITTER_MIN: int(2),
+  /** ISO time before which a YouTube post is NOT mirrored to Instagram. Empty = the moment the lane first runs. */
+  INSTAGRAM_AUTO_SINCE: str(''),
+  /** The ONE Instagram account reels are published to (its numeric id). Empty = the first Instagram account in the Facebook logins. */
+  INSTAGRAM_ACCOUNT_ID: str(''),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & {

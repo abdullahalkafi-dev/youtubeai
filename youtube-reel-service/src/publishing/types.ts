@@ -8,8 +8,11 @@ export const PLANNED_PLATFORMS: PlatformId[] = ['x', 'linkedin', 'instagram', 'f
 /** Posts made by the Facebook lanes. Distinct from 'auto' so nothing that learns from or guards the YouTube auto posts ever sees them. */
 export const FACEBOOK_LANE_SOURCES = ['fb-mirror', 'fb-extra', 'fb-backlog'] as const;
 export type FacebookLaneSource = (typeof FACEBOOK_LANE_SOURCES)[number];
-export type PostSource = 'api' | 'manual' | 'auto' | FacebookLaneSource;
-export const POST_SOURCES: PostSource[] = ['api', 'manual', 'auto', ...FACEBOOK_LANE_SOURCES];
+/** Posts made by the Instagram lanes (same idea as the Facebook ones: invisible to every YouTube guard and learning step). */
+export const INSTAGRAM_LANE_SOURCES = ['ig-mirror', 'ig-extra', 'ig-backlog'] as const;
+export type InstagramLaneSource = (typeof INSTAGRAM_LANE_SOURCES)[number];
+export type PostSource = 'api' | 'manual' | 'auto' | FacebookLaneSource | InstagramLaneSource;
+export const POST_SOURCES: PostSource[] = ['api', 'manual', 'auto', ...FACEBOOK_LANE_SOURCES, ...INSTAGRAM_LANE_SOURCES];
 
 export const POST_STATUSES = ['queued', 'uploading', 'processing', 'scheduled', 'published', 'failed', 'cancelled', 'blocked', 'removed'] as const;
 export type PostStatus = (typeof POST_STATUSES)[number];

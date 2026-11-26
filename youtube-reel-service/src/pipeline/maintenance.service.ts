@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { AutoPublishService } from '../publishing/auto-publish.service';
 import { FacebookLaneService } from '../publishing/facebook-lane.service';
+import { InstagramLaneService } from '../publishing/instagram-lane.service';
 import { LanesService } from './lanes.service';
 import { LearningService } from '../publishing/learning.service';
 import { DailyService } from './daily.service';
@@ -50,14 +51,16 @@ export class MaintenanceService {
     private readonly daily: DailyService,
     private readonly autoPublish: AutoPublishService,
     private readonly facebookLane: FacebookLaneService,
+    private readonly instagramLane: InstagramLaneService,
     private readonly learning: LearningService,
     private readonly lanes: LanesService,
     private readonly ops: OpsReportService,
     private readonly alerts: AlertService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'weekly-review' | 'ops-report') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'instagram-lane' | 'weekly-review' | 'ops-report') {
     if (task === 'facebook-lane') return this.facebookLane.runDue();
+    if (task === 'instagram-lane') return this.instagramLane.runDue();
     if (task === 'weekly-review') return this.learning.runWeekly();
     if (task === 'ops-report') return this.ops.buildAll();
     if (task === 'daily') return this.daily.runScheduled();

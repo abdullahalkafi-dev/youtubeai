@@ -133,7 +133,7 @@ export class MetricsService {
     if (!publisher) return { ok: false, message: `Numbers for ${post.platform} are not collected automatically yet.` };
     const samples = await publisher.collectMetrics({ channelId, externalIds: [post.externalId] });
     const sample = samples.get(post.externalId);
-    const where = post.platform === 'youtube' ? 'YouTube' : post.platform === 'facebook' ? 'Facebook' : post.platform;
+    const where = post.platform === 'youtube' ? 'YouTube' : post.platform === 'facebook' ? 'Facebook' : post.platform === 'instagram' ? 'Instagram' : post.platform;
     if (!sample) return { ok: false, message: `${where} numbers are not available yet (the hourly sync has not picked this video up).` };
     if ('removed' in sample) {
       await this.posts.updateOne({ _id: post._id }, { $set: { status: 'removed' }, $unset: { nextMetricsAt: '' } });

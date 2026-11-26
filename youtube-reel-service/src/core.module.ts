@@ -38,6 +38,8 @@ import { YouTubePublisher } from './publishing/youtube.publisher';
 import { MetaTokenProvider } from './publishing/meta-token.provider';
 import { FacebookPublisher } from './publishing/facebook.publisher';
 import { FacebookLaneService } from './publishing/facebook-lane.service';
+import { InstagramPublisher } from './publishing/instagram.publisher';
+import { InstagramLaneService } from './publishing/instagram-lane.service';
 
 const providers = [
   StorageService,
@@ -75,6 +77,8 @@ const providers = [
   PublishService,
   AutoPublishService,
   FacebookLaneService, // the Facebook mirror / extra / backlog lanes (does nothing with FACEBOOK_AUTO=off)
+  InstagramPublisher, // registers itself with the PublisherRegistry on module init
+  InstagramLaneService, // the Instagram mirror / extra / backlog lanes (does nothing unless INSTAGRAM_AUTO=on)
   LearningService,
   MetricsService,
   AnalyticsService,

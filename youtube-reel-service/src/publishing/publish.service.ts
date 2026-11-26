@@ -20,7 +20,7 @@ import { msUntilPacificMidnight, PublishQuotaService } from './publish-quota.ser
 import { PublisherRegistry } from './registry';
 import { buildEngagementComment, fullVideoLinkOf } from './description';
 import { YouTubePublisher } from './youtube.publisher';
-import { ACTIVE_POST_STATUSES, AccountStatus, FacebookLaneSource, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
+import { ACTIVE_POST_STATUSES, AccountStatus, FacebookLaneSource, InstagramLaneSource, Issue, PLATFORMS, PlatformId, PostMetadata, PostStatus, Privacy, Publisher, PublishError, ReelFacts } from './types';
 
 const MAX_UPLOAD_ATTEMPTS = 5;
 const PLATFORM_LABEL: Partial<Record<PlatformId, string>> = { youtube: 'YouTube', facebook: 'Facebook', instagram: 'Instagram', x: 'X', linkedin: 'LinkedIn' };
@@ -241,9 +241,10 @@ export class PublishService {
     channelId: string,
     ownerUserId: string,
     reelId: string,
-    o: { source: FacebookLaneSource; runAt: Date; slot: string; planDate: string; metadata: Partial<PostMetadata>; score: number | null },
+    o: { source: FacebookLaneSource | InstagramLaneSource; platform?: 'facebook' | 'instagram'; runAt: Date; slot: string; planDate: string; metadata: Partial<PostMetadata>; score: number | null },
   ) {
-    const pre = await this.preflight(channelId, reelId, 'facebook', { ...o.metadata, privacy: 'public', scheduleAt: null, notifySubscribers: false });
+    const platform = o.platform ?? 'facebook'; // the Instagram lanes call this with platform 'instagram' (see createInstagramPost)
+    const pre = await this.preflight(channelId, reelId, platform, { ...o.metadata, privacy: 'public', scheduleAt: null, notifySubscribers: false });
     if (!pre.canPublish) throw new BadRequestException({ message: 'The reel cannot be published yet', issues: pre.issues.filter((i) => i.level === 'error') });
     const reel = await this.loadReel(channelId, reelId);
     const stat = reel.assets.videoKey ? await this.storage.stat(BUCKETS.reels, reel.assets.videoKey) : null;
@@ -252,7 +253,7 @@ export class PublishService {
       reelId: reel._id,
       campaignId: reel.campaignId,
       channelId: reel.channelId,
-      platform: 'facebook',
+      platform,
       accountExternalId: pre.account.externalId,
       accountName: pre.account.displayName,
       source: o.source,
@@ -269,6 +270,16 @@ export class PublishService {
     });
     await this.queues.publish(String(post._id), 'upload', Math.max(0, o.runAt.getTime() - Date.now() - UPLOAD_LEAD_MS));
     return this.serialize(post.toObject());
+  }
+
+  /** A post made by an Instagram lane (mirror / extra / backlog): the same path as a Facebook lane post, to the Instagram account. */
+  async createInstagramPost(
+    channelId: string,
+    ownerUserId: string,
+    reelId: string,
+    o: { source: InstagramLaneSource; runAt: Date; slot: string; planDate: string; metadata: Partial<PostMetadata>; score: number | null },
+  ) {
+    return this.createFacebookPost(channelId, ownerUserId, reelId, { ...o, platform: 'instagram' });
   }
 
   /** Remove the waiting timer(s) of a post that has not started uploading. */
@@ -487,7 +498,7 @@ export class PublishService {
    * must stay `todo` for YouTube.
    */
   private async markReelPosted(reelId: string, at: Date, url: string, platform: PlatformId = 'youtube') {
-    if (platform === 'facebook') return;
+    if (platform === 'facebook' || platform === 'instagram') return;
     await this.reels.updateOne(
       { _id: reelId, status: 'todo' },
       { $set: { status: 'posted', postedAt: at, ...(url ? { postedUrl: url } : {}) } },

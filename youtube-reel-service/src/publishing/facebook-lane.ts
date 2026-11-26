@@ -57,11 +57,11 @@ export interface DayCounts {
 }
 export const totalOf = (c: DayCounts) => c.mirror + c.extra + c.backlog;
 
-export function countsOf(sources: string[]): DayCounts {
+export function countsOf(sources: string[], prefix: 'fb' | 'ig' = 'fb'): DayCounts {
   return {
-    mirror: sources.filter((s) => s === 'fb-mirror').length,
-    extra: sources.filter((s) => s === 'fb-extra').length,
-    backlog: sources.filter((s) => s === 'fb-backlog').length,
+    mirror: sources.filter((s) => s === `${prefix}-mirror`).length,
+    extra: sources.filter((s) => s === `${prefix}-extra`).length,
+    backlog: sources.filter((s) => s === `${prefix}-backlog`).length,
   };
 }
 
