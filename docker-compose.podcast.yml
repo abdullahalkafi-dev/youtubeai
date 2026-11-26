@@ -1,0 +1,44 @@
+# Isolated podcast stack (YouTube video -> Buzzsprout episode).
+#
+# Separate compose PROJECT ("youtubeai-podcast"): the main deploy (deploy.sh / docker-compose.prod.yml) and the reel deploy
+# (docker-compose.reels.yml) never rebuild, restart or remove this container, and it never touches theirs.
+# It only joins the existing network to reach mongodb / minio and the reel-pot token server (for the rare audio download).
+#
+#   Deploy / update:  docker compose -f docker-compose.podcast.yml up -d --build
+#   Logs:             docker compose -f docker-compose.podcast.yml logs -f --tail=200 podcast
+#   Kill switch:      set PODCAST_ENABLED=false in youtube-podcast-service/.env.prod, then `up -d` again
+#   Stop entirely:    docker compose -f docker-compose.podcast.yml down        (keeps all data)
+name: youtubeai-podcast
+
+services:
+  podcast:
+    build: ./youtube-podcast-service
+    image: youtubeai-podcast:latest
+    env_file:
+      - ./youtube-podcast-service/.env.prod
+    ports:
+      - '127.0.0.1:5004:5004'
+    volumes:
+      - podcast_work:/work
+    # Audio work is light (no video re-encode): small budget, always niced, never able to starve the main app (box: 4 vCPU / 16 GB).
+    mem_limit: 2g
+    memswap_limit: 2g
+    cpus: 1.5
+    pids_limit: 256
+    stop_grace_period: 30s
+    restart: always
+    healthcheck:
+      test: ['CMD', 'node', '-e', "fetch('http://127.0.0.1:5004/api/podcast/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - youtubeai
+
+networks:
+  youtubeai:
+    external: true
+    name: youtubeai_default
+
+volumes:
+  podcast_work:

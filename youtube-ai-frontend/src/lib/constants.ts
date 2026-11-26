@@ -32,6 +32,7 @@ export const ROUTES = {
   chat: '/chat',
   scripts: '/scripts',
   reels: '/reels',
+  podcast: '/podcast',
   queue: '/queue',
   settings: '/settings',
   login: '/login',
@@ -42,6 +43,7 @@ export const NAV_ITEMS = [
   { label: 'Video Library', href: ROUTES.videos, icon: 'Video' },
   { label: 'Scripts Studio', href: ROUTES.scripts, icon: 'ScrollText' },
   { label: 'Reels Studio', href: ROUTES.reels, icon: 'Clapperboard' },
+  { label: 'Podcast', href: ROUTES.podcast, icon: 'Podcast' },
   { label: 'Trending', href: ROUTES.trends, icon: 'TrendingUp' },
   { label: 'AI Content Chat', href: ROUTES.chat, icon: 'MessageSquare' },
 ] as const
