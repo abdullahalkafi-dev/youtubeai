@@ -63,7 +63,7 @@ All in `facebook-reply-rules.ts` (pure functions, unit tests in `facebook-reply-
 Skipping is the safe side: a false skip costs one unanswered comment.
 
 **The model may also skip** (`skipReason`): `abuse, spam, politics, off_topic, needs_care` (someone's own legal case, advice requests), `argument`
-(commenters fighting each other), `language` (not English), `risky`, `other`. The prompt says "when unsure, skip".
+(commenters fighting each other, and criticism or debate aimed at the Page, the host, the guest or the topic: the Page never argues or defends itself in comments), `language` (not English), `risky`, `other`. The prompt says "when unsure, skip".
 
 **What a written reply must satisfy (`cleanReply` then `validateReply`), else the comment is stored `skipped / reply_<why>`:**
 no links (a reply that contained one is rejected, not repaired), no long dashes, no hashtags or @mentions, at most one emoji, at most 180 characters and at least 6,
@@ -146,7 +146,14 @@ Judge the dry run by reading `fbreply:log`: are the skips right (abuse, spam) an
 - Instagram comments are not covered (a separate permission, `instagram_manage_comments`, is still to be added; see the memory note "Instagram comment permission TODO").
 - Hiding abusive comments (instead of only not answering them) is not built.
 
-## 10. Undo
+## 10. Dry run of 2026-11-26 (what was seen, what was changed)
+
+8 passes in `dry` mode over the 25 Facebook reels gave 15 written replies and 67 skips (own link comments, comments that already had replies, no text, abuse, slurs, threats, too long,
+not about the reel). Replies read as intended ("Glad it resonated with you.", "Thanks for showing love.", "It really is..."), short, no links, no dashes. One reply argued back to a
+criticism ("Sharing what prison was like isn't the same as calling it heroic"): the prompt was tightened so criticism and debate are skipped (the stored dry-run row of that comment
+still shows the old reply; it is rewritten when the mode goes `on`). Some skips are over-cautious (a joke containing "kill you" matched the threat rule): accepted on purpose.
+
+## 11. Undo
 
 Set `FACEBOOK_REPLY_AUTO=off` and recreate the containers: the lane stops at once. Posted replies stay on Facebook (delete them there if needed; their ids are
 in `replyId`). To remove the code: revert the commit that added this file; the collection can be dropped (`db.reel_comment_replies.drop()`), nothing else reads it.

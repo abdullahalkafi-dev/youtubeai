@@ -28,6 +28,7 @@ Full description, rules, storage and audit queries: **`FACEBOOK-COMMENT-REPLIES.
 rules forbid (abuse, slurs, spam, politics, threats, self-harm, anything already answered), lets a model write a short reply in the host's voice or skip, checks the text again,
 and posts one reply at a time (4 to 12 minutes apart, 08:00 to 23:30 New York, at most 35 a day). Every comment gets a row in `reel_comment_replies`.
 **Settings:** `FACEBOOK_REPLY_AUTO=off|dry|on` (default `off`), `FACEBOOK_REPLY_DAILY_CAP`, `FACEBOOK_REPLY_REEL_DAYS`.
+**State at deploy:** `FACEBOOK_REPLY_AUTO=dry` (backup of the env file `/root/reel-env.prod.backup-before-fbreply-20261126`): replies are written and stored, nothing is posted until it is set to `on`.
 **Check:** `docker exec youtubeai-reels-reel-worker-1 node dist/cli/reel-cli.js fbreply:log 6a81e0e956c00363be7b404e`. **Undo:** `FACEBOOK_REPLY_AUTO=off`.
 
 ---
