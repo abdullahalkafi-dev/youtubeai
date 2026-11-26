@@ -193,7 +193,7 @@ export class EpisodeService implements OnModuleInit, OnModuleDestroy {
         await stage('create');
         const existing = await this.findByTitle(meta.title);
         if (existing && (existing.duration > 0 || existing.audio_url)) {
-          await this.save(id, { status: 'skipped', stage: 'create', error: `Already on Buzzsprout (episode ${existing.id}, same title); nothing uploaded`, finishedAt: new Date(), buzzsprout: { episodeId: existing.id, pageUrl: pageUrl(existing.audio_url) } });
+          await this.save(id, { status: 'skipped', stage: 'create', error: `Already on Buzzsprout (episode ${existing.id}, same title); nothing uploaded`, finishedAt: new Date(), buzzsprout: { existingEpisodeId: existing.id, pageUrl: pageUrl(existing.audio_url) } });
           this.logger.warn(`Episode ${youtubeId}: already on Buzzsprout as ${existing.id}; skipped`);
           return;
         }
@@ -206,18 +206,24 @@ export class EpisodeService implements OnModuleInit, OnModuleDestroy {
       // 4. audio upload (start -> PUT -> complete)
       if (!bz.uploadDone) {
         await stage('upload');
-        const file = mp3 ?? (await this.audio.fetchKept(youtubeId, dir));
-        if (!file) {
-          ep.audio = undefined;
-          await this.save(id, { audio: null });
-          throw new Error('The kept MP3 is missing from storage; it will be made again on the next attempt');
+        // Never put audio on an episode that already has processed audio (a crash right after a good upload, a record that lost its flags).
+        const current = await this.bs.getEpisode(episodeId);
+        if (current.duration > 0) {
+          this.logger.warn(`Episode ${youtubeId}: Buzzsprout episode ${episodeId} already has audio; not uploading again`);
+        } else {
+          const file = mp3 ?? (await this.audio.fetchKept(youtubeId, dir));
+          if (!file) {
+            ep.audio = undefined;
+            await this.save(id, { audio: null });
+            throw new Error('The kept MP3 is missing from storage; it will be made again on the next attempt');
+          }
+          const bytes = fs.statSync(file).size;
+          const up = await this.bs.startUpload(episodeId, { filename: `${youtubeId}.mp3`, byteSize: bytes, type: 'audio/mpeg' });
+          bz.uploadId = up.id;
+          await saveBz();
+          await this.bs.putFile(up.upload_url, file, bytes, 'audio/mpeg');
+          await this.bs.completeUpload(episodeId, up.id);
         }
-        const bytes = fs.statSync(file).size;
-        const up = await this.bs.startUpload(episodeId, { filename: `${youtubeId}.mp3`, byteSize: bytes, type: 'audio/mpeg' });
-        bz.uploadId = up.id;
-        await saveBz();
-        await this.bs.putFile(up.upload_url, file, bytes, 'audio/mpeg');
-        await this.bs.completeUpload(episodeId, up.id);
         bz.uploadDone = true;
         await saveBz();
       }

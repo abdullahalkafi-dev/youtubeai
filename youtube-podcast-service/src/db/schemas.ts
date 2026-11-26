@@ -34,6 +34,8 @@ export class PodcastEpisode {
   @Prop({ type: Object }) meta?: { title: string; descriptionHtml: string; tags: string; chapters: Array<{ startSec: number; title: string }> };
   @Prop({ type: Object }) buzzsprout?: {
     episodeId?: number;
+    /** An episode with the same title was already on Buzzsprout (not made by us): kept apart from episodeId so it is never resumed or re-uploaded. */
+    existingEpisodeId?: number;
     uploadId?: string;
     uploadDone?: boolean;
     processed?: boolean;
