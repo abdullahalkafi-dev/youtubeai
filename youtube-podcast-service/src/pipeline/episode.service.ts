@@ -83,12 +83,12 @@ export class EpisodeService implements OnModuleInit, OnModuleDestroy {
   /** Queue the channel's new long public videos (never older than the auto-since moment, never twice). */
   async discover(): Promise<number> {
     const since = await this.autoSince();
+    // No live-flag condition: the main app leaves finished livestream replays marked "upcoming", and a stream still running has no duration yet.
     const filter: Record<string, unknown> = {
       publishedAt: { $gte: since },
       durationSeconds: { $gte: this.cfg.PODCAST_MIN_DURATION_SEC },
       privacyStatus: 'public',
       deletedAt: null,
-      liveBroadcastContent: { $in: [null, 'none'] },
     };
     if (this.cfg.PODCAST_CHANNEL_ID) filter.channelId = new Types.ObjectId(this.cfg.PODCAST_CHANNEL_ID);
     const found = await this.videos.find(filter).sort({ publishedAt: 1 }).limit(30).select('youtubeId channelId title publishedAt viewCount').lean();

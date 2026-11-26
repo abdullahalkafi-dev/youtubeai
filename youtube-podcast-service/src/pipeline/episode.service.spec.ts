@@ -142,3 +142,36 @@ describe('EpisodeService.process', () => {
     expect(doc.status).toBe('skipped');
   });
 });
+
+describe('EpisodeService.discover', () => {
+  function make(found: any[]) {
+    let filter: any = null;
+    const upserts: any[] = [];
+    const videos: any = { find: (f: any) => ((filter = f), { sort: () => ({ limit: () => ({ select: () => ({ lean: async () => found }) }) }) }) };
+    const episodes: any = { updateOne: async (q: any, u: any, o: any) => (upserts.push({ q, u, o }), { upsertedCount: 1 }) };
+    const cfg: any = { PODCAST_AUTO_SINCE: '2026-11-26T19:00:00Z', PODCAST_MIN_DURATION_SEC: 600, PODCAST_CHANNEL_ID: '' };
+    const svc = new EpisodeService(cfg, {} as any, episodes, {} as any, videos, {} as any);
+    return { svc, get filter() { return filter; }, upserts };
+  }
+
+  it('looks for finished long public videos after the auto-since moment, and does NOT depend on the live flag (finished livestream replays stay "upcoming" in the main app)', async () => {
+    const m = make([{ youtubeId: 'a1', channelId: 'c', title: 'T', publishedAt: new Date(), viewCount: 5 }]);
+    expect(await m.svc.discover()).toBe(1);
+    expect(m.filter.publishedAt.$gte).toEqual(new Date('2026-11-26T19:00:00Z'));
+    expect(m.filter.durationSeconds).toEqual({ $gte: 600 });
+    expect(m.filter.privacyStatus).toBe('public');
+    expect(m.filter.deletedAt).toBeNull();
+    expect('liveBroadcastContent' in m.filter).toBe(false);
+  });
+
+  it('queues each video once: insert-only upsert, never overwriting an existing record', async () => {
+    const m = make([{ youtubeId: 'a1' }, { youtubeId: 'a2' }]);
+    await m.svc.discover();
+    expect(m.upserts).toHaveLength(2);
+    for (const u of m.upserts) {
+      expect(u.o).toEqual({ upsert: true });
+      expect(Object.keys(u.u)).toEqual(['$setOnInsert']);
+      expect(u.u.$setOnInsert).toMatchObject({ status: 'queued', origin: 'auto', attempts: 0 });
+    }
+  });
+});
