@@ -125,7 +125,7 @@ describe('InstagramPublisher.publish', () => {
     expect(p.get('caption')).toContain('Honey Buns');
     expect(p.get('access_token')).toBe(TOKEN); // in the body, never in the URL
     const up = fake.calls.find((c) => c.url === URI)!;
-    expect(up.headers).toMatchObject({ Authorization: `OAuth ${TOKEN}`, offset: '0', file_size: '2048' });
+    expect(up.headers).toEqual({ Authorization: `OAuth ${TOKEN}`, offset: '0', file_size: '2048' }); // nothing else: extra headers broke the live upload
     expect(ctx.saveSession).toHaveBeenCalledWith(URI, 0);
     expect(ctx.saveSession).toHaveBeenLastCalledWith(URI, 2048);
     expect(fake.calls.filter((c) => c.method === 'POST').some((c) => c.url.includes(TOKEN))).toBe(false);

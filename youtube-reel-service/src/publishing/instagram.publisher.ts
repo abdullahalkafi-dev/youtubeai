@@ -276,7 +276,8 @@ export class InstagramPublisher implements Publisher, OnModuleInit {
       try {
         const res = await this.call(uri, {
           method: 'POST',
-          headers: { Authorization: `OAuth ${token}`, offset: '0', file_size: String(ctx.fileSize), 'Content-Type': 'application/octet-stream', 'Content-Length': String(buf.length) },
+          // Exactly the three headers Meta documents: adding Content-Type / Content-Length made Instagram answer "Request processing failed" (checked live 2026-11-26).
+          headers: { Authorization: `OAuth ${token}`, offset: '0', file_size: String(ctx.fileSize) },
           body: new Uint8Array(buf),
           signal: AbortSignal.timeout(600_000),
         });
