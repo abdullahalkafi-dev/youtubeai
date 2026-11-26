@@ -47,18 +47,70 @@ const words = (value: string) =>
 const SENIOR = /\b(?:senior|sr)\b/i;
 const JUNIOR = /\b(?:junior|jr)\b/i;
 
-/** The uploaded photo whose message names this person (never the other generation: Sr. vs Jr.). */
-export function matchUploadedPhoto(personName: string, uploads: ChatUpload[]): ChatUpload | undefined {
-  const nameWords = new Set(words(personName).filter((w) => w.length >= 4 && w !== 'senior' && w !== 'junior'));
-  if (!nameWords.size) return undefined;
+/** Edit distance, capped: only used to forgive a mis-typed or mis-heard name ("yellow busy" for "Yella Beezy"). */
+function distance(a: string, b: string): number {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  const row = Array.from({ length: b.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= a.length; i++) {
+    let prev = row[0];
+    row[0] = i;
+    for (let j = 1; j <= b.length; j++) {
+      const tmp = row[j];
+      row[j] = Math.min(row[j] + 1, row[j - 1] + 1, prev + (a[i - 1] === b[j - 1] ? 0 : 1));
+      prev = tmp;
+    }
+  }
+  return row[b.length];
+}
+
+/** The same word, allowing a slip in a longer word (one letter up to 5 letters, two from 6). */
+function sameWord(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.length < 5 || b.length < 5) return false;
+  return distance(a, b) <= (Math.max(a.length, b.length) >= 6 ? 2 : 1);
+}
+
+/**
+ * True when the words sent with this photo name ANOTHER person by a word that is not part of this
+ * person's own name ("this is yellow busy and Moe three"). John Gotti Sr. and Jr. share their words, so
+ * they do not count as "another" person here (the Sr./Jr. rules in matchUploadedPhoto separate them).
+ */
+export function uploadNamesOtherPerson(personName: string, otherName: string, upload: ChatUpload): boolean {
+  const mine = new Set(words(personName));
+  const unique = words(otherName).filter((w) => w.length >= 4 && w !== 'senior' && w !== 'junior' && !mine.has(w));
+  return unique.some((u) => words(upload.text).some((w) => sameWord(w, u)));
+}
+
+/** Words that say "this photo is the person" (used only when exactly one person is missing a photo). */
+const LIKENESS_CUE = /\b(?:this\s+is|that(?:'|’)?s|that\s+is|here(?:'|’)?s|use\s+(?:this|that)|(?:picture|photo|image)\s+of)\b/i;
+
+/**
+ * The uploaded photo whose message names this person (never the other generation: Sr. vs Jr.).
+ * The name may be typed or dictated loosely ("yellow busy"), so words are compared with a small slip
+ * allowed. With `onlyMissingPerson`, a photo the client introduced as "this is / use this picture" is
+ * taken when no name matched, but only when exactly one recent upload is introduced that way (two
+ * would be a guess, and a wrong face is worse than asking).
+ */
+export function matchUploadedPhoto(
+  personName: string,
+  uploads: ChatUpload[],
+  opts: { onlyMissingPerson?: boolean } = {},
+): ChatUpload | undefined {
+  const nameWords = words(personName).filter((w) => w.length >= 4 && w !== 'senior' && w !== 'junior');
+  if (!nameWords.length) return undefined;
   const wantsSenior = SENIOR.test(personName);
   const wantsJunior = JUNIOR.test(personName);
-  return uploads.find((u) => {
-    if (!words(u.text).some((w) => nameWords.has(w))) return false;
+  const named = uploads.find((u) => {
+    if (!words(u.text).some((w) => nameWords.some((n) => sameWord(w, n)))) return false;
     if (wantsJunior && SENIOR.test(u.text) && !JUNIOR.test(u.text)) return false;
     if (wantsSenior && JUNIOR.test(u.text) && !SENIOR.test(u.text)) return false;
     // "John Gotti" alone, with a message that says "junior", is the junior's photo.
     if (!wantsJunior && JUNIOR.test(u.text) && !SENIOR.test(u.text)) return false;
     return true;
   });
+  if (named || !opts.onlyMissingPerson) return named;
+  const introduced = uploads.filter(
+    (u) => LIKENESS_CUE.test(u.text) && !JUNIOR.test(u.text) && !SENIOR.test(u.text),
+  );
+  return introduced.length === 1 ? introduced[0] : undefined;
 }

@@ -41,6 +41,11 @@ ${TITLE_CLARITY_RULE}
 ${THUMBNAIL_HEADLINE_RULE}`;
 export const REVIEW_PROMPT = `Review against the supplied request and evidence, not a generic template. Return JSON only: {status:"pass"|"repair"|"needs_attention",issues:string[],instruction:string}. Check subject, facts, promise, relevance, wording, requested style. No person from a style reference may appear in an image. If an identity reference photo shows no clear face or several people, add the issue 'reference photo unclear' and use needs_attention. Scripts: breathable speech, topic relevance, duration, no repeated filler. Images: readable exact headline, recognizable reference likeness, visible requested emotion, clear action, natural face, no material unsupported details (details listed in clientRequestedDetails are authorized: they must be present, not flagged). Review judgments are not CTR predictions. If verification is unavailable say needs_attention. A repair instruction must be concrete. Do not introduce new facts.`;
 
+/**
+ * The model does not know the app draws the pictures, so on its own it answers "generate thumbnail" with
+ * "I can't render images here" (19 times between Oct 13 and Nov 25 2026). This is the fact it was missing.
+ */
+export const THUMBNAIL_IMAGES_ARE_AUTOMATIC = `THE APP DRAWS THE IMAGES: whenever the client asks to generate, make, redo or fix a thumbnail or a picture for one, reply with the two-concept block above and nothing that refuses; the application renders both images automatically from it. Never say you cannot render, generate, attach or show an image, never say an image tool is unavailable, and never hand over a prompt for another tool. Photos the client uploaded in this chat are used automatically as the likeness of the person he names (or the one person in the concept): name that person in "People". Put every look the client asked for (bald, orange jumpsuit, expression, where each person stands) into the Visual concept.`;
 export const THUMBNAIL_MARKDOWN = `Whenever offering thumbnails for a specific video, output exactly TWO concepts:
 <!-- THUMBNAILS_START -->
 ### Concept 1: [Emotional angle]
@@ -63,4 +68,5 @@ export const THUMBNAIL_MARKDOWN = `Whenever offering thumbnails for a specific v
 **Why it clicks:** [Rationale]
 <!-- THUMBNAILS_END -->
 ${THUMBNAIL_HEADLINE_RULE}
-No third concept. Simple formatting-only or theoretical requests do not require thumbnails.`;
+No third concept. Simple formatting-only or theoretical requests do not require thumbnails.
+${THUMBNAIL_IMAGES_ARE_AUTOMATIC}`;

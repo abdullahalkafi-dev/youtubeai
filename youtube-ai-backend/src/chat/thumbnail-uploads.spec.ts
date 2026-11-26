@@ -7,14 +7,28 @@ const img = (url: string) => ({ type: 'image', url });
 describe('nameVariants', () => {
   it('lets "John Gotti Sr." find the photo stored as "John Gotti"', () => {
     expect(nameVariants('John Gotti Sr.')).toEqual(['John Gotti Sr.', 'John Gotti']);
-    expect(nameVariants('Martin Luther King, Sr')).toEqual(['Martin Luther King, Sr', 'Martin Luther King']);
+    expect(nameVariants('Martin Luther King, Sr')).toEqual(['Martin Luther King, Sr', 'Martin Luther King', 'Martin King']);
     expect(nameVariants('John Gotti Senior')).toEqual(['John Gotti Senior', 'John Gotti']);
   });
 
   it('never strips Jr. and leaves plain names alone', () => {
     expect(nameVariants('John Gotti Jr.')).toEqual(['John Gotti Jr.']);
-    expect(nameVariants('Sean "Diddy" Combs')).toEqual(['Sean "Diddy" Combs']);
+    expect(nameVariants('Lil Durk')).toEqual(['Lil Durk']);
     expect(nameVariants('')).toEqual(['']);
+  });
+
+  it('finds one person under every way the model wrote the name (the Nov 25 lost concept)', () => {
+    const forms = nameVariants('Yella Beezy (Markies Deandre Conway)');
+    expect(forms).toEqual(
+      expect.arrayContaining(['Yella Beezy', 'Markies Deandre Conway', 'Markies Conway']),
+    );
+    expect(nameVariants('Sean "Diddy" Combs')).toEqual(['Sean "Diddy" Combs', 'Sean Combs']);
+    expect(nameVariants('Duane "Keffe D" Davis')).toContain('Duane Davis');
+  });
+
+  it('never loosens a junior’s name, and never joins two people by a shared surname', () => {
+    expect(nameVariants('John Gotti Jr. (Junior)')).toEqual(['John Gotti Jr. (Junior)']);
+    expect(nameVariants('Kewon White')).toEqual(['Kewon White']);
   });
 });
 

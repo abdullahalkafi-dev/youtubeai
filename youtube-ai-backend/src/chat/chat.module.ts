@@ -45,6 +45,7 @@ import { ReelContextService } from './reel-context.service';
 import { IntentClassifierService } from './intent-classifier.service';
 import { BookMemoryService } from './book-memory.service';
 import { DictationService } from './dictation.service';
+import { ThumbnailHealthService } from './thumbnail-health.service';
 
 @Module({
   imports: [
@@ -84,6 +85,7 @@ import { DictationService } from './dictation.service';
     IntentClassifierService,
     BookMemoryService,
     DictationService,
+    ThumbnailHealthService,
   ],
   exports: [ChatService, FootageIntentService, IntentClassifierService],
 })

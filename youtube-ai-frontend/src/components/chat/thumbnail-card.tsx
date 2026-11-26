@@ -123,6 +123,20 @@ export function ThumbnailCard({
     }
   }, [messageImages, thumbnails])
 
+  // A concept that stopped for a missing photo keeps saying so after a reload (the server saved who is missing).
+  const waitingFromServer = (activeThread?.messages || []).find((m) => m._id === messageId)?.metadata?.waitingPhotos
+  useEffect(() => {
+    if (!waitingFromServer || !thumbnails) return
+    setNeedsPhoto((prev) => {
+      const next = { ...prev }
+      thumbnails.forEach((_c, i) => {
+        const list = waitingFromServer[`concept_${i + 1}`]
+        if (list?.length && !next[i]) next[i] = list
+      })
+      return next
+    })
+  }, [waitingFromServer, thumbnails])
+
   const handleGenerateImage = async (
     concept: ThumbnailConcept,
     idx: number,
@@ -242,10 +256,12 @@ export function ThumbnailCard({
       )
     }
     // Exactly two concepts are ever offered; generate both in parallel.
+    // A concept already waiting for a photo is not retried by itself (it would only stop again).
+    const waiting = (activeThread?.messages || []).find((m) => m._id === messageId)?.metadata?.waitingPhotos
     const targets = thumbnails
       .slice(0, 2)
       .map((concept, idx) => ({ concept, idx }))
-      .filter(({ idx }) => !hasPersisted(idx))
+      .filter(({ idx }) => !hasPersisted(idx) && !waiting?.[`concept_${idx + 1}`]?.length)
     if (targets.length === 0) return
 
     onStartGenerate?.(targets.map(({ idx }) => `Concept ${idx + 1}`).join(' & '), targets.length)
@@ -436,7 +452,7 @@ export function ThumbnailCard({
               {!!needsPhoto[idx]?.length && (
                 <div role="alert" className="rounded-lg border border-amber-300 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-2">
                   <p className="text-xs text-amber-800 dark:text-amber-300">
-                    No verified public photo found for {needsPhoto[idx].map((p) => p.name).join(' and ')}. Upload a clear photo so the thumbnail shows the real person.
+                    This concept is waiting: no verified public photo found for {needsPhoto[idx].map((p) => p.name).join(' and ')}. Upload a clear photo below (or send it in the chat and say who it is), then press 1-Click Generate.
                   </p>
                   <button
                     type="button"

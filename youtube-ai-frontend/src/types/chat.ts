@@ -42,6 +42,8 @@ export interface Message {
     category?: string
     /** Package skill at high confidence — auto-generates 2 thumbnails in parallel. */
     autoImages?: boolean
+    /** Concepts stopped for a missing real-person photo (key concept_1, concept_2...), saved so a reload still says why. */
+    waitingPhotos?: Record<string, { name: string; role: string }[]>
     runId?: string
     episodeId?: string
     executionVersion?: number

@@ -1603,6 +1603,13 @@ ${layout}`;
       } as any);
       const text = String(result.content || '');
       const verdict = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1));
+      // The reviewer sometimes declines to compare faces at all ("I can’t determine whether two images
+      // show the same real person"). That is no answer, not a "different person": it must not trigger a
+      // second full image or a warning on a good picture (Nov 25: it did both, every time).
+      if (verdict.samePerson === false && isFaceCheckRefusal(verdict.reason)) {
+        this.logger.warn(`[Thumbnail Likeness] reviewer declined to compare faces; treating as unknown`);
+        return { ok: true };
+      }
       return verdict.samePerson === false
         ? { ok: false, issue: String(verdict.reason || 'Face may not match the photo').slice(0, 200) }
         : { ok: true };
@@ -3034,6 +3041,16 @@ PRIORITY INSTRUCTIONS:
  * Remove clauses that ask the image model to draw the channel host. The real host
  * photo is pasted by the composer; a drawn "Unique" is always a stranger.
  */
+/**
+ * True when the face reviewer refused or could not judge ("I can’t determine whether two images show
+ * the same real person"), as opposed to saying the faces differ. A refusal is "unknown".
+ */
+export function isFaceCheckRefusal(reason: unknown): boolean {
+  return /\b(?:can(?:no|')?t|can’t|unable to|not able to|won(?:'|’)?t|do not|don(?:'|’)?t)\b[^.]{0,40}\b(?:determine|tell|identify|compare|verify|judge|assess|say|confirm)\b|\bno way to\b|\bnot (?:possible|appropriate) to\b|\bfacial (?:comparison|recognition)\b/i.test(
+    String(reason || ''),
+  );
+}
+
 export function stripHostFromScene(text: string): string {
   return text
     .replace(/,?\s*(?:paired|alongside|together|along)\s+with\s+Unique\b[^.;,]*/g, '')

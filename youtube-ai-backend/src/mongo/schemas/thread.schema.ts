@@ -21,6 +21,9 @@ export class Message {
     /** Set when the package skill emitted a THUMBNAILS block at high routing
      *  confidence — the frontend auto-generates both images in parallel. */
     autoImages?: boolean;
+    /** Concepts that stopped because a real person has no photo yet, by concept key (concept_1): who is missing.
+     *  Saved so the card still says why after a reload; cleared when that concept gets its image. */
+    waitingPhotos?: Record<string, Array<{ name: string; role: string }>>;
     generatedSeo?: {
       title: string;
       description: string;

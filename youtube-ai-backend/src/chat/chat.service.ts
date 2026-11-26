@@ -99,7 +99,14 @@ import {
   wantsDualScript,
 } from './dual-script';
 import { FootageIntentService } from './footage-intent.service';
-import { matchUploadedPhoto, recentChatUploads } from './thumbnail-uploads';
+import { matchUploadedPhoto, recentChatUploads, uploadNamesOtherPerson } from './thumbnail-uploads';
+import {
+  asksToMakeImage,
+  hasConceptBlock,
+  needsConceptRescue,
+  scrubImageRefusals,
+} from './thumbnail-intent';
+import { THUMBNAIL_MARKDOWN } from './studio/studio.prompts';
 import { cleanRewordText, removeTextPrompt, rewordPrompt } from './thumbnail-reword';
 
 const MAX_MESSAGES_BEFORE_SUMMARY = 30;
@@ -652,7 +659,8 @@ export class ChatService {
       const chatParams = {
         messages: [{ role: 'user' as const, content: dto.content }],
         channel: (channel || undefined) as any,
-        conversationHistory: contextMessages.slice(0, -1),
+        // earlier "I can't render" replies are not shown to the model again (it copies them)
+        conversationHistory: scrubImageRefusals(contextMessages.slice(0, -1)),
         threadId: threadId.toString(),
         systemPromptOverride: systemPrompt,
         dynamicContext,
@@ -674,6 +682,24 @@ export class ChatService {
         );
         aiResponse = await this.openaiService.chat(chatParams);
       }
+    }
+
+    // "generate thumbnail" must end in images, never in "I can't render images here".
+    if (
+      needsConceptRescue({
+        explicitAsk: asksToMakeImage(dto.content),
+        routedThumbnail:
+          detectedIntent === 'thumbnail' && intentResult.confidence >= AUTO_IMAGE_MIN_CONFIDENCE,
+        reply: aiResponse.content,
+      })
+    ) {
+      const rescued = await this.rescueThumbnailReply({
+        userText: dto.content,
+        history: contextMessages.slice(0, -1),
+        channel,
+        threadId: threadId.toString(),
+      });
+      if (rescued) aiResponse = { content: rescued.content, usage: aiResponse.usage };
     }
 
     // Phase 3: backend-rendered clip list — server-appended so the model cannot
@@ -1115,7 +1141,8 @@ export class ChatService {
       ];
     }
 
-    const conversationHistory = contextMessages.slice(0, -1);
+    // earlier "I can't render" replies are not shown to the model again (it copies them)
+    const conversationHistory = scrubImageRefusals(contextMessages.slice(0, -1));
 
     // The Unique twist (point 2) is a fixed slot with dynamic content: hand the writer a fresh
     // shape to lean toward and the earlier twists in this chat so it does not repeat itself.
@@ -1143,6 +1170,8 @@ export class ChatService {
         ? `${originalRequest}\n\nNow he asks: ${(cleanUserPrompt || dto.content).slice(0, 700)}`
         : cleanUserPrompt || dto.content;
     let bulletAttempted = false;
+    // set when a refusing reply was rewritten as thumbnail concepts: the page must swap to the saved text
+    let rescuedConcepts = false;
     let bulletBlock: string | null = null;
     // The full script finished streaming / the clip list is in / the whole tail is in place. They let
     // the save step finish the tail when the client leaves in the middle of it.
@@ -1317,6 +1346,27 @@ export class ChatService {
             };
             return;
           }
+        }
+      }
+
+      // "generate thumbnail" must end in images, never in "I can't render images here". The refusing
+      // text was already streamed; the rewrite replaces it (the done event carries the saved text).
+      if (
+        needsConceptRescue({
+          explicitAsk: asksToMakeImage(dto.content),
+          routedThumbnail: detectedIntent === 'thumbnail' && intentConfidence >= AUTO_IMAGE_MIN_CONFIDENCE,
+          reply: fullContent,
+        })
+      ) {
+        const rescued = await this.rescueThumbnailReply({
+          userText: dto.content,
+          history: conversationHistory,
+          channel,
+          threadId: threadId.toString(),
+        });
+        if (rescued) {
+          fullContent = rescued.content;
+          rescuedConcepts = true;
         }
       }
 
@@ -1519,7 +1569,7 @@ export class ChatService {
         ...(emitAutoImages ? { autoImages: true } : {}),
         // The live view streamed the bullet script after the full script's footage and notes; send the
         // saved order so the two script cards sit together exactly as they will after a reload.
-        ...(bulletAttempted ? { finalContent: fullContent } : {}),
+        ...(bulletAttempted || rescuedConcepts ? { finalContent: fullContent } : {}),
       };
     }
   }
@@ -1862,12 +1912,13 @@ export class ChatService {
     const dynamicContext =
       this.skillRegistry.buildDynamicContext(channel || {}, skillContext) +
       ragContext;
-    const conversationHistory = updatedThread.messages
-      .slice(0, -1)
-      .map((m) => ({
+    // earlier "I can't render" replies are not shown to the model again (it copies them)
+    const conversationHistory = scrubImageRefusals(
+      updatedThread.messages.slice(0, -1).map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.content,
-      }));
+      })),
+    );
 
     let aiResponse: { content: string; usage?: TokenUsage };
 
@@ -1892,13 +1943,37 @@ export class ChatService {
       });
     }
 
+    // "use this picture to make the thumbnail" / "generate thumbnail" must end in images, never in
+    // "I can't render images here" (the Nov 25 chat: three refusals after two uploaded photos).
+    let rescuedUpload = false;
+    if (
+      uploadIntent &&
+      needsConceptRescue({
+        explicitAsk: asksToMakeImage(content || ''),
+        routedThumbnail:
+          uploadIntent.intent === 'thumbnail' && uploadIntent.confidence >= AUTO_IMAGE_MIN_CONFIDENCE,
+        reply: aiResponse.content,
+      })
+    ) {
+      const rescued = await this.rescueThumbnailReply({
+        userText: userContent,
+        history: conversationHistory,
+        channel,
+        threadId: threadId.toString(),
+      });
+      if (rescued) {
+        aiResponse = { content: rescued.content, usage: aiResponse.usage };
+        rescuedUpload = true;
+      }
+    }
+
     // Save AI response atomically with token tracking
     const assistantMsg: Message = {
       role: 'assistant',
       content: aiResponse.content,
       metadata: {
-        category: resolvedSkill,
-        ...(autoImages && aiResponse.content.includes('THUMBNAILS_START')
+        category: rescuedUpload ? 'thumbnail' : resolvedSkill,
+        ...((autoImages || rescuedUpload) && aiResponse.content.includes('THUMBNAILS_START')
           ? { autoImages: true }
           : {}),
       },
@@ -3304,19 +3379,34 @@ Hard rules:
     if (!referenceImageUrls?.length) {
       const omitted = new Set((dto.omitPeople || []).map((n) => n.trim().toLowerCase()));
       const chatUploads = recentChatUploads(thread.messages as any[]);
-      const people = (
+      const resolved = (
         await this.subjectReferenceService.resolveSubjects({
           title: videoContextTitle,
           concept: `Headline: ${dto.text}. ${dto.visual || ''}`,
           overrides: await this.photoOverrides(thread.channelId),
           focus: 'image',
         })
-      )
-        .filter((p) => !omitted.has(String(p.name).trim().toLowerCase()))
-        // A person with no verified photo uses the photo the client sent in this chat for that name.
+      ).filter((p) => !omitted.has(String(p.name).trim().toLowerCase()));
+      const missingCount = resolved.filter((p) => p.photoStatus === 'missing').length;
+      const people = resolved
+        // A person with no verified photo uses the photo the client sent in this chat for that name
+        // (a loosely typed name is fine; with one person missing, "this is him" is enough).
         .map((p) => {
-          if (p.photoStatus !== 'missing') return p;
-          const upload = matchUploadedPhoto(p.name, chatUploads);
+          // A photo the client sent in this chat and named ("use this picture of Yella Beezy") is the one
+          // he wants, so it also wins over a stored public photo; a saved identity photo still wins over both.
+          if (p.photoStatus === 'client_upload') return p;
+          let upload =
+            p.photoStatus === 'missing'
+              ? matchUploadedPhoto(p.name, chatUploads, { onlyMissingPerson: missingCount === 1 })
+              : matchUploadedPhoto(p.name, chatUploads);
+          // One photo sent with "this is yellow busy and Moe 3" is nobody's face: it never replaces a
+          // stored photo, and never counts as the photo of a person it only shares a message with.
+          if (
+            upload &&
+            resolved.some((o) => o !== p && o.name !== p.name && uploadNamesOtherPerson(p.name, o.name, upload!))
+          ) {
+            upload = undefined;
+          }
           if (!upload) return p;
           this.logger.log(`[Thumbnail] Using the client's chat photo for "${p.name}"`);
           return {
@@ -3330,6 +3420,13 @@ Hard rules:
       if (missing.length) {
         this.logger.log(
           `[Thumbnail] Waiting for client photo(s): ${missing.map((p) => p.name).join(', ')}`,
+        );
+        // Remember it on the message: a reload must still show who is missing, not an empty card.
+        await this.markWaitingPhotos(
+          threadId,
+          dto.messageId,
+          dto.conceptTitle,
+          missing.map((p) => ({ name: p.name, role: p.role })),
         );
         return {
           imageUrl: '',
@@ -3504,7 +3601,11 @@ Hard rules:
     if (dto.messageId && Types.ObjectId.isValid(dto.messageId)) {
       await this.threadModel.updateOne(
         { _id: threadId, 'messages._id': new Types.ObjectId(dto.messageId) },
-        { $push: { 'messages.$.metadata.images': imageObj } },
+        {
+          $push: { 'messages.$.metadata.images': imageObj },
+          // the concept has its picture now: it is no longer waiting for a photo
+          $unset: { [`messages.$.metadata.waitingPhotos.${this.conceptKey(dto.conceptTitle)}`]: 1 },
+        },
       );
     } else {
       const targetMessage =
@@ -4803,6 +4904,66 @@ Hard rules:
     }
   }
 
+  /**
+   * The client asked for a thumbnail and the reply refused ("I can't render images here") or held no
+   * concept block, so no image would ever be drawn. Rewrites the reply as the two-concept block (the
+   * page draws the images from it). Returns null when the rewrite fails, so the original reply stays.
+   */
+  private async rescueThumbnailReply(params: {
+    userText: string;
+    history: Array<{ role: 'user' | 'assistant'; content: string }>;
+    channel: any;
+    threadId: string;
+  }): Promise<{ content: string; usage?: TokenUsage } | null> {
+    try {
+      const res = await this.openaiService.chat({
+        messages: [{ role: 'user', content: params.userText }],
+        channel: params.channel || undefined,
+        conversationHistory: scrubImageRefusals(params.history).slice(-8),
+        threadId: params.threadId,
+        systemPromptOverride:
+          "You write thumbnail concepts for Unique Mecca Audio's YouTube videos.\n" +
+          THUMBNAIL_MARKDOWN +
+          '\n\nWrite ONE short sentence saying what you made, then the two-concept block, nothing else. Use the client\'s exact wording and every look he asked for. The client has already supplied any photos in this chat.',
+        temperature: 0.7,
+        maxCompletionTokens: 3000,
+      } as any);
+      const content = String(res.content || '');
+      if (!hasConceptBlock(content)) {
+        this.logger.warn(`[ThumbnailRescue] thread ${params.threadId}: rewrite still had no concept block; keeping the reply`);
+        return null;
+      }
+      this.logger.log(`[ThumbnailRescue] thread ${params.threadId}: a reply with no images was rewritten as concepts`);
+      return { content, usage: res.usage };
+    } catch (err: any) {
+      this.logger.warn(`[ThumbnailRescue] thread ${params.threadId}: failed (${err?.message || err}); keeping the reply`);
+      return null;
+    }
+  }
+
+  /** "Concept 1" -> "concept_1": a safe key for a concept inside message metadata. */
+  private conceptKey(conceptTitle?: string): string {
+    return String(conceptTitle || 'concept').toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'concept';
+  }
+
+  /** Saves, on the concept's own message, who it is waiting a photo for (best effort, never blocks the reply). */
+  private async markWaitingPhotos(
+    threadId: string,
+    messageId: string | undefined,
+    conceptTitle: string | undefined,
+    people: Array<{ name: string; role: string }>,
+  ) {
+    if (!messageId || !Types.ObjectId.isValid(messageId)) return;
+    try {
+      await this.threadModel.updateOne(
+        { _id: threadId, 'messages._id': new Types.ObjectId(messageId) },
+        { $set: { [`messages.$.metadata.waitingPhotos.${this.conceptKey(conceptTitle)}`]: people } },
+      );
+    } catch (err: any) {
+      this.logger.warn(`[Thumbnail] could not save the waiting-for-photo note: ${err.message}`);
+    }
+  }
+
   /** Face photos the client uploaded for named people (channel creative preferences). */
   private async photoOverrides(channelId: any) {
     if (!channelId) return [];
@@ -4933,5 +5094,5 @@ export function shouldAutoGenerateImages(
 
 /** True when the client's own words ask for thumbnails or a full package. */
 export function explicitlyAsksForThumbnails(content: string): boolean {
-  return /\bthumb\w*|\bpackage\b/i.test(String(content || ''));
+  return /\bthumb\w*|\bpackage\b/i.test(String(content || '')) || asksToMakeImage(content);
 }

@@ -561,25 +561,72 @@ Output ONLY valid JSON: {"candidates":[{"imageUrl":"https://...","pageUrl":"http
  */
 export function nameVariants(name: string): string[] {
   const base = String(name || '').replace(/\s+/g, ' ').trim();
+  const out: string[] = [];
+  const add = (value: string) => {
+    // (a trailing dot is part of "Sr." / "Jr.", so only spaces and commas are trimmed)
+    const v = value.replace(/\s+/g, ' ').replace(/^[\s,]+|[\s,]+$/g, '').trim();
+    if (v && !out.some((o) => o.toLowerCase() === v.toLowerCase())) out.push(v);
+  };
+  add(base);
+  if (!out.length) return [base];
   const stripped = base.replace(/[,\s]+(?:sr\.?|senior)$/i, '').trim();
-  return stripped && stripped.toLowerCase() !== base.toLowerCase() ? [base, stripped] : [base];
+  if (stripped.toLowerCase() !== base.toLowerCase()) add(stripped);
+
+  // The model writes the same person differently from one concept to the next: "Yella Beezy",
+  // "Yella Beezy (Markies Deandre Conway)", "Markies Conway". Every written form of the person is
+  // looked up, so one spelling of the name can never hide a photo stored under another.
+  // A Jr./II/III is a different person from the plain name, so those names get no looser forms.
+  if (/\b(?:jr\.?|junior|ii|iii|iv)\b/i.test(base)) return out;
+  const bracket = /\(([^)]{2,60})\)/.exec(base);
+  const outside = base.replace(/\([^)]*\)/g, ' ');
+  if (bracket) {
+    add(outside);
+    add(bracket[1]);
+  }
+  for (const form of [outside, bracket?.[1] || ''].filter(Boolean)) {
+    // "Duane 'Keffe D' Davis" is also "Duane Davis"
+    // (single quotes count only around a whole word, so "D'Angelo O'Neal" is left alone)
+    const noNickname = form
+      .replace(/["“”][^"“”]{1,30}["“”]/g, ' ')
+      .replace(/(^|\s)['‘][^'‘’]{1,30}['’](?=\s|$)/g, ' ');
+    add(noNickname);
+    // "Markies Deandre Conway" is also "Markies Conway" (first and last name must both match)
+    const parts = noNickname
+      .replace(/[,\s]+(?:sr\.?|senior)$/i, '')
+      .split(/\s+/)
+      .filter(Boolean);
+    if (parts.length >= 3) add(`${parts[0]} ${parts[parts.length - 1]}`);
+  }
+  return out.length ? out : [base];
 }
 
-/** A client upload matches when its name shares a distinctive word with the subject's name. */
+const matchWords = (value: string) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/["'“”()]/g, ' ')
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length >= 4);
+
+/**
+ * A client upload matches when it is the same person under any written form of the name, or when
+ * the names share enough distinctive words (two words when both names have two or more, so a
+ * shared surname alone is never taken as the same person).
+ */
 export function matchOverride(
   name: string,
   overrides: PhotoOverride[],
 ): PhotoOverride | undefined {
-  const words = (value: string) =>
-    value
-      .toLowerCase()
-      .replace(/["'“”]/g, ' ')
-      .split(/[^a-z0-9]+/)
-      .filter((w) => w.length >= 4);
-  const wanted = new Set(words(name));
-  return overrides.find(
-    (o) =>
-      o.name.toLowerCase().trim() === name.toLowerCase().trim() ||
-      words(o.name).some((w) => wanted.has(w)),
-  );
+  const forms = new Set(nameVariants(name).map((v) => v.toLowerCase().replace(/["'“”]/g, '').trim()));
+  const wanted = new Set(matchWords(name));
+  const JUNIOR = /\b(?:jr\.?|junior)\b/i;
+  return overrides.find((o) => {
+    // The junior and the senior are two people: a photo for one is never used for the other.
+    if (JUNIOR.test(o.name) !== JUNIOR.test(name)) return false;
+    const theirForms = nameVariants(o.name).map((v) => v.toLowerCase().replace(/["'“”]/g, '').trim());
+    if (theirForms.some((f) => forms.has(f))) return true;
+    const theirs = matchWords(o.name);
+    const shared = theirs.filter((w) => wanted.has(w)).length;
+    const need = Math.min(2, wanted.size, theirs.length);
+    return need > 0 && shared >= need;
+  });
 }
