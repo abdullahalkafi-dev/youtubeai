@@ -6,6 +6,32 @@ server, and how to undo it. Times are New York unless noted. Server: `ssh root@2
 
 ---
 
+## 2026-11-26: Instagram reels (publisher + lanes) and Facebook comment replies
+
+### Instagram (commits 11508d8, afe44bd, 55a600a)
+**Client decision:** the same reels go to Instagram as to Facebook: 5 a day, 3 new + 2 backlog, each posted at a random time within 2 minutes of its slot.
+**What:** `instagram.publisher.ts` posts Reels to @uniquemeccaaudio through Meta's resumable upload (create container -> upload bytes to rupload.facebook.com/ig-api-upload ->
+poll `status_code` until FINISHED -> `media_publish`), with the Page access token of the Page the account is linked to (`MetaTokenProvider.instagram`).
+`instagram-lane.service.ts` runs the lanes (mirror a few minutes after each YouTube post, extra 16:30 ET, backlog 13:30 and 19:30 ET, same retention-ranked backlog as
+Facebook, hard cap 5, pauses itself on login errors or 2 rejections). Posts have source `ig-mirror|ig-extra|ig-backlog` and platform `instagram`, invisible to every YouTube
+guard. Caption (`instagram-caption.ts`): hook, one context line, "Full video on YouTube, link in bio.", up to 5 hashtags, no links, no long dashes.
+Frontend: an Instagram tab (`instagram-panel.tsx`, `GET /channels/:id/instagram/overview`).
+**Settings:** `INSTAGRAM_AUTO` (off by default; `on` in the server `.env.prod`, backup `/root/reel-env.prod.backup-before-instagram-20261126`), `INSTAGRAM_NEW_PER_DAY`,
+`INSTAGRAM_BACKLOG_PER_DAY`, `INSTAGRAM_EXTRA_SLOT_ET`, `INSTAGRAM_BACKLOG_SLOTS_ET`, `INSTAGRAM_JITTER_MIN` (2), `INSTAGRAM_ACCOUNT_ID` (pin), `INSTAGRAM_AUTO_SINCE`.
+**Found live:** the upload step must carry only `Authorization`, `offset` and `file_size`; adding `Content-Type`/`Content-Length` made Instagram answer "Request processing failed".
+First post (manual): the Honey Buns reel, https://www.instagram.com/reel/DgNe43jBxPC/ (1,535 views, 31 likes, 5 saves after about 40 minutes; metric names `views`, `reach`, `saved`, `shares`, `ig_reels_avg_watch_time` confirmed).
+**Check:** `docker exec youtubeai-reels-reel-worker-1 node dist/cli/reel-cli.js ig:preview 6a81e0e956c00363be7b404e`. **Undo:** `INSTAGRAM_AUTO=off`.
+**Not done:** a first comment on Instagram posts (needs the `instagram_manage_comments` permission, error 10 without it).
+
+### Facebook comment replies
+Full description, rules, storage and audit queries: **`FACEBOOK-COMMENT-REPLIES.md`**. In short: every 10 minutes the lane reads the comments of recent Facebook reels, drops what the
+rules forbid (abuse, slurs, spam, politics, threats, self-harm, anything already answered), lets a model write a short reply in the host's voice or skip, checks the text again,
+and posts one reply at a time (4 to 12 minutes apart, 08:00 to 23:30 New York, at most 35 a day). Every comment gets a row in `reel_comment_replies`.
+**Settings:** `FACEBOOK_REPLY_AUTO=off|dry|on` (default `off`), `FACEBOOK_REPLY_DAILY_CAP`, `FACEBOOK_REPLY_REEL_DAYS`.
+**Check:** `docker exec youtubeai-reels-reel-worker-1 node dist/cli/reel-cli.js fbreply:log 6a81e0e956c00363be7b404e`. **Undo:** `FACEBOOK_REPLY_AUTO=off`.
+
+---
+
 ## 2026-10-31: full-screen look, found automatically; full-video link in the first comment
 
 **Client decision:** the full-screen look is better than the old one; keep the old look available so switching back needs no rewrite.

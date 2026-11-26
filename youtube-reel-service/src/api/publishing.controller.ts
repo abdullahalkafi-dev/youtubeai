@@ -5,6 +5,7 @@ import { PublishService } from '../publishing/publish.service';
 import { PublisherRegistry } from '../publishing/registry';
 import { FacebookLaneService } from '../publishing/facebook-lane.service';
 import { InstagramLaneService } from '../publishing/instagram-lane.service';
+import { FacebookReplyService } from '../publishing/facebook-reply.service';
 import { AuthedRequest, ReelAuthGuard } from './auth.guard';
 import { AnalyticsQuery, ManualPostDto, parse, PostsQuery, PreflightDto, PublishDto } from './dto';
 import { Inject } from '@nestjs/common';
@@ -25,6 +26,7 @@ export class PublishingController {
     private readonly analytics: AnalyticsService,
     private readonly facebookLane: FacebookLaneService,
     private readonly instagramLane: InstagramLaneService,
+    private readonly facebookReply: FacebookReplyService,
   ) {}
 
   @Get('accounts')
@@ -86,6 +88,12 @@ export class PublishingController {
   @Get('facebook/overview')
   facebookOverview(@Param('channelId') channelId: string) {
     return this.facebookLane.overview(channelId);
+  }
+
+  /** Operator view of the Facebook comment replies: mode, pause, counts and the newest decisions with their text (no tokens). */
+  @Get('facebook/replies')
+  facebookReplies(@Param('channelId') channelId: string) {
+    return this.facebookReply.overview(channelId);
   }
 
   /** The Instagram tab: the account, the lanes' state, totals and the newest Instagram posts. Never contains a token. */

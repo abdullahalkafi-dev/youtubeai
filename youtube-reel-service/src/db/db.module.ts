@@ -9,6 +9,7 @@ import { ReelLayout, ReelLayoutSchema } from './schemas/reel-layout.schema';
 import { ReelMoment, ReelMomentSchema } from './schemas/reel-moment.schema';
 import { ReelEntity, ReelEntitySchema, ReelSetting, ReelSettingSchema } from './schemas/reel-misc.schema';
 import { ReelPost, ReelPostSchema } from './schemas/reel-post.schema';
+import { ReelCommentReply, ReelCommentReplySchema } from './schemas/reel-comment-reply.schema';
 import { ReelPostMetric, ReelPostMetricSchema } from './schemas/reel-post-metric.schema';
 import { ReelCampaignChat, ReelCampaignChatSchema } from './schemas/reel-campaign-chat.schema';
 import { ReelUpload, ReelUploadSchema } from './schemas/reel-upload.schema';
@@ -41,6 +42,7 @@ const models = MongooseModule.forFeature([
   { name: ReelEntity.name, schema: ReelEntitySchema },
   { name: ReelSetting.name, schema: ReelSettingSchema },
   { name: ReelPost.name, schema: ReelPostSchema },
+  { name: ReelCommentReply.name, schema: ReelCommentReplySchema },
   { name: ReelPostMetric.name, schema: ReelPostMetricSchema },
   { name: ReelCampaignChat.name, schema: ReelCampaignChatSchema },
   { name: ReelUpload.name, schema: ReelUploadSchema },

@@ -168,6 +168,14 @@ const EnvSchema = z.object({
   INSTAGRAM_AUTO_SINCE: str(''),
   /** The ONE Instagram account reels are published to (its numeric id). Empty = the first Instagram account in the Facebook logins. */
   INSTAGRAM_ACCOUNT_ID: str(''),
+
+  // Facebook comment replies (client ask 2026-11-26). off = nothing runs (the default); dry = comments are read and replies are written and
+  // stored but NOTHING is posted; on = replies are posted. See FACEBOOK-COMMENT-REPLIES.md.
+  FACEBOOK_REPLY_AUTO: z.enum(['off', 'dry', 'on']).default('off'),
+  /** The most replies posted per New York day (a dry run counts what it would have posted against the same number). */
+  FACEBOOK_REPLY_DAILY_CAP: int(35),
+  /** Only reels published in the last N days, and comments not older than that, are answered. */
+  FACEBOOK_REPLY_REEL_DAYS: int(7),
 });
 
 export type AppConfig = z.infer<typeof EnvSchema> & {

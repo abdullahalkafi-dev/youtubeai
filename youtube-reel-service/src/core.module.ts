@@ -39,6 +39,7 @@ import { MetaTokenProvider } from './publishing/meta-token.provider';
 import { FacebookPublisher } from './publishing/facebook.publisher';
 import { FacebookLaneService } from './publishing/facebook-lane.service';
 import { InstagramPublisher } from './publishing/instagram.publisher';
+import { FacebookReplyService } from './publishing/facebook-reply.service';
 import { InstagramLaneService } from './publishing/instagram-lane.service';
 
 const providers = [
@@ -77,6 +78,7 @@ const providers = [
   PublishService,
   AutoPublishService,
   FacebookLaneService, // the Facebook mirror / extra / backlog lanes (does nothing with FACEBOOK_AUTO=off)
+  FacebookReplyService, // automatic replies to Facebook comments (does nothing with FACEBOOK_REPLY_AUTO=off)
   InstagramPublisher, // registers itself with the PublisherRegistry on module init
   InstagramLaneService, // the Instagram mirror / extra / backlog lanes (does nothing unless INSTAGRAM_AUTO=on)
   LearningService,

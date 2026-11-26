@@ -27,7 +27,7 @@ export interface PublishJob {
   attempt?: number;
 }
 export interface MaintenanceJob {
-  task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'instagram-lane' | 'weekly-review' | 'ops-report';
+  task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'instagram-lane' | 'facebook-reply' | 'weekly-review' | 'ops-report';
 }
 
 function redisOptions(url: string): Bull.QueueOptions['redis'] {

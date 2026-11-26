@@ -26,6 +26,7 @@ import { formatOpsReport } from '../pipeline/ops-report';
 import { AlertService } from '../pipeline/alert.service';
 import { FacebookLaneService } from '../publishing/facebook-lane.service';
 import { InstagramLaneService } from '../publishing/instagram-lane.service';
+import { FacebookReplyService } from '../publishing/facebook-reply.service';
 import { alertsFor } from '../pipeline/alerts';
 
 /**
@@ -37,6 +38,9 @@ import { alertsFor } from '../pipeline/alerts';
  *   node dist/cli/reel-cli.js fb:resume <channelId>   (clears a pause the Facebook lane put on itself; YouTube is never paused by it)
  *   node dist/cli/reel-cli.js ig:preview <channelId>   (read-only: what the Instagram lanes would post in the next 24 hours)
  *   node dist/cli/reel-cli.js ig:resume <channelId>   (clears a pause the Instagram lane put on itself)
+ *   node dist/cli/reel-cli.js fbreply:log <channelId> [n]   (the Facebook comment replies: mode, pause, counts, and the newest n decisions with the comment and the reply)
+ *   node dist/cli/reel-cli.js fbreply:run <channelId>   (one pass now: read comments, decide, queue; posts one queued reply when the mode is on)
+ *   node dist/cli/reel-cli.js fbreply:resume <channelId>   (clears a pause the reply lane put on itself)
  *   node dist/cli/reel-cli.js session:check
  *   node dist/cli/reel-cli.js transcript:repair <youtubeId|all> [--apply]   (fix transcripts stored with the old chunk-offset bug)
  *   node dist/cli/reel-cli.js render:retry-failed <sinceDate> [--apply]   (re-queue reels whose render failed, e.g. killed for memory)
@@ -115,6 +119,24 @@ async function main() {
         console.log(`today so far: mirror ${p.todayCounts.mirror}, extra ${p.todayCounts.extra}, backlog ${p.todayCounts.backlog} (cap ${lane.lane.dailyCap}) | backlog waiting: ${p.backlogSize} reel(s)`);
         for (const i of p.items) console.log(`  ${i.date} ${i.time} ET  ${i.kind.padEnd(7)} ${i.reelId ? `${i.title.slice(0, 70)}  [${i.youtubeUrl ?? 'not on YouTube yet'}]` : `- ${i.note}`}`);
         if (!p.items.length) console.log('  (nothing due in the next 24 hours)');
+        break;
+      }
+      case 'fbreply:log': {
+        const o = await app.get(FacebookReplyService).overview(args[0], new Date(), Number(args[1] ?? 30));
+        console.log(`FACEBOOK REPLIES: mode ${o.mode} | cap ${o.dailyCap}/day${o.paused ? ` | PAUSED: ${o.paused.reason}${o.paused.until ? ` (until ${new Date(o.paused.until).toISOString()})` : ''}` : ''}`);
+        console.log(`today: replied ${o.today.replied}, waiting ${o.today.queued}, dry-run ${o.today.dryRun}, skipped ${o.today.skipped} | all time: replied ${o.totals.replied}, skipped ${o.totals.skipped}, failed ${o.totals.failed}`);
+        for (const r of o.recent) console.log(`  [${r.decision}${r.skipReason ? ':' + r.skipReason : ''}] ${JSON.stringify(r.comment.slice(0, 110))}${r.reply ? `
+      -> ${JSON.stringify(r.reply)}` : ''}${r.error ? `
+      !! ${r.error}` : ''}`);
+        break;
+      }
+      case 'fbreply:run': {
+        console.log(JSON.stringify(await app.get(FacebookReplyService).tick(args[0])));
+        break;
+      }
+      case 'fbreply:resume': {
+        await app.get(FacebookReplyService).resume(args[0]);
+        console.log('Facebook reply lane resumed.');
         break;
       }
       case 'ig:resume': {

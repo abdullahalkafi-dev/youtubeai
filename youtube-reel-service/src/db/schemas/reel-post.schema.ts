@@ -50,6 +50,8 @@ export class ReelPost {
   @Prop() thumbnailApplied?: boolean;
   /** The channel's first comment (the reel's engagement question) was posted. */
   @Prop() commentPosted?: boolean;
+  /** Facebook comment replies: when the reply lane last read this reel's comments (oldest-checked reels go first). */
+  @Prop() commentsCheckedAt?: Date;
 
   @Prop({ type: Object }) latestMetrics?: NormalizedMetrics & { capturedAt: Date; provisional?: boolean };
   @Prop() nextMetricsAt?: Date;
