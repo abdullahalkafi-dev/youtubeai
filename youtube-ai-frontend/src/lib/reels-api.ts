@@ -11,6 +11,7 @@ import type {
   AutoPublishOverview,
   AutoPublishSettings,
   FacebookOverview,
+  InstagramOverview,
   PlatformId,
   PostMetadata,
   PostStatus,
@@ -198,6 +199,7 @@ export const reelsApi = {
   },
 
   facebookOverview: (channelId: string) => request<FacebookOverview>(`/channels/${channelId}/facebook/overview`),
+  instagramOverview: (channelId: string) => request<InstagramOverview>(`/channels/${channelId}/instagram/overview`),
 
   coverage: (channelId: string) => request<Coverage>(`/channels/${channelId}/coverage`),
   insights: (channelId: string, period: 'week' | 'month') => request<Insights>(`/channels/${channelId}/insights?period=${period}`),

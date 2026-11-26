@@ -124,6 +124,11 @@ export interface FacebookOverview {
   }>
 }
 
+/** GET /channels/:id/instagram/overview — the client's Instagram account view (no tokens, no technical reasons). */
+export interface InstagramOverview extends Omit<FacebookOverview, 'page'> {
+  account: { id: string; name: string; followers: number | null; mediaCount: number | null; fetchedAt: string } | null
+}
+
 export interface AnalyticsOverview {
   period: string
   posts: number
