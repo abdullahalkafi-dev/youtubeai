@@ -287,12 +287,11 @@ describe('postNext (the one reply posted per pass)', () => {
     expect(row(w, 'c2').decision).toBe('replied');
   });
 
-  it('posts only in the active hours and not past the daily cap', async () => {
+  it('posts at any hour and not past the daily cap', async () => {
     const w = world({ cap: 1 });
     queued(w, 'c1');
     queued(w, 'c2', 'Love it.', at('12:30'));
-    expect(await w.svc.postNext(CHID, at('03:00'))).toBe(0);
-    expect(await w.svc.postNext(CHID, at('13:00'))).toBe(1);
+    expect(await w.svc.postNext(CHID, at('03:00'))).toBe(1);
     expect(await w.svc.postNext(CHID, at('15:00'))).toBe(0); // cap of 1 reached today
   });
 

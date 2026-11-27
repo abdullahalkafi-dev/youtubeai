@@ -18,7 +18,6 @@ import {
   FbComment,
   gapMs,
   hardSkipReason,
-  inActiveHours,
   isOwnComment,
   MAX_POST_ATTEMPTS,
   QUEUE_STALE_MS,
@@ -52,7 +51,7 @@ export interface ReplyState {
 /**
  * Automatic replies to the comments on the Page's Facebook reels (client ask 2026-11-26). Everything about how it decides, what it never
  * answers, when it posts and how to audit it is in FACEBOOK-COMMENT-REPLIES.md. Short version:
- *   every 10 minutes: (1) post at most ONE queued reply (random 4-12 min after the previous one, 08:00-23:30 New York, daily cap),
+ *   every 10 minutes: (1) post at most ONE queued reply (random 4-12 min after the previous one, all day, daily cap),
  *   then (2) read the comments of the 3 reels read longest ago, drop what the rules forbid, let the model reply-or-skip the rest,
  *   check its text with the rules again, and queue what passes.
  * FACEBOOK_REPLY_AUTO: off = nothing runs; dry = decisions are made and stored but nothing is posted; on = replies are posted.
@@ -150,7 +149,6 @@ export class FacebookReplyService {
 
   /** Posts at most one reply. Returns 1 when one was posted. */
   async postNext(channelId: string, now = new Date()): Promise<number> {
-    if (!inActiveHours(now)) return 0;
     const cid = new Types.ObjectId(channelId);
     const lastRows = await this.replies.find({ channelId: cid, platform: 'facebook', decision: 'replied' }).sort({ repliedAt: -1 }).limit(1).select('repliedAt').lean();
     const last = lastRows[0]?.repliedAt ? new Date(lastRows[0].repliedAt) : null;

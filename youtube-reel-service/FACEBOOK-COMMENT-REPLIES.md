@@ -36,7 +36,6 @@ For each channel with Facebook posts, `tick()`:
 
 1. **Stop checks.** Mode `off`, lane paused (section 6), or Facebook not connected: return.
 2. **Post** (`on` only, `postNext`): at most **one** queued reply per pass, and only when
-   - New York time is between **08:00 and 23:30**;
    - at least a random **4 to 12 minutes** have passed since the previous posted reply (`gapMs`, fixed by the previous reply's time, so a retry cannot shorten it);
    - fewer than the daily cap were posted today.
    Replies queued for more than 24 hours are dropped (`stale`). Right before posting, the comment is read again from Facebook: if it was deleted
@@ -127,7 +126,7 @@ Judge the dry run by reading `fbreply:log`: are the skips right (abuse, spam) an
 | file | role |
 |---|---|
 | `src/publishing/facebook-reply.service.ts` | the lane: `runDue`, `tick`, `postNext`, `discover`, `overview`, pause/resume |
-| `src/publishing/facebook-reply-rules.ts` | pure rules: `hardSkipReason`, `isOwnComment`, `cleanReply`, `validateReply`, `inActiveHours`, `gapMs`, `replyPause` |
+| `src/publishing/facebook-reply-rules.ts` | pure rules: `hardSkipReason`, `isOwnComment`, `cleanReply`, `validateReply`, `gapMs`, `replyPause` |
 | `src/publishing/facebook-reply.prompt.ts` | the model instructions and the output schema |
 | `src/db/schemas/reel-comment-reply.schema.ts` | the stored rows |
 | `src/config/config.ts` | `FACEBOOK_REPLY_AUTO`, `_DAILY_CAP`, `_REEL_DAYS` |

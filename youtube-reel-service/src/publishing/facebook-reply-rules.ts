@@ -2,16 +2,12 @@
  * The rules of the Facebook comment replies, kept pure (no database, no clock of their own, no model) so every one can be tested and
  * audited. FACEBOOK-COMMENT-REPLIES.md explains each in plain words. Order of defence for a comment:
  *   1. `hardSkipReason`  (here, free, cannot be argued with)  ->  2. the model may still say "skip"  ->  3. `validateReply` on what it wrote
- *   ->  4. timing and caps (`inActiveHours`, `gapMs`, the daily cap)  ->  5. a last check against Facebook right before posting.
+ *   ->  4. timing and caps (`gapMs`, the daily cap)  ->  5. a last check against Facebook right before posting.
  */
-import { DAILY_TZ } from '../common/time';
 
 export const REPLY_MAX_CHARS = 180;
 export const COMMENT_MAX_CHARS = 600;
 export const STORED_COMMENT_MAX = 500;
-/** Replies are posted only between these New York hours (08:00 up to 23:30), like a person would. */
-export const ACTIVE_FROM_HOUR = 8;
-export const ACTIVE_TO_MINUTE = 23 * 60 + 30;
 /** A queued reply that has waited this long is dropped: a late answer to an old comment reads wrong. */
 export const QUEUE_STALE_MS = 24 * 3_600_000;
 /** Posting a reply fails this many times, then the comment is marked failed. */
@@ -110,18 +106,6 @@ export function validateReply(reply: string, recent: string[]): string | null {
   if (isRepeat(reply, recent)) return 'repeat';
   return null;
 }
-
-/** New York wall-clock minutes since midnight. */
-export function nyMinutes(now: Date): number {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: DAILY_TZ, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now);
-  const get = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? 0);
-  return get('hour') * 60 + get('minute');
-}
-
-export const inActiveHours = (now: Date): boolean => {
-  const m = nyMinutes(now);
-  return m >= ACTIVE_FROM_HOUR * 60 && m <= ACTIVE_TO_MINUTE;
-};
 
 /** A random wait of 4 to 12 minutes between two posted replies, fixed by `seed` (the previous reply's time) so a retry cannot shorten it. */
 export function gapMs(seed: string): number {

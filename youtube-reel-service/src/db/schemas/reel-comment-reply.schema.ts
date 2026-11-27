@@ -6,7 +6,7 @@ export type ReplyDecision = (typeof REPLY_DECISIONS)[number];
 
 /**
  * One row per comment the reply lane has looked at (the audit trail of the Facebook comment replies, see FACEBOOK-COMMENT-REPLIES.md).
- *  - queued:   a reply was written and approved by the rules; it waits for its turn (random gaps, active hours, daily cap)
+ *  - queued:   a reply was written and approved by the rules; it waits for its turn (random gaps, daily cap)
  *  - replied:  the reply is posted (`replyId` is Facebook's id of it)
  *  - dry_run:  the lane is in FACEBOOK_REPLY_AUTO=dry: this is what WOULD have been posted; nothing was sent to Facebook
  *  - skipped:  the rules or the model decided not to reply (`skipReason` says why); final, never retried

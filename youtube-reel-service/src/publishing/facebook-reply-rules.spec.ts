@@ -1,5 +1,5 @@
 import { nyToUtc } from './auto-plan';
-import { cleanReply, dailyRemaining, gapMs, hardSkipReason, inActiveHours, isOwnComment, isRepeat, replyPause, skipReasonOf, validateReply } from './facebook-reply-rules';
+import { cleanReply, dailyRemaining, gapMs, hardSkipReason, isOwnComment, isRepeat, replyPause, skipReasonOf, validateReply } from './facebook-reply-rules';
 
 describe('hardSkipReason (what is never answered, decided without the model)', () => {
   it('lets ordinary comments through, emoji and slang included', () => {
@@ -84,14 +84,6 @@ describe('validateReply', () => {
 
 describe('timing and caps', () => {
   const d = '2026-11-27';
-  it('posts only between 08:00 and 23:30 New York', () => {
-    expect(inActiveHours(nyToUtc(d, '07:59'))).toBe(false);
-    expect(inActiveHours(nyToUtc(d, '08:00'))).toBe(true);
-    expect(inActiveHours(nyToUtc(d, '15:10'))).toBe(true);
-    expect(inActiveHours(nyToUtc(d, '23:30'))).toBe(true);
-    expect(inActiveHours(nyToUtc(d, '23:45'))).toBe(false);
-    expect(inActiveHours(nyToUtc(d, '03:00'))).toBe(false);
-  });
   it('the gap between two replies is 4 to 12 minutes, the same for the same seed and different across seeds', () => {
     const gaps = Array.from({ length: 200 }, (_, i) => gapMs(`seed-${i}`));
     for (const g of gaps) {
