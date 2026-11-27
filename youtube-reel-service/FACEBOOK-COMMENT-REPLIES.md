@@ -20,7 +20,7 @@ It lives in the reel service next to the Facebook publisher, **not** in the YouT
 |---|---|
 | `off` (default) | nothing runs, nothing is read, nothing is written |
 | `dry` | comments are read, the model writes replies, the rules check them, rows are stored as `dry_run`. **Nothing is sent to Facebook.** Use it to read the replies before they go live |
-| `on` | as `dry`, and queued replies are posted (one every 4 to 12 minutes) |
+| `on` | as `dry`, and queued replies are posted (one every 2 to 6 minutes) |
 
 Switching: edit `.env.prod`, then `docker compose -f docker-compose.reels.yml up -d --force-recreate reel-api reel-worker` (from `/var/www/youtubeai`).
 Going from `dry` to `on` is safe: a `dry_run` row does not count as handled in `on` mode, so those comments are answered for real
@@ -35,8 +35,8 @@ Maintenance task `facebook-reply` (`worker-processors.ts`, handled in `maintenan
 For each channel with Facebook posts, `tick()`:
 
 1. **Stop checks.** Mode `off`, lane paused (section 6), or Facebook not connected: return.
-2. **Post** (`on` only, `postNext`): at most **one** queued reply per pass, and only when
-   - at least a random **4 to 12 minutes** have passed since the previous posted reply (`gapMs`, fixed by the previous reply's time, so a retry cannot shorten it);
+2. **Post** (`on` only, `postNext`; also run alone every minute by task `facebook-reply-post`, so the gap is real): at most **one** queued reply per pass, and only when
+   - at least a random **2 to 6 minutes** have passed since the previous posted reply (`gapMs`, fixed by the previous reply's time, so a retry cannot shorten it);
    - fewer than the daily cap were posted today.
    Replies queued for more than 24 hours are dropped (`stale`). Right before posting, the comment is read again from Facebook: if it was deleted
    (`comment_gone`) or already has any reply (`has_replies`) nothing is sent. Then `POST /{comment-id}/comments` with the Page token, which
@@ -156,3 +156,30 @@ still shows the old reply; it is rewritten when the mode goes `on`). Some skips 
 
 Set `FACEBOOK_REPLY_AUTO=off` and recreate the containers: the lane stops at once. Posted replies stay on Facebook (delete them there if needed; their ids are
 in `replyId`). To remove the code: revert the commit that added this file; the collection can be dropped (`db.reel_comment_replies.drop()`), nothing else reads it.
+
+## 13. Diagram
+
+```
+ every 10 min (facebook-reply)                         every 1 min (facebook-reply-post)
+ ---------------------------------                     ---------------------------------
+ pick 3 reels, read newest comments                    mode on? lane not paused?
+        |                                              last reply older than a random 2-6 min?
+        v                                              fewer than the daily cap today?
+ already in reel_comment_replies? --yes--> ignore             |  yes
+        | no                                                  v
+        v                                              take the oldest "queued" reply
+ Page's own comment / empty / link / abuse /                  |  (older than 24 h: dropped as stale)
+ slur / threat / politics / self-harm?  --yes--> skipped      v
+        | no  (hard rules, no model)                   read the comment again on Facebook
+        v                                              deleted? -> skipped (comment_gone)
+ model (8 at a time): reply or skip                    already has a reply? -> skipped (has_replies)
+        |                                                     |  fine
+        v                                                     v
+ reply passes validateReply?                           POST /{comment}/comments as the Page
+ (short, no link/dash/number, not a repeat)                   |
+        | no -> skipped                                       +-- ok -> replied (stored with replyId)
+        | yes                                                 +-- login/permission error -> lane paused until reconnect
+        v                                                     +-- rate/spam block -> paused 12 h
+ mode dry: store as dry_run (never posted)                    +-- other -> retry, 3 fails -> failed
+ mode on:  store as queued  -------------------------------->  (3 fails in a row on different comments -> paused 3 h)
+```

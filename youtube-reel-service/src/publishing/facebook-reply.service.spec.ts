@@ -277,7 +277,7 @@ describe('postNext (the one reply posted per pass)', () => {
     expect(row(w, 'c2').decision).toBe('queued');
   });
 
-  it('waits 4 to 12 minutes after the previous reply, and then goes on', async () => {
+  it('waits 2 to 6 minutes after the previous reply, and then goes on', async () => {
     const w = world();
     queued(w, 'c1');
     queued(w, 'c2', 'Love it.', at('12:30'));

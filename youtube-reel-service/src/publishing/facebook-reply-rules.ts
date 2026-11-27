@@ -107,12 +107,12 @@ export function validateReply(reply: string, recent: string[]): string | null {
   return null;
 }
 
-/** A random wait of 4 to 12 minutes between two posted replies, fixed by `seed` (the previous reply's time) so a retry cannot shorten it. */
+/** A random wait of 2 to 6 minutes between two posted replies, fixed by `seed` (the previous reply's time) so a retry cannot shorten it. */
 export function gapMs(seed: string): number {
   let h = 2166136261;
   for (let i = 0; i < seed.length; i++) h = Math.imul(h ^ seed.charCodeAt(i), 16777619);
   const r = ((h >>> 0) % 10_000) / 10_000;
-  return Math.round((4 + r * 8) * 60_000);
+  return Math.round((2 + r * 4) * 60_000);
 }
 
 export const dailyRemaining = (usedToday: number, cap: number): number => Math.max(0, cap - usedToday);

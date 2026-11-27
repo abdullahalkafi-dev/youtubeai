@@ -84,11 +84,11 @@ describe('validateReply', () => {
 
 describe('timing and caps', () => {
   const d = '2026-11-27';
-  it('the gap between two replies is 4 to 12 minutes, the same for the same seed and different across seeds', () => {
+  it('the gap between two replies is 2 to 6 minutes, the same for the same seed and different across seeds', () => {
     const gaps = Array.from({ length: 200 }, (_, i) => gapMs(`seed-${i}`));
     for (const g of gaps) {
-      expect(g).toBeGreaterThanOrEqual(4 * 60_000);
-      expect(g).toBeLessThanOrEqual(12 * 60_000);
+      expect(g).toBeGreaterThanOrEqual(2 * 60_000);
+      expect(g).toBeLessThanOrEqual(6 * 60_000);
     }
     expect(new Set(gaps).size).toBeGreaterThan(100);
     expect(gapMs('a')).toBe(gapMs('a'));

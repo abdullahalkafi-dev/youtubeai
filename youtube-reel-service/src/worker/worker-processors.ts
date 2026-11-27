@@ -105,6 +105,8 @@ export class WorkerProcessors implements OnApplicationBootstrap {
     await q.maintenance.add({ task: 'instagram-lane' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'instagram-lane', attempts: 1 });
     // Facebook comment replies (does nothing with FACEBOOK_REPLY_AUTO=off): post at most one queued reply, then read and decide new comments.
     await q.maintenance.add({ task: 'facebook-reply' } satisfies MaintenanceJob, { repeat: { every: 10 * 60_000 }, jobId: 'facebook-reply', attempts: 1 });
+    // Every minute: send the next queued reply when its random 2-6 minute gap has passed (the 10-minute job above only reads and decides).
+    await q.maintenance.add({ task: 'facebook-reply-post' } satisfies MaintenanceJob, { repeat: { every: 60_000 }, jobId: 'facebook-reply-post', attempts: 1 });
     // Daily automatic campaign: 4:00 AM New York, with a 6:00 AM retry for a failed day (runs are idempotent per NY date).
     await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 4 * * *', tz: 'America/New_York' }, jobId: 'daily', attempts: 1 });
     await q.maintenance.add({ task: 'daily' } satisfies MaintenanceJob, { repeat: { cron: '0 6 * * *', tz: 'America/New_York' }, jobId: 'daily-retry', attempts: 1 });

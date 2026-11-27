@@ -51,7 +51,7 @@ export interface ReplyState {
 /**
  * Automatic replies to the comments on the Page's Facebook reels (client ask 2026-11-26). Everything about how it decides, what it never
  * answers, when it posts and how to audit it is in FACEBOOK-COMMENT-REPLIES.md. Short version:
- *   every 10 minutes: (1) post at most ONE queued reply (random 4-12 min after the previous one, all day, daily cap),
+ *   every 10 minutes: (1) post at most ONE queued reply (random 2-6 min after the previous one, checked every minute, all day, daily cap),
  *   then (2) read the comments of the 3 reels read longest ago, drop what the rules forbid, let the model reply-or-skip the rest,
  *   check its text with the rules again, and queue what passes.
  * FACEBOOK_REPLY_AUTO: off = nothing runs; dry = decisions are made and stored but nothing is posted; on = replies are posted.
@@ -129,6 +129,20 @@ export class FacebookReplyService {
     }
   }
 
+  /** Every minute (maintenance task 'facebook-reply-post'): only posts, so the 2-6 minute gap is real. The 10-minute pass reads and decides comments. */
+  async runPostDue(now = new Date()) {
+    if (this.mode !== 'on') return;
+    const ids = ((await this.posts.distinct('channelId', { platform: 'facebook' })) as Types.ObjectId[]).map(String);
+    for (const channelId of ids) {
+      try {
+        if (await this.pausedReason(channelId, now)) continue;
+        await this.postNext(channelId, now);
+      } catch (err) {
+        this.logger.warn(`Facebook reply post for channel ${channelId}: ${errMsg(err)}`);
+      }
+    }
+  }
+
   async tick(channelId: string, now = new Date()) {
     if (this.mode === 'off') return { status: 'off' as const };
     const paused = await this.pausedReason(channelId, now);
@@ -147,8 +161,20 @@ export class FacebookReplyService {
     return this.replies.countDocuments({ channelId: new Types.ObjectId(channelId), platform: 'facebook', decision: 'replied', repliedAt: { $gte: start, $lt: end } });
   }
 
+  private posting = false;
+
   /** Posts at most one reply. Returns 1 when one was posted. */
   async postNext(channelId: string, now = new Date()): Promise<number> {
+    if (this.posting) return 0; // two passes must never send the same reply twice
+    this.posting = true;
+    try {
+      return await this.postNextInner(channelId, now);
+    } finally {
+      this.posting = false;
+    }
+  }
+
+  private async postNextInner(channelId: string, now: Date): Promise<number> {
     const cid = new Types.ObjectId(channelId);
     const lastRows = await this.replies.find({ channelId: cid, platform: 'facebook', decision: 'replied' }).sort({ repliedAt: -1 }).limit(1).select('repliedAt').lean();
     const last = lastRows[0]?.repliedAt ? new Date(lastRows[0].repliedAt) : null;

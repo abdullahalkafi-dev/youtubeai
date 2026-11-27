@@ -60,10 +60,11 @@ export class MaintenanceService {
     private readonly alerts: AlertService,
   ) {}
 
-  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'instagram-lane' | 'facebook-reply' | 'weekly-review' | 'ops-report') {
+  async run(task: 'recover' | 'cookie-health' | 'cleanup' | 'metrics' | 'daily' | 'auto-publish' | 'facebook-lane' | 'instagram-lane' | 'facebook-reply' | 'facebook-reply-post' | 'weekly-review' | 'ops-report') {
     if (task === 'facebook-lane') return this.facebookLane.runDue();
     if (task === 'instagram-lane') return this.instagramLane.runDue();
     if (task === 'facebook-reply') return this.facebookReply.runDue();
+    if (task === 'facebook-reply-post') return this.facebookReply.runPostDue();
     if (task === 'weekly-review') return this.learning.runWeekly();
     if (task === 'ops-report') return this.ops.buildAll();
     if (task === 'daily') return this.daily.runScheduled();
