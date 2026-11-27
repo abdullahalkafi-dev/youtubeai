@@ -166,6 +166,7 @@ export class InstagramLaneService implements OnModuleInit {
     const now = new Date();
     if (!laneCaps(this.lane, await this.dayCounts(p.channelId, nyDate(now))).mirror) return 'skipped';
     if (await this.onInstagram(p.reelId)) return 'skipped';
+    if (!(await this.publish.lookAllowedIds([p.reelId])).has(p.reelId)) return 'skipped'; // classic / no-look reels stay on YouTube only
     const yt = await this.posts.findById(p.id).select('metadata').lean();
     if (!yt?.metadata) return 'skipped';
     const [lo, hi] = MIRROR_DELAY_MIN;
@@ -220,7 +221,9 @@ export class InstagramLaneService implements OnModuleInit {
       url: p.url ?? null,
       retention: retentionByYoutubeId.get(String(p.externalId)) ?? null,
     }));
-    return backlogOrder(rows, blocked, now, this.lane.backlogDays, this.lane.backlogOrder).map((r) => ({
+    const ordered = backlogOrder(rows, blocked, now, this.lane.backlogDays, this.lane.backlogOrder);
+    const lookOk = await this.publish.lookAllowedIds(ordered.map((r) => r.reelId)); // only full-screen reels (SOCIAL_LOOK_ONLY)
+    return ordered.filter((r) => lookOk.has(r.reelId)).map((r) => ({
       reelId: r.reelId,
       score: r.retention ?? null,
       metadata: facebookMetadata(r.metadata),
@@ -245,8 +248,9 @@ export class InstagramLaneService implements OnModuleInit {
     // A reel already on YouTube is a backlog reel, not a new one; a reel only on Facebook is fine (the same reels go to both).
     const taken = await this.posts.find({ reelId: { $in: rows.map((r) => r._id) }, platform: { $in: ['youtube', 'instagram'] }, status: { $nin: ['cancelled', 'failed'] } }).select('reelId').lean();
     const used = new Set([...taken.map((p) => String(p.reelId)), ...exclude]);
+    const lookOk = await this.publish.lookAllowedIds(rows.map((r) => String(r._id))); // only full-screen reels (SOCIAL_LOOK_ONLY)
     return rows
-      .filter((r) => !used.has(String(r._id)))
+      .filter((r) => !used.has(String(r._id)) && lookOk.has(String(r._id)))
       .filter((r) => !gateReason({ score: r.scores?.overall ?? null, verdict: r.critique?.verdict ?? null, preflightErrors: [], hasActivePost: false, minScore }))
       .map((r) => ({ reelId: String(r._id), score: r.scores?.overall ?? null, title: r.packaging?.title || r.concept || 'Reel', youtubeUrl: null }));
   }

@@ -155,6 +155,7 @@ export class FacebookLaneService implements OnModuleInit {
     const now = new Date();
     if (!laneCaps(this.lane, await this.dayCounts(p.channelId, nyDate(now))).mirror) return 'skipped';
     if (await this.onFacebook(p.reelId)) return 'skipped';
+    if (!(await this.publish.lookAllowedIds([p.reelId])).has(p.reelId)) return 'skipped'; // classic / no-look reels stay on YouTube only
     const yt = await this.posts.findById(p.id).select('metadata').lean();
     if (!yt?.metadata) return 'skipped';
     await this.publish.createFacebookPost(p.channelId, await this.owner(p.channelId), p.reelId, {
@@ -211,7 +212,9 @@ export class FacebookLaneService implements OnModuleInit {
       url: p.url ?? null,
       retention: retentionByYoutubeId.get(String(p.externalId)) ?? null,
     }));
-    return backlogOrder(rows, blocked, now, this.lane.backlogDays, this.lane.backlogOrder).map((r) => ({
+    const ordered = backlogOrder(rows, blocked, now, this.lane.backlogDays, this.lane.backlogOrder);
+    const lookOk = await this.publish.lookAllowedIds(ordered.map((r) => r.reelId)); // only full-screen reels (SOCIAL_LOOK_ONLY)
+    return ordered.filter((r) => lookOk.has(r.reelId)).map((r) => ({
       reelId: r.reelId,
       score: r.retention ?? null,
       metadata: facebookMetadata(r.metadata),
@@ -235,8 +238,9 @@ export class FacebookLaneService implements OnModuleInit {
     if (!rows.length) return [];
     const taken = await this.posts.find({ reelId: { $in: rows.map((r) => r._id) }, status: { $nin: ['cancelled', 'failed'] } }).select('reelId').lean();
     const used = new Set([...taken.map((p) => String(p.reelId)), ...exclude]);
+    const lookOk = await this.publish.lookAllowedIds(rows.map((r) => String(r._id))); // only full-screen reels (SOCIAL_LOOK_ONLY)
     return rows
-      .filter((r) => !used.has(String(r._id)))
+      .filter((r) => !used.has(String(r._id)) && lookOk.has(String(r._id)))
       .filter((r) => !gateReason({ score: r.scores?.overall ?? null, verdict: r.critique?.verdict ?? null, preflightErrors: [], hasActivePost: false, minScore }))
       .map((r) => ({ reelId: String(r._id), score: r.scores?.overall ?? null, title: r.packaging?.title || r.concept || 'Reel', youtubeUrl: null }));
   }

@@ -125,6 +125,7 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
   };
   svc.publish = {
     onYoutubePublished: jest.fn(),
+    lookAllowedIds: jest.fn(async (ids: string[]) => new Set(ids.filter((id) => reels.find((r) => String(r._id) === id)?.look === 'fullscreen'))),
     defaultMetadata: jest.fn(async (reel: any) => ({ title: reel.packaging?.title ?? 'T', description: 'd', tags: [], hashtags: ['#shorts', '#fresh'], categoryId: '24', privacy: 'unlisted', scheduleAt: null, madeForKids: false, containsSyntheticMedia: false, notifySubscribers: false })),
     createFacebookPost: jest.fn(async (channelId: string, owner: string, reelId: string, p: any) => {
       const err = failFor.get(reelId);
@@ -153,7 +154,7 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
     return p;
   };
   const reel = (over: any = {}) => {
-    const r = { _id: oid(), channelId: CH, status: 'posted', createdAt: day(now, 2), packaging: { title: 'A reel' }, scores: { overall: 80 }, critique: { verdict: 'keep' }, ...over };
+    const r = { _id: oid(), channelId: CH, status: 'posted', look: 'fullscreen', createdAt: day(now, 2), packaging: { title: 'A reel' }, scores: { overall: 80 }, critique: { verdict: 'keep' }, ...over };
     reels.push(r);
     return r;
   };
@@ -173,6 +174,23 @@ function world(o: { now?: Date; env?: Record<string, any>; accountState?: 'ok' |
 
 const lanePosts = (w: ReturnType<typeof world>, source?: string) => w.posts.filter((p) => p.platform === 'facebook' && String(p.source).startsWith('fb-') && (!source || p.source === source));
 
+describe('only full-screen reels are candidates (SOCIAL_LOOK_ONLY)', () => {
+  it('the backlog pool and the extra pool leave out classic and no-look reels', async () => {
+    const w = world({ now: at('14:30') });
+    const good = w.reel({ status: 'posted', createdAt: day(w.now, 3) });
+    const classic = w.reel({ status: 'posted', createdAt: day(w.now, 4), look: 'classic' });
+    const none = w.reel({ status: 'posted', createdAt: day(w.now, 5), look: undefined });
+    for (const r of [good, classic, none]) w.youtube(r._id, 2);
+    expect((await w.svc.backlogPool(CHID, w.now)).map((c: any) => c.reelId)).toEqual([String(good._id)]);
+
+    const w2 = world({ now: at('14:30') });
+    const g2 = w2.reel({ status: 'todo', createdAt: day(w2.now, 0.5) });
+    w2.reel({ status: 'todo', createdAt: day(w2.now, 0.6), look: 'classic' });
+    w2.reel({ status: 'todo', createdAt: day(w2.now, 0.7), look: undefined });
+    expect((await w2.svc.extraPool(CHID, w2.now)).map((c: any) => c.reelId)).toEqual([String(g2._id)]);
+  });
+});
+
 /* ---------------------------------------------------------------- the mirror */
 
 describe('FacebookLaneService.mirror (every YouTube post that goes live is mirrored)', () => {
@@ -181,6 +199,16 @@ describe('FacebookLaneService.mirror (every YouTube post that goes live is mirro
     const yt = w.youtube(r._id, 0, over);
     return { r, yt, hook: { id: String(yt._id), reelId: String(r._id), channelId: CHID, publishedAt: new Date() } };
   };
+
+  it('never mirrors a reel that is not in the full-screen look (classic, or no look recorded)', async () => {
+    for (const look of ['classic', undefined]) {
+      const w = world({ now: new Date() });
+      const { hook } = live(w, {});
+      w.reels[0].look = look;
+      expect(await w.svc.mirror(hook)).toBe('skipped');
+      expect(w.created).toHaveLength(0);
+    }
+  });
 
   it('queues the same reel on Facebook at once, with the YouTube metadata minus #shorts', async () => {
     const w = world({ now: new Date() });

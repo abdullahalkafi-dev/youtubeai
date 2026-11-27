@@ -6,6 +6,10 @@ server, and how to undo it. Times are New York unless noted. Server: `ssh root@2
 
 ---
 
+## 2026-11-27 Facebook and Instagram take only full-screen reels
+
+The old (classic) layout and reels with no look recorded reached Facebook (6 posts) and Instagram (3) because the lanes never checked the layout (a reel falls back to classic when its footage is not the two-person studio set-up). Now `SOCIAL_LOOK_ONLY=fullscreen` (default; `any` turns it off): the mirror, the extra pool and the backlog pool of both lanes skip every reel whose `look` is not `fullscreen`; `createFacebookPost` refuses one; and `runUpload` cancels a queued lane post whose reel is no longer full-screen (post `errorCode: look_not_allowed`). YouTube is unaffected. Already published posts were left as they are.
+
 ## 2026-11-26: Instagram reels (publisher + lanes) and Facebook comment replies
 
 ### Instagram (commits 11508d8, afe44bd, 55a600a)

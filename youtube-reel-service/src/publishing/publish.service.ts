@@ -244,6 +244,7 @@ export class PublishService {
     o: { source: FacebookLaneSource | InstagramLaneSource; platform?: 'facebook' | 'instagram'; runAt: Date; slot: string; planDate: string; metadata: Partial<PostMetadata>; score: number | null },
   ) {
     const platform = o.platform ?? 'facebook'; // the Instagram lanes call this with platform 'instagram' (see createInstagramPost)
+    if (!(await this.lookAllowedIds([reelId])).has(reelId)) throw new BadRequestException('This reel is not in the full-screen look, so it is not posted to Facebook or Instagram.');
     const pre = await this.preflight(channelId, reelId, platform, { ...o.metadata, privacy: 'public', scheduleAt: null, notifySubscribers: false });
     if (!pre.canPublish) throw new BadRequestException({ message: 'The reel cannot be published yet', issues: pre.issues.filter((i) => i.level === 'error') });
     const reel = await this.loadReel(channelId, reelId);
@@ -270,6 +271,14 @@ export class PublishService {
     });
     await this.queues.publish(String(post._id), 'upload', Math.max(0, o.runAt.getTime() - Date.now() - UPLOAD_LEAD_MS));
     return this.serialize(post.toObject());
+  }
+
+  /** Of these reels, the ones the Facebook and Instagram lanes may post (SOCIAL_LOOK_ONLY): rendered in the full-screen look. */
+  async lookAllowedIds(reelIds: string[]): Promise<Set<string>> {
+    if (this.cfg.SOCIAL_LOOK_ONLY === 'any') return new Set(reelIds);
+    if (!reelIds.length) return new Set();
+    const rows = await this.reels.find({ _id: { $in: reelIds.map((i) => new Types.ObjectId(i)) }, look: 'fullscreen' }).select('_id').lean();
+    return new Set(rows.map((r) => String(r._id)));
   }
 
   /** A post made by an Instagram lane (mirror / extra / backlog): the same path as a Facebook lane post, to the Instagram account. */
@@ -359,6 +368,11 @@ export class PublishService {
       return this.block(post, 'daily_cap', `Today's upload limit (${this.quota.dailyCap}) is reached; it will continue after midnight Pacific time.`, msUntilPacificMidnight());
     }
     if (!post.assetKey) return this.fail(post, 'missing_asset', 'The rendered video file is missing.');
+    // Last check before a lane post leaves: the reel may have been re-rendered in the classic look since it was queued.
+    if ((post.platform === 'facebook' || post.platform === 'instagram') && /^(fb|ig)-/.test(String(post.source)) && !(await this.lookAllowedIds([String(post.reelId)])).has(String(post.reelId))) {
+      await this.posts.updateOne({ _id: post._id }, { $set: { status: 'cancelled', error: 'Not posted: the reel is not in the full-screen look.', errorCode: 'look_not_allowed' } });
+      return;
+    }
 
     const dir = ensureDir(path.join(this.cfg.REEL_WORK_DIR, 'jobs', `publish-${postId}-${Date.now()}`));
     try {
