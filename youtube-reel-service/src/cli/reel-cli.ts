@@ -130,7 +130,7 @@ async function main() {
           const res = await fetch(`https://graph.facebook.com/v26.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`);
           const body: any = await res.json().catch(() => ({}));
           const e = body.error;
-          console.log(`${label}: ${e ? `REJECTED code ${e.code} subcode ${e.error_subcode ?? '-'} (${String(e.message).replace(/s+/g, ' ').slice(0, 160)}) trace ${e.fbtrace_id ?? '-'}` : `ok (${body.name})`}`);
+          console.log(`${label}: ${e ? `REJECTED code ${e.code} subcode ${e.error_subcode ?? '-'} (${String(e.message).replace(/\s+/g, ' ').slice(0, 160)}) trace ${e.fbtrace_id ?? '-'}` : `ok (${body.name})`}`);
         };
         await probe('Facebook Page token', (await meta.page(args[0])).accessToken);
         const ig = await meta.instagram(args[0]);
