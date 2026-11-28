@@ -45,6 +45,13 @@ export class MetaConnection {
 
   @Prop()
   connectedAt?: Date;
+
+  /**
+   * What Meta reported at the moment of the last login (no tokens): permissions granted and declined, token type, issue and expiry
+   * dates, Pages and Instagram accounts seen. Written for audit only: when a token later stops working, compare it with this.
+   */
+  @Prop({ type: Object })
+  loginAudit?: Record<string, unknown>;
 }
 
 export const MetaConnectionSchema = SchemaFactory.createForClass(MetaConnection);

@@ -1,4 +1,4 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import * as fs from 'fs';
@@ -27,6 +27,7 @@ import {
 export const META_GRAPH_VERSION = 'v26.0';
 const GRAPH = `https://graph.facebook.com/${META_GRAPH_VERSION}`;
 const FOLLOWERS_TTL_MS = 10 * 60_000;
+const AUTH_LOG = new Logger('MetaAuth');
 const RUPLOAD = `https://rupload.facebook.com/video-upload/${META_GRAPH_VERSION}`;
 
 /** Meta: "Reels API is limited to 30 API-published posts within a 24-hour moving period" (Reels Publishing API guide). */
@@ -67,6 +68,8 @@ export function classifyFacebookError(status: number, body: any): PublishError {
   const tag = Number.isFinite(code) ? String(code) : String(status);
 
   if (status === 401 || code === 190 || code === 102 || code === 463 || code === 467 || sub === 458 || sub === 459 || sub === 460 || sub === 463 || sub === 467) {
+    // The user-facing text below is generic on purpose; the real reason (Facebook's own code, subcode and trace id) goes to the log for audit.
+    AUTH_LOG.warn(`Facebook auth error: HTTP ${status} code=${e.code ?? '-'} subcode=${e.error_subcode ?? '-'} type=${e.type ?? '-'} trace=${e.fbtrace_id ?? '-'} message=${String(e.message ?? '').replace(/\s+/g, ' ').slice(0, 200)}`);
     return new PublishError('auth', 'Facebook rejected the login (expired or revoked). Reconnect Facebook in the app Settings.', tag, status);
   }
   if (code === 10 || (code >= 200 && code <= 299)) {

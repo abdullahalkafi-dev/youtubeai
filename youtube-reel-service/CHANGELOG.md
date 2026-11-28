@@ -6,6 +6,10 @@ server, and how to undo it. Times are New York unless noted. Server: `ssh root@2
 
 ---
 
+## 2026-11-28 Login audit trail for Meta (Facebook and Instagram)
+
+On Nov 27 every Facebook and Instagram call began failing with error 190 ("permission(s) must be granted before impersonating a user's page") for both stored logins, while their stored expiry dates were still in 2027. Facebook gave no further reason and our log only said "rejected the login". Added: (1) the main backend now records, at every Meta login, the permissions granted and declined, the token type, issue and expiry dates (Facebook `debug_token`) in the log and on the connection (`meta_connections.loginAudit`, no tokens); (2) the reel service logs Facebook's own code, subcode and trace id whenever it gets an auth error (log name MetaAuth); (3) CLI `meta:check <channelId>` asks Facebook whether the stored Page tokens still work.
+
 ## 2026-11-27 Facebook and Instagram take only full-screen reels
 
 The old (classic) layout and reels with no look recorded reached Facebook (6 posts) and Instagram (3) because the lanes never checked the layout (a reel falls back to classic when its footage is not the two-person studio set-up). Now `SOCIAL_LOOK_ONLY=fullscreen` (default; `any` turns it off): the mirror, the extra pool and the backlog pool of both lanes skip every reel whose `look` is not `fullscreen`; `createFacebookPost` refuses one; and `runUpload` cancels a queued lane post whose reel is no longer full-screen (post `errorCode: look_not_allowed`). YouTube is unaffected. Already published posts were left as they are.

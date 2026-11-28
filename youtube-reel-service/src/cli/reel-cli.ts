@@ -27,6 +27,7 @@ import { AlertService } from '../pipeline/alert.service';
 import { FacebookLaneService } from '../publishing/facebook-lane.service';
 import { InstagramLaneService } from '../publishing/instagram-lane.service';
 import { FacebookReplyService } from '../publishing/facebook-reply.service';
+import { MetaTokenProvider } from '../publishing/meta-token.provider';
 import { alertsFor } from '../pipeline/alerts';
 
 /**
@@ -53,6 +54,7 @@ import { alertsFor } from '../pipeline/alerts';
  *   node dist/cli/reel-cli.js lanes:preview <channelId>   (which videos the new-video and best-of-old lanes would use today; creates nothing)
  *   node dist/cli/reel-cli.js lanes:create <channelId> <userId>   (create today's new-video / best-of-old campaigns now, if they do not exist)
  *   node dist/cli/reel-cli.js uploads:check   (queue analysis of new uploads now)
+ *   node dist/cli/reel-cli.js meta:check <channelId>   (read-only: does Facebook still accept the stored Page tokens? prints its answer, no token)
  *   node dist/cli/reel-cli.js look:refresh [--apply]   (re-make the To-do reels in the current REEL_LOOK; skips reels with a waiting/uploading post; dry run without --apply)
  *   node dist/cli/reel-cli.js look:test<youtubeId> <start> <duration> <outDir> ["<headline>"] [video.mp4]   (one moment in the full-screen look; stores its studio layout, posts nothing)
  *   node dist/cli/reel-cli.js render:local<video.mp4> <start> <duration> "<headline>" <outDir> [templateDir]   (no DB needed)
@@ -119,6 +121,21 @@ async function main() {
         console.log(`today so far: mirror ${p.todayCounts.mirror}, extra ${p.todayCounts.extra}, backlog ${p.todayCounts.backlog} (cap ${lane.lane.dailyCap}) | backlog waiting: ${p.backlogSize} reel(s)`);
         for (const i of p.items) console.log(`  ${i.date} ${i.time} ET  ${i.kind.padEnd(7)} ${i.reelId ? `${i.title.slice(0, 70)}  [${i.youtubeUrl ?? 'not on YouTube yet'}]` : `- ${i.note}`}`);
         if (!p.items.length) console.log('  (nothing due in the next 24 hours)');
+        break;
+      }
+      case 'meta:check': {
+        // Read-only: asks Facebook whether the stored Page tokens (Facebook Page, Instagram's Page) still work, and prints its own answer. Prints no token.
+        const meta = app.get(MetaTokenProvider);
+        const probe = async (label: string, token: string) => {
+          const res = await fetch(`https://graph.facebook.com/v26.0/me?fields=id,name&access_token=${encodeURIComponent(token)}`);
+          const body: any = await res.json().catch(() => ({}));
+          const e = body.error;
+          console.log(`${label}: ${e ? `REJECTED code ${e.code} subcode ${e.error_subcode ?? '-'} (${String(e.message).replace(/s+/g, ' ').slice(0, 160)}) trace ${e.fbtrace_id ?? '-'}` : `ok (${body.name})`}`);
+        };
+        await probe('Facebook Page token', (await meta.page(args[0])).accessToken);
+        const ig = await meta.instagram(args[0]);
+        if (ig) await probe(`Instagram (@${ig.username}) Page token`, ig.accessToken);
+        else console.log('Instagram: no linked account found in the stored logins');
         break;
       }
       case 'fbreply:log': {

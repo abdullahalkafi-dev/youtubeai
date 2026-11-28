@@ -166,6 +166,7 @@ export class MetaService implements OnModuleInit {
       const long = await this.extendToken(short);
       const metaUserId = await this.fetchMetaUserId(long.token);
       const pages = await this.fetchPages(long.token);
+      const loginAudit = await this.auditLogin(long.token, userId, metaUserId, pages);
 
       // One document per Meta account: reconnecting the same account renews it, a different account is stored next to it.
       await this.connectionModel.findOneAndUpdate(
@@ -178,6 +179,7 @@ export class MetaService implements OnModuleInit {
           userTokenExpiresAt: long.expiresAt ?? null,
           pages,
           connectedAt: new Date(),
+          loginAudit,
         },
         { upsert: true, new: true },
       );
@@ -241,6 +243,46 @@ export class MetaService implements OnModuleInit {
       }
     }
     return { disconnected: true };
+  }
+
+  /**
+   * Records what Meta says about a fresh login (permissions granted/declined, token type, dates) in the log and on the connection, so a
+   * token that stops working later can be compared with how it looked at login. Never throws and never records a token: a failed check
+   * is noted in the audit and the login still succeeds.
+   */
+  private async auditLogin(token: string, userId: string, metaUserId: string, pages: MetaPage[]): Promise<Record<string, unknown>> {
+    const audit: Record<string, unknown> = {
+      at: new Date(),
+      pages: pages.map((p) => ({ pageId: p.pageId, name: p.name, instagramId: p.instagram?.id ?? null })),
+    };
+    try {
+      const perms = await this.graphGet<{ data?: Array<{ permission: string; status: string }> }>('/me/permissions', { access_token: token });
+      const list = perms.data ?? [];
+      audit.granted = list.filter((p) => p.status === 'granted').map((p) => p.permission);
+      audit.declined = list.filter((p) => p.status !== 'granted').map((p) => p.permission);
+      audit.missing = DEFAULT_SCOPES.filter((s) => !(audit.granted as string[]).includes(s));
+    } catch (err) {
+      audit.permissionsError = (err as Error).message.slice(0, 200);
+    }
+    try {
+      const dbg = await this.graphGet<{ data?: Record<string, any> }>('/debug_token', { input_token: token, access_token: `${this.appId}|${this.appSecret}` });
+      const d = dbg.data ?? {};
+      const iso = (s?: number) => (s ? new Date(s * 1000).toISOString() : null);
+      audit.token = {
+        type: d.type ?? null,
+        valid: d.is_valid ?? null,
+        appId: d.app_id ?? null,
+        issuedAt: iso(d.issued_at),
+        expiresAt: iso(d.expires_at),
+        dataAccessExpiresAt: iso(d.data_access_expires_at),
+        scopes: d.scopes ?? [],
+        granular: (d.granular_scopes ?? []).map((g: { scope: string; target_ids?: string[] }) => ({ scope: g.scope, targets: g.target_ids?.length ?? 0 })),
+      };
+    } catch (err) {
+      audit.debugTokenError = (err as Error).message.slice(0, 200);
+    }
+    this.logger.log(`Meta login audit for user ${userId} / Meta account ${metaUserId}: ${JSON.stringify({ ...audit, pages: pages.length })}`);
+    return audit;
   }
 
   private async graphGet<T>(path: string, params: Record<string, string>): Promise<T> {
