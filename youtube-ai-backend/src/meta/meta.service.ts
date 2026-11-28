@@ -22,6 +22,8 @@ const DEFAULT_SCOPES = [
   'instagram_basic',
   'instagram_content_publish',
   'instagram_manage_insights',
+  // Comments under Instagram reels (the link comment now; replies later). Must be on the app's Instagram use case first (it is, 2026-11-28).
+  'instagram_manage_comments',
   'business_management',
 ];
 
