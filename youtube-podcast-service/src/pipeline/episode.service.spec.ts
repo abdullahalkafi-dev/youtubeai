@@ -149,7 +149,7 @@ describe('EpisodeService.discover', () => {
     const upserts: any[] = [];
     const videos: any = { find: (f: any) => ((filter = f), { sort: () => ({ limit: () => ({ select: () => ({ lean: async () => found }) }) }) }) };
     const episodes: any = { updateOne: async (q: any, u: any, o: any) => (upserts.push({ q, u, o }), { upsertedCount: 1 }) };
-    const cfg: any = { PODCAST_AUTO_SINCE: '2026-11-26T19:00:00Z', PODCAST_MIN_DURATION_SEC: 600, PODCAST_CHANNEL_ID: '' };
+    const cfg: any = { PODCAST_AUTO_SINCE: '2026-11-26T19:00:00Z', PODCAST_MIN_DURATION_SEC: 600, PODCAST_MAX_DURATION_SEC: 5400, PODCAST_CHANNEL_ID: '' };
     const svc = new EpisodeService(cfg, {} as any, episodes, {} as any, videos, {} as any);
     return { svc, get filter() { return filter; }, upserts };
   }
@@ -158,7 +158,7 @@ describe('EpisodeService.discover', () => {
     const m = make([{ youtubeId: 'a1', channelId: 'c', title: 'T', publishedAt: new Date(), viewCount: 5 }]);
     expect(await m.svc.discover()).toBe(1);
     expect(m.filter.publishedAt.$gte).toEqual(new Date('2026-11-26T19:00:00Z'));
-    expect(m.filter.durationSeconds).toEqual({ $gte: 600 });
+    expect(m.filter.durationSeconds).toEqual({ $gte: 600, $lte: 5400 }); // 2-3 h livestream replays are left out (billed upload hours)
     expect(m.filter.privacyStatus).toBe('public');
     expect(m.filter.deletedAt).toBeNull();
     expect('liveBroadcastContent' in m.filter).toBe(false);

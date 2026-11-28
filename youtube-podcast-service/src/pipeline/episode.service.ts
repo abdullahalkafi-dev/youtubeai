@@ -86,7 +86,9 @@ export class EpisodeService implements OnModuleInit, OnModuleDestroy {
     // No live-flag condition: the main app leaves finished livestream replays marked "upcoming", and a stream still running has no duration yet.
     const filter: Record<string, unknown> = {
       publishedAt: { $gte: since },
-      durationSeconds: { $gte: this.cfg.PODCAST_MIN_DURATION_SEC },
+      durationSeconds: this.cfg.PODCAST_MAX_DURATION_SEC > 0
+        ? { $gte: this.cfg.PODCAST_MIN_DURATION_SEC, $lte: this.cfg.PODCAST_MAX_DURATION_SEC }
+        : { $gte: this.cfg.PODCAST_MIN_DURATION_SEC },
       privacyStatus: 'public',
       deletedAt: null,
     };

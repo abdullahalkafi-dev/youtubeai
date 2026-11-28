@@ -56,6 +56,8 @@ const EnvSchema = z.object({
   PODCAST_AUTO_SINCE: str(''),
   /** Only the channel's own long videos: shorter ones (Shorts) are ignored. */
   PODCAST_MIN_DURATION_SEC: int(600),
+  /** Automatic discovery skips longer videos (2-3 h livestream replays use up the Buzzsprout upload hours, which are billed). 0 = no cap. A video can still be added by hand. */
+  PODCAST_MAX_DURATION_SEC: int(5400),
   /** Empty = any channel in the shared database (there is one). */
   PODCAST_CHANNEL_ID: str(''),
 

@@ -84,8 +84,21 @@ describe('mapTime', () => {
 describe('buildTrimFilter', () => {
   it('drops each cut in one aselect pass and re-times the rest', () => {
     expect(buildTrimFilter([{ start: 10.8, end: 14.2 }, { start: 50.3, end: 52.7 }])).toBe(
-      "aselect='not(between(t,10.800,14.200)+between(t,50.300,52.700))',asetpts=N/SR/TB",
+      "aselect='not((between(t,10.800,14.200)+between(t,50.300,52.700)))',asetpts=N/SR/TB",
     );
+  });
+
+  it('keeps the expression shallow for hundreds of cuts (ffmpeg fails on a flat chain of about 100 terms)', () => {
+    const cuts = Array.from({ length: 500 }, (_, i) => ({ start: i * 10 + 1, end: i * 10 + 3 }));
+    const filter = buildTrimFilter(cuts);
+    let depth = 0;
+    let max = 0;
+    for (const ch of filter) {
+      if (ch === '(') max = Math.max(max, ++depth);
+      else if (ch === ')') depth--;
+    }
+    expect(max).toBeLessThan(25);
+    expect(filter.match(/between\(/g)).toHaveLength(500);
   });
 });
 

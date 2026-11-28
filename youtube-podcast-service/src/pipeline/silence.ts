@@ -89,8 +89,15 @@ export function mapTime(t: number, cuts: Range[]): number {
  */
 export function buildTrimFilter(cuts: Range[]): string {
   const f = (n: number) => n.toFixed(3);
-  const drop = cuts.map((c) => `between(t,${f(c.start)},${f(c.end)})`).join('+');
-  return `aselect='not(${drop})',asetpts=N/SR/TB`;
+  // ffmpeg's expression parser nests one level per `+` in a flat chain and gives up at about 100 ("Error while parsing expression"),
+  // which a 2-3 hour recording with hundreds of pauses hits. Pairing the terms keeps the depth at log2(n) (500 cuts = 9 levels).
+  let terms = cuts.map((c) => `between(t,${f(c.start)},${f(c.end)})`);
+  while (terms.length > 1) {
+    const next: string[] = [];
+    for (let i = 0; i < terms.length; i += 2) next.push(i + 1 < terms.length ? `(${terms[i]}+${terms[i + 1]})` : terms[i]);
+    terms = next;
+  }
+  return `aselect='not(${terms[0]})',asetpts=N/SR/TB`;
 }
 
 export function formatClock(sec: number): string {
